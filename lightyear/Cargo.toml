@@ -1,0 +1,17 @@
+[package]
+name = "lightyear"
+version = "0.1.0"
+edition = "2021"
+authors = ["charlesbournhonesque <charlesbour@gmail.com>"]
+workspace = ".."
+description = "Networking library for bevy"
+homepage = "https://github.com/cBournhonesque/lightyear"
+repository = "https://github.com/cBournhonesque/lightyear"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[dependencies]
