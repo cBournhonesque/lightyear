@@ -8,7 +8,7 @@ use crate::shared::{
     StandardHeader, Tick,
 };
 
-use crate::client::{Events, events::Event, protocol::entity_manager::EntityManager, tick::{
+use crate::client::{Events, protocol::entity_manager::EntityManager, tick::{
     tick_buffer_sender::TickBufferSender, tick_manager::TickManager, tick_queue::TickQueue,
 }};
 
@@ -66,7 +66,7 @@ impl Connection {
     /// * Read messages and store them into an internal buffer
     ///
     /// Note that currently, messages are also being stored in the jitter buffer and processed
-    /// on the receiving tick, even though it's not needed is the channel is not tick buffered.
+    /// on the receiving tick, even though it's not needed if the channel is not tick buffered.
     pub fn process_buffered_packets(
         &mut self,
         world: &mut World,

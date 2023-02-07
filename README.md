@@ -20,6 +20,8 @@
     * some bits are reserved for specialized message types
     * otherwise we assign bits for each replicable component + each message type
     * Use reflection when possible? or derive_macro to get the protocol
+  * Also need a NetComponentId for serializing components? The number of components serialized is fixed so we can
+    generate a new NetComponentId starting from 0, for each of new component added to the protocol.
 
 * Extra networking features
   * client prediction
@@ -30,6 +32,22 @@
   * Only send components that are changed, via bevy's change detection
   * Delta-compression?
   * Efficient wire representation
+
+* TODO:
+  * for a given component/message, need to first transform it into something serializable
+  (i.e. convert any entities to NetEntity), and then serialize it with Serde
+  * simplify/clarify packet logic
+    * all entity-packets/component-updates/messages will be PacketType: Data. This should be included automatically in the packet sending code
+  * FLATTEN CODE: less indirection and copying interfaces (for example EntityManager)
+  * Separate code into
+    * Protocol
+      * Channels
+      * Components
+      * Messages
+      * Config
+    * Channels (general channel code)
+    * Entity
+      * net_entity conversion, etc.
 
 
 

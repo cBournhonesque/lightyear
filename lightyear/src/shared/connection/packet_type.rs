@@ -33,6 +33,7 @@ pub enum PacketType {
 // Most packets should be Data, so lets compress this a bit more.
 // Could do this with another enum, but code would get messy.
 impl lightyear_serde::Serde for PacketType {
+    /// Serialize the packet type. For 'Data', only write 1 bit
     fn ser(&self, writer: &mut dyn BitWrite) {
         let is_data = *self == PacketType::Data;
         is_data.ser(writer);
@@ -57,6 +58,7 @@ impl lightyear_serde::Serde for PacketType {
         UnsignedInteger::<4>::new(index).ser(writer);
     }
 
+    /// Deserialize the packet type
     fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
         let is_data = bool::de(reader)?;
         if is_data {

@@ -3,7 +3,7 @@ use crate::shared::wrapping_number::{sequence_greater_than, sequence_less_than};
 /// Used to index packets that have been sent & received
 pub type SequenceNumber = u16;
 
-/// Collection to store data of any kind.
+/// Collection to store data of any kind in a ring buffer
 pub struct SequenceBuffer<T> {
     sequence_num: SequenceNumber,
     entry_sequences: Box<[Option<SequenceNumber>]>,

@@ -5,7 +5,7 @@ use bevy_ecs::world::World;
 use crate::shared::{
     sequence_greater_than,
     serde::{BitReader, BitWriter, Serde, SerdeErr},
-    BaseConnection, ConnectionConfig, EntityConverter, HostType, Instant, PacketType, PingManager,
+    BaseConnection, ConnectionConfig, HostType, Instant, PacketType, PingManager,
     ProtocolIo, StandardHeader, Tick,
 };
 
@@ -62,8 +62,8 @@ impl Connection {
         server_and_client_tick_opt: Option<(Tick, Tick)>,
         reader: &mut BitReader,
     ) -> Result<(), SerdeErr> {
-        let converter = EntityConverter::new(&self.entity_manager);
-        let channel_reader = ProtocolIo::new(&converter);
+        let converter = &self.entity_manager;
+        let channel_reader = ProtocolIo::new(converter);
 
         // read tick-buffered messages
         {
@@ -131,9 +131,8 @@ impl Connection {
         world: &World,
         tick_manager_opt: &Option<TickManager>,
     ) -> bool {
-        if self.base.message_manager.has_outgoing_messages()
-            || self.entity_manager.has_outgoing_messages()
-        {
+        // Check if we have messages to write. (Some channels could still want to write messages because of failed delivery)
+        if self.base.message_manager.has_outgoing_messages() || self.entity_manager.has_outgoing_messages() {
             let next_packet_index = self.base.next_packet_index();
 
             let mut bit_writer = BitWriter::new();
@@ -145,8 +144,7 @@ impl Connection {
             bit_writer.reserve_bits(3);
 
             // write header
-            self.base
-                .write_outgoing_header(PacketType::Data, &mut bit_writer);
+            self.base.write_outgoing_header(PacketType::Data, &mut bit_writer);
 
             // write server tick
             if let Some(tick_manager) = tick_manager_opt {
@@ -162,8 +160,8 @@ impl Connection {
 
             // write messages
             {
-                let converter = EntityConverter::new(&self.entity_manager);
-                let channel_writer = ProtocolIo::new(&converter);
+                let converter = &self.entity_manager;
+                let channel_writer = ProtocolIo::new(converter);
                 self.base.message_manager.write_messages(
                     &channel_writer,
                     &mut bit_writer,

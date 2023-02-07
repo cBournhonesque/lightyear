@@ -2,7 +2,7 @@ use lightyear_serde::Serde;
 
 use crate::shared::{connection::packet_type::PacketType, types::PacketIndex};
 
-// This header provides reliability information.
+// This header provides reliability information to packets that need it
 #[derive(Copy, Debug, PartialEq, Clone, Serde)]
 pub struct StandardHeader {
     pub packet_type: PacketType,

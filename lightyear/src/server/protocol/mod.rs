@@ -2,8 +2,6 @@ pub mod entity_action_event;
 pub mod entity_manager;
 pub mod entity_message_waitlist;
 pub mod entity_scope_map;
-pub mod global_diff_handler;
 pub mod global_entity_record;
 pub mod mut_channel;
-pub mod user_diff_handler;
 pub mod world_channel;

@@ -36,7 +36,7 @@ impl<P: Named> UnorderedUnreliableSender<P> {
 }
 
 impl<P: Send + Sync + Named> ChannelSender<P> for UnorderedUnreliableSender<P> {
-    fn send_message(&mut self, message: P) {
+    fn buffer_message(&mut self, message: P) {
         self.outgoing_messages.push_back(message);
     }
 

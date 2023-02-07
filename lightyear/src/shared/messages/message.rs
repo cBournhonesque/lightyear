@@ -1,15 +1,29 @@
 use crate::shared::messages::named::Named;
 use crate::shared::{MessageId, NetEntityConverter};
 use lightyear_serde::{BitReader, BitWrite, SerdeErr};
-use std::any::Any;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use bevy_ecs::entity::Entity;
 
-// Messages
-pub struct Messages {}
+/// Messages protocol
+pub struct Messages {
+    pub current_id: u16,
+    pub type_to_id_map: HashMap<TypeId, MessageId>,
+}
 
 impl Messages {
-    pub fn type_to_id<M: Message>() -> MessageId {
-        todo!()
+    pub fn type_to_id<M: Message>(&self) -> MessageId {
+        let type_id = TypeId::of::<M>();
+        *self.messages_data.type_to_id_map.get(&type_id).expect(
+            "Must properly initialize Message with Protocol via `add_message()` function!",
+        )
+    }
+
+    pub fn add_message<M: Message>(&mut self) {
+        let type_id = TypeId::of::<M>();
+        let message_id = MessageId::new(self.current_id);
+        self.type_to_id_map.insert(type_id, message_id);
+        self.current_id += 1;
     }
 
     pub fn message_id_from_box(boxed_message: &Box<dyn Message>) -> MessageId {

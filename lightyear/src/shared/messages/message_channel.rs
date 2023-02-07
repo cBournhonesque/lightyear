@@ -5,7 +5,7 @@ use crate::shared::types::MessageIndex;
 
 pub trait ChannelSender<P>: Send + Sync {
     /// Queues a Message to be transmitted to the remote host into an internal buffer
-    fn send_message(&mut self, message: P);
+    fn buffer_message(&mut self, message: P);
     /// For reliable channels, will collect any Messages that need to be resent
     fn collect_messages(&mut self, now: &Instant, rtt_millis: &f32);
     /// Returns true if there are queued Messages ready to be written

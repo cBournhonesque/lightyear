@@ -104,7 +104,7 @@ impl WorldChannel {
             self.entity_channels.insert(entity, EntityChannel::Spawning(CheckedMap::default()));
             // buffer a spawn entity message
             // (we'll convert to the net entity later)
-            self.outgoing_actions.send_message(EntityActionEvent::SpawnEntity(entity));
+            self.outgoing_actions.buffer_message(EntityActionEvent::SpawnEntity(entity));
             // generate a net entity
             self.on_entity_channel_opening(entity);
         }
@@ -138,7 +138,7 @@ impl WorldChannel {
             // if client_despawn
             if true {
                 self.outgoing_actions
-                    .send_message(EntityActionEvent::DespawnEntity(*entity));
+                    .buffer_message(EntityActionEvent::DespawnEntity(*entity));
             }
             // if we were sending messages related to that entity, drop them
             self.on_entity_channel_closing(&entity);
@@ -171,8 +171,9 @@ impl WorldChannel {
                     // insert component
                     component_channels.insert(*component, ComponentChannel::Inserting);
                     self.outgoing_actions
-                        .send_message(EntityActionEvent::InsertComponent(*entity, *component));
+                        .buffer_message(EntityActionEvent::InsertComponent(*entity, *component));
                 }
+                // else: component is already inserted, do nothing
             }
         }
     }
@@ -190,7 +191,7 @@ impl WorldChannel {
                     // remove component
                     component_channels.insert(*component, ComponentChannel::Removing);
                     self.outgoing_actions
-                        .send_message(EntityActionEvent::RemoveComponent(*entity, *component));
+                        .buffer_message(EntityActionEvent::RemoveComponent(*entity, *component));
                     self.on_component_channel_closing(entity, component);
                 }
             }
@@ -228,7 +229,7 @@ impl WorldChannel {
                 let mut component_channels = CheckedMap::new();
                 for component in still_needs_to_be_inserted {
                     component_channels.insert(*component, ComponentChannel::Inserting);
-                    self.outgoing_actions.send_message(EntityActionEvent::InsertComponent(entity, *component));
+                    self.outgoing_actions.buffer_message(EntityActionEvent::InsertComponent(entity, *component));
                 }
 
                 // for components that were already inserted, set to inserted
@@ -249,7 +250,7 @@ impl WorldChannel {
                 // Despawn the entity on the client
                 self.entity_channels.remove(&entity);
                 self.entity_channels.insert(entity, EntityChannel::Despawning);
-                self.outgoing_actions.send_message(EntityActionEvent::DespawnEntity(entity));
+                self.outgoing_actions.buffer_message(EntityActionEvent::DespawnEntity(entity));
                 self.on_entity_channel_closing(&entity);
             }
             _ => panic!("should only receive this event if entity channel is spawning or to be despawned"),
@@ -285,7 +286,7 @@ impl WorldChannel {
                         // while waiting for the ComponentInsertedAck, we already removed the component on the server
                         component_channels.remove(&component);
                         component_channels.insert(component, ComponentChannel::Removing);
-                        self.outgoing_actions.send_message(EntityActionEvent::RemoveComponent(entity, component));
+                        self.outgoing_actions.buffer_message(EntityActionEvent::RemoveComponent(entity, component));
                         self.on_component_channel_closing(&entity, &component);
                     }
                     e => {panic!("ComponentChannel is in an invalid state: {:?}", e)}
@@ -309,7 +310,7 @@ impl WorldChannel {
                         component_channels.remove(&component);
                         component_channels.insert(component, ComponentChannel::Inserting);
                         self.outgoing_actions
-                            .send_message(EntityActionEvent::InsertComponent(entity, component));
+                            .buffer_message(EntityActionEvent::InsertComponent(entity, component));
                     }
                     e => { panic!("ComponentChannel is in an invalid state: {:?}", e) }
                 }

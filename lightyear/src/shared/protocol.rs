@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use naia_socket_shared::{LinkConditionerConfig, SocketConfig};
+use crate::shared::{Channels, Components, Messages};
+use crate::shared::messages::channel_config::ChannelSettings;
 
 use super::{Channel, ChannelDirection, ChannelMode, CompressionConfig, Message, Replicate};
 
@@ -12,6 +14,15 @@ pub struct Protocol {
     pub tick_interval: Option<Duration>,
     /// Configuration used to control compression parameters
     pub compression: Option<CompressionConfig>,
+
+    /// List of channels supported by the Protocol
+    pub channels: Channels,
+    /// List of channels supported by the Protocol
+    pub components: Components,
+    /// List of channels supported by the Protocol
+    pub messages: Messages,
+    // TODO: add to messages the list of default messages (entity spawned, etc.)
+    // TODO: add to channels the list of default channels
 }
 
 impl Protocol {
@@ -63,7 +74,7 @@ impl ProtocolBuilder {
         direction: ChannelDirection,
         mode: ChannelMode,
     ) -> &mut Self {
-        todo!()
+        Channels::add_channel::<C>(ChannelSettings::new(mode, direction));
     }
 
     pub fn add_message<M: Message>(&mut self) -> &mut Self {

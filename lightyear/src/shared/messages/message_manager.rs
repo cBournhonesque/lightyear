@@ -137,7 +137,7 @@ impl MessageManager {
     /// Queues an Message to be transmitted to the remote host
     pub fn send_message(&mut self, channel_id: &ChannelId, message: Box<dyn Message>) {
         if let Some(channel) = self.channel_senders.get_mut(channel_id) {
-            channel.send_message(message);
+            channel.buffer_message(message);
         }
     }
 

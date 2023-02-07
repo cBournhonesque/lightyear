@@ -38,14 +38,6 @@ mod wrapping_number;
 pub use backends::{Timer, Timestamp};
 pub use component::{
     component_update::ComponentUpdate,
-    diff_mask::DiffMask,
-    property::Property,
-    property_mutate::{PropertyMutate, PropertyMutator},
-    replica_ref::{
-        ReplicaDynMut, ReplicaDynMutTrait, ReplicaDynMutWrapper, ReplicaDynRef, ReplicaDynRefTrait,
-        ReplicaDynRefWrapper, ReplicaMutTrait, ReplicaMutWrapper, ReplicaRefTrait,
-        ReplicaRefWrapper,
-    },
     replicate::{Components, Replicate, ReplicateSafe},
 };
 pub use connection::{

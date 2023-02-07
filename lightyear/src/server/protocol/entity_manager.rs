@@ -11,7 +11,7 @@ use crate::server::sequence_list::SequenceList;
 
 use crate::shared::{
     serde::{BitWrite, BitWriter, Serde, UnsignedVariableInteger},
-    wrapping_diff, ChannelId, DiffMask, EntityAction, EntityActionType,
+    wrapping_diff, ChannelId, EntityAction, EntityActionType,
     EntityConverter, Instant, Message, MessageIndex, MessageManager, NetEntity, NetEntityConverter,
     PacketIndex, PacketNotifiable,
 };
@@ -39,7 +39,7 @@ pub struct EntityManager {
     next_send_updates: HashMap<Entity, HashSet<ComponentId>>,
     #[allow(clippy::type_complexity)]
     /// Map of component updates and [`DiffMask`] that were written into each packet
-    sent_updates: HashMap<PacketIndex, (Instant, HashMap<(Entity, ComponentId), DiffMask>)>,
+    sent_updates: HashMap<PacketIndex, (Instant, HashSet<(Entity, ComponentId)>)>,
     /// Last [`PacketIndex`] where a component update was written by the server
     last_update_packet_index: PacketIndex,
 }
@@ -63,21 +63,19 @@ impl EntityManager {
     // World Scope
 
     pub fn spawn_entity(&mut self, entity: &Entity) {
-        self.world_channel.host_spawn_entity(entity);
+        self.world_channel.buffer_spawn_entity_message(*entity);
     }
 
     pub fn despawn_entity(&mut self, entity: &Entity) {
-        self.world_channel.host_despawn_entity(entity);
+        self.world_channel.buffer_despawn_entity_message(*entity);
     }
 
     pub fn insert_component(&mut self, entity: &Entity, component_id: &ComponentId) {
-        self.world_channel
-            .host_insert_component(entity, component_id);
+        self.world_channel.buffer_insert_component_message(entity, component_id);
     }
 
     pub fn remove_component(&mut self, entity: &Entity, component_id: &ComponentId) {
-        self.world_channel
-            .host_remove_component(entity, component_id);
+        self.world_channel.buffer_remove_component(entity, component_id);
     }
 
     pub fn scope_has_entity(&self, entity: &Entity) -> bool {
@@ -168,37 +166,16 @@ impl EntityManager {
     }
 
     fn dropped_update_cleanup(&mut self, dropped_packet_index: PacketIndex) {
-        if let Some((_, diff_mask_map)) = self.sent_updates.remove(&dropped_packet_index) {
-            for (component_index, diff_mask) in &diff_mask_map {
-                let (entity, component) = component_index;
-                if !self
-                    .world_channel
-                    .diff_handler
-                    .has_component(entity, component)
-                {
-                    continue;
-                }
-                let mut new_diff_mask = diff_mask.clone();
-
+        if let Some((_, update_set)) = self.sent_updates.remove(&dropped_packet_index) {
+            for (entity, component) in &update_set {
                 // walk from dropped packet up to most recently sent packet
                 if dropped_packet_index == self.last_update_packet_index {
                     continue;
                 }
-
                 let mut packet_index = dropped_packet_index.wrapping_add(1);
                 while packet_index != self.last_update_packet_index {
-                    if let Some((_, diff_mask_map)) = self.sent_updates.get(&packet_index) {
-                        if let Some(next_diff_mask) = diff_mask_map.get(component_index) {
-                            new_diff_mask.nand(next_diff_mask);
-                        }
-                    }
-
                     packet_index = packet_index.wrapping_add(1);
                 }
-
-                self.world_channel
-                    .diff_handler
-                    .or_diff_mask(entity, component, &new_diff_mask);
             }
         }
     }
@@ -521,6 +498,8 @@ impl EntityManager {
         world: &World,
         has_written: &mut bool,
     ) {
+        // TODO: should we get the component value that we want to write when we add it to next_send_updates
+        //  or when we actually write the packet?
         let all_update_entities: Vec<Entity> = self.next_send_updates.keys().copied().collect();
 
         for entity in all_update_entities {
@@ -575,14 +554,6 @@ impl EntityManager {
         let mut written_component_kinds = Vec::new();
         let component_kinds = self.next_send_updates.get(entity).unwrap();
         for component_kind in component_kinds {
-            // get diff mask
-            let diff_mask = self
-                .world_channel
-                .diff_handler
-                .diff_mask(entity, component_kind)
-                .expect("DiffHandler does not have registered Component!")
-                .clone();
-
             let converter = EntityConverter::new(self);
 
             // check that we can write the next component update

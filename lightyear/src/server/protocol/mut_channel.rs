@@ -4,8 +4,6 @@ use std::{
     sync::{Arc, RwLock, RwLockReadGuard},
 };
 
-use crate::shared::{DiffMask, PropertyMutate};
-
 // MutChannel
 #[derive(Clone)]
 pub struct MutChannel {

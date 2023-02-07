@@ -82,7 +82,7 @@ impl<P: Send + Sync> ReliableSender<P> {
 }
 
 impl<P: Send + Sync + Clone> ChannelSender<P> for ReliableSender<P> {
-    fn send_message(&mut self, message: P) {
+    fn buffer_message(&mut self, message: P) {
         self.sending_messages
             .push_back(Some((self.next_send_message_id, None, message)));
         self.next_send_message_id = self.next_send_message_id.wrapping_add(1);

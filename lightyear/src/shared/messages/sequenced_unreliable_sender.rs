@@ -24,7 +24,7 @@ impl<P: Send> SequencedUnreliableSender<P> {
 }
 
 impl<P: Send + Sync> ChannelSender<P> for SequencedUnreliableSender<P> {
-    fn send_message(&mut self, message: P) {
+    fn buffer_message(&mut self, message: P) {
         self.outgoing_messages
             .push_back((self.next_send_message_id, message));
         self.next_send_message_id = self.next_send_message_id.wrapping_add(1);

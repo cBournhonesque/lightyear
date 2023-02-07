@@ -1,13 +1,30 @@
+use std::any::TypeId;
 use std::collections::HashMap;
 use crate::shared::ChannelId;
 
 
 // Channels
-pub struct Channels;
+pub struct Channels {
+    pub current_id: u16,
+    pub type_to_id_map: HashMap<TypeId, ChannelId>,
+    pub id_to_data_map: HashMap<ChannelId, ChannelSettings>,
+}
 
 impl Channels {
-    pub fn type_to_id<M: Channel>() -> ChannelId {
-        todo!()
+    pub fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
+        let type_id = TypeId::of::<C>();
+        let channel_id = ChannelId::new(self.current_id);
+        self.type_to_id_map.insert(type_id, channel_id);
+        self.id_to_data_map.insert(channel_id, settings);
+        self.current_id += 1;
+        //TODO: check for current_id overflow?
+    }
+
+    pub fn type_to_id<C: Channel>(&self) -> ChannelId {
+        let type_id = TypeId::of::<C>();
+        *self.type_to_id_map.get(&type_id).expect(
+            "Must properly initialize Channel with Protocol via `add_channel()` function!",
+        )
     }
 
     pub fn channels() -> &'static HashMap<ChannelId, ChannelSettings> {

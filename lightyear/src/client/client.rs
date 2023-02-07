@@ -261,6 +261,7 @@ impl Client {
     }
 
     // Bandwidth monitoring
+
     pub fn outgoing_bandwidth(&mut self) -> f32 {
         self.io.outgoing_bandwidth()
     }

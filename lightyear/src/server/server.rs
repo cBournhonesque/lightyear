@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap, net::SocketAddr, panic,
 };
+use std::any::Any;
 use std::collections::hash_set::Iter;
 
 #[cfg(feature = "bevy_support")]
@@ -8,13 +9,13 @@ use bevy_ecs::prelude::Resource;
 
 use bevy_ecs::world::World;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::component::{ComponentId, Components};
+use bevy_ecs::component::{Component, ComponentId, Components};
 
 use naia_server_socket::{ServerAddrs, Socket};
 use tracing::warn;
 use lightyear_serde::BitWriter;
 use crate::shared::{BigMap, Channel, ChannelId, Channels, Instant, Message, PacketType,
-                    PropertyMutator, Protocol, Replicate, ReplicateSafe, StandardHeader, Tick, Timer};
+                    Protocol, Replicate, ReplicateSafe, StandardHeader, Tick, Timer};
 
 use crate::server::{
     connection::{
@@ -529,9 +530,6 @@ impl Server {
 
         // Delete scope
         self.entity_scope_map.remove_entity(entity);
-
-        // Remove from ECS Record
-        self.world_record.despawn_entity(entity);
     }
 
     //// Entity Scopes
@@ -554,33 +552,23 @@ impl Server {
     //// Components
 
     /// Adds a Component to an Entity
-    pub(crate) fn insert_component<R: ReplicateSafe>(
+    pub(crate) fn insert_component<C: Component>(
         &mut self,
         world: &mut World,
         entity: &Entity,
-        mut component_ref: R,
+        component: C,
     ) {
         if !world.has_entity(entity) {
             panic!("attempted to add component to non-existent entity");
         }
 
-        let component_kind = component_ref.kind();
-
-        if world.has_component_of_kind(entity, &component_kind) {
-            // Entity already has this Component type yet, update Component
-
-            if let Some(mut component) = world.component_mut::<R>(entity) {
-                component.mirror(&component_ref);
-            } else {
-                panic!("Should never happen because we checked for this above")
-            }
+        if world.entity(*entity).contains::<C>() {
+            // Entity already has this Component type, update Component
+            world.entity_mut(*entity).insert(component);
+            // TODO: shouldn't i replicate this insert_component?
         } else {
-            // Entity does not have this Component type yet, initialize Component
-
-            self.component_init(entity, &mut component_ref);
-
             // actually insert component into world
-            world.insert_component(entity, component_ref);
+            world.entity_mut(*entity).insert(component);
 
             // add component to connections already tracking entity
             for (_, user_connection) in self.user_connections.iter_mut() {
@@ -1204,32 +1192,4 @@ impl Server {
         }
     }
 
-    // Component Helpers
-
-    fn component_init<R: ReplicateSafe>(&mut self, entity: &Entity, component_ref: &mut R) {
-        let component_kind = component_ref.kind();
-        self.world_record.add_component(entity, &component_kind);
-
-        let diff_mask_length: u8 = component_ref.diff_mask_size();
-
-        let mut_sender = self
-            .diff_handler
-            .as_ref()
-            .write()
-            .expect("DiffHandler should be initialized")
-            .register_component(entity, &component_kind, diff_mask_length);
-
-        let prop_mutator = PropertyMutator::new(mut_sender);
-
-        component_ref.set_mutator(&prop_mutator);
-    }
-
-    fn component_cleanup(&mut self, entity: &Entity, component_kind: &ComponentId) {
-        self.world_record.remove_component(entity, component_kind);
-        self.diff_handler
-            .as_ref()
-            .write()
-            .expect("Haven't initialized DiffHandler")
-            .deregister_component(entity, component_kind);
-    }
 }

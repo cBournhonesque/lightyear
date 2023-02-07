@@ -4,25 +4,24 @@ use bevy_ecs::entity::Entity;
 use lightyear_serde::{BitReader, BitWrite, BitWriter, Serde, SerdeErr};
 
 use crate::shared::{
-    component::{property::Property, property_mutate::PropertyMutator},
     entity::net_entity::NetEntity,
 };
 
 #[derive(Clone)]
 pub struct EntityProperty {
-    handle_prop: Property<Option<Entity>>,
+    handle_prop: Property<Option<NetEntity>>,
 }
 
 impl EntityProperty {
     pub fn new(mutator_index: u8) -> Self {
         Self {
-            handle_prop: Property::<Option<Entity>>::new(None, mutator_index),
+            handle_prop: Property::<Option<NetEntity>>::new(None, mutator_index),
         }
     }
 
     pub fn new_empty() -> Self {
         Self {
-            handle_prop: Property::<Option<Entity>>::new(None, 0),
+            handle_prop: Property::<Option<NetEntity>>::new(None, 0),
         }
     }
 
@@ -30,36 +29,27 @@ impl EntityProperty {
         *self.handle_prop = other.handle();
     }
 
-    pub fn handle(&self) -> Option<Entity> {
+    pub fn handle(&self) -> Option<NetEntity> {
         *self.handle_prop
     }
 
     // Serialization / deserialization
 
-    pub fn write(&self, writer: &mut dyn BitWrite, converter: &dyn NetEntityConverter) {
-        (*self.handle_prop)
-            .map(|handle| converter.handle_to_net_entity(&handle))
-            .ser(writer);
+    pub fn write(&self, writer: &mut dyn BitWrite) {
+        (*self.handle_prop).ser(writer);
     }
 
     pub fn new_read(
         reader: &mut BitReader,
         mutator_index: u8,
-        converter: &dyn NetEntityConverter,
     ) -> Result<Self, SerdeErr> {
+        let mut new_prop = Self::new(mutator_index);
         if let Some(net_entity) = Option::<NetEntity>::de(reader)? {
-            if let Ok(handle) = converter.net_entity_to_handle(&net_entity) {
-                let mut new_prop = Self::new(mutator_index);
-                *new_prop.handle_prop = Some(handle);
-                Ok(new_prop)
-            } else {
-                panic!("Could not find Entity to associate with incoming EntityProperty value!");
-            }
+            *new_prop.handle_prop = Some(net_entity);
         } else {
-            let mut new_prop = Self::new(mutator_index);
             *new_prop.handle_prop = None;
-            Ok(new_prop)
         }
+        Ok(new_prop)
     }
 
     pub fn read_write(reader: &mut BitReader, writer: &mut BitWriter) -> Result<(), SerdeErr> {
@@ -70,14 +60,9 @@ impl EntityProperty {
     pub fn read(
         &mut self,
         reader: &mut BitReader,
-        converter: &dyn NetEntityConverter,
     ) -> Result<(), SerdeErr> {
         if let Some(net_entity) = Option::<NetEntity>::de(reader)? {
-            if let Ok(handle) = converter.net_entity_to_handle(&net_entity) {
-                *self.handle_prop = Some(handle);
-            } else {
-                panic!("Could not find Entity to associate with incoming EntityProperty value!");
-            }
+            *self.handle_prop = Some(net_entity);
         } else {
             *self.handle_prop = None;
         }
@@ -102,16 +87,17 @@ impl EntityProperty {
         self.handle_prop.set_mutator(mutator);
     }
 
-    pub fn get(&self) -> Option<Entity> {
+    pub fn get(&self, converter: &dyn NetEntityConverter) -> Option<Entity> {
         *self.handle_prop
     }
 
-    pub fn set(&mut self, entity: Entity) {
+    pub fn set(&mut self, entity: Entity, converter: &dyn NetEntityConverter) {
         *self.handle_prop = Some(entity);
     }
 }
 
 
+// TODO: move to net_entity.rs
 pub trait NetEntityConverter {
     fn entity_to_net_entity(&self, entity: &Entity) -> NetEntity;
     fn net_entity_to_entity(&self, net_entity: &NetEntity) -> Entity;

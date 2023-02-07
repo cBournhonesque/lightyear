@@ -6,7 +6,7 @@ use crate::shared::Messages;
 pub use crate::shared::{
     serde::{BitReader, BitWriter, Serde, SerdeErr},
     wrapping_diff, BaseConnection, ConnectionConfig, FakeEntityConverter, Instant, KeyGenerator,
-    Message, PacketType, PropertyMutate, PropertyMutator, Replicate, ReplicateSafe, StandardHeader,
+    Message, PacketType, Replicate, ReplicateSafe, StandardHeader,
     Timer,
 };
 
