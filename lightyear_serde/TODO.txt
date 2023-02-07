@@ -1,0 +1,21 @@
+Implement De/Ser traits on:
+- Tuples (up to 12 parameters)
+- Bounded integers which wrap our new SerdeInteger type
+
+Completed:
+- Boolean
+- Unit Type: ()
+- Unsigned integers: u8, u16, u32, u64, usize
+- Signed integers: i8, i16, i32, i64, isize
+- Floating point: f32, f64
+- char
+- Option
+- Box
+- String
+- Arrays (use const-generics to handle [T; N])
+- Vec / VecDeque
+- HashMap / HashSet
+- Structs
+- Tuple Structs
+- Unit Structs
+- Enums

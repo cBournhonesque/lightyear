@@ -1,0 +1,28 @@
+[package]
+name = "lightyear_serde_derive"
+version = "0.1.0"
+authors = ["connorcarpenter <connorcarpenter@gmail.com>", "Fedor <not.fl3@gmail.com>", "makepad <info@makepad.nl>"]
+workspace = "../.."
+description = "Derive methods for naia-serde"
+documentation = "https://docs.rs/naia-serde-derive"
+homepage = "https://github.com/naia-lib/naia"
+repository = "https://github.com/naia-lib/naia"
+keywords = ["serialization", "bit", "binary", "networking", "gamedev"]
+categories = ["network-programming", "game-development", "wasm", "web-programming"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[lib]
+proc-macro = true
+
+[features]
+
+[dependencies]
+log = { version = "0.4" }
+cfg-if = { version = "1.0" }
+proc-macro2 = "1.0"
+syn = { version = "1.0.86" }
+quote = "1.0"
