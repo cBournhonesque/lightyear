@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
     UnsignedVariableInteger,
@@ -16,7 +16,7 @@ impl<T: Serde> Serde for Vec<T> {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let length_int = UnsignedVariableInteger::<5>::de(reader)?;
         let length_usize = length_int.get() as usize;
         let mut output: Vec<T> = Vec::with_capacity(length_usize);
@@ -36,7 +36,7 @@ impl<T: Serde> Serde for VecDeque<T> {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let length_int = UnsignedVariableInteger::<5>::de(reader)?;
         let length_usize = length_int.get() as usize;
         let mut output: VecDeque<T> = VecDeque::with_capacity(length_usize);

@@ -5,7 +5,7 @@ use naia_client_socket::{NaiaClientSocketError, PacketReceiver, PacketSender, Se
 pub use crate::shared::{
     serde::{BitReader, BitWriter},
     BandwidthMonitor, CompressionConfig, ConnectionConfig, Decoder, Encoder, PacketType,
-    ReplicateSafe, StandardHeader, Timer, Timestamp,
+    StandardHeader, Timer, Timestamp,
 };
 
 use crate::client::error::NaiaClientError;

@@ -1,21 +1,19 @@
 use std::any::TypeId;
 use std::collections::HashMap;
-use bevy_ecs::component::Component;
+use bevy_ecs::component::{Component, ComponentStorage, TableStorage};
 use bevy_ecs::entity::Entity;
-use lightyear_serde::{BitReader, BitWrite, SerdeErr};
+use bevy_reflect::{FromReflect, Reflect};
+use lightyear_serde::{BitReader, BitWrite, Serde, Error};
 
 use crate::shared::messages::named::Named;
 use crate::shared::types::ComponentId;
-use crate::shared::{component::{
-    component_update::ComponentUpdate,
-}, NetEntityConverter};
+use crate::shared::{component::component_update::ComponentUpdate, NetEntityConverter};
 
 
 /// A map to hold all component types
 pub struct Components {
     pub current_id: u16,
     pub type_to_id_map: HashMap<TypeId, ComponentId>,
-    pub id_to_data_map: HashMap<ComponentId, Box<dyn ReplicateBuilder>>,
 }
 
 impl Components {
@@ -30,25 +28,32 @@ impl Components {
     pub fn read(
         bit_reader: &mut BitReader,
         converter: &dyn NetEntityConverter,
-    ) -> Result<Box<dyn ReplicateSafe>, SerdeErr> {
+    ) -> Result<Box<dyn ReplicableComponent>, Error> {
         todo!()
     }
 
     pub fn write(
         bit_writer: &mut dyn BitWrite,
         converter: &dyn NetEntityConverter,
-        message: &Box<dyn ReplicateSafe>,
+        message: &Box<dyn ReplicableComponent>,
     ) {
         todo!()
     }
 }
 
 
+pub trait ReplicableComponent: Component<Storage=TableStorage> + Replicate {}
+
 /// A struct that implements Replicate is a Message/Component that can be replicated/synced
 /// between server and client.
 ///
 /// It may contain [`Entity`] fields which will be serialized into [`NetEntity`]
-pub trait Replicate: ReplicateInner + Named {
+pub trait Replicate: Serde + Reflect + FromReflect {
+    /// Returns whether has any EntityProperties
+    fn has_entity_properties(&self) -> bool;
+
+    /// Returns a list of Entities contained within the Replica's properties
+    fn entities(&self) -> Vec<Entity>;
 
     /// Writes data into an outgoing byte stream, sufficient to completely
     /// recreate the Message/Component on the client
@@ -58,13 +63,9 @@ pub trait Replicate: ReplicateInner + Named {
     fn read(
         bit_reader: &mut BitReader,
         converter: &dyn NetEntityConverter,
-    ) -> Result<Self, SerdeErr>;
-
-    /// Returns whether has any EntityProperties
-    fn has_entity_properties(&self) -> bool;
-    /// Returns a list of Entities contained within the Replica's properties
-    fn entities(&self) -> Vec<Entity>;
+    ) -> Result<Self, Error>;
 }
+
 
 cfg_if! {
     if #[cfg(feature = "bevy_support")]

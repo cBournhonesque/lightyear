@@ -12,7 +12,7 @@ use tracing::warn;
 pub use crate::shared::{
     serde::{BitReader, BitWriter, Serde},
     Channel, ChannelId, Channels, ConnectionConfig, EntityDoesNotExistError,
-    Message, PacketType, PingConfig, PingIndex, Protocol, ReplicateSafe,
+    Message, PacketType, PingConfig, PingIndex, Protocol,
     SocketConfig, StandardHeader, Tick, Timer, Timestamp,
 };
 

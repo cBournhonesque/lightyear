@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
 };
@@ -9,7 +9,7 @@ macro_rules! impl_reflect_tuple {
             fn ser(&self, writer: &mut dyn BitWrite) {
                 $(self.$index.ser(writer);)*
             }
-            fn de(reader: &mut BitReader) -> Result<($($name,)*), SerdeErr> {
+            fn de(reader: &mut BitReader) -> Result<($($name,)*), Error> {
                 Ok(($($name::de(reader)?, )*))
             }
         }

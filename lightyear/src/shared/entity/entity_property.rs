@@ -1,7 +1,7 @@
 use std::error::Error;
 use bevy_ecs::entity::Entity;
 
-use lightyear_serde::{BitReader, BitWrite, BitWriter, Serde, SerdeErr};
+use lightyear_serde::{BitReader, BitWrite, BitWriter, Serde, Error};
 
 use crate::shared::{
     entity::net_entity::NetEntity,
@@ -42,7 +42,7 @@ impl EntityProperty {
     pub fn new_read(
         reader: &mut BitReader,
         mutator_index: u8,
-    ) -> Result<Self, SerdeErr> {
+    ) -> Result<Self, Error> {
         let mut new_prop = Self::new(mutator_index);
         if let Some(net_entity) = Option::<NetEntity>::de(reader)? {
             *new_prop.handle_prop = Some(net_entity);
@@ -52,7 +52,7 @@ impl EntityProperty {
         Ok(new_prop)
     }
 
-    pub fn read_write(reader: &mut BitReader, writer: &mut BitWriter) -> Result<(), SerdeErr> {
+    pub fn read_write(reader: &mut BitReader, writer: &mut BitWriter) -> Result<(), Error> {
         Option::<NetEntity>::de(reader)?.ser(writer);
         Ok(())
     }
@@ -60,7 +60,7 @@ impl EntityProperty {
     pub fn read(
         &mut self,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         if let Some(net_entity) = Option::<NetEntity>::de(reader)? {
             *self.handle_prop = Some(net_entity);
         } else {

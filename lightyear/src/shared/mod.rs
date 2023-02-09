@@ -38,7 +38,7 @@ mod wrapping_number;
 pub use backends::{Timer, Timestamp};
 pub use component::{
     component_update::ComponentUpdate,
-    replicate::{Components, Replicate, ReplicateSafe},
+    replicate::{Components, Replicate, ReplicableComponent},
 };
 pub use connection::{
     ack_manager::AckManager,

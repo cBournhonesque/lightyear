@@ -4,7 +4,7 @@ use bevy_ecs::world::World;
 
 use crate::shared::{
     sequence_greater_than,
-    serde::{BitReader, BitWriter, Serde, SerdeErr},
+    serde::{BitReader, BitWriter, Serde, Error},
     BaseConnection, ConnectionConfig, HostType, Instant, PacketType, PingManager,
     ProtocolIo, StandardHeader, Tick,
 };
@@ -17,9 +17,12 @@ use crate::server::{
 
 use super::io::Io;
 
+/// General connection. Handles the transmission of entity-actions, entity-updates, messages
 pub struct Connection {
     pub user_key: UserKey,
+    /// Handles the transmission of messages
     pub base: BaseConnection,
+    /// Handles the transmission of entity-actions and entity-updates
     pub entity_manager: EntityManager,
     pub tick_buffer: TickBufferReceiver,
     pub last_received_tick: Tick,
@@ -61,7 +64,7 @@ impl Connection {
         &mut self,
         server_and_client_tick_opt: Option<(Tick, Tick)>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         let converter = &self.entity_manager;
         let channel_reader = ProtocolIo::new(converter);
 

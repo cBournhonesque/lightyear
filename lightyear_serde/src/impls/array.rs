@@ -1,18 +1,24 @@
-use crate::{
-    error::SerdeErr,
-    reader_writer::{BitReader, BitWrite},
-    serde::Serde,
-};
+use crate::{error::Error, reader_writer::{BitReader, BitWrite}, serde::Serde, UnsignedVariableInteger};
 
 impl<T: Serde> Serde for &[T] {
     fn ser(&self, writer: &mut dyn BitWrite) {
+        let length = UnsignedVariableInteger::<5>::new(self.len() as u64);
+        length.ser(writer);
         for item in *self {
             item.ser(writer);
         }
     }
 
-    fn de(_: &mut BitReader) -> Result<Self, SerdeErr> {
-        Err(SerdeErr {})
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
+        panic!("cant");
+        let length_int = UnsignedVariableInteger::<5>::de(reader)?;
+        let length_usize = length_int.get() as usize;
+        let mut output: Vec<T> = Vec::with_capacity(length_usize);
+        for index in 0..length_usize {
+            let value = T::de(reader)?;
+            output.insert(index, value);
+        }
+        Ok(output.as_slice())
     }
 }
 
@@ -23,7 +29,7 @@ impl<T: Serde, const N: usize> Serde for [T; N] {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         unsafe {
             let mut to = std::mem::MaybeUninit::<[T; N]>::uninit();
             let top: *mut T = &mut to as *mut std::mem::MaybeUninit<[T; N]> as *mut T;

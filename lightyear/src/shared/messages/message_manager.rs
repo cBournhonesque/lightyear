@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use lightyear_serde::{BitReader, BitWrite, BitWriter, Serde, SerdeErr};
+use lightyear_serde::{BitReader, BitWrite, BitWriter, Serde, Error};
 use naia_socket_shared::Instant;
 
 use crate::shared::{
@@ -211,7 +211,7 @@ impl MessageManager {
         &mut self,
         channel_reader: &dyn ChannelReader<Box<dyn Message>>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         loop {
             let message_continue = bool::de(reader)?;
             if !message_continue {
@@ -229,18 +229,16 @@ impl MessageManager {
         Ok(())
     }
 
-    /// Retrieve all messages from the channel buffers
-    pub fn receive_messages(&mut self, incoming_messages: &mut dyn MessageReceivable) {
+    pub fn receive_messages(&mut self) -> Vec<(ChannelId, Box<dyn Message>)> {
+        let mut output = Vec::new();
         // TODO: shouldn't we have a priority mechanisms between channels?
         for (channel_index, channel) in &mut self.channel_receivers {
             let mut messages = channel.receive_messages();
-            for message in messages.drain(..) {
-                todo!();
-                //output.push((channel_index.clone(), message));
-                // TODO: Really important Connor! Put these messages into `incoming_messages`
-                // Otherwise no messages will be received!
+            for message in messages {
+                output.push((channel_index.clone(), message));
             }
         }
+        output
     }
 }
 

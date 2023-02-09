@@ -3,3 +3,5 @@ pub mod entity_action_receiver;
 pub mod entity_action_type;
 pub mod entity_property;
 pub mod net_entity;
+pub mod replicate_entities;
+pub mod serializer;

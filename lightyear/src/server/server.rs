@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap, net::SocketAddr, panic,
 };
-use std::any::Any;
 use std::collections::hash_set::Iter;
 
 #[cfg(feature = "bevy_support")]
@@ -9,13 +8,13 @@ use bevy_ecs::prelude::Resource;
 
 use bevy_ecs::world::World;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::component::{Component, ComponentId, Components};
+use bevy_ecs::component::{Component, Components};
 
 use naia_server_socket::{ServerAddrs, Socket};
 use tracing::warn;
 use lightyear_serde::BitWriter;
 use crate::shared::{BigMap, Channel, ChannelId, Channels, Instant, Message, PacketType,
-                    Protocol, Replicate, ReplicateSafe, StandardHeader, Tick, Timer};
+                    Protocol, ReplicableComponent, StandardHeader, Tick, Timer};
 
 use crate::server::{
     connection::{
@@ -55,7 +54,7 @@ pub struct Server {
     user_connections: HashMap<SocketAddr, Connection>,
     // Rooms
     rooms: BigMap<RoomKey, Room>,
-    // Entities
+    // Scopes
     entity_scope_map: EntityScopeMap,
     // Events
     incoming_events: Events,
@@ -583,7 +582,7 @@ impl Server {
     }
 
     /// Removes a Component from an Entity
-    pub(crate) fn remove_component<R: Replicate>(
+    pub(crate) fn remove_component<R: ReplicableComponent>(
         &mut self,
         world: &mut World,
         entity: &Entity,
@@ -602,11 +601,8 @@ impl Server {
                 .remove_component(entity, &component_id);
         }
 
-        // cleanup all other loose ends
-        self.component_cleanup(entity, &component_id);
-
         // remove from world
-        world.remove_component::<R>(entity)
+        world.entity_mut(*entity).remove::<R>()
     }
 
     //// Users

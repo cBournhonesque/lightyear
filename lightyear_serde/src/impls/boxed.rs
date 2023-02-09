@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
 };
@@ -9,7 +9,7 @@ impl<T: Serde> Serde for Box<T> {
         (**self).ser(writer)
     }
 
-    fn de(reader: &mut BitReader) -> Result<Box<T>, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Box<T>, Error> {
         Ok(Box::new(Serde::de(reader)?))
     }
 }

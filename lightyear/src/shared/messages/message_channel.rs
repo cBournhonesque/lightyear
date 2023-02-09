@@ -1,8 +1,9 @@
-use lightyear_serde::{BitReader, BitWrite, BitWriter, SerdeErr};
+use lightyear_serde::{BitReader, BitWrite, BitWriter, Error};
 use naia_socket_shared::Instant;
 
 use crate::shared::types::MessageIndex;
 
+/// General trait for a channel that sends messages
 pub trait ChannelSender<P>: Send + Sync {
     /// Queues a Message to be transmitted to the remote host into an internal buffer
     fn buffer_message(&mut self, message: P);
@@ -21,13 +22,14 @@ pub trait ChannelSender<P>: Send + Sync {
     fn notify_message_delivered(&mut self, message_id: &MessageIndex);
 }
 
+/// General trait for a channel that reads messages
 pub trait ChannelReceiver<P>: Send + Sync {
     /// Read messages from raw bits, parse them and store then into an internal buffer
     fn read_messages(
         &mut self,
         channel_reader: &dyn ChannelReader<P>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr>;
+    ) -> Result<(), Error>;
     /// Read messages from an internal buffer and return their content
     fn receive_messages(&mut self) -> Vec<P>;
 }
@@ -39,5 +41,5 @@ pub trait ChannelWriter<T> {
 
 pub trait ChannelReader<T> {
     /// Reads a Message from an incoming packet
-    fn read(&self, reader: &mut BitReader) -> Result<T, SerdeErr>;
+    fn read(&self, reader: &mut BitReader) -> Result<T, Error>;
 }

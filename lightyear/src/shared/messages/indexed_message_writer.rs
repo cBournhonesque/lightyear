@@ -7,7 +7,7 @@ use crate::shared::{types::MessageIndex, wrapping_diff};
 
 use super::message_channel::ChannelWriter;
 
-// Sender
+/// Building block for the message channels. Write messages that have a MessageIndex attached to them
 pub struct IndexedMessageWriter<P: Send + Sync> {
     phantom_p: PhantomData<P>,
 }

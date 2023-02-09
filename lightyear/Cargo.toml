@@ -33,7 +33,10 @@ ring = { version = "0.16.15" }
 fastrand = { version = "1.7.0" }
 
 # bevy
-bevy_ecs = { version = "0.9", default-features=false }
+#bevy_ecs = { version = "0.9", default-features=false }
+#bevy_reflect = { version = "0.9", default-features=false}
+bevy_ecs = { git = "https://github.com/bevyengine/bevy", default-features=false }
+bevy_reflect = { git = "https://github.com/bevyengine/bevy", default-features=false }
 
 # tools
 cfg-if = { version = "1.0" }

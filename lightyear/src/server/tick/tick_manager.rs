@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::shared::{
-    serde::{BitReader, BitWriter, Serde, SerdeErr},
+    serde::{BitReader, BitWriter, Serde, Error},
     Tick, Timer,
 };
 
@@ -24,7 +24,7 @@ impl TickManager {
         self.current_tick.ser(writer);
     }
 
-    pub fn read_client_tick(&self, reader: &mut BitReader) -> Result<Tick, SerdeErr> {
+    pub fn read_client_tick(&self, reader: &mut BitReader) -> Result<Tick, Error> {
         Tick::de(reader)
     }
 

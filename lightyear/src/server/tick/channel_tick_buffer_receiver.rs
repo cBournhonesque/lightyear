@@ -3,7 +3,7 @@ use crate::server::Events;
 
 use crate::shared::{
     sequence_greater_than,
-    serde::{BitReader, Serde, SerdeErr, UnsignedVariableInteger},
+    serde::{BitReader, Serde, Error, UnsignedVariableInteger},
     ChannelReader, Message, ShortMessageIndex, Tick,
 };
 
@@ -37,7 +37,7 @@ impl ChannelTickBufferReceiver {
         remote_tick: &Tick,
         channel_reader: &dyn ChannelReader<Box<dyn Message>>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         let mut last_read_tick = *remote_tick;
 
         loop {
@@ -60,7 +60,7 @@ impl ChannelTickBufferReceiver {
         last_read_tick: &mut Tick,
         channel_reader: &dyn ChannelReader<Box<dyn Message>>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         // read remote tick
         let remote_tick_diff = UnsignedVariableInteger::<3>::de(reader)?.get() as Tick;
         *last_read_tick = last_read_tick.wrapping_sub(remote_tick_diff);

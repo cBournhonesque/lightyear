@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
 };
@@ -9,7 +9,7 @@ use crate::{
 impl Serde for () {
     fn ser(&self, _: &mut dyn BitWrite) {}
 
-    fn de(_: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(_: &mut BitReader) -> Result<Self, Error> {
         Ok(())
     }
 }
@@ -50,7 +50,7 @@ impl Serde for bool {
         writer.write_bit(*self);
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         reader.read_bit()
     }
 }
@@ -100,7 +100,7 @@ impl Serde for char {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let mut bytes = [0_u8; 4];
         for byte in &mut bytes {
             *byte = reader.read_byte()?;
@@ -117,7 +117,7 @@ impl Serde for char {
         if let Some(inner_char) = char::from_u32(container[0]) {
             Ok(inner_char)
         } else {
-            Err(SerdeErr {})
+            Err(Error {})
         }
     }
 }
@@ -172,7 +172,7 @@ macro_rules! impl_serde_for {
                 }
             }
 
-            fn de(reader: &mut BitReader) -> Result<$impl_type, SerdeErr> {
+            fn de(reader: &mut BitReader) -> Result<$impl_type, Error> {
                 const BYTES_LENGTH: usize = std::mem::size_of::<$impl_type>();
                 let mut byte_array = [0_u8; BYTES_LENGTH];
                 for index in 0..BYTES_LENGTH {
@@ -208,7 +208,7 @@ impl Serde for u8 {
         writer.write_byte(*self);
     }
 
-    fn de(reader: &mut BitReader) -> Result<u8, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<u8, Error> {
         reader.read_byte()
     }
 }
@@ -220,7 +220,7 @@ impl Serde for i8 {
         writer.write_byte(*du8);
     }
 
-    fn de(reader: &mut BitReader) -> Result<i8, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<i8, Error> {
         let byte = [reader.read_byte()?];
         let mut container = [0_i8];
         unsafe {
@@ -244,7 +244,7 @@ impl Serde for usize {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<usize, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<usize, Error> {
         let mut byte_array = [0_u8; 8];
         for byte in &mut byte_array {
             *byte = reader.read_byte()?;
@@ -271,7 +271,7 @@ impl Serde for isize {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<isize, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<isize, Error> {
         let mut byte_array = [0_u8; 8];
         for byte in &mut byte_array {
             *byte = reader.read_byte()?;

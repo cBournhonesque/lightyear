@@ -4,9 +4,9 @@ use ring::{hmac, rand};
 
 use crate::shared::Messages;
 pub use crate::shared::{
-    serde::{BitReader, BitWriter, Serde, SerdeErr},
+    serde::{BitReader, BitWriter, Serde, Error},
     wrapping_diff, BaseConnection, ConnectionConfig, FakeEntityConverter, Instant, KeyGenerator,
-    Message, PacketType, Replicate, ReplicateSafe, StandardHeader,
+    Message, PacketType, StandardHeader,
     Timer,
 };
 
@@ -45,7 +45,7 @@ impl HandshakeManager {
     pub fn recv_challenge_request(
         &mut self,
         reader: &mut BitReader,
-    ) -> Result<BitWriter, SerdeErr> {
+    ) -> Result<BitWriter, Error> {
         let timestamp = Timestamp::de(reader)?;
 
         Ok(self.write_challenge_response(&timestamp))

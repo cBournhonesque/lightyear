@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
     UnsignedInteger,
@@ -15,7 +15,7 @@ impl Serde for String {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let length_int = UnsignedInteger::<9>::de(reader)?;
         let length_usize = length_int.get() as usize;
         let mut bytes: Vec<u8> = Vec::with_capacity(length_usize);
@@ -25,6 +25,30 @@ impl Serde for String {
 
         let result = std::str::from_utf8(&bytes).unwrap().to_string();
         Ok(result)
+    }
+}
+
+impl Serde for &str {
+    fn ser(&self, writer: &mut dyn BitWrite) {
+        let length = UnsignedInteger::<9>::new(self.len() as u64);
+        length.ser(writer);
+        let bytes = self.as_bytes();
+        for byte in bytes {
+            writer.write_byte(*byte);
+        }
+    }
+
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
+        panic!("cant");
+        let length_int = UnsignedInteger::<9>::de(reader)?;
+        let length_usize = length_int.get() as usize;
+        let mut bytes: Vec<u8> = Vec::with_capacity(length_usize);
+        for _ in 0..length_usize {
+            bytes.push(reader.read_byte()?);
+        }
+
+        let result = std::str::from_utf8(&bytes).unwrap().to_string();
+        Ok(result.as_str())
     }
 }
 

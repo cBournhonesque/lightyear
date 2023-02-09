@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, mem};
 
-use lightyear_serde::{BitReader, SerdeErr};
+use lightyear_serde::{BitReader, Error};
 
 use crate::shared::{sequence_less_than, types::MessageIndex};
 
@@ -101,7 +101,7 @@ impl<P: Send + Sync> ChannelReceiver<P> for UnorderedReliableReceiver<P> {
         &mut self,
         channel_reader: &dyn ChannelReader<P>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         let id_w_msgs = IndexedMessageReader::read_messages(channel_reader, reader)?;
         for (id, message) in id_w_msgs {
             self.buffer_message(id, message);

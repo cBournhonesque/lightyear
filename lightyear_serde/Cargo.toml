@@ -21,3 +21,7 @@ maintenance = { status = "actively-developed" }
 lightyear_serde_derive = { version = "0.1.0", path = "derive" }
 log = { version = "0.4" }
 cfg-if = { version = "1.0" }
+serde = { version = "1.0"}
+
+[dev-dependencies]
+serde = { version = "1.0", features=["derive"]}

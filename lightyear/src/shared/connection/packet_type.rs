@@ -1,7 +1,7 @@
 // An enum representing the different types of packets that can be
 // sent/received
 
-use lightyear_serde::{BitReader, BitWrite, SerdeErr, UnsignedInteger};
+use lightyear_serde::{BitReader, BitWrite, Error, UnsignedInteger};
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub enum PacketType {
@@ -59,7 +59,7 @@ impl lightyear_serde::Serde for PacketType {
     }
 
     /// Deserialize the packet type
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let is_data = bool::de(reader)?;
         if is_data {
             return Ok(PacketType::Data);

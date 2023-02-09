@@ -1,9 +1,8 @@
 // Local Entity
 
-use lightyear_serde::{BitReader, BitWrite, Serde, SerdeErr, UnsignedVariableInteger};
+use lightyear_serde::{BitReader, BitWrite, Serde, Error, UnsignedVariableInteger};
 
-// An Entity in the Client's scope, that is being
-// synced to the Client
+/// A lighter representation of a [`bevy_ecs::entity::Entity`] for efficient serialization
 #[derive(Copy, Eq, Hash, Clone, PartialEq)]
 pub struct NetEntity(u16);
 
@@ -24,7 +23,7 @@ impl Serde for NetEntity {
         UnsignedVariableInteger::<7>::new(self.0).ser(writer);
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let value = UnsignedVariableInteger::<7>::de(reader)?.get();
         Ok(NetEntity(value as u16))
     }

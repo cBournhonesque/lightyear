@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::server::Events;
 use crate::shared::{
-    serde::{BitReader, Serde, SerdeErr},
+    serde::{BitReader, Serde, Error},
     ChannelId, ChannelMode, ChannelReader, Channels, Message, Tick,
 };
 
@@ -34,7 +34,7 @@ impl TickBufferReceiver {
         remote_tick: &Tick,
         channel_reader: &dyn ChannelReader<Box<dyn Message>>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         loop {
             let channel_continue = bool::de(reader)?;
             if !channel_continue {

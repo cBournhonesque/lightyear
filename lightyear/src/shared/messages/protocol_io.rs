@@ -1,5 +1,5 @@
 use crate::shared::{messages::message_channel::{ChannelReader, ChannelWriter}, Message, Messages, NetEntityConverter};
-use lightyear_serde::{BitReader, BitWrite, Serde, SerdeErr};
+use lightyear_serde::{BitReader, BitWrite, Error};
 
 /// Struct to read/write Component/Message data into a packet.
 /// (handles net entity conversion)
@@ -23,7 +23,7 @@ impl<'c> ChannelWriter<Box<dyn Message>> for ProtocolIo<'c> {
 }
 
 impl<'c> ChannelReader<Box<dyn Message>> for ProtocolIo<'c> {
-    fn read(&self, reader: &mut BitReader) -> Result<Box<dyn Message>, SerdeErr> {
+    fn read(&self, reader: &mut BitReader) -> Result<Box<dyn Message>, Error> {
         Messages::read(reader, self.converter)
     }
 }

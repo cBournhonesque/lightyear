@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, mem};
 
-use lightyear_serde::{BitReader, Serde, SerdeErr};
+use lightyear_serde::{BitReader, Serde, Error};
 
 use super::message_channel::{ChannelReader, ChannelReceiver};
 
@@ -19,7 +19,7 @@ impl<P> UnorderedUnreliableReceiver<P> {
         &mut self,
         channel_reader: &dyn ChannelReader<P>,
         reader: &mut BitReader,
-    ) -> Result<P, SerdeErr> {
+    ) -> Result<P, Error> {
         // read payload
         channel_reader.read(reader)
     }
@@ -34,7 +34,7 @@ impl<P: Send + Sync> ChannelReceiver<P> for UnorderedUnreliableReceiver<P> {
         &mut self,
         channel_reader: &dyn ChannelReader<P>,
         reader: &mut BitReader,
-    ) -> Result<(), SerdeErr> {
+    ) -> Result<(), Error> {
         loop {
             let channel_continue = bool::de(reader)?;
             if !channel_continue {

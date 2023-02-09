@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
     UnsignedVariableInteger,
@@ -18,7 +18,7 @@ impl<K: Serde + Eq + Hash> Serde for HashSet<K> {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let length_int = UnsignedVariableInteger::<5>::de(reader)?;
         let length_usize = length_int.get() as usize;
         let mut output: HashSet<K> = HashSet::new();
@@ -40,7 +40,7 @@ impl<K: Serde + Eq + Hash, V: Serde> Serde for HashMap<K, V> {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let length_int = UnsignedVariableInteger::<5>::de(reader)?;
         let length_usize = length_int.get() as usize;
         let mut output: HashMap<K, V> = HashMap::new();

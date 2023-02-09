@@ -1,5 +1,5 @@
 use crate::constants::{MTU_SIZE_BITS, MTU_SIZE_BYTES};
-use crate::SerdeErr;
+use crate::Error;
 
 // BitWrite
 pub trait BitWrite {
@@ -156,10 +156,10 @@ impl<'b> BitReader<'b> {
         }
     }
 
-    pub(crate) fn read_bit(&mut self) -> Result<bool, SerdeErr> {
+    pub(crate) fn read_bit(&mut self) -> Result<bool, Error> {
         if self.state.scratch_index == 0 {
             if self.state.buffer_index == self.buffer.len() {
-                return Err(SerdeErr);
+                return Err(Error);
             }
 
             self.state.scratch = self.buffer[self.state.buffer_index];
@@ -177,7 +177,7 @@ impl<'b> BitReader<'b> {
         Ok(value != 0)
     }
 
-    pub(crate) fn read_byte(&mut self) -> Result<u8, SerdeErr> {
+    pub(crate) fn read_byte(&mut self) -> Result<u8, Error> {
         let mut output = 0;
         for _ in 0..7 {
             if self.read_bit()? {

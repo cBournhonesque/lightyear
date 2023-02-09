@@ -5,7 +5,7 @@ use bevy_ecs::entity::Entity;
 
 use crate::shared::{
     Channel, ChannelId, Channels, ComponentId, Components, Message, MessageId, MessageReceivable,
-    Messages, ReplicateSafe, Tick,
+    Messages, ReplicableComponent, Tick,
 };
 
 use crate::client::error::NaiaClientError;
@@ -20,7 +20,7 @@ pub struct Events {
     spawns: Vec<Entity>,
     despawns: Vec<Entity>,
     inserts: Vec<(Entity, ComponentId)>,
-    removes: HashMap<ComponentId, Vec<(Entity, Box<dyn ReplicateSafe>)>>,
+    removes: HashMap<ComponentId, Vec<(Entity, Box<dyn ReplicableComponent>)>>,
     updates: Vec<(Tick, Entity, ComponentId)>,
     empty: bool,
 }

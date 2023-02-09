@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
 };
@@ -14,7 +14,7 @@ impl<T: Serde> Serde for Option<T> {
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Option<T>, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Option<T>, Error> {
         if reader.read_bit()? {
             Ok(Some(T::de(reader)?))
         } else {

@@ -6,7 +6,7 @@ use crate::shared::{
     FakeEntityConverter, Message, Messages,
 };
 pub use crate::shared::{
-    ConnectionConfig, PacketType, ReplicateSafe, StandardHeader, Timer, Timestamp as stamp_time,
+    ConnectionConfig, PacketType, StandardHeader, Timer, Timestamp as stamp_time,
 };
 
 use super::io::Io;

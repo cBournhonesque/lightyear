@@ -1,6 +1,6 @@
 use crate::shared::messages::named::Named;
-use crate::shared::{MessageId, NetEntityConverter};
-use lightyear_serde::{BitReader, BitWrite, SerdeErr};
+use crate::shared::{MessageId, NetEntityConverter, Replicate};
+use lightyear_serde::{BitReader, BitWrite, Error};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use bevy_ecs::entity::Entity;
@@ -40,7 +40,7 @@ impl Messages {
     pub fn read(
         bit_reader: &mut BitReader,
         converter: &dyn NetEntityConverter,
-    ) -> Result<Box<dyn Message>, SerdeErr> {
+    ) -> Result<Box<dyn Message>, Error> {
         todo!()
     }
 
@@ -54,7 +54,7 @@ impl Messages {
 }
 
 // Message
-pub trait Message: Send + Sync + Named + MessageClone + Any {
+pub trait Message: Replicate + Named + MessageClone + Any {
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
     fn has_entity_properties(&self) -> bool;
     /// Returns a list of Entities contained within the Replica's properties

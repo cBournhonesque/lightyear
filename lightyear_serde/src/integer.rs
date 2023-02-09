@@ -1,5 +1,5 @@
 use crate::{
-    error::SerdeErr,
+    error::Error,
     reader_writer::{BitReader, BitWrite},
     serde::Serde,
 };
@@ -107,7 +107,7 @@ impl<const SIGNED: bool, const VARIABLE: bool, const BITS: u8> Serde
         }
     }
 
-    fn de(reader: &mut BitReader) -> Result<Self, SerdeErr> {
+    fn de(reader: &mut BitReader) -> Result<Self, Error> {
         let mut negative: bool = false;
         if SIGNED {
             negative = reader.read_bit()?;
@@ -277,6 +277,7 @@ mod tests {
         let in_1 = SignedVariableInteger::<5>::new(-668);
         let in_2 = SignedVariableInteger::<6>::new(53735);
         let in_3 = SignedVariableInteger::<2>::new(-3);
+
 
         in_1.ser(&mut writer);
         in_2.ser(&mut writer);
