@@ -1,8 +1,5 @@
 [workspace]
 resolver = "2"
 members = [
-    "bevy_lightyear",
-    "lightyear",
-    "lightyear_derive",
-    "lightyear_serde",
+    "shared",
 ]
