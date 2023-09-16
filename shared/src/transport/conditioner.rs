@@ -1,63 +1,82 @@
 #[cfg(test)]
 use mock_instant::Instant;
+use std::net::SocketAddr;
+use std::time::Duration;
 #[cfg(not(test))]
 use std::time::Instant;
 
+use crate::transport::PacketReceiver;
 use anyhow::Result;
-use crate::transport::{PacketReceiver, Transport};
 use implementation::TimeMinHeap;
-
+use rand;
+use rand::{thread_rng, Rng};
 
 /// Contains configuration required to initialize a LinkConditioner
 #[derive(Clone)]
 pub struct LinkConditionerConfig {
     /// Delay to receive incoming messages in milliseconds
-    pub incoming_latency: u32,
+    pub incoming_latency: u16,
     /// The maximum additional random latency to delay received incoming
     /// messages in milliseconds. This may be added OR subtracted from the
     /// latency determined in the `incoming_latency` property above
-    pub incoming_jitter: u32,
+    pub incoming_jitter: u16,
     /// The % chance that an incoming packet will be dropped.
     /// Represented as a value between 0 and 1
     pub incoming_loss: f32,
 }
 
-
-pub struct LinkConditioner<T: PacketReceiver> {
+// Conditions a packet-receiver T that sends packets P
+pub struct ConditionedPacketReceiver<T: PacketReceiver, P: Eq> {
     packet_receiver: T,
     config: LinkConditionerConfig,
-    time_queue: TimeMinHeap<Box<[u8]>>
+    pub time_queue: TimeMinHeap<P>,
+    last_packet: Option<P>,
 }
 
-impl<T> LinkConditioner<T> {
-    fn condition_packet<P: Eq>(&mut self, packet: P) {
-        if Random::gen_range_f32(0.0, 1.0) <= self.config.incoming_loss {
-            // drop the packet
-            return;
+impl<T: PacketReceiver, P: Eq> ConditionedPacketReceiver<T, P> {
+    pub fn new(packet_receiver: T, link_conditioner_config: &LinkConditionerConfig) -> Self {
+        ConditionedPacketReceiver {
+            packet_receiver,
+            config: link_conditioner_config.clone(),
+            time_queue: TimeMinHeap::new(),
+            last_packet: None,
         }
-        let mut latency: u32 = self.config.incoming_latency;
-        if config.incoming_jitter > 0 {
-            if Random::gen_bool() {
-                latency += Random::gen_range_u32(0, self.config.incoming_jitter);
-            } else {
-                latency -= Random::gen_range_u32(0, self.config.incoming_jitter);
-            }
-        }
-        let mut packet_timestamp = Instant::now();
-        packet_timestamp.add_millis(latency);
-        self.time_queue.add_item(packet_timestamp, packet);
     }
 }
 
-impl<T: PacketReceiver> PacketReceiver for LinkConditioner<T> {
-    fn recv(&mut self) -> Result<Option<&[u8]>> {
+// Condition a packet by potentially adding latency/jitter/loss to it
+fn condition_packet<P: Eq>(
+    config: &LinkConditionerConfig,
+    time_queue: &mut TimeMinHeap<P>,
+    packet: P,
+) {
+    let mut rng = thread_rng();
+    if rng.gen_range(0.0..1.0) <= config.incoming_loss {
+        return;
+    }
+    let mut latency: i32 = config.incoming_latency.into();
+    let mut packet_timestamp = Instant::now();
+    if config.incoming_jitter > 0 {
+        let jitter: i32 = config.incoming_jitter.into();
+        latency += rng.gen_range(-jitter..jitter);
+    }
+    if latency > 0 {
+        packet_timestamp += Duration::from_millis(latency as u64);
+    }
+    time_queue.add_item(packet_timestamp, packet);
+}
+
+impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketAddr, Box<[u8]>)> {
+    fn recv(&mut self) -> Result<Option<(&[u8], SocketAddr)>> {
         loop {
             // keep trying to receive packets from the inner packet receiver
             match self.packet_receiver.recv() {
                 Ok(option) => match option {
                     None => break,
                     // add conditioning (put the packets in the time queue)
-                    Some(packet) => self.condition_packet(packet),
+                    Some((data, addr)) => {
+                        condition_packet(&self.config, &mut self.time_queue, (addr, data.into()))
+                    }
                 },
                 Err(err) => {
                     return Err(err);
@@ -66,7 +85,11 @@ impl<T: PacketReceiver> PacketReceiver for LinkConditioner<T> {
         }
         // only return a packet if it is ready to be returned
         match self.time_queue.pop_item() {
-            Some(packet) => Ok(Some(packet.as_ref())),
+            Some((addr, data)) => {
+                // we use `last_packet` to get ownership of the data
+                self.last_packet = Some((addr, data));
+                Ok(Some((self.last_packet.as_ref().unwrap().1.as_ref(), addr)))
+            }
             None => Ok(None),
         }
     }
@@ -74,7 +97,7 @@ impl<T: PacketReceiver> PacketReceiver for LinkConditioner<T> {
 
 impl LinkConditionerConfig {
     /// Creates a new LinkConditionerConfig
-    pub fn new(incoming_latency: u32, incoming_jitter: u32, incoming_loss: f32) -> Self {
+    pub fn new(incoming_latency: u16, incoming_jitter: u16, incoming_loss: f32) -> Self {
         LinkConditionerConfig {
             incoming_latency,
             incoming_jitter,
@@ -113,13 +136,8 @@ impl LinkConditionerConfig {
     }
 }
 
-
 pub(crate) mod implementation {
-    #[cfg(test)]
-    use mock_instant::Instant;
-    #[cfg(not(test))]
-    use std::time::Instant;
-
+    use super::Instant;
     use std::{cmp::Ordering, collections::BinaryHeap};
 
     /// A heap that contains items associated with an instant.
@@ -185,7 +203,6 @@ pub(crate) mod implementation {
         pub item: T,
     }
 
-
     /// BinaryHeap is a max-heap, so we must reverse the ordering of the Instants
     /// to get a min-heap
     impl<T: Eq + PartialEq> Ord for ItemWithTime<T> {
@@ -202,9 +219,10 @@ pub(crate) mod implementation {
 
     #[cfg(test)]
     mod tests {
-        use std::time::Duration;
-        use mock_instant::{MockClock, Instant};
+        use super::Instant;
         use super::TimeMinHeap;
+        use mock_instant::MockClock;
+        use std::time::Duration;
 
         #[test]
         fn test_time_heap() {
@@ -225,9 +243,6 @@ pub(crate) mod implementation {
             assert_eq!(heap.pop_item(), Some(2));
             assert_eq!(heap.pop_item(), None);
             assert_eq!(heap.len(), 1);
-
         }
     }
 }
-
-
