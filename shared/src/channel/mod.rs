@@ -1,4 +1,4 @@
-mod channel;
+pub mod channel;
 
 mod receivers;
 mod senders;

@@ -9,8 +9,9 @@ pub struct UnorderedUnreliableReceiver {
 }
 
 impl ChannelReceiver for UnorderedUnreliableReceiver {
-    fn buffer_recv(&mut self, message: Message, message_id: MessageId) {
+    fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
         self.recv_message_buffer.push_back(message);
+        Ok(())
     }
 
     fn read_message(&mut self) -> Option<Message> {

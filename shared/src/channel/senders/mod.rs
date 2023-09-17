@@ -1,9 +1,9 @@
 use crate::packet::message::Message;
 use crate::packet::packet::{Packet, PacketWriter};
 
-mod message_packer;
-mod reliable;
-mod unreliable;
+pub(crate) mod message_packer;
+pub(crate) mod reliable;
+pub(crate) mod unreliable;
 
 /// A trait for sending messages to a channel.
 /// A channel is a buffer over packets to be able to add ordering/reliability

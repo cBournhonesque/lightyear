@@ -1,4 +1,5 @@
 use crate::channel::receivers::ChannelReceiver;
+use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{btree_map, BTreeMap, VecDeque};
 
@@ -27,16 +28,19 @@ impl OrderedReliableReceiver {
 
 impl ChannelReceiver for OrderedReliableReceiver {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: Message, message_id: MessageId) {
+    fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
+        let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
+
         // if the message is too old, ignore it
         if message_id < self.pending_recv_message_id {
-            return;
+            return Ok(());
         }
 
         // add the message to the buffer
         if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             entry.insert(message);
         }
+        Ok(())
     }
 
     /// Reads a message from the internal buffer to get its content

@@ -1,3 +1,4 @@
+use crate::channel::channel::ChannelHeader;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::PacketId;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -5,8 +6,9 @@ use std::collections::HashMap;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding
-pub struct PacketHeader {
-    /// General id for the procotol used
+#[derive(bitcode::Decode, bitcode::Encode, Debug, Clone, Copy)]
+pub(crate) struct PacketHeader {
+    /// General id for the protocol used
     // TODO: add CRC check (see https://gafferongames.com/post/serialization_strategies/)
     protocol_id: u16,
     /// Type of the packet sent
@@ -19,7 +21,9 @@ pub struct PacketHeader {
     /// (this means that in total we send acks for 33 packet-ids)
     /// See more information at: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
     ack_bitfield: u32,
-    // /// Extra data to be included in the header
+
+    pub(crate) channel_header: ChannelHeader,
+    // /// Extra data to be included in the header (channel id, maybe fragmented id, tick?)
     // extra_header: Box<dyn PacketHeaderData>,
 }
 
@@ -99,6 +103,7 @@ impl PacketHeaderManager {
         &mut self,
         protocol_id: u16,
         packet_type: PacketType,
+        channel_header: ChannelHeader,
     ) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
@@ -112,6 +117,7 @@ impl PacketHeaderManager {
             packet_id: self.next_packet_id,
             last_ack_packet_id,
             ack_bitfield: self.recv_buffer.get_bitfield(),
+            channel_header,
             // extra_header: Box::new(()),
         };
         self.increment_next_packet_id();

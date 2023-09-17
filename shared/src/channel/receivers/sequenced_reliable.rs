@@ -1,4 +1,5 @@
 use crate::channel::receivers::ChannelReceiver;
+use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{btree_map, BTreeMap, BTreeSet, VecDeque};
 
@@ -16,12 +17,23 @@ pub struct SequencedReliableReceiver {
     most_recent_message_id: MessageId,
 }
 
+impl SequencedReliableReceiver {
+    pub fn new() -> Self {
+        Self {
+            recv_message_buffer: BTreeMap::new(),
+            most_recent_message_id: MessageId(0),
+        }
+    }
+}
+
 impl ChannelReceiver for SequencedReliableReceiver {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: Message, message_id: MessageId) {
+    fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
+        let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
+
         // if the message is too old, ignore it
         if message_id < self.most_recent_message_id {
-            return;
+            return Ok(());
         }
 
         // update the most recent message id
@@ -33,6 +45,7 @@ impl ChannelReceiver for SequencedReliableReceiver {
         if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             entry.insert(message);
         }
+        Ok(())
     }
     fn read_message(&mut self) -> Option<Message> {
         // keep popping messages until we get one that is more recent than the last one we processed

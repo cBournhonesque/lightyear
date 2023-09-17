@@ -45,7 +45,8 @@ impl ReliableSender {
         }
     }
 
-    /// Internal helper to collect the list of messages that are ready to be resent
+    /// Internal helper to collect the list of messages that need to be sent
+    /// Either because they have never been sent, or because they need to be resent
     fn collect_messages_to_send(&mut self) {
         // resend delay is based on the rtt
         let resend_delay =
@@ -93,6 +94,10 @@ impl ChannelSender for ReliableSender {
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self, packet_writer: &mut PacketWriter) -> Vec<Packet> {
+        // TODO: do we want to ALWAYS call this when we send packet? or should we separate the 2?
+        // collect the messages that need to be sent (some of them might have to be resent)
+        self.collect_messages_to_send();
+
         MessagePacker::pack_messages(&mut self.messages_to_send, packet_writer)
     }
 }

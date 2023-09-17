@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+bitcode = "0.4"
 bytes = "1.5"
 rand = "0.8"
 ringbuffer = "0.15"
+serde = { version = "1.0.188", features = ["derive"] }
 
 [dev-dependencies]
 mock_instant = "0.3"

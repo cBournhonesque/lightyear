@@ -5,7 +5,7 @@ use std::ops::{Add, AddAssign, Deref, Sub};
 macro_rules! wrapping_id {
     ($struct_name:ident) => {
         // define the struct
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[derive(bitcode::Encode, bitcode::Decode, Clone, Copy, Debug, Eq, Hash, PartialEq)]
         pub struct $struct_name(pub u16);
 
         /// Derive deref so that we don't have to write packet_id.0 in most cases
