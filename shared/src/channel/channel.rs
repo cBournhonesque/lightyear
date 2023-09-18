@@ -1,22 +1,23 @@
 use crate::channel::channel::ChannelMode::{SequencedReliable, SequencedUnreliable};
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
+use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
 use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
-use crate::channel::receivers::ChannelReceiver;
+use crate::channel::receivers::{ChannelReceive, ChannelReceiver};
 use crate::channel::senders::reliable::ReliableSender;
-use crate::channel::senders::unreliable::UnorderedUnreliableSender;
-use crate::channel::senders::ChannelSender;
+use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
+use crate::channel::senders::{ChannelSend, ChannelSender};
 use serde::Serialize;
 use std::any::TypeId;
 
 /// A Channel is an abstraction for a way to send messages over the network
-/// You can defined the direction, ordering, reliability of the channel
+/// You can define the direction, ordering, reliability of the channel
 pub struct Channel {
     setting: ChannelSettings,
     kind: ChannelKind,
-    pub(crate) receiver: Box<dyn ChannelReceiver>,
-    pub(crate) sender: Box<dyn ChannelSender>,
+    pub(crate) receiver: ChannelReceiver,
+    pub(crate) sender: ChannelSender,
 }
 
 /// Data from the channel that will be serialized in the header of the packet
@@ -26,42 +27,43 @@ pub(crate) struct ChannelHeader {
 }
 
 impl Channel {
-    pub fn new(settings: &ChannelSettings, kind: ChannelKind) -> Self {
-        let mut channel = Self {
-            setting: settings.clone(),
-            kind,
-            receiver: Box::new(()),
-            sender: Box::new(()),
-        };
-        match &settings.mode {
+    pub fn new(settings: ChannelSettings, kind: ChannelKind) -> Self {
+        let receiver: ChannelReceiver;
+        let sender: ChannelSender;
+        match settings.mode {
             ChannelMode::UnorderedUnreliable => {
-                channel.receiver = Box::new(UnorderedUnreliableReceiver::new());
-                channel.sender = Box::new(UnorderedUnreliableSender::new());
+                receiver = UnorderedUnreliableReceiver::new().into();
+                sender = UnorderedUnreliableSender::new().into();
             }
             ChannelMode::SequencedUnreliable => {
-                // TODO:
-                // self.receiver = Box::new(SequencedUnreliableReceiver::new());
-                // self.sender = Box::new(UnorderedUnreliableSender::new());
+                receiver = SequencedUnreliableReceiver::new().into();
+                sender = SequencedUnreliableSender::new().into();
             }
             ChannelMode::UnorderedReliable(reliable_settings) => {
-                channel.receiver = Box::new(ReliableSender::new());
-                channel.sender = Box::new(SequencedReliableReceiver::new());
+                receiver = UnorderedReliableReceiver::new().into();
+                sender = ReliableSender::new(reliable_settings).into();
             }
             ChannelMode::SequencedReliable(reliable_settings) => {
-                channel.receiver = Box::new(SequencedReliableReceiver::new());
+                receiver = SequencedReliableReceiver::new().into();
+                sender = ReliableSender::new(reliable_settings).into();
             }
             ChannelMode::OrderedReliable(reliable_settings) => {
-                channel.receiver = Box::new(OrderedReliableReceiver::new());
-                channel.sender = Box::new(ReliableSender::new());
+                receiver = OrderedReliableReceiver::new().into();
+                sender = ReliableSender::new(reliable_settings).into();
             }
         }
-        channel
+        Self {
+            setting: settings.clone(),
+            kind,
+            receiver,
+            sender,
+        }
     }
 }
 
 /// Type of the channel
 // TODO: update the serialization
-#[derive(Serialize)]
+// #[derive(Serialize)]
 pub struct ChannelKind(TypeId);
 
 #[derive(Clone)]
@@ -106,7 +108,7 @@ pub enum ChannelDirection {
 
 #[derive(Clone)]
 pub struct ReliableSettings {
-    /// TODO
+    /// Duration to wait before resending a packet if it has not been acked
     pub rtt_resend_factor: f32,
 }
 

@@ -1,4 +1,4 @@
-use crate::channel::receivers::ChannelReceiver;
+use crate::channel::receivers::ChannelReceive;
 use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{btree_map, BTreeMap, BTreeSet, VecDeque};
@@ -26,7 +26,8 @@ impl SequencedReliableReceiver {
     }
 }
 
-impl ChannelReceiver for SequencedReliableReceiver {
+// TODO: THIS SEEMS WRONG!
+impl ChannelReceive for SequencedReliableReceiver {
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;

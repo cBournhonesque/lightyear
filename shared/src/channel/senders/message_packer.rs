@@ -1,7 +1,8 @@
 //! Module to define how messages are stored into packets
 
+use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
-use crate::packet::packet::{Packet, PacketWriter, SinglePacket};
+use crate::packet::packet::{Packet, SinglePacket};
 use crate::packet::wrapping_id::MessageId;
 use std::collections::VecDeque;
 
@@ -19,13 +20,13 @@ impl MessagePacker {
         // messages_to_send: &mut VecDeque<(MessageId, Message)>,
         // /// Iterator of messages from most urgent to least urgent
         // messages_to_send: &mut impl MessageIterator,
-        messages_to_send: &mut VecDeque<(Option<MessageId>, Message)>,
-        packet_writer: &mut PacketWriter,
+        messages_to_send: &mut VecDeque<Message>,
+        packet_manager: &mut PacketManager,
     ) -> Vec<Packet> {
         let mut packets = Vec::new();
         // build new packet
         'packet: loop {
-            let mut packet = packet_writer.build_new_packet();
+            let mut packet = packet_manager.build_new_packet();
 
             // add messages to packet
             'message: loop {
@@ -34,13 +35,9 @@ impl MessagePacker {
                 if messages_to_send.is_empty() {
                     break 'packet;
                 }
-                let (message_id, message) = messages_to_send.front().unwrap();
+                let message = messages_to_send.front().unwrap();
                 // TODO: AVOID THIS CLONE!
-                match packet_writer.try_add_message(
-                    &mut packet,
-                    message_id.unwrap(),
-                    message.clone(),
-                ) {
+                match packet_manager.try_add_message(&mut packet, message.clone()) {
                     Ok(_) => {
                         // message was added to packet, remove from messages_to_send
                         messages_to_send.pop_front();

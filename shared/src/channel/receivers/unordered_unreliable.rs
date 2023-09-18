@@ -1,4 +1,4 @@
-use crate::channel::receivers::ChannelReceiver;
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::Message;
 use crate::packet::wrapping_id::MessageId;
 use std::collections::VecDeque;
@@ -8,7 +8,15 @@ pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<Message>,
 }
 
-impl ChannelReceiver for UnorderedUnreliableReceiver {
+impl UnorderedUnreliableReceiver {
+    pub fn new() -> Self {
+        Self {
+            recv_message_buffer: VecDeque::new(),
+        }
+    }
+}
+
+impl ChannelReceive for UnorderedUnreliableReceiver {
     fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
         self.recv_message_buffer.push_back(message);
         Ok(())

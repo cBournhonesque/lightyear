@@ -1,7 +1,8 @@
 use crate::channel::channel::{Channel, ChannelKind};
 use crate::packet::header::PacketHeaderManager;
+use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
-use crate::packet::packet::{PacketWriter, SinglePacket};
+use crate::packet::packet::SinglePacket;
 use crate::transport::Transport;
 use anyhow::anyhow;
 use std::collections::HashMap;
@@ -10,7 +11,7 @@ use std::net::SocketAddr;
 /// Wrapper to send/receive messages via channels
 pub struct Connection {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketHeaderManager,
+    packet_manager: PacketManager,
     channels: HashMap<ChannelKind, Channel>,
     transport: Box<dyn Transport>,
 }

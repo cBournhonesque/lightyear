@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding
-#[derive(bitcode::Decode, bitcode::Encode, Debug, Clone, Copy)]
+#[derive(bitcode::Decode, bitcode::Encode, Debug, Clone)]
 pub(crate) struct PacketHeader {
     /// General id for the protocol used
     // TODO: add CRC check (see https://gafferongames.com/post/serialization_strategies/)

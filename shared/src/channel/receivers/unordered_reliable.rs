@@ -1,4 +1,4 @@
-use crate::channel::receivers::ChannelReceiver;
+use crate::channel::receivers::ChannelReceive;
 use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{btree_map, BTreeMap, BTreeSet, VecDeque};
@@ -13,16 +13,27 @@ pub struct UnorderedReliableReceiver {
     /// The channel is reliable so we should see all message ids.
     oldest_pending_message_id: MessageId,
     // TODO: optimize via ring buffer?
+    // TODO: actually we could just use a VecDeque here?
     /// Buffer of the messages that we received, but haven't processed yet
     recv_message_buffer: BTreeMap<MessageId, Message>,
 }
 
-impl ChannelReceiver for UnorderedReliableReceiver {
+impl UnorderedReliableReceiver {
+    pub fn new() -> Self {
+        Self {
+            oldest_pending_message_id: MessageId(0),
+            recv_message_buffer: BTreeMap::new(),
+        }
+    }
+}
+
+impl ChannelReceive for UnorderedReliableReceiver {
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
 
-        // if the message is too old, ignore it
+        // we have already received the message if it's older than the oldest pending message
+        // (since we are reliable, we should have received all messages prior to that one)
         if message_id < self.oldest_pending_message_id {
             return Ok(());
         }

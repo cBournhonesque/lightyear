@@ -1,4 +1,4 @@
-use crate::channel::receivers::ChannelReceiver;
+use crate::channel::receivers::ChannelReceive;
 use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{btree_map, BTreeMap, VecDeque};
@@ -26,7 +26,7 @@ impl OrderedReliableReceiver {
     }
 }
 
-impl ChannelReceiver for OrderedReliableReceiver {
+impl ChannelReceive for OrderedReliableReceiver {
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
@@ -65,7 +65,7 @@ impl ChannelReceiver for OrderedReliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use super::ChannelReceiver;
+    use super::ChannelReceive;
     use super::OrderedReliableReceiver;
     use super::{Message, MessageId};
     use bytes::Bytes;
@@ -74,15 +74,17 @@ mod tests {
     fn test_ordered_reliable_receiver_internals() {
         let mut receiver = OrderedReliableReceiver::new();
 
-        let message1 = Message::new(Bytes::from("hello"));
-        let message2 = Message::new(Bytes::from("world"));
+        let mut message1 = Message::new(Bytes::from("hello"));
+        let mut message2 = Message::new(Bytes::from("world"));
 
         // receive an old message: it doesn't get added to the buffer
-        receiver.buffer_recv(message2.clone(), MessageId(60000));
+        message2.id = Some(MessageId(60000));
+        receiver.buffer_recv(message2.clone());
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
         // receive message in the wrong order
-        receiver.buffer_recv(message2.clone(), MessageId(1));
+        message2.id = Some(MessageId(1));
+        receiver.buffer_recv(message2.clone());
 
         // the message has been buffered, but we are not processing it yet
         // until we have received message 0
@@ -92,7 +94,8 @@ mod tests {
         assert_eq!(receiver.pending_recv_message_id, MessageId(0));
 
         // receive message 0
-        receiver.buffer_recv(message1.clone(), MessageId(0));
+        message1.id = Some(MessageId(0));
+        receiver.buffer_recv(message1.clone());
         assert_eq!(receiver.recv_message_buffer.len(), 2);
 
         // now we can read the messages in order
