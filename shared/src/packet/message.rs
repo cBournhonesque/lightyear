@@ -25,6 +25,10 @@ impl Message {
         Message { id: None, data }
     }
 
+    pub fn set_id(&mut self, id: MessageId) {
+        self.id = Some(id);
+    }
+
     /// Bit length of the serialized message (including the message id and message kind)
     pub fn bit_len(&self) -> u32 {
         let mut len = 0;
@@ -45,7 +49,8 @@ impl Message {
             let id_bytes = buffer.encode(&id)?;
             bytes.extend(id_bytes);
         }
-        bytes.extend(self.data.into_iter());
+        // TODO: this does a copy?
+        bytes.extend(self.data.iter());
         Ok(bytes.freeze())
     }
 }

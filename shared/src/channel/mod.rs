@@ -1,4 +1,4 @@
 pub mod channel;
 
-mod receivers;
-mod senders;
+pub(crate) mod receivers;
+pub(crate) mod senders;

@@ -3,7 +3,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::Message;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::{collections::VecDeque, time::Duration};
 
 use crate::channel::channel::ReliableSettings;
@@ -33,6 +33,8 @@ pub struct ReliableSender {
 
     /// list of messages that we want to fit into packets and send
     messages_to_send: VecDeque<Message>,
+    /// Set of message ids that we want to send (to prevent sending the same message twice)
+    message_ids_to_send: HashSet<MessageId>,
 
     //
     current_rtt_millis: f32,
@@ -46,6 +48,7 @@ impl ReliableSender {
             unacked_messages: Default::default(),
             next_send_message_id: MessageId(0),
             messages_to_send: Default::default(),
+            message_ids_to_send: Default::default(),
             current_rtt_millis: 0.0,
             current_time: Instant::now(),
         }
@@ -77,8 +80,13 @@ impl ReliableSender {
             if should_send {
                 message.message.id = Some(*message_id);
                 // TODO: avoid this clone!
-                self.messages_to_send.push_back(message.message.clone());
-                message.last_sent = Some(self.current_time);
+                // TODO: this is a vecdeque, so if we call this function multiple times
+                //  we would send the same message multiple times
+                if !self.message_ids_to_send.contains(message_id) {
+                    self.messages_to_send.push_back(message.message.clone());
+                    self.message_ids_to_send.insert(*message_id);
+                    message.last_sent = Some(self.current_time);
+                }
             }
         }
     }
@@ -115,7 +123,11 @@ impl ChannelSend for ReliableSender {
         self.collect_messages_to_send();
 
         // build the packets from those messages
-        MessagePacker::pack_messages(&mut self.messages_to_send, packet_manager)
+        let packets = MessagePacker::pack_messages(&mut self.messages_to_send, packet_manager);
+        for message_id in packets.iter().flat_map(|packet| packet.message_ids()) {
+            self.message_ids_to_send.remove(&message_id);
+        }
+        packets
     }
 }
 
@@ -126,7 +138,6 @@ mod tests {
     use super::ReliableSender;
     use super::{Message, MessageId};
     use crate::channel::channel::ReliableSettings;
-    use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use bytes::Bytes;
     use mock_instant::MockClock;
     use std::time::Duration;
@@ -140,6 +151,7 @@ mod tests {
             unacked_messages: Default::default(),
             next_send_message_id: MessageId(0),
             messages_to_send: Default::default(),
+            message_ids_to_send: Default::default(),
             current_rtt_millis: 100.0,
             current_time: Instant::now(),
         };
@@ -163,25 +175,18 @@ mod tests {
         MockClock::advance(Duration::from_millis(200));
         sender.current_time = Instant::now();
         sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 2);
-        assert_eq!(
-            sender.messages_to_send.get(0).unwrap(),
-            &(Some(MessageId(0)), message.clone())
-        );
-        assert_eq!(
-            sender.messages_to_send.get(1).unwrap(),
-            &(Some(MessageId(0)), message.clone())
-        );
+        assert_eq!(sender.messages_to_send.len(), 1);
+        message.id = Some(MessageId(0));
+        assert_eq!(sender.messages_to_send.get(0).unwrap(), &message.clone());
 
         // Ack the first message
         sender.process_message_ack(MessageId(0));
         assert_eq!(sender.unacked_messages.len(), 0);
-        assert!(sender.unacked_messages.get(&MessageId(0)).is_none());
 
         // Advance by a time that is above the resend threshold
         MockClock::advance(Duration::from_millis(200));
         sender.current_time = Instant::now();
         // this time there are no new messages to send
-        assert_eq!(sender.messages_to_send.len(), 2);
+        assert_eq!(sender.messages_to_send.len(), 1);
     }
 }

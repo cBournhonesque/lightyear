@@ -1,3 +1,4 @@
+use crate::channel::channel::{ChannelHeader, ChannelKind};
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::Message;
 use crate::packet::packet::{Packet, SinglePacket};
@@ -6,7 +7,7 @@ use anyhow::anyhow;
 
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager {
-    header_manager: PacketHeaderManager,
+    pub(crate) header_manager: PacketHeaderManager,
 }
 
 // PLAN:
@@ -22,9 +23,13 @@ impl PacketManager {
     pub(crate) fn build_new_packet(&mut self) -> Packet {
         Packet::Single(SinglePacket {
             // TODO: handle protocol and packet type
-            header: self
-                .header_manager
-                .prepare_send_packet_header(0, PacketType::Data),
+            header: self.header_manager.prepare_send_packet_header(
+                0,
+                PacketType::Data,
+                ChannelHeader {
+                    kind: ChannelKind::new(0),
+                },
+            ),
             data: vec![],
         })
     }

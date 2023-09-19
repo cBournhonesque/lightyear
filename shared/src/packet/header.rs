@@ -1,12 +1,14 @@
 use crate::channel::channel::ChannelHeader;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::PacketId;
+use bitcode::{Decode, Encode};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding
-#[derive(bitcode::Decode, bitcode::Encode, Debug, Clone)]
+#[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone)]
 pub(crate) struct PacketHeader {
     /// General id for the protocol used
     // TODO: add CRC check (see https://gafferongames.com/post/serialization_strategies/)

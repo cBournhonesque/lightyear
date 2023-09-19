@@ -8,7 +8,8 @@ use crate::channel::receivers::{ChannelReceive, ChannelReceiver};
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
 use crate::channel::senders::{ChannelSend, ChannelSender};
-use serde::Serialize;
+use bitcode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 
 /// A Channel is an abstraction for a way to send messages over the network
@@ -21,6 +22,7 @@ pub struct Channel {
 }
 
 /// Data from the channel that will be serialized in the header of the packet
+#[derive(Encode, Decode, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ChannelHeader {
     pub(crate) kind: ChannelKind,
     // TODO: add fragmentation data
@@ -30,6 +32,7 @@ impl Channel {
     pub fn new(settings: ChannelSettings, kind: ChannelKind) -> Self {
         let receiver: ChannelReceiver;
         let sender: ChannelSender;
+        let settings_clone = settings.clone();
         match settings.mode {
             ChannelMode::UnorderedUnreliable => {
                 receiver = UnorderedUnreliableReceiver::new().into();
@@ -53,7 +56,7 @@ impl Channel {
             }
         }
         Self {
-            setting: settings.clone(),
+            setting: settings_clone,
             kind,
             receiver,
             sender,
@@ -64,10 +67,18 @@ impl Channel {
 /// Type of the channel
 // TODO: update the serialization
 // #[derive(Serialize)]
-pub struct ChannelKind(TypeId);
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Encode, Decode)]
+pub struct ChannelKind(u16);
+
+impl ChannelKind {
+    pub const fn new(id: u16) -> Self {
+        Self(id)
+    }
+}
 
 #[derive(Clone)]
 pub struct ChannelSettings {
+    // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
     pub mode: ChannelMode,
     pub direction: ChannelDirection,
 }

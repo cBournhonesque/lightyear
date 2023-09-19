@@ -77,7 +77,7 @@ mod tests {
         let mut message1 = Message::new(Bytes::from("hello"));
         let mut message2 = Message::new(Bytes::from("world"));
 
-        // receive an old message: it doesn't get added to the buffer
+        // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
         message2.id = Some(MessageId(60000));
         receiver.buffer_recv(message2.clone());
         assert_eq!(receiver.recv_message_buffer.len(), 0);

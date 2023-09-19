@@ -1,4 +1,7 @@
-#[derive(Copy, Debug, Clone, Eq, PartialEq)]
+use bitcode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
+
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum PacketType {
     // A packet containing actual data
     Data,

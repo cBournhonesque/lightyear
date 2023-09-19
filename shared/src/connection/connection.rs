@@ -1,4 +1,6 @@
 use crate::channel::channel::{Channel, ChannelKind};
+use crate::channel::receivers::ChannelReceive;
+use crate::channel::senders::ChannelSend;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
@@ -42,7 +44,11 @@ impl Connection {
             let channel_packets = channel.sender.send_packet(&mut self.packet_manager);
 
             // split them into single packets
-            packets.extend(channel_packets.iter().flat_map(|packet| packet.split()));
+            packets.extend(
+                channel_packets
+                    .into_iter()
+                    .flat_map(|packet| packet.split()),
+            );
         }
 
         // Step 2. Send the packets over the network
@@ -63,6 +69,7 @@ impl Connection {
         // Step 2. Update the packet acks (which packets have we received, and which of our packets
         // have been acked)
         self.packet_manager
+            .header_manager
             .process_recv_packet_header(&packet.header);
 
         // Step 3. Put the messages from the packet in the internal buffers

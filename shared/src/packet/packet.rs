@@ -61,4 +61,16 @@ impl Packet {
             Packet::Fragmented(fragmented_packet) => unimplemented!(),
         }
     }
+
+    /// Contains the list of message ids that are in this packet
+    pub fn message_ids(&self) -> Vec<MessageId> {
+        match self {
+            Packet::Single(single_packet) => single_packet
+                .data
+                .iter()
+                .filter_map(|message| message.id)
+                .collect(),
+            Packet::Fragmented(fragmented_packet) => unimplemented!(),
+        }
+    }
 }

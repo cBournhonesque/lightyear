@@ -56,7 +56,7 @@ mod tests {
     use bytes::Bytes;
 
     #[test]
-    fn test_ordered_reliable_receiver_internals() {
+    fn test_sequenced_unreliable_receiver_internals() {
         let mut receiver = SequencedUnreliableReceiver::new();
 
         let mut message1 = Message::new(Bytes::from("hello"));
@@ -80,14 +80,14 @@ mod tests {
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
         // receive an earlier message 0
-        message1.id = Some(MessageId(0));
+        message1.set_id(MessageId(0));
         receiver.buffer_recv(message1.clone());
         // we don't add it to the buffer since we have read a more recent message.
         assert_eq!(receiver.recv_message_buffer.len(), 0);
         assert_eq!(receiver.read_message(), None);
 
         // receive a later message
-        message3.id = Some(MessageId(2));
+        message3.set_id(MessageId(2));
         receiver.buffer_recv(message3.clone());
         // it's the most recent message so we receive it
         assert_eq!(receiver.recv_message_buffer.len(), 1);
