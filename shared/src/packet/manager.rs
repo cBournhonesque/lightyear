@@ -14,6 +14,12 @@ pub(crate) struct PacketManager {
 // -
 
 impl PacketManager {
+    pub fn new() -> Self {
+        Self {
+            header_manager: PacketHeaderManager::new(),
+        }
+    }
+
     /// Returns true if the given number of bits can fit into the packet
     fn can_fit(&self, num_bits: u32) -> bool {
         unimplemented!()

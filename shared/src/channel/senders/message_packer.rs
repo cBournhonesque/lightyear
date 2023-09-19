@@ -17,9 +17,6 @@ trait MessageIterator {
 impl MessagePacker {
     pub fn pack_messages(
         // TODO: use an iterator of Messages (from most urgent to least urgent)
-        // messages_to_send: &mut VecDeque<(MessageId, Message)>,
-        // /// Iterator of messages from most urgent to least urgent
-        // messages_to_send: &mut impl MessageIterator,
         messages_to_send: &mut VecDeque<Message>,
         packet_manager: &mut PacketManager,
     ) -> Vec<Packet> {

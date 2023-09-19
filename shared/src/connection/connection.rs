@@ -10,15 +10,26 @@ use anyhow::anyhow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-/// Wrapper to send/receive messages via channels
+/// Wrapper to: send/receive messages via channels to a remote address
+/// By splitting the data into packets and sending them through a given transport
 pub struct Connection {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketManager,
     channels: HashMap<ChannelKind, Channel>,
     transport: Box<dyn Transport>,
+    remote_addr: SocketAddr,
 }
 
 impl Connection {
+    pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
+        Self {
+            packet_manager: PacketManager::new(),
+            channels: Default::default(),
+            transport,
+            remote_addr,
+        }
+    }
+
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(
         &mut self,
@@ -33,7 +44,7 @@ impl Connection {
     }
 
     /// Prepare buckets from the internal send buffers, and send them over the network
-    pub fn send_packets(&mut self, remote_addr: &SocketAddr) -> anyhow::Result<()> {
+    pub fn send_packets(&mut self) -> anyhow::Result<()> {
         // Step 1. Get the list of packets to send from all channels
         // TODO: currently each channel creates separate packets
         //  but actually we could put messages from multiple channels in the same packet
@@ -54,7 +65,7 @@ impl Connection {
         // Step 2. Send the packets over the network
         for packet in packets {
             let payload = packet.serialize()?;
-            self.transport.send(payload.as_ref(), remote_addr)?;
+            self.transport.send(payload.as_ref(), &self.remote_addr)?;
         }
 
         Ok(())
@@ -107,7 +118,34 @@ impl Connection {
 
 #[cfg(test)]
 mod tests {
+    use super::Connection;
+    use crate::transport::udp::Socket;
+    use crate::transport::Transport;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
 
     #[test]
-    fn test_connection() {}
+    /// We want to test that we can send/receive messages over a connection
+    fn test_connection() -> Result<(), anyhow::Error> {
+        // Create connections
+        let socket_addr = SocketAddr::from_str("127.0.0.1:0")?;
+        let mut server_socket = Socket::new(&socket_addr)?;
+        let client_socket = Socket::new(&socket_addr)?;
+        let server_addr = server_socket.local_addr()?;
+        let client_addr = client_socket.local_addr()?;
+
+        let client_transport = Box::new(Socket::new(&client_addr));
+        let mut client_connection = Connection::new(server_addr, client_transport);
+
+        let server_transport = Box::new(Socket::new(&server_addr));
+        let mut server_connection = Connection::new(client_addr, server_transport);
+
+        // Add channels (ideally we create them only once via a shared protocol)
+
+        // On client side: buffer send messages, and then send
+        // On server side: keep looping to receive bytes, then process them into messages
+
+        // Check that the received messages are the same as the sent ones
+        // Maybe inspect how the messages were put into packets? (or this could be a test for packet writer)
+    }
 }

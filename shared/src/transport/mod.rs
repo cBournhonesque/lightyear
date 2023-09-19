@@ -1,6 +1,6 @@
 //! Interface for the transport layer
 mod conditioner;
-mod udp;
+pub(crate) mod udp;
 
 use anyhow::Result;
 use std::net::SocketAddr;
