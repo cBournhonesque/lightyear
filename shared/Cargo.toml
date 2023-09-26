@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bitcode = "0.4"
-bytes = "1.5"
+bytes = { version = "1.5", features = ["serde"] }
 enum_dispatch = "0.3"
 rand = "0.8"
 ringbuffer = "0.15"

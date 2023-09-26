@@ -30,6 +30,8 @@ impl MessagePacker {
                 // TODO: check if message size is too big for a single packet, in which case we fragment!
 
                 if messages_to_send.is_empty() {
+                    // no more messages to send, add the packet
+                    packets.push(packet);
                     break 'packet;
                 }
                 let message = messages_to_send.front().unwrap();

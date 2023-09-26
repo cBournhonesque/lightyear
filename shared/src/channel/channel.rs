@@ -67,7 +67,7 @@ impl Channel {
 /// Type of the channel
 // TODO: update the serialization
 // #[derive(Serialize)]
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Encode, Decode)]
 pub struct ChannelKind(u16);
 
 impl ChannelKind {

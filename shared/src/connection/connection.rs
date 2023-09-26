@@ -1,12 +1,11 @@
 use crate::channel::channel::{Channel, ChannelKind};
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::packet::header::PacketHeaderManager;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
-use crate::packet::packet::SinglePacket;
+use crate::packet::packet::{Packet, SinglePacket};
 use crate::transport::Transport;
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -16,16 +15,17 @@ pub struct Connection {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketManager,
     channels: HashMap<ChannelKind, Channel>,
-    transport: Box<dyn Transport>,
+    // transport: Box<RefCell<dyn Transport>>,
     remote_addr: SocketAddr,
 }
 
 impl Connection {
-    pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
+    // pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
+    pub fn new(remote_addr: SocketAddr, channels: HashMap<ChannelKind, Channel>) -> Self {
         Self {
             packet_manager: PacketManager::new(),
-            channels: Default::default(),
-            transport,
+            channels: channels,
+            // transport: Box::new(RefCell::new(transport.as_ref())),
             remote_addr,
         }
     }
@@ -44,7 +44,7 @@ impl Connection {
     }
 
     /// Prepare buckets from the internal send buffers, and send them over the network
-    pub fn send_packets(&mut self) -> anyhow::Result<()> {
+    pub fn send_packets(&mut self, transport: Box<dyn Transport>) -> anyhow::Result<()> {
         // Step 1. Get the list of packets to send from all channels
         // TODO: currently each channel creates separate packets
         //  but actually we could put messages from multiple channels in the same packet
@@ -64,18 +64,53 @@ impl Connection {
 
         // Step 2. Send the packets over the network
         for packet in packets {
-            let payload = packet.serialize()?;
-            self.transport.send(payload.as_ref(), &self.remote_addr)?;
+            let payload = self.packet_manager.encode_packet(&Packet::Single(packet))?;
+            transport.send(payload, &self.remote_addr)?;
         }
 
         Ok(())
     }
 
+    /// Listen for packets on the transport and buffer them
+    ///
+    /// Return when there are no more packets to receive on the transport
+    pub fn listen(&mut self, mut transport: Box<dyn Transport>) -> anyhow::Result<()> {
+        loop {
+            match transport.recv()? {
+                Some((recv_len, address)) => {
+                    if address != self.remote_addr {
+                        bail!("received packet from unknown address");
+                    }
+                    self.recv_packet(recv_len)?;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        // loop {
+        //     match self.transport.recv()? {
+        //         Some((recv_len, address)) => {
+        //             if address != self.remote_addr {
+        //                 bail!("received packet from unknown address");
+        //             }
+        //             self.recv_packet(recv_len)?;
+        //             continue;
+        //         }
+        //         None => break,
+        //     }
+        // }
+        Ok(())
+    }
+
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
-    pub fn recv_packet(&mut self, packet: &[u8]) -> anyhow::Result<()> {
+    pub fn recv_packet(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         // Step 1. Parse the packet
-        let packet = SinglePacket::deserialize(packet)?;
+        let packet = self.packet_manager.decode_packet(bytes)?;
+        let packet = match packet {
+            Packet::Single(single_packet) => single_packet,
+            Packet::Fragmented(_) => unimplemented!(),
+        };
 
         // Step 2. Update the packet acks (which packets have we received, and which of our packets
         // have been acked)
@@ -119,10 +154,19 @@ impl Connection {
 #[cfg(test)]
 mod tests {
     use super::Connection;
+    use crate::channel::channel::ChannelMode::OrderedReliable;
+    use crate::channel::channel::{
+        Channel, ChannelDirection, ChannelKind, ChannelSettings, ReliableSettings,
+    };
+    use crate::packet::message::Message;
+    use crate::packet::wrapping_id::MessageId;
     use crate::transport::udp::Socket;
-    use crate::transport::Transport;
+    use crate::transport::{PacketReceiver, Transport};
+    use bytes::Bytes;
+    use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use std::time::Duration;
 
     #[test]
     /// We want to test that we can send/receive messages over a connection
@@ -134,18 +178,52 @@ mod tests {
         let server_addr = server_socket.local_addr()?;
         let client_addr = client_socket.local_addr()?;
 
-        let client_transport = Box::new(Socket::new(&client_addr));
-        let mut client_connection = Connection::new(server_addr, client_transport);
+        dbg!(server_addr);
+        dbg!(client_addr);
 
-        let server_transport = Box::new(Socket::new(&server_addr));
-        let mut server_connection = Connection::new(client_addr, server_transport);
+        // Create channels (ideally we create them only once via a shared protocol)
+        let channel_kind = ChannelKind::new(0);
+        let channel = Channel::new(
+            ChannelSettings {
+                mode: OrderedReliable(ReliableSettings::default()),
+                direction: ChannelDirection::Bidirectional,
+            },
+            channel_kind,
+        );
+        let client_channels = HashMap::from([(channel_kind, channel)]);
 
-        // Add channels (ideally we create them only once via a shared protocol)
+        let client_transport = Box::new(client_socket);
+        let mut client_connection = Connection::new(server_addr, client_channels);
+
+        let channel_kind = ChannelKind::new(0);
+        let channel = Channel::new(
+            ChannelSettings {
+                mode: OrderedReliable(ReliableSettings::default()),
+                direction: ChannelDirection::Bidirectional,
+            },
+            channel_kind,
+        );
+        let server_channels = HashMap::from([(channel_kind, channel)]);
+
+        let mut server_transport = Box::new(server_socket);
+        let mut server_connection = Connection::new(client_addr, server_channels);
 
         // On client side: buffer send messages, and then send
-        // On server side: keep looping to receive bytes, then process them into messages
+        let mut message = Message::new(Bytes::from("hello"));
+        client_connection.buffer_send(message.clone(), channel_kind)?;
+        client_connection.send_packets(client_transport)?;
+
+        // Sleep to make sure the server receives the message
+        std::thread::sleep(Duration::from_millis(100));
+
+        // On server side: keep looping to receive bytes on the network, then process them into messages
+        server_connection.listen(server_transport);
+        let messages = server_connection.read_messages();
+        message.set_id(MessageId(0));
+        assert_eq!(messages, vec![message]);
 
         // Check that the received messages are the same as the sent ones
         // Maybe inspect how the messages were put into packets? (or this could be a test for packet writer)
+        Ok(())
     }
 }

@@ -1,6 +1,11 @@
 use crate::packet::wrapping_id::MessageId;
+use bitcode::__private::{Encoding, Write};
+use bitcode::{decode, Decode, Encode, Error};
 use bytes::{Bytes, BytesMut};
+use serde::{Deserialize, Serialize};
 use std::io::Read;
+
+// TODO: adopt Message trait and MessageContainer from naia
 
 /// A Message is a logical unit of data that should be transmitted over a network
 ///
@@ -9,11 +14,39 @@ use std::io::Read;
 ///
 /// A Message knows how to serialize itself (messageType + Data)
 /// and knows how many bits it takes to serialize itself
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Message {
     pub(crate) id: Option<MessageId>,
     // kind
     data: Bytes,
+}
+
+impl Encode for Message {
+    const ENCODE_MIN: usize = 1;
+    const ENCODE_MAX: usize = usize::MAX;
+
+    fn encode(&self, encoding: impl Encoding, writer: &mut impl Write) -> Result<(), Error> {
+        self.id.encode(encoding, writer)?;
+        self.data.as_ref().encode(encoding, writer)?;
+        Ok(())
+    }
+}
+
+impl Decode for Message {
+    const DECODE_MIN: usize = 1;
+    const DECODE_MAX: usize = usize::MAX;
+
+    fn decode(
+        encoding: impl Encoding,
+        reader: &mut impl bitcode::__private::Read,
+    ) -> Result<Message, Error> {
+        let id = Option::<MessageId>::decode(encoding, reader)?;
+        let data = Vec::<u8>::decode(encoding, reader)?;
+        Ok(Message {
+            id,
+            data: Bytes::from(data),
+        })
+    }
 }
 
 impl Message {

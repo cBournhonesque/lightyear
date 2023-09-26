@@ -1,3 +1,9 @@
+# Interesting links:
+
+* https://medium.com/@otukof/breaking-tradition-why-rust-might-be-your-best-first-language-d10afc482ac1
+  - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
+  - one server: 1 game room per core?
+
 
 # Tenets
 
