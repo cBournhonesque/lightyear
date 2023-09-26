@@ -14,7 +14,7 @@ macro_rules! wrapping_id {
 
         /// Derive deref so that we don't have to write packet_id.0 in most cases
         impl Deref for $struct_name {
-            type Target = (u16);
+            type Target = u16;
             fn deref(&self) -> &Self::Target {
                 &self.0
             }

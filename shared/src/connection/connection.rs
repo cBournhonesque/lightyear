@@ -3,7 +3,7 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
-use crate::packet::packet::{Packet, SinglePacket};
+use crate::packet::packet::{Packet};
 use crate::transport::Transport;
 use anyhow::{anyhow, bail};
 use std::collections::HashMap;
@@ -161,7 +161,7 @@ mod tests {
     use crate::packet::message::Message;
     use crate::packet::wrapping_id::MessageId;
     use crate::transport::udp::Socket;
-    use crate::transport::{PacketReceiver, Transport};
+    use crate::transport::{Transport};
     use bytes::Bytes;
     use std::collections::HashMap;
     use std::net::SocketAddr;
@@ -173,7 +173,7 @@ mod tests {
     fn test_connection() -> Result<(), anyhow::Error> {
         // Create connections
         let socket_addr = SocketAddr::from_str("127.0.0.1:0")?;
-        let mut server_socket = Socket::new(&socket_addr)?;
+        let server_socket = Socket::new(&socket_addr)?;
         let client_socket = Socket::new(&socket_addr)?;
         let server_addr = server_socket.local_addr()?;
         let client_addr = client_socket.local_addr()?;
@@ -205,7 +205,7 @@ mod tests {
         );
         let server_channels = HashMap::from([(channel_kind, channel)]);
 
-        let mut server_transport = Box::new(server_socket);
+        let server_transport = Box::new(server_socket);
         let mut server_connection = Connection::new(client_addr, server_channels);
 
         // On client side: buffer send messages, and then send

@@ -1,5 +1,5 @@
 use crate::packet::message::Message;
-use crate::packet::wrapping_id::MessageId;
+
 use enum_dispatch::enum_dispatch;
 
 pub(crate) mod ordered_reliable;

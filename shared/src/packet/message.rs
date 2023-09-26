@@ -1,9 +1,9 @@
 use crate::packet::wrapping_id::MessageId;
 use bitcode::__private::{Encoding, Write};
-use bitcode::{decode, Decode, Encode, Error};
+use bitcode::{Decode, Encode, Error};
 use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
-use std::io::Read;
+
 
 // TODO: adopt Message trait and MessageContainer from naia
 

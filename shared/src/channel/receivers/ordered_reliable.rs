@@ -1,7 +1,7 @@
 use crate::channel::receivers::ChannelReceive;
 use anyhow::anyhow;
-use bytes::Bytes;
-use std::collections::{btree_map, BTreeMap, VecDeque};
+
+use std::collections::{btree_map, BTreeMap};
 
 use crate::packet::message::Message;
 use crate::packet::wrapping_id::MessageId;

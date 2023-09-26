@@ -1,6 +1,6 @@
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use std::net::{SocketAddr, UdpSocket};
-use std::os::fd::IntoRawFd;
+
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
@@ -81,7 +81,7 @@ mod tests {
     use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
     use crate::transport::udp::Socket;
     use crate::transport::{PacketReceiver, PacketSender, Transport};
-    use std::net::{SocketAddr, UdpSocket};
+    use std::net::{SocketAddr};
     use std::str::FromStr;
     use std::time::Duration;
 
@@ -117,7 +117,7 @@ mod tests {
         // let the OS assigned a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let mut server_socket = Socket::new(&local_addr)?;
+        let server_socket = Socket::new(&local_addr)?;
         let client_socket = Socket::new(&local_addr)?;
 
         let server_addr = server_socket.local_addr()?;

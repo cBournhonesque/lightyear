@@ -2,7 +2,7 @@
 
 use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
-use crate::packet::packet::{Packet, SinglePacket};
+use crate::packet::packet::{Packet};
 use crate::packet::wrapping_id::MessageId;
 use std::collections::VecDeque;
 

@@ -80,7 +80,7 @@ mod tests {
     use crate::packet::manager::PacketManager;
     use crate::packet::message::Message;
     use crate::packet::packet::MTU_PACKET_BYTES;
-    use anyhow::anyhow;
+    
     use bytes::Bytes;
 
     #[test]

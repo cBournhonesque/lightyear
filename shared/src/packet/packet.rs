@@ -2,7 +2,7 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::Message;
 use crate::packet::wrapping_id::MessageId;
 use bitcode::{Decode, Encode};
-use bytes::Bytes;
+
 use serde::{Deserialize, Serialize};
 
 pub trait PacketData {}
@@ -59,7 +59,7 @@ impl Packet {
     pub fn header(&self) -> &PacketHeader {
         match self {
             Packet::Single(single_packet) => &single_packet.header,
-            Packet::Fragmented(fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
         }
     }
 
@@ -68,7 +68,7 @@ impl Packet {
     pub fn num_messages(&self) -> usize {
         match self {
             Packet::Single(single_packet) => single_packet.data.len(),
-            Packet::Fragmented(fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
         }
     }
 
@@ -76,7 +76,7 @@ impl Packet {
     pub fn messages(&self) -> Vec<&Message> {
         match self {
             Packet::Single(single_packet) => single_packet.data.iter().collect(),
-            Packet::Fragmented(fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
         }
     }
 
@@ -84,7 +84,7 @@ impl Packet {
     pub fn split(self) -> Vec<SinglePacket> {
         match self {
             Packet::Single(single_packet) => vec![single_packet],
-            Packet::Fragmented(fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
         }
     }
 
@@ -96,7 +96,7 @@ impl Packet {
                 .iter()
                 .filter_map(|message| message.id)
                 .collect(),
-            Packet::Fragmented(fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
         }
     }
 }

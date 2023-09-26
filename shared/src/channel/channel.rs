@@ -1,16 +1,16 @@
-use crate::channel::channel::ChannelMode::{SequencedReliable, SequencedUnreliable};
+
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
 use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
 use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
-use crate::channel::receivers::{ChannelReceive, ChannelReceiver};
+use crate::channel::receivers::{ChannelReceiver};
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
-use crate::channel::senders::{ChannelSend, ChannelSender};
+use crate::channel::senders::{ChannelSender};
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::any::TypeId;
+
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel

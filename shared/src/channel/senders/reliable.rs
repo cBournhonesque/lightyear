@@ -3,7 +3,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::Message;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::{collections::VecDeque, time::Duration};
 
 use crate::channel::channel::ReliableSettings;

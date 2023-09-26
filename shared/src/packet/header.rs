@@ -162,7 +162,7 @@ impl ReceiveBuffer {
         }
         // the packet id is in the existing bitfield; update the corresponding bit
         if diff > 0 {
-            let mut recv_bit = self
+            let recv_bit = self
                 .buffer
                 .get_mut_signed(-diff as isize)
                 .expect("ring buffer should be full");
@@ -197,7 +197,7 @@ impl ReceiveBuffer {
 
         // iter goes from the item pushed the longest ago (to the left of the bitfield)
         // to the items pushed most recently (to the right of the bitfield)
-        for (i, &exists) in self.buffer.iter().enumerate() {
+        for (_i, &exists) in self.buffer.iter().enumerate() {
             if exists {
                 ack_bitfield |= mask;
             }
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_recv_buffer() {
-        let mut recv_buffer = ReceiveBuffer::new();
+        let recv_buffer = ReceiveBuffer::new();
         assert_eq!(recv_buffer.last_recv_packet_id, None);
         assert_eq!(recv_buffer.get_bitfield(), 0);
 
