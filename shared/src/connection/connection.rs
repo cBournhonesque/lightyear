@@ -1,9 +1,9 @@
-use crate::channel::channel::{Channel, ChannelKind};
+use crate::channel::channel::{ChannelContainer, ChannelKind};
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::Message;
-use crate::packet::packet::{Packet};
+use crate::packet::packet::Packet;
 use crate::transport::Transport;
 use anyhow::{anyhow, bail};
 use std::collections::HashMap;
@@ -14,14 +14,14 @@ use std::net::SocketAddr;
 pub struct Connection {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketManager,
-    channels: HashMap<ChannelKind, Channel>,
+    channels: HashMap<ChannelKind, ChannelContainer>,
     // transport: Box<RefCell<dyn Transport>>,
     remote_addr: SocketAddr,
 }
 
 impl Connection {
     // pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
-    pub fn new(remote_addr: SocketAddr, channels: HashMap<ChannelKind, Channel>) -> Self {
+    pub fn new(remote_addr: SocketAddr, channels: HashMap<ChannelKind, ChannelContainer>) -> Self {
         Self {
             packet_manager: PacketManager::new(),
             channels: channels,
@@ -156,12 +156,12 @@ mod tests {
     use super::Connection;
     use crate::channel::channel::ChannelMode::OrderedReliable;
     use crate::channel::channel::{
-        Channel, ChannelDirection, ChannelKind, ChannelSettings, ReliableSettings,
+        ChannelContainer, ChannelDirection, ChannelKind, ChannelSettings, ReliableSettings,
     };
     use crate::packet::message::Message;
     use crate::packet::wrapping_id::MessageId;
     use crate::transport::udp::Socket;
-    use crate::transport::{Transport};
+    use crate::transport::Transport;
     use bytes::Bytes;
     use std::collections::HashMap;
     use std::net::SocketAddr;
@@ -183,26 +183,20 @@ mod tests {
 
         // Create channels (ideally we create them only once via a shared protocol)
         let channel_kind = ChannelKind::new(0);
-        let channel = Channel::new(
-            ChannelSettings {
-                mode: OrderedReliable(ReliableSettings::default()),
-                direction: ChannelDirection::Bidirectional,
-            },
-            channel_kind,
-        );
+        let channel = ChannelContainer::new(ChannelSettings {
+            mode: OrderedReliable(ReliableSettings::default()),
+            direction: ChannelDirection::Bidirectional,
+        });
         let client_channels = HashMap::from([(channel_kind, channel)]);
 
         let client_transport = Box::new(client_socket);
         let mut client_connection = Connection::new(server_addr, client_channels);
 
         let channel_kind = ChannelKind::new(0);
-        let channel = Channel::new(
-            ChannelSettings {
-                mode: OrderedReliable(ReliableSettings::default()),
-                direction: ChannelDirection::Bidirectional,
-            },
-            channel_kind,
-        );
+        let channel = ChannelContainer::new(ChannelSettings {
+            mode: OrderedReliable(ReliableSettings::default()),
+            direction: ChannelDirection::Bidirectional,
+        });
         let server_channels = HashMap::from([(channel_kind, channel)]);
 
         let server_transport = Box::new(server_socket);
