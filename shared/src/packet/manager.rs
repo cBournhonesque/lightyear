@@ -1,9 +1,12 @@
-use crate::channel::channel::{ChannelHeader, ChannelKind};
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::packet::{Packet, SinglePacket, MTU_PACKET_BYTES};
 use crate::packet::packet_type::PacketType;
+use crate::registry::channel::{ChannelKind, ChannelRegistry};
+use crate::registry::message::MessageRegistry;
 use anyhow::anyhow;
+use bitcode::buffer::BufferTrait;
+use bitcode::read::Read;
 use bitcode::Buffer;
 
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = 10 * MTU_PACKET_BYTES;
@@ -11,6 +14,8 @@ pub(crate) const PACKET_BUFFER_CAPACITY: usize = 10 * MTU_PACKET_BYTES;
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager {
     pub(crate) header_manager: PacketHeaderManager,
+    channel_registry: &'static ChannelRegistry,
+    message_registry: &'static MessageRegistry,
     num_bytes_available: usize,
     /// Pre-allocated buffer to encode/decode without allocation
     bytes_buffer: Buffer,
@@ -20,10 +25,13 @@ pub(crate) struct PacketManager {
 // -
 
 impl PacketManager {
-    pub fn new() -> Self {
+    pub fn new(channel_registry: &ChannelRegistry, message_registry: &MessageRegistry) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
+            channel_registry,
+            message_registry,
             num_bytes_available: MTU_PACKET_BYTES,
+            /// write buffer to encode packets bit by bit
             bytes_buffer: Buffer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
     }
@@ -35,12 +43,18 @@ impl PacketManager {
 
     /// Encode a packet into raw bytes
     pub(crate) fn encode_packet(&mut self, packet: &Packet) -> anyhow::Result<&[u8]> {
-        self.bytes_buffer.encode(packet).map_err(|e| anyhow!(e))
+        // Create a write buffer with capacity the size of a packet
+        let mut write_buffer = Buffer::with_capacity(MTU_PACKET_BYTES);
+        let mut writer = write_buffer.0.start_write();
+        packet.encode(self.message_registry, &mut writer)?;
+        let bytes = writer.finish_write();
+        Ok(bytes)
     }
 
     /// Decode a packet from raw bytes
-    pub(crate) fn decode_packet(&mut self, bytes: &[u8]) -> anyhow::Result<Packet> {
-        self.bytes_buffer.decode(bytes).map_err(|e| anyhow!(e))
+    // TODO: the reader buffer will be created from the io (we copy the io bytes into a buffer)
+    pub(crate) fn decode_packet(&mut self, reader: &mut impl Read) -> anyhow::Result<Packet> {
+        Packet::decode(self.message_registry, reader)
     }
 
     /// Start building new packet
@@ -50,15 +64,19 @@ impl PacketManager {
             header: self.header_manager.prepare_send_packet_header(
                 0,
                 PacketType::Data,
-                ChannelHeader {
-                    kind: ChannelKind::new(0),
-                },
+                // ChannelHeader {
+                //     kind: ChannelKind(0),
+                // },
             ),
             data: vec![],
         })
     }
 
-    pub fn try_add_message(&mut self, packet: &mut Packet, message: Message) -> anyhow::Result<()> {
+    pub fn try_add_message(
+        &mut self,
+        packet: &mut Packet,
+        message: MessageContainer,
+    ) -> anyhow::Result<()> {
         match packet {
             Packet::Single(single_packet) => {
                 let data = self.bytes_buffer.encode(&message)?;
@@ -78,16 +96,16 @@ impl PacketManager {
 #[cfg(test)]
 mod tests {
     use crate::packet::manager::PacketManager;
-    use crate::packet::message::Message;
+    use crate::packet::message::MessageContainer;
     use crate::packet::packet::MTU_PACKET_BYTES;
-    
+
     use bytes::Bytes;
 
     #[test]
     fn test_write_small_message() -> anyhow::Result<()> {
         let mut manager = PacketManager::new();
 
-        let small_message = Message::new(Bytes::from("small"));
+        let small_message = MessageContainer::new(Bytes::from("small"));
         let mut packet = manager.build_new_packet();
         manager.try_add_message(&mut packet, small_message.clone())?;
 
@@ -103,7 +121,7 @@ mod tests {
         let mut manager = PacketManager::new();
 
         let big_bytes = vec![1u8; 2 * MTU_PACKET_BYTES];
-        let big_message = Message::new(Bytes::from(big_bytes));
+        let big_message = MessageContainer::new(Bytes::from(big_bytes));
         let mut packet = manager.build_new_packet();
         let error = manager
             .try_add_message(&mut packet, big_message)

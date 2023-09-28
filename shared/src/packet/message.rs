@@ -1,11 +1,13 @@
 use crate::packet::wrapping_id::MessageId;
-use bitcode::__private::{Encoding, Write};
-use bitcode::{Decode, Encode, Error};
+use crate::registry::message::{MessageKind, MessageRegistry};
+use crate::registry::NetId;
+use anyhow::Context;
+use bitcode::encoding::Fixed;
+use bitcode::read::Read;
+use bitcode::write::Write;
+use bitcode::{Decode, Encode};
 use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
-
-
-// TODO: adopt Message trait and MessageContainer from naia
 
 /// A Message is a logical unit of data that should be transmitted over a network
 ///
@@ -15,47 +17,74 @@ use serde::{Deserialize, Serialize};
 /// A Message knows how to serialize itself (messageType + Data)
 /// and knows how many bits it takes to serialize itself
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
-pub struct Message {
+pub struct MessageContainer {
     pub(crate) id: Option<MessageId>,
-    // kind
-    data: Bytes,
+    message: Box<dyn Message>,
 }
 
-impl Encode for Message {
-    const ENCODE_MIN: usize = 1;
-    const ENCODE_MAX: usize = usize::MAX;
-
-    fn encode(&self, encoding: impl Encoding, writer: &mut impl Write) -> Result<(), Error> {
-        self.id.encode(encoding, writer)?;
-        self.data.as_ref().encode(encoding, writer)?;
+impl MessageContainer {
+    /// Serialize the message into a bytes buffer
+    pub(crate) fn encode(
+        &self,
+        message_registry: &MessageRegistry,
+        writer: &mut impl Write,
+    ) -> anyhow::Result<()> {
+        let net_id = message_registry
+            .get_net_from_kind(&self.message.kind())
+            .context("Could not find message kind")?;
+        net_id.encode(Fixed, writer)?;
+        self.id.encode(Fixed, writer)?;
+        self.message.encode(writer)?;
         Ok(())
     }
-}
 
-impl Decode for Message {
-    const DECODE_MIN: usize = 1;
-    const DECODE_MAX: usize = usize::MAX;
-
-    fn decode(
-        encoding: impl Encoding,
-        reader: &mut impl bitcode::__private::Read,
-    ) -> Result<Message, Error> {
-        let id = Option::<MessageId>::decode(encoding, reader)?;
-        let data = Vec::<u8>::decode(encoding, reader)?;
-        Ok(Message {
-            id,
-            data: Bytes::from(data),
-        })
+    /// Deserialize from the bytes buffer into a Message
+    pub(crate) fn decode(
+        message_registry: &MessageRegistry,
+        reader: &mut impl Read,
+    ) -> anyhow::Result<Self> {
+        let net_id = <NetId as Decode>::decode(Fixed, reader)?;
+        let kind = message_registry
+            .get_kind_from_net_id(net_id)
+            .context("Could not find net id for message")?;
+        let message_builder = message_registry
+            .get_builder_from_kind(&kind)
+            .context("Could not find message kind")?;
+        message_builder.decode(message_registry, reader)
     }
 }
 
-impl Message {
+pub trait MessageBuilder {
+    /// Read bytes from the buffer and build a MessageContainer out of it
+    ///
+    /// This method is implemented automatically for all types that derive Message
+    fn decode(
+        &self,
+        registry: &MessageRegistry,
+        reader: &mut dyn Read,
+    ) -> anyhow::Result<MessageContainer>;
+}
+
+pub trait Message: 'static {
+    /// Get the MessageKind for the message
+    fn kind(&self) -> MessageKind {
+        MessageKind::of::<Self>()
+    }
+    fn get_builder() -> Box<dyn MessageBuilder>
+    where
+        Self: Sized;
+
+    /// Encode a message into bytes
+    fn encode(&self, buffer: &mut dyn Write) -> anyhow::Result<&[u8]>;
+}
+
+impl MessageContainer {
     // fn kind(&self) -> MessageKind {
     //     unimplemented!()
     // }
 
-    pub fn new(data: Bytes) -> Self {
-        Message { id: None, data }
+    pub fn new(message: Box<dyn Message>) -> Self {
+        MessageContainer { id: None, message }
     }
 
     pub fn set_id(&mut self, id: MessageId) {

@@ -1,5 +1,5 @@
-mod channel;
-mod message;
+pub mod channel;
+pub mod message;
 
 use crate::channel::channel::ChannelBuilder;
 use std::any::Any;
@@ -24,9 +24,9 @@ macro_rules! type_registry {
         use std::collections::HashMap;
 
         pub struct $name {
-            next_net_id: NetId,
-            kind_map: HashMap<TypeId, (NetId, Box<dyn $builder>)>,
-            id_map: HashMap<NetId, TypeId>,
+            pub(in registry) next_net_id: NetId,
+            pub(in registry) kind_map: HashMap<TypeId, (NetId, Box<dyn $builder>)>,
+            pub(in registry) id_map: HashMap<NetId, TypeId>,
         }
 
         impl $name {
@@ -49,6 +49,16 @@ macro_rules! type_registry {
                 self.id_map.insert(net_id, type_id);
                 self.next_net_id += 1;
                 Ok(())
+            }
+
+            /// Get the registered object for a given type
+            pub fn get_mut_from_type(&mut self, type_id: &TypeId) -> Option<&mut Box<dyn $builder>> {
+                self.kind_map.get_mut(type_id).and_then(|(_, t)| Some(t))
+            }
+
+            pub fn get_mut_from_net_id(&mut self, net_id: NetId) -> Option<&mut Box<dyn $builder>> {
+                let type_id = self.id_map.get(&net_id)?.clone();
+                self.get_mut_from_type(&type_id)
             }
 
             /// Get the registered object for a given type

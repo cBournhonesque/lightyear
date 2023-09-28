@@ -3,7 +3,7 @@ use anyhow::anyhow;
 
 use std::collections::{btree_map, BTreeMap};
 
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
@@ -12,7 +12,7 @@ pub struct SequencedReliableReceiver {
     // TODO: optimize via ring buffer?
     // TODO: actually do we even need a buffer? we might just need a buffer of 1
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, Message>,
+    recv_message_buffer: BTreeMap<MessageId, MessageContainer>,
     /// Highest message id received so far
     most_recent_message_id: MessageId,
 }
@@ -29,7 +29,7 @@ impl SequencedReliableReceiver {
 // TODO: THIS SEEMS WRONG!
 impl ChannelReceive for SequencedReliableReceiver {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
 
         // if the message is too old, ignore it
@@ -48,7 +48,7 @@ impl ChannelReceive for SequencedReliableReceiver {
         }
         Ok(())
     }
-    fn read_message(&mut self) -> Option<Message> {
+    fn read_message(&mut self) -> Option<MessageContainer> {
         // keep popping messages until we get one that is more recent than the last one we processed
         loop {
             let Some((message_id, message)) = self.recv_message_buffer.pop_first() else {

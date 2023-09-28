@@ -7,6 +7,7 @@ use crate::channel::receivers::ChannelReceiver;
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
 use crate::channel::senders::ChannelSender;
+use crate::registry::channel::ChannelKind;
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -19,19 +20,26 @@ pub struct ChannelContainer {
 }
 
 pub trait Channel: 'static {
-    fn get_builder(settings: ChannelSettings) -> Box<dyn ChannelBuilder>;
+    fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
 }
 
-pub trait ChannelBuilder {
-    fn build(&self) -> ChannelContainer;
+#[doc(hidden)]
+pub struct ChannelBuilder {
+    settings: ChannelSettings,
 }
 
-/// Data from the channel that will be serialized in the header of the packet
-#[derive(Encode, Decode, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-pub(crate) struct ChannelHeader {
-    pub(crate) kind: ChannelKind,
-    // TODO: add fragmentation data
+impl ChannelBuilder {
+    pub(crate) fn build(self) -> ChannelContainer {
+        ChannelContainer::new(self.settings)
+    }
 }
+
+// /// Data from the channel that will be serialized in the header of the packet
+// #[derive(Debug, Clone, Eq, PartialEq)]
+// pub(crate) struct ChannelHeader {
+//     pub(crate) kind: ChannelKind,
+//     // TODO: add fragmentation data
+// }
 
 impl ChannelContainer {
     pub fn new(settings: ChannelSettings) -> Self {
@@ -68,19 +76,7 @@ impl ChannelContainer {
     }
 }
 
-/// Type of the channel
-// TODO: update the serialization
-// #[derive(Serialize)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Encode, Decode)]
-pub struct ChannelKind(u16);
-
-impl ChannelKind {
-    pub const fn new(id: u16) -> Self {
-        Self(id)
-    }
-}
-
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ChannelSettings {
     // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
     pub mode: ChannelMode,
@@ -96,11 +92,10 @@ pub enum ChannelOrdering {
     Sequenced,
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq)]
 /// ChannelMode specifies how packets are sent and received
 /// See more information: http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html
 pub enum ChannelMode {
-    #[default]
     /// Packets may arrive out-of-order, or not at all
     UnorderedUnreliable,
     /// Same as unordered unreliable, but only the newest packet is ever accepted, older packets
@@ -115,15 +110,14 @@ pub enum ChannelMode {
     OrderedReliable(ReliableSettings),
 }
 
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq)]
 pub enum ChannelDirection {
     ClientToServer,
     ServerToClient,
-    #[default]
     Bidirectional,
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReliableSettings {
     /// Duration to wait before resending a packet if it has not been acked
     pub rtt_resend_factor: f32,

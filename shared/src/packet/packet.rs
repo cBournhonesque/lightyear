@@ -1,8 +1,12 @@
 use crate::packet::header::PacketHeader;
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
+use bitcode::encoding::Fixed;
+use bitcode::read::Read;
+use bitcode::write::Write;
 use bitcode::{Decode, Encode};
 
+use crate::registry::message::MessageRegistry;
 use serde::{Deserialize, Serialize};
 
 pub trait PacketData {}
@@ -16,7 +20,7 @@ pub(crate) const MTU_PACKET_BYTES: usize = 1200;
 #[derive(Encode, Decode, Serialize, Deserialize)]
 pub(crate) struct SinglePacket {
     pub(crate) header: PacketHeader,
-    pub(crate) data: Vec<Message>,
+    pub(crate) data: Vec<MessageContainer>,
 }
 
 // impl SinglePacket {
@@ -41,20 +45,53 @@ pub(crate) struct SinglePacket {
 
 /// A packet that is split into multiple fragments
 /// because it contains a message that is too big
-#[derive(Encode, Decode, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct FragmentedPacket {}
 
 /// Abstraction for data that is sent over the network
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
-#[derive(Encode, Decode, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub enum Packet {
     Single(SinglePacket),
     Fragmented(FragmentedPacket),
 }
 
 impl Packet {
+    /// Encode a packet into the write buffer
+    pub fn encode(
+        &self,
+        message_registry: &MessageRegistry,
+        writer: &mut impl Write,
+    ) -> anyhow::Result<()> {
+        match self {
+            Packet::Single(single_packet) => {
+                single_packet.header.encode(Fixed, writer)?;
+                // TODO: include channel information. Maybe in the header?
+
+                // TODO: does question mark work inside an iterator?
+                single_packet.data.iter().for_each(|message| {
+                    message.encode(message_registry, writer)?;
+                });
+                Ok(())
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
+    pub fn decode(
+        message_registry: &MessageRegistry,
+        reader: &mut impl Read,
+    ) -> anyhow::Result<Packet> {
+        let header = <PacketHeader as Decode>::decode(Fixed, reader)?;
+        // TODO: get channel information
+        let mut data = Vec::new();
+        data.push(MessageContainer::decode(message_registry, reader)?);
+        Ok(Packet::Single(SinglePacket { header, data }))
+    }
+
     #[cfg(test)]
     pub fn header(&self) -> &PacketHeader {
         match self {
@@ -73,7 +110,7 @@ impl Packet {
     }
 
     /// Return the list of messages in the packet
-    pub fn messages(&self) -> Vec<&Message> {
+    pub fn messages(&self) -> Vec<&MessageContainer> {
         match self {
             Packet::Single(single_packet) => single_packet.data.iter().collect(),
             Packet::Fragmented(_fragmented_packet) => unimplemented!(),

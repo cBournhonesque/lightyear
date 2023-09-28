@@ -1,11 +1,15 @@
-use crate::channel::channel::{ChannelContainer, ChannelKind};
+use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
+use crate::registry::channel::{ChannelKind, ChannelRegistry};
+use crate::registry::message::MessageRegistry;
 use crate::transport::Transport;
-use anyhow::{anyhow, bail};
+use crate::Channel;
+use anyhow::{anyhow, bail, Context};
+use bitcode::read::Read;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -14,6 +18,7 @@ use std::net::SocketAddr;
 pub struct Connection {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketManager,
+    channel_registry: &'static ChannelRegistry,
     channels: HashMap<ChannelKind, ChannelContainer>,
     // transport: Box<RefCell<dyn Transport>>,
     remote_addr: SocketAddr,
@@ -21,10 +26,15 @@ pub struct Connection {
 
 impl Connection {
     // pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
-    pub fn new(remote_addr: SocketAddr, channels: HashMap<ChannelKind, ChannelContainer>) -> Self {
+    pub fn new(
+        remote_addr: SocketAddr,
+        channel_registry: &ChannelRegistry,
+        message_registry: &MessageRegistry,
+    ) -> Self {
         Self {
-            packet_manager: PacketManager::new(),
-            channels: channels,
+            packet_manager: PacketManager::new(channel_registry, message_registry),
+            channel_registry,
+            channels: channel_registry.channels(),
             // transport: Box::new(RefCell::new(transport.as_ref())),
             remote_addr,
         }
@@ -33,13 +43,13 @@ impl Connection {
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(
         &mut self,
-        message: Message,
+        message: MessageContainer,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<()> {
-        let channel = self
+        let mut channel = self
             .channels
             .get_mut(&channel_kind)
-            .ok_or_else(|| anyhow!("channel not found"))?;
+            .context("Channel not found")?;
         Ok(channel.sender.buffer_send(message))
     }
 
@@ -49,8 +59,10 @@ impl Connection {
         // TODO: currently each channel creates separate packets
         //  but actually we could put messages from multiple channels in the same packet
         //  and use a map from packet_id to message_id/channel to decide if we need to re-send
+        //  all the messages that were sent through a non-reliable channel don't need to be re-sent
         let mut packets = vec![];
         for channel in self.channels.values_mut() {
+            // TODO: need to write the channel id in the packet! maybe need to add the ChannelKind in send_packet?
             // get the packets from the channel
             let channel_packets = channel.sender.send_packet(&mut self.packet_manager);
 
@@ -104,9 +116,9 @@ impl Connection {
 
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
-    pub fn recv_packet(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
+    pub fn recv_packet(&mut self, reader: &mut impl Read) -> anyhow::Result<()> {
         // Step 1. Parse the packet
-        let packet = self.packet_manager.decode_packet(bytes)?;
+        let packet = self.packet_manager.decode_packet(reader)?;
         let packet = match packet {
             Packet::Single(single_packet) => single_packet,
             Packet::Fragmented(_) => unimplemented!(),
@@ -119,15 +131,17 @@ impl Connection {
             .process_recv_packet_header(&packet.header);
 
         // Step 3. Put the messages from the packet in the internal buffers
-        let channel_kind = packet.header.channel_header.kind;
-        let channel = self
-            .channels
-            .get_mut(&channel_kind)
-            .ok_or_else(|| anyhow!("channel not found"))?;
-
-        for message in packet.data {
-            channel.receiver.buffer_recv(message)?;
-        }
+        // TODO
+        // let channel_kind = packet.header.channel_header.kind;
+        // let channel_kind = ChannelKind(0);
+        // let channel = self
+        //     .channels
+        //     .get_mut(&channel_kind)
+        //     .ok_or_else(|| anyhow!("channel not found"))?;
+        //
+        // for message in packet.data {
+        //     channel.receiver.buffer_recv(message)?;
+        // }
 
         // TODO: should we have a mapping from packet_id to message_id?
 
@@ -137,7 +151,7 @@ impl Connection {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  lets be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> Vec<Message> {
+    pub fn read_messages(&mut self) -> Vec<MessageContainer> {
         let mut messages = vec![];
 
         // TODO: output data about which channel the message came from?
@@ -158,7 +172,7 @@ mod tests {
     use crate::channel::channel::{
         ChannelContainer, ChannelDirection, ChannelKind, ChannelSettings, ReliableSettings,
     };
-    use crate::packet::message::Message;
+    use crate::packet::message::MessageContainer;
     use crate::packet::wrapping_id::MessageId;
     use crate::transport::udp::Socket;
     use crate::transport::Transport;
@@ -203,7 +217,7 @@ mod tests {
         let mut server_connection = Connection::new(client_addr, server_channels);
 
         // On client side: buffer send messages, and then send
-        let mut message = Message::new(Bytes::from("hello"));
+        let mut message = MessageContainer::new(Bytes::from("hello"));
         client_connection.buffer_send(message.clone(), channel_kind)?;
         client_connection.send_packets(client_transport)?;
 

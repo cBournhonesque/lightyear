@@ -1,8 +1,8 @@
 //! Module to define how messages are stored into packets
 
 use crate::packet::manager::PacketManager;
-use crate::packet::message::Message;
-use crate::packet::packet::{Packet};
+use crate::packet::message::MessageContainer;
+use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
 use std::collections::VecDeque;
 
@@ -10,14 +10,14 @@ pub struct MessagePacker;
 
 trait MessageIterator {
     fn is_empty(&self) -> bool;
-    fn front(&self) -> Option<&(Option<MessageId>, Message)>;
-    fn pop_front(&mut self) -> Option<(Option<MessageId>, Message)>;
+    fn front(&self) -> Option<&(Option<MessageId>, MessageContainer)>;
+    fn pop_front(&mut self) -> Option<(Option<MessageId>, MessageContainer)>;
 }
 
 impl MessagePacker {
     pub fn pack_messages(
         // TODO: use an iterator of Messages (from most urgent to least urgent)
-        messages_to_send: &mut VecDeque<Message>,
+        messages_to_send: &mut VecDeque<MessageContainer>,
         packet_manager: &mut PacketManager,
     ) -> Vec<Packet> {
         let mut packets = Vec::new();

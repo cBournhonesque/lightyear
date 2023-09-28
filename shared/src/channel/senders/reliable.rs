@@ -1,6 +1,6 @@
 use crate::channel::senders::message_packer::MessagePacker;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
 use std::collections::{BTreeMap, HashSet};
@@ -15,7 +15,7 @@ use std::time::Instant;
 
 /// A packet that has not been acked yet
 pub struct UnackedMessage {
-    message: Message,
+    message: MessageContainer,
     /// If None: this packet has never been sent before
     /// else: the last instant when this packet was sent
     last_sent: Option<Instant>,
@@ -32,7 +32,7 @@ pub struct ReliableSender {
     next_send_message_id: MessageId,
 
     /// list of messages that we want to fit into packets and send
-    messages_to_send: VecDeque<Message>,
+    messages_to_send: VecDeque<MessageContainer>,
     /// Set of message ids that we want to send (to prevent sending the same message twice)
     message_ids_to_send: HashSet<MessageId>,
 
@@ -104,7 +104,7 @@ impl ReliableSender {
 impl ChannelSend for ReliableSender {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Message) {
+    fn buffer_send(&mut self, message: MessageContainer) {
         let unacked_message = UnackedMessage {
             message,
             last_sent: None,
@@ -136,7 +136,7 @@ mod tests {
     use super::ChannelSend;
     use super::Instant;
     use super::ReliableSender;
-    use super::{Message, MessageId};
+    use super::{MessageContainer, MessageId};
     use crate::channel::channel::ReliableSettings;
     use bytes::Bytes;
     use mock_instant::MockClock;
@@ -157,7 +157,7 @@ mod tests {
         };
 
         // Buffer a new message
-        let mut message = Message::new(Bytes::from("hello"));
+        let mut message = MessageContainer::new(Bytes::from("hello"));
         sender.buffer_send(message.clone());
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));

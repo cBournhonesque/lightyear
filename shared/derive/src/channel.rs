@@ -26,23 +26,15 @@ pub fn channel_impl(
         Span::call_site(),
     );
     let module_name = format_ident!("define_{}", lowercase_struct_name);
-    let builder_name = format_ident!("{}Builder", struct_name);
 
     // Methods
-    let build_method = get_build_method();
-    let get_builder_method = get_builder_method(&builder_name);
+    let get_builder_method = get_builder_method();
 
     let gen = quote! {
         mod #module_name {
             pub use #shared_crate_name::{Channel, ChannelBuilder, ChannelContainer, ChannelSettings};
             use super::*;
 
-            pub struct #builder_name{
-                settings: ChannelSettings
-            }
-            impl ChannelBuilder for #builder_name {
-                #build_method
-            }
             impl Channel for #struct_name {
                 #get_builder_method
             }
@@ -52,19 +44,10 @@ pub fn channel_impl(
     proc_macro::TokenStream::from(gen)
 }
 
-fn get_build_method() -> TokenStream {
+fn get_builder_method() -> TokenStream {
     quote! {
-        fn build(&self) -> ChannelContainer {
-            // TODO: use Option instead to avoid having to derive Default on settings
-            ChannelContainer::new(std::mem::take(&mut self.settings))
-        }
-    }
-}
-
-fn get_builder_method(builder_name: &Ident) -> TokenStream {
-    quote! {
-        fn get_builder(settings: ChannelSettings) -> Box<dyn ChannelBuilder> {
-            Box::new(#builder_name{settings})
+        fn get_builder(settings: ChannelSettings) -> ChannelBuilder {
+            ChannelBuilder{settings}
         }
     }
 }

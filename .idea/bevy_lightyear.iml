@@ -10,9 +10,9 @@
       <sourceFolder url="file://$MODULE_DIR$/lightyear_serde/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/shared/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/derive/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/derive/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/server/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/shared/derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/shared/derive/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

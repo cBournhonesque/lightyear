@@ -3,7 +3,7 @@ use anyhow::anyhow;
 
 use std::collections::{btree_map, BTreeMap};
 
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
 
 /// Unordered Reliable receiver: make sure that all messages are received,
@@ -15,7 +15,7 @@ pub struct UnorderedReliableReceiver {
     // TODO: optimize via ring buffer?
     // TODO: actually we could just use a VecDeque here?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, Message>,
+    recv_message_buffer: BTreeMap<MessageId, MessageContainer>,
 }
 
 impl UnorderedReliableReceiver {
@@ -29,7 +29,7 @@ impl UnorderedReliableReceiver {
 
 impl ChannelReceive for UnorderedReliableReceiver {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
 
         // we have already received the message if it's older than the oldest pending message
@@ -44,7 +44,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
         }
         Ok(())
     }
-    fn read_message(&mut self) -> Option<Message> {
+    fn read_message(&mut self) -> Option<MessageContainer> {
         // get the oldest received message
         let Some((message_id, message)) = self.recv_message_buffer.pop_first() else {
             return None;

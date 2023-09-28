@@ -2,6 +2,8 @@
 //! Procedural macros to simplify implementation of Lightyear protocol types
 
 mod channel;
+
+mod message;
 mod shared;
 
 use channel::channel_impl;

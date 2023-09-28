@@ -7,14 +7,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-bitcode = "0.4"
+bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest" }
 bytes = { version = "1.5", features = ["serde"] }
 enum_dispatch = "0.3"
 rand = "0.8"
 ringbuffer = "0.15"
 serde = { version = "1.0.188", features = ["derive"] }
 
-lightyear_derive = {path = "../derive"}
+lightyear_derive = {path = "derive" }
 
 [dev-dependencies]
 mock_instant = "0.3"

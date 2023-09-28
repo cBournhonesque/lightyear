@@ -1,5 +1,5 @@
 use crate::packet::manager::PacketManager;
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use enum_dispatch::enum_dispatch;
 
@@ -10,9 +10,9 @@ pub(crate) mod unreliable;
 /// A trait for sending messages to a channel.
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
-pub trait ChannelSend: Send + Sync {
+pub trait ChannelSend {
     /// Queues a message to be transmitted
-    fn buffer_send(&mut self, message: Message);
+    fn buffer_send(&mut self, message: MessageContainer);
 
     /// Reads from the buffer of message to send to prepare a list of Packets
     /// that can be sent over the network

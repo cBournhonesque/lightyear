@@ -3,7 +3,7 @@ use anyhow::anyhow;
 
 use std::collections::{btree_map, BTreeMap};
 
-use crate::packet::message::Message;
+use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
 
 /// Ordered Reliable receiver: make sure that all messages are received,
@@ -14,7 +14,7 @@ pub struct OrderedReliableReceiver {
     pending_recv_message_id: MessageId,
     // TODO: optimize via ring buffer?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, Message>,
+    recv_message_buffer: BTreeMap<MessageId, MessageContainer>,
 }
 
 impl OrderedReliableReceiver {
@@ -28,7 +28,7 @@ impl OrderedReliableReceiver {
 
 impl ChannelReceive for OrderedReliableReceiver {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: Message) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
 
         // if the message is too old, ignore it
@@ -47,7 +47,7 @@ impl ChannelReceive for OrderedReliableReceiver {
     /// Since we are receiving messages in order, we don't return from the buffer
     /// until we have received the message we are waiting for (the next expected MessageId)
     /// This assumes that the sender sends all message ids sequentially.
-    fn read_message(&mut self) -> Option<Message> {
+    fn read_message(&mut self) -> Option<MessageContainer> {
         // Check if we have received the message we are waiting for
         let Some(message) = self
             .recv_message_buffer
@@ -67,15 +67,15 @@ impl ChannelReceive for OrderedReliableReceiver {
 mod tests {
     use super::ChannelReceive;
     use super::OrderedReliableReceiver;
-    use super::{Message, MessageId};
+    use super::{MessageContainer, MessageId};
     use bytes::Bytes;
 
     #[test]
     fn test_ordered_reliable_receiver_internals() {
         let mut receiver = OrderedReliableReceiver::new();
 
-        let mut message1 = Message::new(Bytes::from("hello"));
-        let mut message2 = Message::new(Bytes::from("world"));
+        let mut message1 = MessageContainer::new(Bytes::from("hello"));
+        let mut message2 = MessageContainer::new(Bytes::from("world"));
 
         // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
         message2.id = Some(MessageId(60000));
