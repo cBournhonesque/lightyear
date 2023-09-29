@@ -15,11 +15,12 @@ trait MessageIterator {
 }
 
 impl MessagePacker {
+    /// Pack messages into packets
+    /// Return the remaining list of messages to send
     pub fn pack_messages(
-        // TODO: use an iterator of Messages (from most urgent to least urgent)
-        messages_to_send: &mut VecDeque<MessageContainer>,
+        mut messages_to_send: VecDeque<MessageContainer>,
         packet_manager: &mut PacketManager,
-    ) -> Vec<Packet> {
+    ) -> (Vec<Packet>, VecDeque<MessageContainer>) {
         let mut packets = Vec::new();
         // build new packet
         'packet: loop {
@@ -28,27 +29,27 @@ impl MessagePacker {
             // add messages to packet
             'message: loop {
                 // TODO: check if message size is too big for a single packet, in which case we fragment!
-
                 if messages_to_send.is_empty() {
                     // no more messages to send, add the packet
                     packets.push(packet);
                     break 'packet;
                 }
-                let message = messages_to_send.front().unwrap();
-                // TODO: AVOID THIS CLONE!
-                match packet_manager.try_add_message(&mut packet, message.clone()) {
-                    Ok(_) => {
-                        // message was added to packet, remove from messages_to_send
-                        messages_to_send.pop_front();
-                    }
-                    Err(_) => {
-                        // message was not added to packet, packet is full
-                        packets.push(packet);
-                        break 'message;
-                    }
+                // we're either moving the message into the packet, or back into the messages_to_send queue
+                let message = messages_to_send.pop_front().unwrap();
+                if packet_manager
+                    .can_add_message(&mut packet, &message)
+                    .is_ok_and(|b| b)
+                {
+                    // add message to packet
+                    packet.add_message(message);
+                } else {
+                    // message was not added to packet, packet is full
+                    messages_to_send.push_front(message);
+                    packets.push(packet);
+                    break 'message;
                 }
             }
         }
-        packets
+        (packets, messages_to_send)
     }
 }

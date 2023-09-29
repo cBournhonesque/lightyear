@@ -4,21 +4,25 @@ use crate::packet::packet::{Packet, SinglePacket, MTU_PACKET_BYTES};
 use crate::packet::packet_type::PacketType;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::registry::message::MessageRegistry;
+use crate::serialize::writer::WriteBuffer;
 use anyhow::anyhow;
 use bitcode::buffer::BufferTrait;
 use bitcode::read::Read;
+use bitcode::write::Write;
 use bitcode::Buffer;
 
-pub(crate) const PACKET_BUFFER_CAPACITY: usize = 10 * MTU_PACKET_BYTES;
+pub(crate) const PACKET_BUFFER_CAPACITY: usize = 1 * MTU_PACKET_BYTES;
 
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager {
     pub(crate) header_manager: PacketHeaderManager,
     channel_registry: &'static ChannelRegistry,
     message_registry: &'static MessageRegistry,
-    num_bytes_available: usize,
-    /// Pre-allocated buffer to encode/decode without allocation
-    bytes_buffer: Buffer,
+    num_bits_available: usize,
+
+    /// Pre-allocated buffer to encode/decode without allocation.
+    try_write_buffer: WriteBuffer,
+    write_buffer: WriteBuffer,
 }
 
 // PLAN:
@@ -30,24 +34,29 @@ impl PacketManager {
             header_manager: PacketHeaderManager::new(),
             channel_registry,
             message_registry,
-            num_bytes_available: MTU_PACKET_BYTES,
+            num_bits_available: MTU_PACKET_BYTES * 8,
             /// write buffer to encode packets bit by bit
-            bytes_buffer: Buffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            // TODO: create a BufWriter to keep track of both the buffer and the Writer. 
+            try_write_buffer: WriteBuffer::with_capacity(10 * PACKET_BUFFER_CAPACITY),
+            write_buffer: WriteBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
     }
 
-    // /// Returns true if the given number of bits can fit into the current packet
-    // fn can_fit(&self, num_bytes: u32) -> bool {
-    //     num_bytes <= self.num_bytes_available
-    // }
+    /// Reset the buffers used to encode packets
+    pub fn clear_write_buffers(&mut self) {
+        self.try_write_buffer = WriteBuffer::with_capacity(10 * PACKET_BUFFER_CAPACITY);
+        self.write_buffer = WriteBuffer::with_capacity(PACKET_BUFFER_CAPACITY);
+    }
 
     /// Encode a packet into raw bytes
     pub(crate) fn encode_packet(&mut self, packet: &Packet) -> anyhow::Result<&[u8]> {
+        // TODO: check that we haven't allocated!
+
         // Create a write buffer with capacity the size of a packet
         let mut write_buffer = Buffer::with_capacity(MTU_PACKET_BYTES);
         let mut writer = write_buffer.0.start_write();
         packet.encode(self.message_registry, &mut writer)?;
-        let bytes = writer.finish_write();
+        let bytes = write_buffer.0.finish_write(writer);
         Ok(bytes)
     }
 
@@ -59,6 +68,8 @@ impl PacketManager {
 
     /// Start building new packet
     pub(crate) fn build_new_packet(&mut self) -> Packet {
+        self.clear_write_buffers();
+
         Packet::Single(SinglePacket {
             // TODO: handle protocol and packet type
             header: self.header_manager.prepare_send_packet_header(
@@ -72,20 +83,27 @@ impl PacketManager {
         })
     }
 
-    pub fn try_add_message(
+    /// Returns true if there's enough space in the current packet to add a message
+    /// The expectation is that we only work on a single packet at a time.
+    pub fn can_add_message(
         &mut self,
         packet: &mut Packet,
-        message: MessageContainer,
-    ) -> anyhow::Result<()> {
+        message: &MessageContainer,
+    ) -> anyhow::Result<bool> {
         match packet {
             Packet::Single(single_packet) => {
-                let data = self.bytes_buffer.encode(&message)?;
-                // TODO: create function can fit?
-                if data.len() <= self.num_bytes_available {
-                    single_packet.data.push(message);
-                    Ok(())
+                // TODO: either
+                //  - get a function on the encoder that computes the amount of bits that the serialization will take
+                //  - or we serialize and check the amount of bits it took
+
+                // try to serialize in the try buffer
+                let num_bits = message.encode(self.message_registry, &mut self.try_write_buffer)?;
+
+                if num_bits <= self.num_bits_available {
+                    self.num_bits_available -= num_bits;
+                    Ok(true)
                 } else {
-                    Err(anyhow!("Message too big to fit in packet"))
+                    Ok(false)
                 }
             }
             _ => unimplemented!(),

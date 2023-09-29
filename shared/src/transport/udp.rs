@@ -57,7 +57,26 @@ impl PacketSender for Socket {
 }
 
 impl PacketReceiver for Socket {
-    /// Receives a packet from the socket
+    // /// Receive a packet from the socket and store the results in the provided buffer
+    // /// Return the number of bytes written
+    // fn recv(&mut self, buffer: &[u8]) -> Result<Option<(&[u8], SocketAddr)>> {
+    //     match self
+    //         .socket
+    //         .as_ref()
+    //         .lock()
+    //         .unwrap()
+    //         .recv_from(&mut self.buffer)
+    //     {
+    //         Ok((recv_len, address)) => Ok(Some((&self.buffer[..recv_len], address))),
+    //         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+    //             // Nothing to receive on the socket
+    //             Ok(None)
+    //         }
+    //         Err(e) => Err(anyhow!(e).context("error receiving from udp socket")),
+    //     }
+    // }
+
+    /// Receives a packet from the socket, and stores the results in the provided buffer
     fn recv(&mut self) -> Result<Option<(&[u8], SocketAddr)>> {
         match self
             .socket
@@ -81,7 +100,7 @@ mod tests {
     use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
     use crate::transport::udp::Socket;
     use crate::transport::{PacketReceiver, PacketSender, Transport};
-    use std::net::{SocketAddr};
+    use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::Duration;
 

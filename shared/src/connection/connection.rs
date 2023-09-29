@@ -1,6 +1,7 @@
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
+use crate::connection::io::Io;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
@@ -86,14 +87,16 @@ impl Connection {
     /// Listen for packets on the transport and buffer them
     ///
     /// Return when there are no more packets to receive on the transport
-    pub fn listen(&mut self, mut transport: Box<dyn Transport>) -> anyhow::Result<()> {
+    // TODO: create an IO wrapper around transport, that just listens from transport,
+    //  and then returns a Reader buffer
+    pub fn listen(&mut self, mut io: Io) -> anyhow::Result<()> {
         loop {
-            match transport.recv()? {
-                Some((recv_len, address)) => {
+            match io.create_reader_from_packet()? {
+                Some((mut packet_reader, address)) => {
                     if address != self.remote_addr {
                         bail!("received packet from unknown address");
                     }
-                    self.recv_packet(recv_len)?;
+                    self.recv_packet(&mut packet_reader)?;
                     continue;
                 }
                 None => break,

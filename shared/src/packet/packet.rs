@@ -100,6 +100,13 @@ impl Packet {
         }
     }
 
+    pub fn add_message(&mut self, message: MessageContainer) -> () {
+        match self {
+            Packet::Single(single_packet) => single_packet.data.push(message),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+        }
+    }
+
     /// Number of messages currently written in the packet
     #[cfg(test)]
     pub fn num_messages(&self) -> usize {

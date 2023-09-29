@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// A Message knows how to serialize itself (messageType + Data)
 /// and knows how many bits it takes to serialize itself
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct MessageContainer {
     pub(crate) id: Option<MessageId>,
     message: Box<dyn Message>,
@@ -24,18 +24,21 @@ pub struct MessageContainer {
 
 impl MessageContainer {
     /// Serialize the message into a bytes buffer
+    /// Returns the number of bits written
     pub(crate) fn encode(
         &self,
         message_registry: &MessageRegistry,
         writer: &mut impl Write,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
+        let num_bits_before = writer.num_bits_written();
         let net_id = message_registry
             .get_net_from_kind(&self.message.kind())
             .context("Could not find message kind")?;
         net_id.encode(Fixed, writer)?;
         self.id.encode(Fixed, writer)?;
         self.message.encode(writer)?;
-        Ok(())
+        let num_bits_written = writer.num_bits_written() - num_bits_before;
+        Ok(num_bits_written)
     }
 
     /// Deserialize from the bytes buffer into a Message

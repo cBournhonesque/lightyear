@@ -70,7 +70,7 @@ impl ReliableSender {
         );
 
         // Iterate through all unacked messages, oldest message ids first
-        for (message_id, message) in self.unacked_messages.iter_mut() {
+        for (message_id, message) in self.unacked_messages.iter() {
             let should_send = match message.last_sent {
                 // send it the message has never been sent
                 None => true,
@@ -83,6 +83,7 @@ impl ReliableSender {
                 // TODO: this is a vecdeque, so if we call this function multiple times
                 //  we would send the same message multiple times
                 if !self.message_ids_to_send.contains(message_id) {
+                    // TODO: USE DYN-CLONE?
                     self.messages_to_send.push_back(message.message.clone());
                     self.message_ids_to_send.insert(*message_id);
                     message.last_sent = Some(self.current_time);
@@ -123,7 +124,10 @@ impl ChannelSend for ReliableSender {
         self.collect_messages_to_send();
 
         // build the packets from those messages
-        let packets = MessagePacker::pack_messages(&mut self.messages_to_send, packet_manager);
+        let messages_to_send = std::mem::take(&mut self.messages_to_send);
+        let (packets, remaining_messages_to_send) =
+            MessagePacker::pack_messages(messages_to_send, packet_manager);
+        self.messages_to_send = remaining_messages_to_send;
         for message_id in packets.iter().flat_map(|packet| packet.message_ids()) {
             self.message_ids_to_send.remove(&message_id);
         }
