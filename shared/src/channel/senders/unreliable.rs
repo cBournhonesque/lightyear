@@ -31,7 +31,11 @@ impl ChannelSend for UnorderedUnreliableSender {
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet> {
-        MessagePacker::pack_messages(&mut self.messages_to_send, packet_manager)
+        let messages_to_send = std::mem::take(&mut self.messages_to_send);
+        let (packets, remaining_messages_to_send) =
+            MessagePacker::pack_messages(messages_to_send, packet_manager);
+        self.messages_to_send = remaining_messages_to_send;
+        packets
     }
 }
 
@@ -65,6 +69,10 @@ impl ChannelSend for SequencedUnreliableSender {
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet> {
-        MessagePacker::pack_messages(&mut self.messages_to_send, packet_manager)
+        let messages_to_send = std::mem::take(&mut self.messages_to_send);
+        let (packets, remaining_messages_to_send) =
+            MessagePacker::pack_messages(messages_to_send, packet_manager);
+        self.messages_to_send = remaining_messages_to_send;
+        packets
     }
 }

@@ -4,7 +4,6 @@ use bitcode::word_buffer::WordBuffer;
 use bitcode::Buffer;
 use std::num::NonZeroUsize;
 
-#[derive(Default)]
 pub(crate) struct ReadBuffer<'a> {
     pub(crate) buffer: Buffer,
     pub(crate) reader: <WordBuffer as BufferTrait>::Reader<'a>,

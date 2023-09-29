@@ -10,6 +10,12 @@ use std::collections::HashMap;
 #[derive(Eq, Hash, Copy, Clone, PartialEq)]
 pub struct MessageKind(TypeId);
 
+impl MessageKind {
+    pub fn of<M: Message>() -> Self {
+        Self(TypeId::of::<M>())
+    }
+}
+
 pub struct MessageRegistry {
     pub(in crate::registry) next_net_id: NetId,
     pub(in crate::registry) kind_map: HashMap<MessageKind, (NetId, Box<dyn MessageBuilder>)>,
@@ -24,15 +30,6 @@ impl MessageRegistry {
             id_map: HashMap::new(),
             built: false,
         }
-    }
-
-    /// Build all the channels in the registry
-    pub fn channels(&self) -> HashMap<MessageKind, MessageContainer> {
-        let mut channels = HashMap::new();
-        for (type_id, (_, builder)) in self.kind_map.iter() {
-            channels.insert(*type_id, builder.build());
-        }
-        channels
     }
 
     /// Register a new type

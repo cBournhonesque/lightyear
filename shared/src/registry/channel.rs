@@ -48,20 +48,21 @@ impl ChannelRegistry {
         Ok(())
     }
 
-    /// Get the registered object for a given type
-    pub fn get_from_type(&self, channel_kind: &ChannelKind) -> Option<ChannelBuilder> {
-        self.kind_map
-            .get(channel_kind)
-            .and_then(|(_, t)| Some((*t).clone()))
-    }
+    // /// Get the registered object for a given type
+    // pub fn get_from_type(&self, channel_kind: &ChannelKind) -> Option<ChannelBuilder> {
+    //     self.kind_map
+    //         .get(channel_kind)
+    //         .and_then(|(_, t)| Some((*t).clone()))
+    // }
 
     pub fn get_kind_from_id(&self, net_id: NetId) -> Option<&ChannelKind> {
         self.id_map.get(&net_id).and_then(|k| Some(k))
     }
-    pub fn get_from_net_id(&self, net_id: NetId) -> Option<ChannelBuilder> {
-        let channel_kind = self.get_kind_from_id(net_id)?;
-        self.get_from_type(channel_kind)
-    }
+    // pub fn get_from_net_id(&self, net_id: NetId) -> Option<ChannelBuilder> {
+    //     let channel_kind = self.get_kind_from_id(net_id)?;
+    //     self.get_from_type(channel_kind)
+    // }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.kind_map.len()

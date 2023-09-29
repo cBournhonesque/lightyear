@@ -17,7 +17,6 @@ pub(crate) const MTU_PACKET_BYTES: usize = 1200;
 
 /// Single individual packet sent over the network
 /// Contains multiple small messages
-#[derive(Encode, Decode, Serialize, Deserialize)]
 pub(crate) struct SinglePacket {
     pub(crate) header: PacketHeader,
     pub(crate) data: Vec<MessageContainer>,
@@ -45,14 +44,12 @@ pub(crate) struct SinglePacket {
 
 /// A packet that is split into multiple fragments
 /// because it contains a message that is too big
-#[derive(Serialize, Deserialize)]
 pub struct FragmentedPacket {}
 
 /// Abstraction for data that is sent over the network
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
-#[derive(Serialize, Deserialize)]
 pub enum Packet {
     Single(SinglePacket),
     Fragmented(FragmentedPacket),
@@ -71,10 +68,10 @@ impl Packet {
                 // TODO: include channel information. Maybe in the header?
 
                 // TODO: does question mark work inside an iterator?
-                single_packet.data.iter().for_each(|message| {
+                single_packet.data.iter().try_for_each(|message| {
                     message.encode(message_registry, writer)?;
-                });
-                Ok(())
+                    Ok(())
+                })
             }
             _ => unimplemented!(),
         }

@@ -70,7 +70,7 @@ impl ReliableSender {
         );
 
         // Iterate through all unacked messages, oldest message ids first
-        for (message_id, message) in self.unacked_messages.iter() {
+        for (message_id, message) in self.unacked_messages.iter_mut() {
             let should_send = match message.last_sent {
                 // send it the message has never been sent
                 None => true,
@@ -84,7 +84,7 @@ impl ReliableSender {
                 //  we would send the same message multiple times
                 if !self.message_ids_to_send.contains(message_id) {
                     // TODO: USE DYN-CLONE?
-                    self.messages_to_send.push_back(message.message.clone());
+                    // self.messages_to_send.push_back(message.message.clone());
                     self.message_ids_to_send.insert(*message_id);
                     message.last_sent = Some(self.current_time);
                 }
