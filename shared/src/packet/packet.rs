@@ -5,8 +5,11 @@ use bitcode::encoding::Fixed;
 use bitcode::read::Read;
 use bitcode::write::Write;
 use bitcode::{Decode, Encode};
+use bitvec::order::Msb0;
 
 use crate::registry::message::MessageRegistry;
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::writer::WriteBuffer;
 use serde::{Deserialize, Serialize};
 
 pub trait PacketData {}
@@ -60,11 +63,11 @@ impl Packet {
     pub fn encode(
         &self,
         message_registry: &MessageRegistry,
-        writer: &mut impl Write,
+        writer: &mut impl WriteBuffer,
     ) -> anyhow::Result<()> {
         match self {
             Packet::Single(single_packet) => {
-                single_packet.header.encode(Fixed, writer)?;
+                writer.serialize(&single_packet.header)?;
                 // TODO: include channel information. Maybe in the header?
 
                 // TODO: does question mark work inside an iterator?
@@ -80,12 +83,15 @@ impl Packet {
     /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
     pub fn decode(
         message_registry: &MessageRegistry,
-        reader: &mut impl Read,
+        reader: &mut impl ReadBuffer,
     ) -> anyhow::Result<Packet> {
-        let header = <PacketHeader as Decode>::decode(Fixed, reader)?;
+        let header = reader.deserialize()?;
         // TODO: get channel information
         let mut data = Vec::new();
-        data.push(MessageContainer::decode(message_registry, reader)?);
+        // TODO: add info about num messages in packet?
+        // TODO: loop over messages
+        let message = reader.deserialize::<MessageContainer>()?;
+        data.push(message);
         Ok(Packet::Single(SinglePacket { header, data }))
     }
 

@@ -4,37 +4,41 @@ use bitcode::word::Word;
 use bitcode::word_buffer::{WordBuffer, WordWriter};
 use bitcode::write::Write;
 use bitcode::Buffer;
+use bitvec::order::Lsb0;
+use bitvec::vec::BitVec;
+use serde::Serialize;
 use std::num::NonZeroUsize;
 
-#[derive(Default)]
-pub(crate) struct WriteBuffer {
-    pub(crate) buffer: Buffer,
-    pub(crate) writer: WordWriter,
+/// Buffer to facilitate writing bits
+pub trait WriteBuffer {
+    // type Writer: BitWrite;
+
+    /// Serialize the given value into the buffer
+    /// There is 0-7 bits of padding so that the serialized value is byte-aligned
+    fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()>;
+
+    fn capacity(&self) -> usize;
+    fn with_capacity(capacity: usize) -> Self;
+
+    /// Clears the buffer.
+    fn start_write(&mut self);
+
+    /// Returns the finalized bytes (with padding)
+    fn finish_write(&mut self) -> &[u8];
+
+    fn num_bits_written(&self) -> usize;
+
+    /// Increase the maximum number of bits that can be written with this buffer
+    /// (this is separate from the buffers capacity)
+    fn reserve_bits(&mut self, num_bits: u32);
+
+    /// Decrease the maximum number of bits that can be written with this buffer
+    fn release_bits(&mut self, num_bits: u32);
 }
 
-impl WriteBuffer {
-    /// From a slice of bytes
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        let mut buffer = Buffer::with_capacity(capacity);
-        let writer = buffer.0.start_write();
-        Self { buffer, writer }
-    }
-}
-
-impl Write for WriteBuffer {
-    fn write_bit(&mut self, v: bool) {
-        self.writer.write_bit(v)
-    }
-
-    fn write_bits(&mut self, word: Word, bits: usize) {
-        self.writer.write_bits(word, bits)
-    }
-
-    fn write_bytes(&mut self, bytes: &[u8]) {
-        self.writer.write_bytes(bytes)
-    }
-
-    fn num_bits_written(&self) -> usize {
-        self.writer.num_bits_written()
-    }
+pub trait BitWrite {
+    fn write_bit(&mut self, bit: bool);
+    fn write_bits(&mut self, bits: u32);
+    fn write_bytes(&mut self, bytes: &[u8]);
+    fn num_bits_written(&self);
 }

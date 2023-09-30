@@ -38,6 +38,7 @@ pub fn message_impl(
                 #decode_method
             }
 
+            #[typetag::serde]
             impl Message for #struct_name {
                 #get_builder_method
             }

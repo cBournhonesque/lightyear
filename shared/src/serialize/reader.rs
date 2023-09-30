@@ -1,51 +1,41 @@
+use anyhow::Result;
 use bitcode::buffer::BufferTrait;
 use bitcode::read::Read;
+use bitcode::word::Word;
 use bitcode::word_buffer::WordBuffer;
 use bitcode::Buffer;
+use serde::de::DeserializeOwned;
 use std::num::NonZeroUsize;
 
-pub(crate) struct ReadBuffer<'a> {
-    pub(crate) buffer: Buffer,
-    pub(crate) reader: <WordBuffer as BufferTrait>::Reader<'a>,
-    pub(crate) context: <WordBuffer as BufferTrait>::Context,
+pub trait ReadBuffer {
+    // type Reader: BitRead;
+    // type Context;
+
+    fn capacity(&self) -> usize;
+
+    /// Deserialize from the buffer into a value
+    fn deserialize<T: DeserializeOwned>(&mut self) -> Result<T>;
+
+    /// Copy the bytes into the buffer, so that we can deserialize them
+    fn start_read(bytes: &[u8]) -> Self;
+
+    /// Check for errors such as Eof and ExpectedEof
+    fn finish_read(&mut self) -> Result<()>;
 }
 
-impl ReadBuffer<'_> {
-    /// From a slice of bytes
+/// Abstracts over reading bits from a buffer.
+pub trait BitRead {
+    /// Advances any amount of bits. Must never fail.
+    fn advance(&mut self, bits: usize);
+    /// Peeks 64 bits without reading them. Bits after EOF are zeroed.
+    fn peek_bits(&mut self) -> Result<Word>;
 
-    pub(crate) fn build_from_bytes(bytes: &[u8]) -> Self {
-        let mut buffer = Buffer::with_capacity(bytes.len());
-        let (reader, context) = buffer.0.start_read(bytes);
-        Self {
-            buffer,
-            reader,
-            context,
-        }
-    }
-}
-
-impl Read for ReadBuffer<'_> {
-    fn advance(&mut self, bits: usize) {
-        self.reader.advance(bits)
-    }
-
-    fn peek_bits(&mut self) -> bitcode::Result<bitcode::word::Word> {
-        self.reader.peek_bits()
-    }
-
-    fn read_bit(&mut self) -> bitcode::Result<bool> {
-        self.reader.read_bit()
-    }
-
-    fn read_bits(&mut self, bits: usize) -> bitcode::Result<bitcode::word::Word> {
-        self.reader.read_bits(bits)
-    }
-
-    fn read_bytes(&mut self, len: NonZeroUsize) -> bitcode::Result<&[u8]> {
-        self.reader.read_bytes(len)
-    }
-
-    fn reserve_bits(&self, bits: usize) -> bitcode::Result<()> {
-        self.reader.reserve_bits(bits)
-    }
+    // Reads 1 bit.
+    fn read_bit(&mut self) -> Result<bool>;
+    /// Reads up to 64 bits. `bits` must be in range `1..=64`.
+    fn read_bits(&mut self, bits: usize) -> Result<Word>;
+    /// Reads `len` bytes.
+    fn read_bytes(&mut self, len: NonZeroUsize) -> Result<&[u8]>;
+    /// Ensures that at least `bits` remain. Never underreports remaining bits.
+    fn reserve_bits(&self, bits: usize) -> Result<()>;
 }

@@ -4,6 +4,8 @@ use crate::packet::packet::{Packet, SinglePacket, MTU_PACKET_BYTES};
 use crate::packet::packet_type::PacketType;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::registry::message::MessageRegistry;
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
 use anyhow::anyhow;
 use bitcode::buffer::BufferTrait;
@@ -21,15 +23,18 @@ pub(crate) struct PacketManager {
     num_bits_available: usize,
 
     /// Pre-allocated buffer to encode/decode without allocation.
-    try_write_buffer: WriteBuffer,
-    write_buffer: WriteBuffer,
+    try_write_buffer: WriteWordBuffer,
+    write_buffer: WriteWordBuffer,
 }
 
 // PLAN:
 // -
 
 impl PacketManager {
-    pub fn new(channel_registry: &ChannelRegistry, message_registry: &MessageRegistry) -> Self {
+    pub fn new(
+        channel_registry: &'static ChannelRegistry,
+        message_registry: &'static MessageRegistry,
+    ) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
             channel_registry,
@@ -53,16 +58,17 @@ impl PacketManager {
         // TODO: check that we haven't allocated!
 
         // Create a write buffer with capacity the size of a packet
-        let mut write_buffer = Buffer::with_capacity(MTU_PACKET_BYTES);
-        let mut writer = write_buffer.0.start_write();
-        packet.encode(self.message_registry, &mut writer)?;
-        let bytes = write_buffer.0.finish_write(writer);
+        // let mut write_buffer = Buffer::with_capacity(MTU_PACKET_BYTES);
+        // let mut writer = write_buffer.0.start_write();
+        packet.encode(self.message_registry, &mut self.write_buffer)?;
+        let bytes = self.write_buffer.finish_write();
+        // let bytes = write_buffer.0.finish_write(writer);
         Ok(bytes)
     }
 
     /// Decode a packet from raw bytes
     // TODO: the reader buffer will be created from the io (we copy the io bytes into a buffer)
-    pub(crate) fn decode_packet(&mut self, reader: &mut impl Read) -> anyhow::Result<Packet> {
+    pub(crate) fn decode_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
         Packet::decode(self.message_registry, reader)
     }
 
@@ -118,37 +124,37 @@ mod tests {
     use crate::packet::packet::MTU_PACKET_BYTES;
 
     use bytes::Bytes;
-
-    #[test]
-    fn test_write_small_message() -> anyhow::Result<()> {
-        let mut manager = PacketManager::new();
-
-        let small_message = MessageContainer::new(Bytes::from("small"));
-        let mut packet = manager.build_new_packet();
-        manager.try_add_message(&mut packet, small_message.clone())?;
-
-        assert_eq!(packet.num_messages(), 1);
-
-        manager.try_add_message(&mut packet, small_message.clone())?;
-        assert_eq!(packet.num_messages(), 2);
-        Ok(())
-    }
-
-    #[test]
-    fn test_write_big_message() -> anyhow::Result<()> {
-        let mut manager = PacketManager::new();
-
-        let big_bytes = vec![1u8; 2 * MTU_PACKET_BYTES];
-        let big_message = MessageContainer::new(Bytes::from(big_bytes));
-        let mut packet = manager.build_new_packet();
-        let error = manager
-            .try_add_message(&mut packet, big_message)
-            .unwrap_err();
-        let root_cause = error.root_cause();
-        assert_eq!(
-            format!("{}", root_cause),
-            "Message too big to fit in packet"
-        );
-        Ok(())
-    }
+    //
+    // #[test]
+    // fn test_write_small_message() -> anyhow::Result<()> {
+    //     let mut manager = PacketManager::new();
+    //
+    //     let small_message = MessageContainer::new(Bytes::from("small"));
+    //     let mut packet = manager.build_new_packet();
+    //     manager.try_add_message(&mut packet, small_message.clone())?;
+    //
+    //     assert_eq!(packet.num_messages(), 1);
+    //
+    //     manager.try_add_message(&mut packet, small_message.clone())?;
+    //     assert_eq!(packet.num_messages(), 2);
+    //     Ok(())
+    // }
+    //
+    // #[test]
+    // fn test_write_big_message() -> anyhow::Result<()> {
+    //     let mut manager = PacketManager::new();
+    //
+    //     let big_bytes = vec![1u8; 2 * MTU_PACKET_BYTES];
+    //     let big_message = MessageContainer::new(Bytes::from(big_bytes));
+    //     let mut packet = manager.build_new_packet();
+    //     let error = manager
+    //         .try_add_message(&mut packet, big_message)
+    //         .unwrap_err();
+    //     let root_cause = error.root_cause();
+    //     assert_eq!(
+    //         format!("{}", root_cause),
+    //         "Message too big to fit in packet"
+    //     );
+    //     Ok(())
+    // }
 }

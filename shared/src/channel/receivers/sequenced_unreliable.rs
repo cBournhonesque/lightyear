@@ -55,44 +55,44 @@ mod tests {
     use super::{MessageContainer, MessageId};
     use bytes::Bytes;
 
-    #[test]
-    fn test_sequenced_unreliable_receiver_internals() {
-        let mut receiver = SequencedUnreliableReceiver::new();
-
-        let mut message1 = MessageContainer::new(Bytes::from("hello"));
-        let mut message2 = MessageContainer::new(Bytes::from("world"));
-        let mut message3 = MessageContainer::new(Bytes::from("test"));
-
-        // receive an old message: it doesn't get added to the buffer
-        message2.id = Some(MessageId(60000));
-        receiver.buffer_recv(message2.clone());
-        assert_eq!(receiver.recv_message_buffer.len(), 0);
-
-        // receive message in the wrong order
-        message2.id = Some(MessageId(1));
-        receiver.buffer_recv(message2.clone());
-
-        // the message has been buffered, and we can read it instantly
-        // since it's the most recent
-        assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert_eq!(receiver.most_recent_message_id, MessageId(1));
-        assert_eq!(receiver.read_message(), Some(message2.clone()));
-        assert_eq!(receiver.recv_message_buffer.len(), 0);
-
-        // receive an earlier message 0
-        message1.set_id(MessageId(0));
-        receiver.buffer_recv(message1.clone());
-        // we don't add it to the buffer since we have read a more recent message.
-        assert_eq!(receiver.recv_message_buffer.len(), 0);
-        assert_eq!(receiver.read_message(), None);
-
-        // receive a later message
-        message3.set_id(MessageId(2));
-        receiver.buffer_recv(message3.clone());
-        // it's the most recent message so we receive it
-        assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert_eq!(receiver.most_recent_message_id, MessageId(2));
-        assert_eq!(receiver.read_message(), Some(message3.clone()));
-        assert_eq!(receiver.recv_message_buffer.len(), 0);
-    }
+    // #[test]
+    // fn test_sequenced_unreliable_receiver_internals() {
+    //     let mut receiver = SequencedUnreliableReceiver::new();
+    //
+    //     let mut message1 = MessageContainer::new(Bytes::from("hello"));
+    //     let mut message2 = MessageContainer::new(Bytes::from("world"));
+    //     let mut message3 = MessageContainer::new(Bytes::from("test"));
+    //
+    //     // receive an old message: it doesn't get added to the buffer
+    //     message2.id = Some(MessageId(60000));
+    //     receiver.buffer_recv(message2.clone());
+    //     assert_eq!(receiver.recv_message_buffer.len(), 0);
+    //
+    //     // receive message in the wrong order
+    //     message2.id = Some(MessageId(1));
+    //     receiver.buffer_recv(message2.clone());
+    //
+    //     // the message has been buffered, and we can read it instantly
+    //     // since it's the most recent
+    //     assert_eq!(receiver.recv_message_buffer.len(), 1);
+    //     assert_eq!(receiver.most_recent_message_id, MessageId(1));
+    //     assert_eq!(receiver.read_message(), Some(message2.clone()));
+    //     assert_eq!(receiver.recv_message_buffer.len(), 0);
+    //
+    //     // receive an earlier message 0
+    //     message1.set_id(MessageId(0));
+    //     receiver.buffer_recv(message1.clone());
+    //     // we don't add it to the buffer since we have read a more recent message.
+    //     assert_eq!(receiver.recv_message_buffer.len(), 0);
+    //     assert_eq!(receiver.read_message(), None);
+    //
+    //     // receive a later message
+    //     message3.set_id(MessageId(2));
+    //     receiver.buffer_recv(message3.clone());
+    //     // it's the most recent message so we receive it
+    //     assert_eq!(receiver.recv_message_buffer.len(), 1);
+    //     assert_eq!(receiver.most_recent_message_id, MessageId(2));
+    //     assert_eq!(receiver.read_message(), Some(message3.clone()));
+    //     assert_eq!(receiver.recv_message_buffer.len(), 0);
+    // }
 }

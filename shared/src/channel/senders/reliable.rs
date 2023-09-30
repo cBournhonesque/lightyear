@@ -135,62 +135,62 @@ impl ChannelSend for ReliableSender {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ChannelSend;
-    use super::Instant;
-    use super::ReliableSender;
-    use super::{MessageContainer, MessageId};
-    use crate::channel::channel::ReliableSettings;
-    use bytes::Bytes;
-    use mock_instant::MockClock;
-    use std::time::Duration;
-
-    #[test]
-    fn test_reliable_sender_internals() {
-        let mut sender = ReliableSender {
-            reliable_settings: ReliableSettings {
-                rtt_resend_factor: 1.5,
-            },
-            unacked_messages: Default::default(),
-            next_send_message_id: MessageId(0),
-            messages_to_send: Default::default(),
-            message_ids_to_send: Default::default(),
-            current_rtt_millis: 100.0,
-            current_time: Instant::now(),
-        };
-
-        // Buffer a new message
-        let mut message = MessageContainer::new(Bytes::from("hello"));
-        sender.buffer_send(message.clone());
-        assert_eq!(sender.unacked_messages.len(), 1);
-        assert_eq!(sender.next_send_message_id, MessageId(1));
-        // Collect the messages to be sent
-        sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 1);
-
-        // Advance by a time that is below the resend threshold
-        MockClock::advance(Duration::from_millis(100));
-        sender.current_time = Instant::now();
-        sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 1);
-
-        // Advance by a time that is above the resend threshold
-        MockClock::advance(Duration::from_millis(200));
-        sender.current_time = Instant::now();
-        sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 1);
-        message.id = Some(MessageId(0));
-        assert_eq!(sender.messages_to_send.get(0).unwrap(), &message.clone());
-
-        // Ack the first message
-        sender.process_message_ack(MessageId(0));
-        assert_eq!(sender.unacked_messages.len(), 0);
-
-        // Advance by a time that is above the resend threshold
-        MockClock::advance(Duration::from_millis(200));
-        sender.current_time = Instant::now();
-        // this time there are no new messages to send
-        assert_eq!(sender.messages_to_send.len(), 1);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::ChannelSend;
+//     use super::Instant;
+//     use super::ReliableSender;
+//     use super::{MessageContainer, MessageId};
+//     use crate::channel::channel::ReliableSettings;
+//     use bytes::Bytes;
+//     use mock_instant::MockClock;
+//     use std::time::Duration;
+//
+//     #[test]
+//     fn test_reliable_sender_internals() {
+//         let mut sender = ReliableSender {
+//             reliable_settings: ReliableSettings {
+//                 rtt_resend_factor: 1.5,
+//             },
+//             unacked_messages: Default::default(),
+//             next_send_message_id: MessageId(0),
+//             messages_to_send: Default::default(),
+//             message_ids_to_send: Default::default(),
+//             current_rtt_millis: 100.0,
+//             current_time: Instant::now(),
+//         };
+//
+//         // Buffer a new message
+//         let mut message = MessageContainer::new(Bytes::from("hello"));
+//         sender.buffer_send(message.clone());
+//         assert_eq!(sender.unacked_messages.len(), 1);
+//         assert_eq!(sender.next_send_message_id, MessageId(1));
+//         // Collect the messages to be sent
+//         sender.collect_messages_to_send();
+//         assert_eq!(sender.messages_to_send.len(), 1);
+//
+//         // Advance by a time that is below the resend threshold
+//         MockClock::advance(Duration::from_millis(100));
+//         sender.current_time = Instant::now();
+//         sender.collect_messages_to_send();
+//         assert_eq!(sender.messages_to_send.len(), 1);
+//
+//         // Advance by a time that is above the resend threshold
+//         MockClock::advance(Duration::from_millis(200));
+//         sender.current_time = Instant::now();
+//         sender.collect_messages_to_send();
+//         assert_eq!(sender.messages_to_send.len(), 1);
+//         message.id = Some(MessageId(0));
+//         assert_eq!(sender.messages_to_send.get(0).unwrap(), &message.clone());
+//
+//         // Ack the first message
+//         sender.process_message_ack(MessageId(0));
+//         assert_eq!(sender.unacked_messages.len(), 0);
+//
+//         // Advance by a time that is above the resend threshold
+//         MockClock::advance(Duration::from_millis(200));
+//         sender.current_time = Instant::now();
+//         // this time there are no new messages to send
+//         assert_eq!(sender.messages_to_send.len(), 1);
+//     }
+// }

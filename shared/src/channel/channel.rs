@@ -29,8 +29,8 @@ pub struct ChannelBuilder {
 }
 
 impl ChannelBuilder {
-    pub(crate) fn build(self) -> ChannelContainer {
-        ChannelContainer::new(self.settings)
+    pub(crate) fn build(&self) -> ChannelContainer {
+        ChannelContainer::new(self.settings.clone())
     }
 }
 

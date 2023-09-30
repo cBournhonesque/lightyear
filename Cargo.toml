@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "shared/derive",
+    "shared/serde",
     "shared",
     "server",
 ]

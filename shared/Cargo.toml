@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest" }
+bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
+typetag = "0.2"
+bitvec = "1.0"
 bytes = { version = "1.5", features = ["serde"] }
 enum_dispatch = "0.3"
 rand = "0.8"

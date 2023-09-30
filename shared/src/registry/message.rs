@@ -50,10 +50,8 @@ impl MessageRegistry {
     pub fn get_builder_from_kind(
         &self,
         channel_kind: &MessageKind,
-    ) -> Option<Box<dyn MessageBuilder>> {
-        self.kind_map
-            .get(channel_kind)
-            .and_then(|(_, t)| Some((*t).clone()))
+    ) -> Option<&Box<dyn MessageBuilder>> {
+        self.kind_map.get(channel_kind).and_then(|(_, t)| Some(t))
     }
 
     pub fn get_kind_from_net_id(&self, net_id: NetId) -> Option<&MessageKind> {
@@ -66,9 +64,9 @@ impl MessageRegistry {
             .and_then(|(net_id, _)| Some(net_id))
     }
 
-    pub fn get_from_net_id(&self, net_id: NetId) -> Option<Box<dyn MessageBuilder>> {
-        let channel_kind = self.get_kind_from_id(net_id)?;
-        self.get_from_type(channel_kind)
+    pub fn get_from_net_id(&self, net_id: NetId) -> Option<&Box<dyn MessageBuilder>> {
+        let channel_kind = self.get_kind_from_net_id(net_id)?;
+        self.get_builder_from_kind(channel_kind)
     }
     #[cfg(test)]
     fn len(&self) -> usize {
