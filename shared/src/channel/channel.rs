@@ -25,7 +25,7 @@ pub trait Channel: 'static {
 
 #[doc(hidden)]
 pub struct ChannelBuilder {
-    settings: ChannelSettings,
+    pub(crate) settings: ChannelSettings,
 }
 
 impl ChannelBuilder {

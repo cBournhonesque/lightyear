@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
+self_cell = "1.0"
 typetag = "0.2"
 bitvec = "1.0"
 bytes = { version = "1.5", features = ["serde"] }

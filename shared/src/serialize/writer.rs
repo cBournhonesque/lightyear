@@ -23,7 +23,7 @@ pub trait WriteBuffer {
     /// Clears the buffer.
     fn start_write(&mut self);
 
-    /// Returns the finalized bytes (with padding)
+    /// Returns the finalized bytes (with padding to make a full byte)
     fn finish_write(&mut self) -> &[u8];
 
     fn num_bits_written(&self) -> usize;

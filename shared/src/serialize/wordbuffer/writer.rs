@@ -5,6 +5,7 @@ use bitcode::encoding::Fixed;
 use bitcode::serde::ser::serialize_compat;
 use bitcode::word_buffer::{WordBuffer, WordWriter};
 use bitcode::write::Write;
+use bitcode::Encode;
 use serde::Serialize;
 
 #[derive(Default)]
@@ -13,9 +14,20 @@ pub(crate) struct WriteWordBuffer {
     pub(crate) writer: WordWriter,
 }
 
+#[derive(Encode, Serialize)]
+#[bitcode_hint(gamma)]
+struct OnlyGammaEncode<'a, T: Serialize + ?Sized>(#[bitcode(with_serde)] &'a T);
+
 impl WriteBuffer for WriteWordBuffer {
+    // fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()> {
+    //     serialize_compat(t, Fixed, &mut self.writer).context("error serializing")
+    // }
+
     fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()> {
-        serialize_compat(t, Fixed, &mut self.writer).context("error serializing")
+        let with_gamma = OnlyGammaEncode::<T>(t);
+        with_gamma
+            .encode(Fixed, &mut self.writer)
+            .context("error serializing")
     }
 
     fn capacity(&self) -> usize {
@@ -50,10 +62,17 @@ impl WriteBuffer for WriteWordBuffer {
 
 #[cfg(test)]
 mod tests {
+    use crate::serialize::reader::ReadBuffer;
+    use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     use crate::serialize::wordbuffer::writer::WriteWordBuffer;
+    use bitcode::{Decode, Encode};
+    use bitvec::bitvec;
+    use bitvec::order::Lsb0;
+    use bitvec::view::BitView;
+    use serde::Deserialize;
 
     #[test]
-    fn test_write() -> anyhow::Result<()> {
+    fn test_write_bits() -> anyhow::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
         use bitcode::word::Word;
@@ -62,11 +81,73 @@ mod tests {
         use serde::Serialize;
 
         let mut buffer = WriteWordBuffer::with_capacity(5);
+        // confirm that we serialize bit by bit
         buffer.serialize(&true)?;
         buffer.serialize(&false)?;
+        buffer.serialize(&true)?;
+        buffer.serialize(&true)?;
+        // finish
         let bytes = buffer.finish_write();
 
+        // in little-endian, we write the bits in reverse order
+        assert_eq!(bytes, &[0b00001101]);
+
+        let mut read_buffer = ReadWordBuffer::start_read(bytes);
+        let bool = read_buffer.deserialize::<bool>()?;
+        assert_eq!(bool, true);
+        let bool = read_buffer.deserialize::<bool>()?;
+        assert_eq!(bool, false);
+        let bool = read_buffer.deserialize::<bool>()?;
+        assert_eq!(bool, true);
+        let bool = read_buffer.deserialize::<bool>()?;
+        assert_eq!(bool, true);
+        read_buffer.finish_read()?;
+
         dbg!(bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_multiple_objects() -> anyhow::Result<()> {
+        use super::*;
+        use crate::serialize::writer::WriteBuffer;
+        use bitcode::word::Word;
+        use bitcode::word_buffer::WordBuffer;
+        use bitcode::write::Write;
+        use serde::Serialize;
+
+        let mut buffer = WriteWordBuffer::with_capacity(2);
+        let first_vec: Vec<u32> = vec![4, 6, 3];
+        let second_vec: Vec<u64> = vec![2, 5];
+        // confirm that we serialize bit by bit
+        buffer.serialize(&first_vec)?;
+        buffer.serialize(&second_vec)?;
+        // finish
+        let bytes = buffer.finish_write();
+
+        let mut read_buffer = ReadWordBuffer::start_read(bytes);
+        let vec = read_buffer.deserialize::<Vec<u32>>()?;
+        assert_eq!(vec, first_vec);
+        let vec = read_buffer.deserialize::<Vec<u64>>()?;
+        assert_eq!(vec, second_vec);
+        read_buffer.finish_read()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_gamma() -> anyhow::Result<()> {
+        use super::*;
+        use crate::serialize::writer::WriteBuffer;
+        use serde::Serialize;
+
+        let mut buffer = WriteWordBuffer::with_capacity(10);
+        buffer.serialize(&7_i64)?;
+        let bytes = buffer.finish_write();
+        assert_eq!(bytes.len(), 1);
+        let mut read_buffer = ReadWordBuffer::start_read(bytes);
+        let val = read_buffer.deserialize::<i64>()?;
+        assert_eq!(val, 7_i64);
+
         Ok(())
     }
 }
