@@ -1,8 +1,9 @@
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
-mod impls;
 use impls::*;
+
+mod impls;
 
 #[proc_macro_derive(Serde)]
 pub fn derive_serde(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

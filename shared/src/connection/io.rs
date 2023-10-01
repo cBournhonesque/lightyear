@@ -1,13 +1,10 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
-use crate::packet::packet::MTU_PACKET_BYTES;
+use std::net::SocketAddr;
+
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::transport::Transport;
-use bitcode::buffer::BufferTrait;
-use bitcode::read::Read;
-use bitcode::Buffer;
-use std::net::SocketAddr;
 
 pub struct Io {
     transport: Box<dyn Transport>,

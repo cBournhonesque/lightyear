@@ -7,29 +7,26 @@ use crate::channel::receivers::ChannelReceiver;
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
 use crate::channel::senders::ChannelSender;
-use crate::registry::channel::ChannelKind;
-use bitcode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel
-pub struct ChannelContainer {
+pub struct ChannelContainer<P> {
     pub setting: ChannelSettings,
-    pub(crate) receiver: ChannelReceiver,
-    pub(crate) sender: ChannelSender,
+    pub(crate) receiver: ChannelReceiver<P>,
+    pub(crate) sender: ChannelSender<P>,
 }
 
-pub trait Channel: 'static {
-    fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
+pub trait Channel<P>: 'static {
+    fn get_builder(settings: ChannelSettings) -> ChannelBuilder<P>;
 }
 
 #[doc(hidden)]
-pub struct ChannelBuilder {
+pub struct ChannelBuilder<P> {
     pub(crate) settings: ChannelSettings,
 }
 
-impl ChannelBuilder {
-    pub(crate) fn build(&self) -> ChannelContainer {
+impl<P> ChannelBuilder<P> {
+    pub(crate) fn build(&self) -> ChannelContainer<P> {
         ChannelContainer::new(self.settings.clone())
     }
 }
@@ -41,9 +38,9 @@ impl ChannelBuilder {
 //     // TODO: add fragmentation data
 // }
 
-impl ChannelContainer {
+impl<P> ChannelContainer<P> {
     pub fn new(settings: ChannelSettings) -> Self {
-        let receiver: ChannelReceiver;
+        let receiver: ChannelReceiver<P>;
         let sender: ChannelSender;
         let settings_clone = settings.clone();
         match settings.mode {

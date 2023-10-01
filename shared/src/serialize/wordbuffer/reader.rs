@@ -1,13 +1,12 @@
-use crate::serialize::reader::ReadBuffer;
 use anyhow::Context;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::Fixed;
-use bitcode::serde::de::deserialize_compat;
 use bitcode::word_buffer::{WordBuffer, WordContext, WordReader};
 use bitcode::Decode;
 use self_cell::self_cell;
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+
+use crate::serialize::reader::ReadBuffer;
 
 #[derive(Default)]
 pub struct Reader<'a>(Option<(WordReader<'a>, WordContext)>);
@@ -51,7 +50,7 @@ impl<'a> ReadBuffer for ReadWordBuffer<'a> {
                 .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
             let with_gamma =
                 OnlyGammaDecode::<T>::decode(Fixed, reader).context("error deserializing")?;
-            Ok((with_gamma.0))
+            Ok(with_gamma.0)
         })
     }
 

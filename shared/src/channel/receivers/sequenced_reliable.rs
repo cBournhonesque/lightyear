@@ -1,23 +1,23 @@
-use crate::channel::receivers::ChannelReceive;
-use anyhow::anyhow;
-
 use std::collections::{btree_map, BTreeMap};
 
+use anyhow::anyhow;
+
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
 /// do not return them in order, but ignore the messages that are older than the most recent one received
-pub struct SequencedReliableReceiver {
+pub struct SequencedReliableReceiver<P> {
     // TODO: optimize via ring buffer?
     // TODO: actually do we even need a buffer? we might just need a buffer of 1
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, MessageContainer>,
+    recv_message_buffer: BTreeMap<MessageId, MessageContainer<P>>,
     /// Highest message id received so far
     most_recent_message_id: MessageId,
 }
 
-impl SequencedReliableReceiver {
+impl<P> SequencedReliableReceiver<P> {
     pub fn new() -> Self {
         Self {
             recv_message_buffer: BTreeMap::new(),
@@ -27,9 +27,9 @@ impl SequencedReliableReceiver {
 }
 
 // TODO: THIS SEEMS WRONG!
-impl ChannelReceive for SequencedReliableReceiver {
+impl<P> ChannelReceive<P> for SequencedReliableReceiver<P> {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: MessageContainer<P>) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
 
         // if the message is too old, ignore it
@@ -48,7 +48,7 @@ impl ChannelReceive for SequencedReliableReceiver {
         }
         Ok(())
     }
-    fn read_message(&mut self) -> Option<MessageContainer> {
+    fn read_message(&mut self) -> Option<MessageContainer<P>> {
         // keep popping messages until we get one that is more recent than the last one we processed
         loop {
             let Some((message_id, message)) = self.recv_message_buffer.pop_first() else {

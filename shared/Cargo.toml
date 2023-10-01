@@ -9,8 +9,8 @@ edition = "2021"
 anyhow = "1.0"
 bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
 self_cell = "1.0"
-typetag = "0.2"
 bitvec = "1.0"
+dyn-clone = "1.0"
 bytes = { version = "1.5", features = ["serde"] }
 enum_dispatch = "0.3"
 rand = "0.8"

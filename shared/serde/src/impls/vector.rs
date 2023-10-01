@@ -69,8 +69,9 @@ impl<T: Serde> Serde for VecDeque<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{bit_reader::BitReader, bit_writer::BitWriter, serde::Serde};
     use std::collections::VecDeque;
+
+    use crate::{bit_reader::BitReader, bit_writer::BitWriter, serde::Serde};
 
     #[test]
     fn read_write_vec() {

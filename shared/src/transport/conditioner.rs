@@ -1,15 +1,17 @@
-#[cfg(test)]
-use mock_instant::Instant;
 use std::net::SocketAddr;
 use std::time::Duration;
 #[cfg(not(test))]
 use std::time::Instant;
 
-use crate::transport::PacketReceiver;
 use anyhow::Result;
-use implementation::TimeMinHeap;
+#[cfg(test)]
+use mock_instant::Instant;
 use rand;
 use rand::{thread_rng, Rng};
+
+use implementation::TimeMinHeap;
+
+use crate::transport::PacketReceiver;
 
 /// Contains configuration required to initialize a LinkConditioner
 #[derive(Clone)]
@@ -137,8 +139,9 @@ impl LinkConditionerConfig {
 }
 
 pub(crate) mod implementation {
-    use super::Instant;
     use std::{cmp::Ordering, collections::BinaryHeap};
+
+    use super::Instant;
 
     /// A heap that contains items associated with an instant.
     ///
@@ -219,10 +222,12 @@ pub(crate) mod implementation {
 
     #[cfg(test)]
     mod tests {
+        use std::time::Duration;
+
+        use mock_instant::MockClock;
+
         use super::Instant;
         use super::TimeMinHeap;
-        use mock_instant::MockClock;
-        use std::time::Duration;
 
         #[test]
         fn test_time_heap() {

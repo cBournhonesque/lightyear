@@ -1,13 +1,4 @@
-use bitcode::buffer::BufferTrait;
-use bitcode::read::Read;
-use bitcode::word::Word;
-use bitcode::word_buffer::{WordBuffer, WordWriter};
-use bitcode::write::Write;
-use bitcode::Buffer;
-use bitvec::order::Lsb0;
-use bitvec::vec::BitVec;
 use serde::Serialize;
-use std::num::NonZeroUsize;
 
 /// Buffer to facilitate writing bits
 pub trait WriteBuffer {

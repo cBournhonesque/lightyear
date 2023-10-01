@@ -1,7 +1,8 @@
-use bitcode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::ops::{Add, AddAssign, Deref, Sub};
+
+use bitcode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 /// Index that wraps around 65536
 macro_rules! wrapping_id {

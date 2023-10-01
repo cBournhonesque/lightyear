@@ -1,28 +1,28 @@
-pub mod some_channel {
-    use lightyear_derive::Channel;
+use lightyear_derive::Message;
 
-    #[derive(Channel)]
-    pub struct SomeChannel;
+pub mod some_message {
+    use lightyear_derive::Message;
+
+    #[derive(Message)]
+    pub struct Message1(pub u8);
+
+    #[derive(Message)]
+    pub struct Message2(pub u32);
+    pub enum MyMessageProtocol {
+        Message1(Message1),
+        Message2(Message2),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::some_channel::*;
-    use lightyear_shared::{
-        Channel, ChannelBuilder, ChannelDirection, ChannelMode, ChannelSettings,
-    };
+    use crate::some_message::MyMessageProtocol;
+    use lightyear_shared::MessageProtocol;
 
     #[test]
-    fn test_channel_derive() {
-        let settings = ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
-        };
-        let builder = SomeChannel::get_builder(settings);
-        let channel_container = builder.build();
-        assert_eq!(
-            channel_container.setting.mode,
-            ChannelMode::UnorderedUnreliable
-        );
+    fn test_message_derive() {
+        impl MessageProtocol for MyMessageProtocol {
+            type ProtocolEnum = MyMessageProtocol;
+        }
     }
 }

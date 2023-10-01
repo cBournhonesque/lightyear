@@ -1,8 +1,7 @@
+use std::any::Any;
+
 pub mod channel;
 pub mod message;
-
-use crate::channel::channel::ChannelBuilder;
-use std::any::Any;
 
 pub(crate) type NetId = u16;
 

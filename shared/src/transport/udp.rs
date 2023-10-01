@@ -1,9 +1,9 @@
-use crate::transport::{PacketReceiver, PacketSender, Transport};
 use std::net::{SocketAddr, UdpSocket};
-
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
+
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 // Maximum transmission units; maximum size in bytes of a UDP packet
 // See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
@@ -97,12 +97,13 @@ impl PacketReceiver for Socket {
 
 #[cfg(test)]
 mod tests {
-    use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
-    use crate::transport::udp::Socket;
-    use crate::transport::{PacketReceiver, PacketSender, Transport};
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::Duration;
+
+    use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
+    use crate::transport::udp::Socket;
+    use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]
     fn test_udp_socket() -> Result<(), anyhow::Error> {

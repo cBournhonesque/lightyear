@@ -7,10 +7,9 @@ pub mod some_channel {
 
 #[cfg(test)]
 mod tests {
+    use lightyear_shared::{Channel, ChannelDirection, ChannelMode, ChannelSettings};
+
     use super::some_channel::*;
-    use lightyear_shared::{
-        Channel, ChannelBuilder, ChannelDirection, ChannelMode, ChannelSettings,
-    };
 
     #[test]
     fn test_channel_derive() {

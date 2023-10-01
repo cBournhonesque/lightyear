@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+use anyhow::{bail, Context};
+use bitcode::read::Read;
+
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
@@ -5,36 +11,32 @@ use crate::connection::io::Io;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
+use crate::protocol::Protocol;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
-use crate::registry::message::MessageRegistry;
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::Transport;
 use crate::Channel;
-use anyhow::{anyhow, bail, Context};
-use bitcode::read::Read;
-use std::collections::HashMap;
-use std::net::SocketAddr;
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
-pub struct Connection {
+pub struct Connection<P: Protocol> {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketManager,
-    channel_registry: &'static ChannelRegistry,
-    channels: HashMap<ChannelKind, ChannelContainer>,
+    packet_manager: PacketManager<P>,
+    channel_registry: &'static ChannelRegistry<P>,
+    channels: HashMap<ChannelKind, ChannelContainer<P>>,
     // transport: Box<RefCell<dyn Transport>>,
     remote_addr: SocketAddr,
 }
 
-impl Connection {
+impl<P: Protocol> Connection<P> {
     // pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
     pub fn new(
         remote_addr: SocketAddr,
-        channel_registry: &'static ChannelRegistry,
-        message_registry: &'static MessageRegistry,
+        channel_registry: &'static ChannelRegistry<P>,
+        message_registry: &'static P,
     ) -> Self {
         Self {
-            packet_manager: PacketManager::new(channel_registry, message_registry),
+            packet_manager: PacketManager::new(channel_registry),
             channel_registry,
             channels: channel_registry.channels(),
             // transport: Box::new(RefCell::new(transport.as_ref())),
@@ -45,7 +47,7 @@ impl Connection {
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(
         &mut self,
-        message: MessageContainer,
+        message: MessageContainer<P::Message>,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<()> {
         let mut channel = self
@@ -155,7 +157,7 @@ impl Connection {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  lets be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> Vec<MessageContainer> {
+    pub fn read_messages(&mut self) -> Vec<MessageContainer<P>> {
         let mut messages = vec![];
 
         // TODO: output data about which channel the message came from?
@@ -171,21 +173,6 @@ impl Connection {
 
 #[cfg(test)]
 mod tests {
-    use super::Connection;
-    use crate::channel::channel::ChannelMode::OrderedReliable;
-    use crate::channel::channel::{
-        ChannelContainer, ChannelDirection, ChannelSettings, ReliableSettings,
-    };
-    use crate::packet::message::MessageContainer;
-    use crate::packet::wrapping_id::MessageId;
-    use crate::transport::udp::Socket;
-    use crate::transport::Transport;
-    use crate::ChannelKind;
-    use bytes::Bytes;
-    use std::collections::HashMap;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
     //
     // #[test]
     // /// We want to test that we can send/receive messages over a connection

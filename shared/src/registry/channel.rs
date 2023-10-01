@@ -1,21 +1,23 @@
-use crate::channel::channel::{Channel, ChannelBuilder, ChannelSettings};
-use crate::registry::NetId;
-use crate::{type_registry, ChannelContainer};
-use anyhow::bail;
 use std::any::TypeId;
 use std::collections::HashMap;
+
+use anyhow::bail;
+
+use crate::channel::channel::{Channel, ChannelBuilder, ChannelSettings};
+use crate::registry::NetId;
+use crate::ChannelContainer;
 
 /// ChannelKind - internal wrapper around the type of the channel
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct ChannelKind(TypeId);
 
-pub struct ChannelRegistry {
+pub struct ChannelRegistry<P> {
     pub(in crate::registry) next_net_id: NetId,
-    pub(in crate::registry) kind_map: HashMap<ChannelKind, (NetId, ChannelBuilder)>,
+    pub(in crate::registry) kind_map: HashMap<ChannelKind, (NetId, ChannelBuilder<P>)>,
     pub(in crate::registry) id_map: HashMap<NetId, ChannelKind>,
     built: bool,
 }
-impl ChannelRegistry {
+impl<P> ChannelRegistry<P> {
     pub fn new() -> Self {
         Self {
             next_net_id: 0,
@@ -26,7 +28,7 @@ impl ChannelRegistry {
     }
 
     /// Build all the channels in the registry
-    pub fn channels(&self) -> HashMap<ChannelKind, ChannelContainer> {
+    pub fn channels(&self) -> HashMap<ChannelKind, ChannelContainer<P>> {
         let mut channels = HashMap::new();
         for (type_id, (_, builder)) in self.kind_map.iter() {
             channels.insert(*type_id, builder.build());
@@ -49,7 +51,7 @@ impl ChannelRegistry {
     }
 
     /// get the registered object for a given type
-    pub fn get_builder_from_kind(&self, channel_kind: &ChannelKind) -> Option<&ChannelBuilder> {
+    pub fn get_builder_from_kind(&self, channel_kind: &ChannelKind) -> Option<&ChannelBuilder<P>> {
         self.kind_map.get(channel_kind).and_then(|(_, t)| Some(t))
     }
 
@@ -63,10 +65,10 @@ impl ChannelRegistry {
             .and_then(|(net_id, _)| Some(net_id))
     }
 
-    // pub fn get_from_net_id(&self, net_id: NetId) -> Option<ChannelBuilder> {
-    //     let channel_kind = self.get_kind_from_id(net_id)?;
-    //     self.get_from_type(channel_kind)
-    // }
+    pub fn get_builder_from_net_id(&self, net_id: NetId) -> Option<&ChannelBuilder<P>> {
+        let channel_kind = self.get_kind_from_net_id(net_id)?;
+        self.get_builder_from_kind(channel_kind)
+    }
 
     #[cfg(test)]
     fn len(&self) -> usize {
@@ -85,31 +87,32 @@ impl ChannelRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::NetId;
-    use super::*;
-    use crate::{ChannelDirection, ChannelMode, ChannelSettings};
     use lightyear_derive::ChannelInternal;
+
+    use crate::{ChannelDirection, ChannelMode, ChannelSettings};
+
+    use super::*;
 
     #[derive(ChannelInternal)]
     pub struct MyChannel;
 
-    // #[test]
-    // fn test_channel_registry() -> anyhow::Result<()> {
-    //     let mut registry = ChannelRegistry::new();
-    //
-    //     let settings = ChannelSettings {
-    //         mode: ChannelMode::UnorderedUnreliable,
-    //         direction: ChannelDirection::Bidirectional,
-    //     };
-    //     registry.add::<MyChannel>(settings.clone())?;
-    //     assert_eq!(registry.len(), 1);
-    //
-    //     let mut builder = registry.get_mut_from_net_id(0).unwrap();
-    //     let channel_container = builder.build();
-    //     assert_eq!(
-    //         channel_container.setting.mode,
-    //         ChannelMode::UnorderedUnreliable
-    //     );
-    //     Ok(())
-    // }
+    #[test]
+    fn test_channel_registry() -> anyhow::Result<()> {
+        let mut registry = ChannelRegistry::new();
+
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+        };
+        registry.add::<MyChannel>(settings.clone())?;
+        assert_eq!(registry.len(), 1);
+
+        let mut builder = registry.get_builder_from_net_id(0).unwrap();
+        let channel_container = builder.build();
+        assert_eq!(
+            channel_container.setting.mode,
+            ChannelMode::UnorderedUnreliable
+        );
+        Ok(())
+    }
 }

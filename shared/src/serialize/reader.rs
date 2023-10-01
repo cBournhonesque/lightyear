@@ -1,16 +1,10 @@
-use anyhow::Result;
-use bitcode::buffer::BufferTrait;
-use bitcode::read::Read;
-use bitcode::word::Word;
-use bitcode::word_buffer::WordBuffer;
-use bitcode::Buffer;
-use serde::de::DeserializeOwned;
 use std::num::NonZeroUsize;
 
-pub trait ReadBuffer {
-    // type Reader: BitRead;
-    // type Context;
+use anyhow::Result;
+use bitcode::word::Word;
+use serde::de::DeserializeOwned;
 
+pub trait ReadBuffer {
     fn capacity(&self) -> usize;
 
     /// Deserialize from the buffer into a value

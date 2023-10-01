@@ -1,9 +1,10 @@
 //! Interface for the transport layer
-mod conditioner;
-pub(crate) mod udp;
+use std::net::SocketAddr;
 
 use anyhow::Result;
-use std::net::SocketAddr;
+
+mod conditioner;
+pub(crate) mod udp;
 
 pub trait Transport: PacketReceiver + PacketSender {
     /// Return the local socket address for this transport

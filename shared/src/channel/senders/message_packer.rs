@@ -1,26 +1,27 @@
 //! Module to define how messages are stored into packets
 
+use std::collections::VecDeque;
+
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
-use std::collections::VecDeque;
 
-pub struct MessagePacker;
+pub struct MessagePacker<P>;
 
-trait MessageIterator {
+trait MessageIterator<P> {
     fn is_empty(&self) -> bool;
-    fn front(&self) -> Option<&(Option<MessageId>, MessageContainer)>;
-    fn pop_front(&mut self) -> Option<(Option<MessageId>, MessageContainer)>;
+    fn front(&self) -> Option<&(Option<MessageId>, MessageContainer<P>)>;
+    fn pop_front(&mut self) -> Option<(Option<MessageId>, MessageContainer<P>)>;
 }
 
-impl MessagePacker {
+impl<P> MessagePacker<P> {
     /// Pack messages into packets
     /// Return the remaining list of messages to send
     pub fn pack_messages(
-        mut messages_to_send: VecDeque<MessageContainer>,
-        packet_manager: &mut PacketManager,
-    ) -> (Vec<Packet>, VecDeque<MessageContainer>) {
+        mut messages_to_send: VecDeque<MessageContainer<P>>,
+        packet_manager: &mut PacketManager<P>,
+    ) -> (Vec<Packet<P>>, VecDeque<MessageContainer<P>>) {
         let mut packets = Vec::new();
         // build new packet
         'packet: loop {

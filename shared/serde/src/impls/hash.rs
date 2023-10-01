@@ -1,10 +1,11 @@
-use crate::{
-    bit_reader::BitReader, bit_writer::BitWrite, error::SerdeErr, serde::Serde,
-    UnsignedVariableInteger,
-};
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+};
+
+use crate::{
+    bit_reader::BitReader, bit_writer::BitWrite, error::SerdeErr, serde::Serde,
+    UnsignedVariableInteger,
 };
 
 impl<K: Serde + Eq + Hash> Serde for HashSet<K> {
@@ -76,8 +77,9 @@ impl<K: Serde + Eq + Hash, V: Serde> Serde for HashMap<K, V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{bit_reader::BitReader, bit_writer::BitWriter, serde::Serde};
     use std::collections::{HashMap, HashSet};
+
+    use crate::{bit_reader::BitReader, bit_writer::BitWriter, serde::Serde};
 
     #[test]
     fn read_write_hash_map() {

@@ -1,12 +1,21 @@
-use crate::serialize::writer::{BitWrite, WriteBuffer};
 use anyhow::Context;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::Fixed;
-use bitcode::serde::ser::serialize_compat;
 use bitcode::word_buffer::{WordBuffer, WordWriter};
 use bitcode::write::Write;
 use bitcode::Encode;
 use serde::Serialize;
+
+use crate::serialize::writer::{BitWrite, WriteBuffer};
+
+// strategy for message/channels
+
+// we have a custom Serializer/Deserializer (that wraps around the bitcode serializer/deserializer)
+// and contains a reference to MessageRegistry, or ChannelRegistry
+
+// during #[derive(Message)]
+// we generate a custom encode/decode
+// most of the other subfields are Serializable
 
 #[derive(Default)]
 pub(crate) struct WriteWordBuffer {
@@ -65,19 +74,11 @@ mod tests {
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     use crate::serialize::wordbuffer::writer::WriteWordBuffer;
-    use bitcode::{Decode, Encode};
-    use bitvec::bitvec;
-    use bitvec::order::Lsb0;
-    use bitvec::view::BitView;
-    use serde::Deserialize;
 
     #[test]
     fn test_write_bits() -> anyhow::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
-        use bitcode::word::Word;
-        use bitcode::word_buffer::WordBuffer;
-        use bitcode::write::Write;
         use serde::Serialize;
 
         let mut buffer = WriteWordBuffer::with_capacity(5);
@@ -111,9 +112,6 @@ mod tests {
     fn test_write_multiple_objects() -> anyhow::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
-        use bitcode::word::Word;
-        use bitcode::word_buffer::WordBuffer;
-        use bitcode::write::Write;
         use serde::Serialize;
 
         let mut buffer = WriteWordBuffer::with_capacity(2);

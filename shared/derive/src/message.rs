@@ -2,7 +2,7 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Type};
 
-use super::shared::{get_struct_type, StructType};
+use super::shared::get_struct_type;
 
 pub fn message_impl(
     input: proc_macro::TokenStream,
@@ -37,8 +37,6 @@ pub fn message_impl(
             impl MessageBuilder for #builder_name {
                 #decode_method
             }
-
-            #[typetag::serde]
             impl Message for #struct_name {
                 #get_builder_method
             }
@@ -57,14 +55,6 @@ fn decode_method(struct_name: &Ident) -> TokenStream {
                 id,
                 message: Box::New(message),
             }
-        }
-    }
-}
-
-fn encode_method(struct_name: &Ident) -> TokenStream {
-    quote! {
-        fn encode(&self, buffer: bitcode::Buffer) -> anyhow::Result<&[u8]> {
-            buffer.encode::<#struct_name>(&self)?;
         }
     }
 }

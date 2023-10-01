@@ -1,24 +1,24 @@
-use crate::channel::receivers::ChannelReceive;
-use anyhow::anyhow;
-
 use std::collections::{btree_map, BTreeMap};
 
+use anyhow::anyhow;
+
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
 
 /// Unordered Reliable receiver: make sure that all messages are received,
 /// and return them in any order
-pub struct UnorderedReliableReceiver {
+pub struct UnorderedReliableReceiver<P> {
     /// Next oldest message id that we are waiting to receive
     /// The channel is reliable so we should see all message ids.
     oldest_pending_message_id: MessageId,
     // TODO: optimize via ring buffer?
     // TODO: actually we could just use a VecDeque here?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, MessageContainer>,
+    recv_message_buffer: BTreeMap<MessageId, MessageContainer<P>>,
 }
 
-impl UnorderedReliableReceiver {
+impl<P> UnorderedReliableReceiver<P> {
     pub fn new() -> Self {
         Self {
             oldest_pending_message_id: MessageId(0),
@@ -27,9 +27,9 @@ impl UnorderedReliableReceiver {
     }
 }
 
-impl ChannelReceive for UnorderedReliableReceiver {
+impl<P> ChannelReceive<P> for UnorderedReliableReceiver<P> {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
+    fn buffer_recv(&mut self, message: MessageContainer<P>) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;
 
         // we have already received the message if it's older than the oldest pending message
@@ -44,7 +44,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
         }
         Ok(())
     }
-    fn read_message(&mut self) -> Option<MessageContainer> {
+    fn read_message(&mut self) -> Option<MessageContainer<P>> {
         // get the oldest received message
         let Some((message_id, message)) = self.recv_message_buffer.pop_first() else {
             return None;

@@ -1,9 +1,11 @@
-use crate::packet::packet_type::PacketType;
-use crate::packet::wrapping_id::PacketId;
+use std::collections::HashMap;
+
 use bitcode::{Decode, Encode};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::packet::packet_type::PacketType;
+use crate::packet::wrapping_id::PacketId;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding

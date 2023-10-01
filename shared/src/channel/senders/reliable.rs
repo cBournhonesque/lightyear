@@ -1,38 +1,39 @@
+use std::collections::{BTreeMap, HashSet};
+#[cfg(not(test))]
+use std::time::Instant;
+use std::{collections::VecDeque, time::Duration};
+
+#[cfg(test)]
+use mock_instant::Instant;
+
+use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::message_packer::MessagePacker;
 use crate::channel::senders::ChannelSend;
+use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
-use std::collections::{BTreeMap, HashSet};
-use std::{collections::VecDeque, time::Duration};
-
-use crate::channel::channel::ReliableSettings;
-use crate::packet::manager::PacketManager;
-#[cfg(test)]
-use mock_instant::Instant;
-#[cfg(not(test))]
-use std::time::Instant;
 
 /// A packet that has not been acked yet
-pub struct UnackedMessage {
-    message: MessageContainer,
+pub struct UnackedMessage<P> {
+    message: MessageContainer<P>,
     /// If None: this packet has never been sent before
     /// else: the last instant when this packet was sent
     last_sent: Option<Instant>,
 }
 
 /// A sender that makes sure to resend messages until it receives an ack
-pub struct ReliableSender {
+pub struct ReliableSender<P> {
     /// Settings for reliability
     reliable_settings: ReliableSettings,
     // TODO: maybe optimize by using a RingBuffer
     /// Ordered map of the messages that haven't been acked yet
-    unacked_messages: BTreeMap<MessageId, UnackedMessage>,
+    unacked_messages: BTreeMap<MessageId, UnackedMessage<P>>,
     /// Message id to use for the next message to be sent
     next_send_message_id: MessageId,
 
     /// list of messages that we want to fit into packets and send
-    messages_to_send: VecDeque<MessageContainer>,
+    messages_to_send: VecDeque<MessageContainer<P>>,
     /// Set of message ids that we want to send (to prevent sending the same message twice)
     message_ids_to_send: HashSet<MessageId>,
 
@@ -41,7 +42,7 @@ pub struct ReliableSender {
     current_time: Instant,
 }
 
-impl ReliableSender {
+impl<P> ReliableSender<P> {
     pub fn new(reliable_settings: ReliableSettings) -> Self {
         Self {
             reliable_settings,
@@ -102,10 +103,10 @@ impl ReliableSender {
 // (either packets in the buffer, or packets we need to resend cuz they were not acked,
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
-impl ChannelSend for ReliableSender {
+impl<P> ChannelSend<P> for ReliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: MessageContainer) {
+    fn buffer_send(&mut self, message: MessageContainer<P>) {
         let unacked_message = UnackedMessage {
             message,
             last_sent: None,
@@ -117,7 +118,7 @@ impl ChannelSend for ReliableSender {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
         // TODO: do we want to ALWAYS call this when we send packet? or should we separate the 2?
         // collect the messages that need to be sent
         // (notably unacked messages that need to be resent)
