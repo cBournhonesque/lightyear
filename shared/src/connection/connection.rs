@@ -21,23 +21,17 @@ use crate::Channel;
 /// By splitting the data into packets and sending them through a given transport
 pub struct Connection<P: Protocol> {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketManager<P>,
-    channel_registry: &'static ChannelRegistry<P>,
-    channels: HashMap<ChannelKind, ChannelContainer<P>>,
+    packet_manager: PacketManager,
+    channels: HashMap<ChannelKind, ChannelContainer<P::Message>>,
     // transport: Box<RefCell<dyn Transport>>,
     remote_addr: SocketAddr,
 }
 
 impl<P: Protocol> Connection<P> {
     // pub fn new(remote_addr: SocketAddr, transport: Box<dyn Transport>) -> Self {
-    pub fn new(
-        remote_addr: SocketAddr,
-        channel_registry: &'static ChannelRegistry<P>,
-        message_registry: &'static P,
-    ) -> Self {
+    pub fn new(remote_addr: SocketAddr, channel_registry: &'static ChannelRegistry) -> Self {
         Self {
             packet_manager: PacketManager::new(channel_registry),
-            channel_registry,
             channels: channel_registry.channels(),
             // transport: Box::new(RefCell::new(transport.as_ref())),
             remote_addr,
@@ -124,7 +118,7 @@ impl<P: Protocol> Connection<P> {
     /// Update the acks, and put the messages from the packets in internal buffers
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
-        let packet = self.packet_manager.decode_packet(reader)?;
+        let packet: Packet<P::Message> = self.packet_manager.decode_packet(reader)?;
         let packet = match packet {
             Packet::Single(single_packet) => single_packet,
             Packet::Fragmented(_) => unimplemented!(),
@@ -157,7 +151,7 @@ impl<P: Protocol> Connection<P> {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  lets be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> Vec<MessageContainer<P>> {
+    pub fn read_messages(&mut self) -> Vec<MessageContainer<P::Message>> {
         let mut messages = vec![];
 
         // TODO: output data about which channel the message came from?

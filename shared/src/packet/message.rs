@@ -1,16 +1,11 @@
 use std::fmt::Debug;
 
-use crate::MessageProtocol;
-use anyhow::Context;
-use bitcode::write::Write;
-use dyn_clone::DynClone;
 use serde::Serialize;
 
 use crate::packet::wrapping_id::MessageId;
+use crate::protocol::SerializableProtocol;
 use crate::registry::message::MessageKind;
-use crate::registry::NetId;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::serialize::writer::WriteBuffer;
 
 /// A Message is a logical unit of data that should be transmitted over a network
@@ -21,18 +16,19 @@ use crate::serialize::writer::WriteBuffer;
 /// A Message knows how to serialize itself (messageType + Data)
 /// and knows how many bits it takes to serialize itself
 // #[derive(Serialize, Deserialize)]
-pub struct MessageContainer<P: MessageProtocol> {
+#[derive(Clone, PartialEq, Debug)]
+pub struct MessageContainer<P> {
     pub(crate) id: Option<MessageId>,
     message: P,
 }
 
-impl<P: MessageProtocol> MessageContainer<P> {
+impl<P: SerializableProtocol> MessageContainer<P> {
     /// Serialize the message into a bytes buffer
     /// Returns the number of bits written
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.serialize(&self.id)?;
-        writer.serialize(&self.message)?;
+        self.message.encode(writer)?;
         let num_bits_written = writer.num_bits_written() - num_bits_before;
         Ok(num_bits_written)
     }
@@ -40,14 +36,14 @@ impl<P: MessageProtocol> MessageContainer<P> {
     /// Deserialize from the bytes buffer into a Message
     pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
         let id = reader.deserialize::<Option<MessageId>>()?;
-        let message = reader.deserialize::<P>()?;
+        let message = P::decode(reader)?;
         Ok(Self { id, message })
     }
     fn kind(&self) -> MessageKind {
         unimplemented!()
     }
 
-    pub fn new(message: Box<dyn Message>) -> Self {
+    pub fn new(message: P) -> Self {
         MessageContainer { id: None, message }
     }
 

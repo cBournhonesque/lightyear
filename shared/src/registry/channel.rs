@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use anyhow::bail;
 
 use crate::channel::channel::{Channel, ChannelBuilder, ChannelSettings};
+use crate::protocol::SerializableProtocol;
 use crate::registry::NetId;
 use crate::ChannelContainer;
 
@@ -11,13 +12,13 @@ use crate::ChannelContainer;
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct ChannelKind(TypeId);
 
-pub struct ChannelRegistry<P> {
+pub struct ChannelRegistry {
     pub(in crate::registry) next_net_id: NetId,
-    pub(in crate::registry) kind_map: HashMap<ChannelKind, (NetId, ChannelBuilder<P>)>,
+    pub(in crate::registry) kind_map: HashMap<ChannelKind, (NetId, ChannelBuilder)>,
     pub(in crate::registry) id_map: HashMap<NetId, ChannelKind>,
     built: bool,
 }
-impl<P> ChannelRegistry<P> {
+impl ChannelRegistry {
     pub fn new() -> Self {
         Self {
             next_net_id: 0,
@@ -28,7 +29,7 @@ impl<P> ChannelRegistry<P> {
     }
 
     /// Build all the channels in the registry
-    pub fn channels(&self) -> HashMap<ChannelKind, ChannelContainer<P>> {
+    pub fn channels<P: SerializableProtocol>(&self) -> HashMap<ChannelKind, ChannelContainer<P>> {
         let mut channels = HashMap::new();
         for (type_id, (_, builder)) in self.kind_map.iter() {
             channels.insert(*type_id, builder.build());
@@ -51,7 +52,7 @@ impl<P> ChannelRegistry<P> {
     }
 
     /// get the registered object for a given type
-    pub fn get_builder_from_kind(&self, channel_kind: &ChannelKind) -> Option<&ChannelBuilder<P>> {
+    pub fn get_builder_from_kind(&self, channel_kind: &ChannelKind) -> Option<&ChannelBuilder> {
         self.kind_map.get(channel_kind).and_then(|(_, t)| Some(t))
     }
 
@@ -65,7 +66,7 @@ impl<P> ChannelRegistry<P> {
             .and_then(|(net_id, _)| Some(net_id))
     }
 
-    pub fn get_builder_from_net_id(&self, net_id: NetId) -> Option<&ChannelBuilder<P>> {
+    pub fn get_builder_from_net_id(&self, net_id: NetId) -> Option<&ChannelBuilder> {
         let channel_kind = self.get_kind_from_net_id(net_id)?;
         self.get_builder_from_kind(channel_kind)
     }
@@ -108,7 +109,7 @@ mod tests {
         assert_eq!(registry.len(), 1);
 
         let mut builder = registry.get_builder_from_net_id(0).unwrap();
-        let channel_container = builder.build();
+        let channel_container: ChannelContainer<u32> = builder.build();
         assert_eq!(
             channel_container.setting.mode,
             ChannelMode::UnorderedUnreliable

@@ -2,8 +2,6 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Type};
 
-use super::shared::get_struct_type;
-
 pub fn message_impl(
     input: proc_macro::TokenStream,
     shared_crate_name: TokenStream,
@@ -11,8 +9,8 @@ pub fn message_impl(
     let input = parse_macro_input!(input as DeriveInput);
 
     // Helper Properties
-    let struct_type = get_struct_type(&input);
-    let fields = get_fields(&input);
+    // let struct_type = get_struct_type(&input);
+    // let fields = get_fields(&input);
 
     // Names
     let struct_name = input.ident;
@@ -21,48 +19,34 @@ pub fn message_impl(
         Span::call_site(),
     );
     let module_name = format_ident!("define_{}", lowercase_struct_name);
-    let builder_name = format_ident!("{}Builder", struct_name);
 
     // Methods
-    let decode_method = decode_method(&struct_name);
-    let get_builder_method = get_builder_method(&builder_name);
+    let encode_method = encode_method();
+    let decode_method = decode_method();
 
     let gen = quote! {
-        mod #module_name {
-            pub use bitcode::Buffer;
-            pub use #shared_crate_name::{Message, MessageBuilder, MessageContainer};
-            use super::*;
-
-            struct #builder_name;
-            impl MessageBuilder for #builder_name {
-                #decode_method
-            }
-            impl Message for #struct_name {
-                #get_builder_method
-            }
+        impl SerializableProtocol for #struct_name {
+            #encode_method
+            #decode_method
         }
     };
 
     proc_macro::TokenStream::from(gen)
 }
 
-fn decode_method(struct_name: &Ident) -> TokenStream {
+fn encode_method() -> TokenStream {
     quote! {
-        fn decode(&self, registry: &MessageRegistry, reader: &mut impl Read) -> anyhow::Result<MessageContainer> {
-            let id = <Option<MessageId> as Decode>::decode(Fixed, reader)?;
-            let message = <#struct_name as Decode>::decode(Fixed, reader)?;
-            MessageContainer{
-                id,
-                message: Box::New(message),
-            }
+        fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+            writer.serialize(&self)
         }
     }
 }
 
-fn get_builder_method(builder_name: &Ident) -> TokenStream {
+fn decode_method() -> TokenStream {
     quote! {
-        fn get_builder() -> Box<dyn MessageBuilder> where Self: Sized {
-            Box::new(#builder_name)
+        fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+            where Self: Sized{
+            reader.deserialize::<Self>()
         }
     }
 }

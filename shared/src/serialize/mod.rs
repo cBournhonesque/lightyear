@@ -1,3 +1,3 @@
-pub(crate) mod reader;
-pub(crate) mod wordbuffer;
-pub(crate) mod writer;
+pub mod reader;
+pub mod wordbuffer;
+pub mod writer;

@@ -7,7 +7,9 @@ pub mod some_channel {
 
 #[cfg(test)]
 mod tests {
-    use lightyear_shared::{Channel, ChannelDirection, ChannelMode, ChannelSettings};
+    use lightyear_shared::{
+        Channel, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
+    };
 
     use super::some_channel::*;
 
@@ -18,7 +20,7 @@ mod tests {
             direction: ChannelDirection::Bidirectional,
         };
         let builder = SomeChannel::get_builder(settings);
-        let channel_container = builder.build();
+        let channel_container: ChannelContainer<u8> = builder.build();
         assert_eq!(
             channel_container.setting.mode,
             ChannelMode::UnorderedUnreliable

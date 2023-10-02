@@ -7,15 +7,15 @@ use std::{collections::VecDeque, time::Duration};
 use mock_instant::Instant;
 
 use crate::channel::channel::ReliableSettings;
-use crate::channel::senders::message_packer::MessagePacker;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
+use crate::protocol::SerializableProtocol;
 
 /// A packet that has not been acked yet
-pub struct UnackedMessage<P> {
+pub struct UnackedMessage<P: Clone> {
     message: MessageContainer<P>,
     /// If None: this packet has never been sent before
     /// else: the last instant when this packet was sent
@@ -23,7 +23,7 @@ pub struct UnackedMessage<P> {
 }
 
 /// A sender that makes sure to resend messages until it receives an ack
-pub struct ReliableSender<P> {
+pub struct ReliableSender<P: Clone> {
     /// Settings for reliability
     reliable_settings: ReliableSettings,
     // TODO: maybe optimize by using a RingBuffer
@@ -42,7 +42,7 @@ pub struct ReliableSender<P> {
     current_time: Instant,
 }
 
-impl<P> ReliableSender<P> {
+impl<P: Clone> ReliableSender<P> {
     pub fn new(reliable_settings: ReliableSettings) -> Self {
         Self {
             reliable_settings,
@@ -80,12 +80,10 @@ impl<P> ReliableSender<P> {
             };
             if should_send {
                 message.message.id = Some(*message_id);
-                // TODO: avoid this clone!
                 // TODO: this is a vecdeque, so if we call this function multiple times
                 //  we would send the same message multiple times
                 if !self.message_ids_to_send.contains(message_id) {
-                    // TODO: USE DYN-CLONE?
-                    // self.messages_to_send.push_back(message.message.clone());
+                    self.messages_to_send.push_back(message.message.clone());
                     self.message_ids_to_send.insert(*message_id);
                     message.last_sent = Some(self.current_time);
                 }
@@ -103,7 +101,7 @@ impl<P> ReliableSender<P> {
 // (either packets in the buffer, or packets we need to resend cuz they were not acked,
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
-impl<P> ChannelSend<P> for ReliableSender<P> {
+impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: MessageContainer<P>) {
@@ -118,7 +116,7 @@ impl<P> ChannelSend<P> for ReliableSender<P> {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet<P>> {
         // TODO: do we want to ALWAYS call this when we send packet? or should we separate the 2?
         // collect the messages that need to be sent
         // (notably unacked messages that need to be resent)
@@ -126,8 +124,7 @@ impl<P> ChannelSend<P> for ReliableSender<P> {
 
         // build the packets from those messages
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send) =
-            MessagePacker::pack_messages(messages_to_send, packet_manager);
+        let (packets, remaining_messages_to_send) = packet_manager.pack_messages(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
         for message_id in packets.iter().flat_map(|packet| packet.message_ids()) {
             self.message_ids_to_send.remove(&message_id);
@@ -136,62 +133,61 @@ impl<P> ChannelSend<P> for ReliableSender<P> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::ChannelSend;
-//     use super::Instant;
-//     use super::ReliableSender;
-//     use super::{MessageContainer, MessageId};
-//     use crate::channel::channel::ReliableSettings;
-//     use bytes::Bytes;
-//     use mock_instant::MockClock;
-//     use std::time::Duration;
-//
-//     #[test]
-//     fn test_reliable_sender_internals() {
-//         let mut sender = ReliableSender {
-//             reliable_settings: ReliableSettings {
-//                 rtt_resend_factor: 1.5,
-//             },
-//             unacked_messages: Default::default(),
-//             next_send_message_id: MessageId(0),
-//             messages_to_send: Default::default(),
-//             message_ids_to_send: Default::default(),
-//             current_rtt_millis: 100.0,
-//             current_time: Instant::now(),
-//         };
-//
-//         // Buffer a new message
-//         let mut message = MessageContainer::new(Bytes::from("hello"));
-//         sender.buffer_send(message.clone());
-//         assert_eq!(sender.unacked_messages.len(), 1);
-//         assert_eq!(sender.next_send_message_id, MessageId(1));
-//         // Collect the messages to be sent
-//         sender.collect_messages_to_send();
-//         assert_eq!(sender.messages_to_send.len(), 1);
-//
-//         // Advance by a time that is below the resend threshold
-//         MockClock::advance(Duration::from_millis(100));
-//         sender.current_time = Instant::now();
-//         sender.collect_messages_to_send();
-//         assert_eq!(sender.messages_to_send.len(), 1);
-//
-//         // Advance by a time that is above the resend threshold
-//         MockClock::advance(Duration::from_millis(200));
-//         sender.current_time = Instant::now();
-//         sender.collect_messages_to_send();
-//         assert_eq!(sender.messages_to_send.len(), 1);
-//         message.id = Some(MessageId(0));
-//         assert_eq!(sender.messages_to_send.get(0).unwrap(), &message.clone());
-//
-//         // Ack the first message
-//         sender.process_message_ack(MessageId(0));
-//         assert_eq!(sender.unacked_messages.len(), 0);
-//
-//         // Advance by a time that is above the resend threshold
-//         MockClock::advance(Duration::from_millis(200));
-//         sender.current_time = Instant::now();
-//         // this time there are no new messages to send
-//         assert_eq!(sender.messages_to_send.len(), 1);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::ChannelSend;
+    use super::Instant;
+    use super::ReliableSender;
+    use super::{MessageContainer, MessageId};
+    use crate::channel::channel::ReliableSettings;
+    use mock_instant::MockClock;
+    use std::time::Duration;
+
+    #[test]
+    fn test_reliable_sender_internals() {
+        let mut sender = ReliableSender {
+            reliable_settings: ReliableSettings {
+                rtt_resend_factor: 1.5,
+            },
+            unacked_messages: Default::default(),
+            next_send_message_id: MessageId(0),
+            messages_to_send: Default::default(),
+            message_ids_to_send: Default::default(),
+            current_rtt_millis: 100.0,
+            current_time: Instant::now(),
+        };
+
+        // Buffer a new message
+        let mut message = MessageContainer::new(1);
+        sender.buffer_send(message.clone());
+        assert_eq!(sender.unacked_messages.len(), 1);
+        assert_eq!(sender.next_send_message_id, MessageId(1));
+        // Collect the messages to be sent
+        sender.collect_messages_to_send();
+        assert_eq!(sender.messages_to_send.len(), 1);
+
+        // Advance by a time that is below the resend threshold
+        MockClock::advance(Duration::from_millis(100));
+        sender.current_time = Instant::now();
+        sender.collect_messages_to_send();
+        assert_eq!(sender.messages_to_send.len(), 1);
+
+        // Advance by a time that is above the resend threshold
+        MockClock::advance(Duration::from_millis(200));
+        sender.current_time = Instant::now();
+        sender.collect_messages_to_send();
+        assert_eq!(sender.messages_to_send.len(), 1);
+        message.id = Some(MessageId(0));
+        assert_eq!(sender.messages_to_send.get(0).unwrap(), &message.clone());
+
+        // Ack the first message
+        sender.process_message_ack(MessageId(0));
+        assert_eq!(sender.unacked_messages.len(), 0);
+
+        // Advance by a time that is above the resend threshold
+        MockClock::advance(Duration::from_millis(200));
+        sender.current_time = Instant::now();
+        // this time there are no new messages to send
+        assert_eq!(sender.messages_to_send.len(), 1);
+    }
+}

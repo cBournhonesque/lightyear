@@ -18,7 +18,7 @@ struct OnlyGammaDecode<T: DeserializeOwned>(#[bitcode(with_serde)] T);
 // We use self_cell because the reader contains a reference to the WordBuffer
 // (it will take ownership of the buffer's contents to write into)
 self_cell!(
-    pub(crate) struct ReadWordBuffer<'a> {
+    pub struct ReadWordBuffer<'a> {
         owner: WordBuffer,
 
         #[covariant]

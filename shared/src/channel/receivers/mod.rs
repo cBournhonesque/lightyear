@@ -23,7 +23,7 @@ pub trait ChannelReceive<P> {
 }
 
 /// Enum dispatch lets us derive ChannelReceive on each enum variant
-#[enum_dispatch(ChannelReceive)]
+#[enum_dispatch(ChannelReceive<P>)]
 pub enum ChannelReceiver<P> {
     UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableReceiver<P>),
     SequencedUnreliable(sequenced_unreliable::SequencedUnreliableReceiver<P>),

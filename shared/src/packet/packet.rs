@@ -4,7 +4,7 @@ use serde::Serialize;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::Protocol;
+use crate::protocol::SerializableProtocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 
@@ -16,7 +16,7 @@ pub(crate) const MTU_PACKET_BYTES: usize = 1200;
 
 /// Single individual packet sent over the network
 /// Contains multiple small messages
-pub(crate) struct SinglePacket<P: Protocol> {
+pub(crate) struct SinglePacket<P> {
     pub(crate) header: PacketHeader,
     pub(crate) data: Vec<MessageContainer<P>>,
 }
@@ -49,12 +49,12 @@ pub struct FragmentedPacket {}
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
-pub enum Packet<P: Protocol> {
+pub enum Packet<P> {
     Single(SinglePacket<P>),
     Fragmented(FragmentedPacket),
 }
 
-impl<P: Protocol> Packet<P> {
+impl<P: SerializableProtocol> Packet<P> {
     /// Encode a packet into the write buffer
     pub fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         match self {

@@ -5,6 +5,7 @@ use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// Index that wraps around 65536
+// TODO: we don't want serialize this with gamma!
 macro_rules! wrapping_id {
     ($struct_name:ident) => {
         // define the struct
@@ -60,6 +61,8 @@ macro_rules! wrapping_id {
         }
     };
 }
+
+pub(crate) use wrapping_id;
 
 /// Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);

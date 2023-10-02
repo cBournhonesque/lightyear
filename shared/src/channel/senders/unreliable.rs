@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 
-use crate::channel::senders::message_packer::MessagePacker;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
+use crate::protocol::SerializableProtocol;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
@@ -22,7 +22,7 @@ impl<P> UnorderedUnreliableSender<P> {
     }
 }
 
-impl<P> ChannelSend<P> for UnorderedUnreliableSender<P> {
+impl<P: SerializableProtocol> ChannelSend<P> for UnorderedUnreliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: MessageContainer<P>) {
@@ -31,10 +31,9 @@ impl<P> ChannelSend<P> for UnorderedUnreliableSender<P> {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet<P>> {
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send) =
-            MessagePacker::pack_messages(messages_to_send, packet_manager);
+        let (packets, remaining_messages_to_send) = packet_manager.pack_messages(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
         packets
     }
@@ -58,7 +57,7 @@ impl<P> SequencedUnreliableSender<P> {
     }
 }
 
-impl<P> ChannelSend<P> for SequencedUnreliableSender<P> {
+impl<P: SerializableProtocol> ChannelSend<P> for SequencedUnreliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, mut message: MessageContainer<P>) {
@@ -69,10 +68,9 @@ impl<P> ChannelSend<P> for SequencedUnreliableSender<P> {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet<P>> {
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send) =
-            MessagePacker::pack_messages(messages_to_send, packet_manager);
+        let (packets, remaining_messages_to_send) = packet_manager.pack_messages(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
         packets
     }

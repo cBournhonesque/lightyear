@@ -9,9 +9,12 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
+enum-as-inner = "0.6.0"
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = "2.0"
+syn = { version = "2.0", features = ["full"]}
+serde = { version = "1.0.188", features = ["derive"] }
+anyhow = "1.0.75"
 
 [dev-dependencies]
 lightyear_shared =  { path = ".." }

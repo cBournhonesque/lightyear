@@ -18,7 +18,7 @@ use crate::serialize::writer::{BitWrite, WriteBuffer};
 // most of the other subfields are Serializable
 
 #[derive(Default)]
-pub(crate) struct WriteWordBuffer {
+pub struct WriteWordBuffer {
     pub(crate) buffer: WordBuffer,
     pub(crate) writer: WordWriter,
 }
