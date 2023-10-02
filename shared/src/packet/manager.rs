@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use anyhow::anyhow;
+use anyhow::Context;
 use bitcode::buffer::BufferTrait;
 use bitcode::read::Read;
 use bitcode::write::Write;
@@ -21,12 +21,14 @@ pub(crate) const PACKET_BUFFER_CAPACITY: usize = 1 * MTU_PAYLOAD_BYTES;
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager<P: SerializableProtocol> {
     pub(crate) header_manager: PacketHeaderManager,
-    num_bits_available: usize,
     // TODO: maybe need Arc<> here?
-    channel_registry: &'static ChannelRegistry,
+    pub(crate) channel_registry: &'static ChannelRegistry,
 
+    /// Current packets that have been built but must be sent over the network
+    /// (excludes current_packet)
+    current_packets: Vec<Packet<P>>,
     /// Current packet that is being written
-    current_packet: Option<Packet<P>>,
+    pub(crate) current_packet: Option<Packet<P>>,
     /// Current channel that is being written
     current_channel: Option<ChannelKind>,
     /// Pre-allocated buffer to encode/decode without allocation.
@@ -46,8 +48,8 @@ impl<P: SerializableProtocol> PacketManager<P> {
     pub fn new(channel_registry: &'static ChannelRegistry) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
-            num_bits_available: MTU_PAYLOAD_BYTES * 8,
             channel_registry,
+            current_packets: Vec::new(),
             current_packet: None,
             current_channel: None,
             /// write buffer to encode packets bit by bit
@@ -58,27 +60,30 @@ impl<P: SerializableProtocol> PacketManager<P> {
     }
 
     /// Reset the buffers used to encode packets
-    pub fn clear_write_buffers(&mut self) {
+    pub fn clear_try_write_buffer(&mut self) {
         self.try_write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
-        self.write_buffer = WriteBuffer::with_capacity(PACKET_BUFFER_CAPACITY);
-        self.try_write_buffer.reserve_bits(PACKET_BUFFER_CAPACITY);
+        self.try_write_buffer
+            .set_reserved_bits(PACKET_BUFFER_CAPACITY);
+    }
+
+    /// Reset the buffers used to encode packets
+    pub fn clear_write_buffer(&mut self) {
+        self.write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+        self.write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
     }
 
     /// Encode a packet into raw bytes
     pub(crate) fn encode_packet(&mut self, packet: &Packet<P>) -> anyhow::Result<&[u8]> {
         // TODO: check that we haven't allocated!
-
-        // Create a write buffer with capacity the size of a packet
-        // let mut write_buffer = Buffer::with_capacity(MTU_PACKET_BYTES);
-        // let mut writer = write_buffer.0.start_write();
+        self.clear_write_buffer();
         packet.encode(&mut self.write_buffer)?;
         let bytes = self.write_buffer.finish_write();
-        // let bytes = write_buffer.0.finish_write(writer);
         Ok(bytes)
     }
 
     /// Decode a packet from raw bytes
     // TODO: the reader buffer will be created from the io (we copy the io bytes into a buffer)
+    // Should we decode the packet and get ChannelKinds directly?
     pub(crate) fn decode_packet(
         &mut self,
         reader: &mut impl ReadBuffer,
@@ -89,17 +94,14 @@ impl<P: SerializableProtocol> PacketManager<P> {
     /// Start building new packet, we start with an empty packet
     /// that can write to a given channel
     pub(crate) fn build_new_packet(&mut self) {
-        self.clear_write_buffers();
-        self.current_packet = Some(Packet::new(self));
-        // start writing the current channel
+        self.clear_try_write_buffer();
 
-        //     bytes: []
-        //     // TODO: handle protocol and packet type
-        //     header: self
-        //         .header_manager
-        //         .prepare_send_packet_header(0, PacketType::Data),
-        //     data: vec![],
-        // }))
+        // NOTE: we assume that the header size is fixed, so we can just write PAYLOAD_BYTES
+        //  if that's not the case we will need to serialize the header first
+        // self.try_write_buffer
+        //     .serialize(packet.header())
+        //     .expect("Failed to serialize header, this should never happen");
+        self.current_packet = Some(Packet::new(self));
     }
 
     /// Returns true if there's enough space in the current packet to add a message
@@ -116,7 +118,12 @@ impl<P: SerializableProtocol> PacketManager<P> {
                 //  - or we serialize and check the amount of bits it took
 
                 // try to serialize in the try buffer
+                let prev_num_bits = self.try_write_buffer.num_bits_written();
                 message.encode(&mut self.try_write_buffer)?;
+                let message_num_bits = self.try_write_buffer.num_bits_written() - prev_num_bits;
+                if message_num_bits > MTU_PAYLOAD_BYTES * 8 {
+                    panic!("Message too big to fit in packet")
+                }
                 // self.try_write_buffer.serialize(message)?;
                 // reserve a MessageContinue bit associated with each Message.
                 self.try_write_buffer.reserve_bits(1);
@@ -139,16 +146,22 @@ impl<P: SerializableProtocol> PacketManager<P> {
     // - therefore, when a channel wants to pack messages, it ONLY WORKS IF CHANNELS ARE ITERATED IN ORDER
     // (i.e. we don't send channel 1, then channel 2, then channel 1)
 
-    /// Try to start writing messages for a new channel within the current packet.
+    /// Try to start writing for a new channel in the current packet
     /// Reserving the correct amount of bits in the try buffer
     /// Returns false if there is not enough space left
-    pub fn can_start_new_channel(&mut self, channel_kind: ChannelKind) -> anyhow::Result<bool> {
+    pub fn can_add_channel(&mut self, channel_kind: ChannelKind) -> anyhow::Result<bool> {
+        // start building a new packet if necessary
+        if self.current_packet.is_none() {
+            return Ok(false);
+        }
+
+        // Check if we have enough space to add the channel information
         self.current_channel = Some(channel_kind);
         // TODO: we could pass the channel registry as static to the buffers
         let net_id = self
             .channel_registry
             .get_net_from_kind(&channel_kind)
-            .ok_or(anyhow!("Channel not found in registry"))?;
+            .context("Channel not found in registry")?;
         self.try_write_buffer.serialize(net_id)?;
 
         // Reserve ChannelContinue bit, that indicates that whether or not there will be more
@@ -158,12 +171,26 @@ impl<P: SerializableProtocol> PacketManager<P> {
             return Ok(false);
         }
 
-        // self.write_buffer.serialize(net_id)?;
+        // Add a channel in the list of channels contained in the packet
+        // (whether or not it will contain messages)
+        self.current_packet
+            .as_mut()
+            .expect("No current packet being built")
+            .add_channel(net_id.clone());
         Ok(true)
     }
 
     pub(crate) fn take_current_packet(&mut self) -> Option<Packet<P>> {
         self.current_packet.take()
+    }
+
+    /// Get packets to be sent over the network, reset the internal buffer of packets to send
+    pub(crate) fn flush_packets(&mut self) -> Vec<Packet<P>> {
+        let mut packets = std::mem::take(&mut self.current_packets);
+        if self.current_packet.is_some() {
+            packets.push(std::mem::take(&mut self.current_packet).unwrap());
+        }
+        packets
     }
 
     /// Pack messages into packets for the current channel
@@ -172,12 +199,7 @@ impl<P: SerializableProtocol> PacketManager<P> {
     pub fn pack_messages_within_channel(
         &mut self,
         mut messages_to_send: VecDeque<MessageContainer<P>>,
-    ) -> (
-        Vec<Packet<P>>,
-        VecDeque<MessageContainer<P>>,
-        Vec<MessageId>,
-    ) {
-        let mut packets = Vec::new();
+    ) -> (VecDeque<MessageContainer<P>>, Vec<MessageId>) {
         let mut sent_message_ids = Vec::new();
 
         // safety: we always start a new channel before we start building packets
@@ -190,25 +212,26 @@ impl<P: SerializableProtocol> PacketManager<P> {
 
         // build new packet
         'packet: loop {
+            // if it's a new packet, start by adding the channel
             if self.current_packet.is_none() {
                 self.build_new_packet();
-                self.can_start_new_channel(channel).unwrap();
+                self.can_add_channel(channel).unwrap();
             }
             let mut packet = self.current_packet.take().unwrap();
 
             // add messages to packet for the given channel
             'message: loop {
-                // TODO: check if message size is too big for a single packet, in which case we fragment!
                 if messages_to_send.is_empty() {
                     // TODO: send warning about message being too big?
-
-                    // no more messages to send, add the packet
-                    packets.push(packet);
+                    // no more messages to send, keep current packet buffer for future messages
+                    self.current_packet = Some(packet);
                     break 'packet;
                 }
 
                 // we're either moving the message into the packet, or back into the messages_to_send queue
                 let message = messages_to_send.pop_front().unwrap();
+
+                // TODO: check if message size is too big for a single packet, in which case we fragment!
                 if self.can_add_message(&mut packet, &message).is_ok_and(|b| b) {
                     // add message to packet
                     if let Some(id) = message.id.clone() {
@@ -221,29 +244,37 @@ impl<P: SerializableProtocol> PacketManager<P> {
 
                     // message was not added to packet, packet is full
                     messages_to_send.push_front(message);
-                    packets.push(packet);
+                    self.current_packets.push(packet);
                     break 'message;
                 }
             }
         }
-        (packets, messages_to_send, sent_message_ids)
+        (messages_to_send, sent_message_ids)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
+    use bitvec::access::BitAccess;
     use lazy_static::lazy_static;
 
     use lightyear_derive::ChannelInternal;
 
     use crate::packet::manager::PacketManager;
+    use crate::packet::packet::MTU_PAYLOAD_BYTES;
+    use crate::packet::wrapping_id::MessageId;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
-        MessageContainer,
+        MessageContainer, WriteBuffer,
     };
 
     #[derive(ChannelInternal)]
     struct Channel1;
+
+    #[derive(ChannelInternal)]
+    struct Channel2;
 
     lazy_static! {
         static ref CHANNEL_REGISTRY: ChannelRegistry = {
@@ -252,7 +283,8 @@ mod tests {
                 direction: ChannelDirection::Bidirectional,
             };
             let mut c = ChannelRegistry::new();
-            c.add::<Channel1>(settings).unwrap();
+            c.add::<Channel1>(settings.clone()).unwrap();
+            c.add::<Channel2>(settings.clone()).unwrap();
             c
         };
     }
@@ -265,9 +297,9 @@ mod tests {
 
         let small_message = MessageContainer::new(0);
         manager.build_new_packet();
-        let mut packet = manager.current_packet.take().unwrap();
-        assert_eq!(manager.can_start_new_channel(channel_kind)?, true);
+        assert_eq!(manager.can_add_channel(channel_kind)?, true);
 
+        let mut packet = manager.current_packet.take().unwrap();
         assert_eq!(manager.can_add_message(&mut packet, &small_message)?, true);
         packet.add_message(channel_id.clone(), small_message.clone());
         assert_eq!(packet.num_messages(), 1);
@@ -278,27 +310,78 @@ mod tests {
         Ok(())
     }
 
-    // #[test]
-    // fn test_write_big_message() -> anyhow::Result<()> {
-    //     let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
-    //
-    //     let big_bytes = vec![1u8; 2 * MTU_PAYLOAD_BYTES];
-    //     let big_message = MessageContainer::new(big_bytes);
-    //     let mut packet = manager.build_new_packet();
-    //     assert_eq!(manager.can_add_message(&mut packet, &big_message)?, false);
-    //     // let error = manager
-    //     //     .can_add_message(&mut packet, big_message)
-    //     //     .unwrap_err();
-    //     // let root_cause = error.root_cause();
-    //     // assert_eq!(
-    //     //     format!("{}", root_cause),
-    //     //     "Message too big to fit in packet"
-    //     // );
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_write_big_message() -> anyhow::Result<()> {
-    //     let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
-    // }
+    #[test]
+    fn test_write_big_message() -> anyhow::Result<()> {
+        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+
+        let big_bytes = vec![1u8; 2 * MTU_PAYLOAD_BYTES];
+        let big_message = MessageContainer::new(big_bytes);
+        manager.build_new_packet();
+        assert_eq!(manager.can_add_channel(channel_kind)?, true);
+
+        let mut packet = manager.current_packet.take().unwrap();
+        // the big message is too big to fit in the packet
+        assert_eq!(manager.can_add_message(&mut packet, &big_message)?, false);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_pack_big_message() {
+        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+
+        let big_bytes = vec![1u8; 10 * MTU_PAYLOAD_BYTES];
+        let big_message = MessageContainer::new(big_bytes);
+        manager.build_new_packet();
+        manager.can_add_channel(channel_kind);
+        manager.pack_messages_within_channel(vec![big_message].into());
+    }
+
+    #[test]
+    fn test_cannot_write_channel() -> anyhow::Result<()> {
+        let mut manager = PacketManager::<i32>::new(&CHANNEL_REGISTRY);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+        manager.build_new_packet();
+
+        // only 1 bit can be written
+        manager.try_write_buffer.set_reserved_bits(1);
+        // cannot write channel because of the continuation bit
+        assert_eq!(manager.can_add_channel(channel_kind)?, false);
+
+        manager.clear_try_write_buffer();
+        manager.try_write_buffer.set_reserved_bits(2);
+        assert_eq!(manager.can_add_channel(channel_kind)?, true);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_pack_messages_in_multiple_packets() -> anyhow::Result<()> {
+        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+
+        let mut message0 = MessageContainer::new(vec![false; MTU_PAYLOAD_BYTES - 100]);
+        message0.set_id(MessageId(0));
+        let mut message1 = MessageContainer::new(vec![true; MTU_PAYLOAD_BYTES - 100]);
+        message1.set_id(MessageId(1));
+
+        let mut packet = manager.build_new_packet();
+        assert_eq!(manager.can_add_channel(channel_kind)?, true);
+
+        // 8..16 take 7 bits with gamma encoding
+        let messages: VecDeque<_> = vec![message0, message1].into();
+        let (remaining_messages, sent_message_ids) = manager.pack_messages_within_channel(messages);
+
+        let packets = manager.flush_packets();
+        assert_eq!(packets.len(), 2);
+        assert_eq!(remaining_messages.is_empty(), true);
+        assert_eq!(sent_message_ids, vec![MessageId(0), MessageId(1)]);
+
+        Ok(())
+    }
 }

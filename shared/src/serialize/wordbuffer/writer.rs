@@ -75,11 +75,15 @@ impl WriteBuffer for WriteWordBuffer {
     }
 
     fn reserve_bits(&mut self, num_bits: usize) {
-        self.max_bits += num_bits;
+        self.max_bits -= num_bits;
     }
 
     fn release_bits(&mut self, num_bits: usize) {
-        self.max_bits -= num_bits;
+        self.max_bits += num_bits;
+    }
+
+    fn set_reserved_bits(&mut self, num_bits: usize) {
+        self.max_bits = num_bits;
     }
 }
 
@@ -88,6 +92,7 @@ mod tests {
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     use crate::serialize::wordbuffer::writer::WriteWordBuffer;
+    use crate::WriteBuffer;
 
     #[test]
     fn test_write_bits() -> anyhow::Result<()> {
@@ -143,6 +148,7 @@ mod tests {
         let vec = read_buffer.deserialize::<Vec<u64>>()?;
         assert_eq!(vec, second_vec);
         read_buffer.finish_read()?;
+
         Ok(())
     }
 

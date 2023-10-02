@@ -3,7 +3,6 @@ use std::collections::VecDeque;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
-use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::SerializableProtocol;
 
@@ -29,14 +28,20 @@ impl<P: SerializableProtocol> ChannelSend<P> for UnorderedUnreliableSender<P> {
         self.messages_to_send.push_back(message);
     }
 
+    // not necessary for an unreliable sender (all the buffered messages can be sent)
+    fn collect_messages_to_send(&mut self) {}
+
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send, _) =
+        let (remaining_messages_to_send, _) =
             packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
-        packets
+    }
+
+    fn has_messages_to_send(&self) -> bool {
+        !self.messages_to_send.is_empty()
     }
 }
 
@@ -67,13 +72,19 @@ impl<P: SerializableProtocol> ChannelSend<P> for SequencedUnreliableSender<P> {
         self.next_send_message_id += 1;
     }
 
+    // not necessary for an unreliable sender (all the buffered messages can be sent)
+    fn collect_messages_to_send(&mut self) {}
+
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send, _) =
+        let (remaining_messages_to_send, _) =
             packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
-        packets
+    }
+
+    fn has_messages_to_send(&self) -> bool {
+        !self.messages_to_send.is_empty()
     }
 }

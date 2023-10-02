@@ -50,7 +50,11 @@ impl<P: SerializableProtocol> SinglePacket<P> {
         }
     }
 
-    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) -> () {
+    pub fn add_channel(&mut self, channel: NetId) {
+        self.data.entry(channel).or_insert(Vec::new());
+    }
+
+    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) {
         self.data.entry(channel).or_insert(Vec::new()).push(message);
     }
     #[cfg(test)]
@@ -60,8 +64,8 @@ impl<P: SerializableProtocol> SinglePacket<P> {
 }
 
 impl<P: SerializableProtocol> SerializableProtocol for SinglePacket<P> {
-    /// An expectation of the encoding is that we always have at least one channel that we can encode,
-    /// And each channel contains at least one message
+    /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
+    /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.serialize(&self.header)?;
 
@@ -72,6 +76,8 @@ impl<P: SerializableProtocol> SerializableProtocol for SinglePacket<P> {
             .map(|(is_last_channel, (channel_id, messages))| {
                 writer.serialize(channel_id)?;
 
+                // initial continue bit for messages (are there messages for this channel or not?)
+                writer.serialize(&!messages.is_empty())?;
                 messages
                     .iter()
                     .enumerate()
@@ -104,9 +110,10 @@ impl<P: SerializableProtocol> SerializableProtocol for SinglePacket<P> {
         while continue_read_channel {
             let mut channel_id = reader.deserialize::<NetId>()?;
 
-            let mut continue_read_message = true;
             let mut messages = Vec::new();
 
+            // are there messages for this channel?
+            let mut continue_read_message = reader.deserialize::<bool>()?;
             // check message continue bit to see if there are more messages
             while continue_read_message {
                 let message = <MessageContainer<P>>::decode(reader)?;
@@ -156,6 +163,15 @@ impl<P: SerializableProtocol> Packet<P> {
     pub fn header(&self) -> &PacketHeader {
         match self {
             Packet::Single(single_packet) => &single_packet.header,
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+        }
+    }
+
+    pub fn add_channel(&mut self, channel: NetId) {
+        match self {
+            Packet::Single(single_packet) => {
+                single_packet.add_channel(channel);
+            }
             Packet::Fragmented(_fragmented_packet) => unimplemented!(),
         }
     }
@@ -249,6 +265,8 @@ mod tests {
         packet.add_message(0, MessageContainer::new(0));
         packet.add_message(0, MessageContainer::new(1));
         packet.add_message(1, MessageContainer::new(2));
+        // add a channel with no messages
+        packet.add_channel(2);
 
         packet.encode(&mut write_buffer);
         let packet_bytes = write_buffer.finish_write();
@@ -259,6 +277,7 @@ mod tests {
         // channel id
         expected_write_buffer.serialize(&0u16)?;
         // messages, with continuation bit
+        expected_write_buffer.serialize(&true)?;
         MessageContainer::new(0).encode(&mut expected_write_buffer)?;
         expected_write_buffer.serialize(&true)?;
         MessageContainer::new(1).encode(&mut expected_write_buffer)?;
@@ -268,10 +287,18 @@ mod tests {
         // channel id
         expected_write_buffer.serialize(&1u16)?;
         // messages with continuation bit
+        expected_write_buffer.serialize(&true)?;
         MessageContainer::new(2).encode(&mut expected_write_buffer)?;
         expected_write_buffer.serialize(&false)?;
         // channel continue bit
+        expected_write_buffer.serialize(&true)?;
+        // channel id
+        expected_write_buffer.serialize(&2u16)?;
+        // messages with continuation bit
         expected_write_buffer.serialize(&false)?;
+        // channel continue bit
+        expected_write_buffer.serialize(&false)?;
+
         let expected_packet_bytes = expected_write_buffer.finish_write();
 
         assert_eq!(packet_bytes, expected_packet_bytes);

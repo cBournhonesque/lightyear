@@ -26,6 +26,9 @@ pub trait WriteBuffer {
 
     /// Decrease the maximum number of bits that can be written with this buffer
     fn release_bits(&mut self, num_bits: usize);
+
+    /// Set the number of bits that can be written to this buffer
+    fn set_reserved_bits(&mut self, num_bits: usize);
 }
 
 pub trait BitWrite {

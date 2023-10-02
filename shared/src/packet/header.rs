@@ -83,6 +83,11 @@ impl PacketHeaderManager {
         self.next_packet_id
     }
 
+    #[cfg(test)]
+    pub fn sent_packets_not_acked(&self) -> &HashMap<PacketId, ()> {
+        &self.sent_packets_not_acked
+    }
+
     /// Increment the packet id of the next packet to be sent
     pub fn increment_next_packet_id(&mut self) {
         self.next_packet_id = PacketId(self.next_packet_id.wrapping_add(1));
@@ -127,6 +132,7 @@ impl PacketHeaderManager {
             // channel_header,
             // extra_header: Box::new(()),
         };
+        self.sent_packets_not_acked.insert(self.next_packet_id, ());
         self.increment_next_packet_id();
         outgoing_header
     }

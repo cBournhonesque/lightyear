@@ -9,10 +9,7 @@ pub(crate) mod message;
 
 pub trait Protocol {
     type Message: SerializableProtocol;
-    type Channel: channel::ChannelProtocol;
-
-    fn get_message_protocol() -> Self::Message;
-    fn get_channel_protocol() -> Self::Channel;
+    // type Channel: channel::ChannelProtocol;
 }
 
 /// A protocol that can be serialized through channels

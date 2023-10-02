@@ -19,6 +19,12 @@ impl Io {
         }
     }
 
+    pub fn send_packet(&mut self, packet: &[u8], remote_addr: &SocketAddr) -> anyhow::Result<()> {
+        // Compression
+        // Bandwidth monitoring
+        self.transport.send(packet, remote_addr)
+    }
+
     /// Returns a buffer that can be read from containing the data received from the transport
     pub fn create_reader_from_packet(
         &mut self,

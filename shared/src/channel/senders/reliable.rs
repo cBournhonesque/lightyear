@@ -10,7 +10,6 @@ use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
-use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::SerializableProtocol;
 
@@ -61,9 +60,33 @@ impl<P: Clone> ReliableSender<P> {
             self.unacked_messages.remove(&message_id).unwrap();
         }
     }
+}
 
-    /// Internal helper to collect the list of messages that need to be sent
+// Stragegy:
+// - a Message is a single unified data structure that knows how to serialize itself
+// - a Packet can be a single packet, or a multi-fragment slice, or a single fragment of a slice (i.e. a fragment that needs to be resent)
+// - all messages know how to serialize themselves into a packet or a list of packets to send over the wire.
+//   that means they have the information to create their header (i.e. their PacketId or FragmentId)
+// - SEND = get a list of Messages to send
+// (either packets in the buffer, or packets we need to resend cuz they were not acked,
+// or because one of the fragments of the )
+// - (because once we have that list, that list knows how to serialize itself)
+impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
+    /// Add a new message to the buffer of messages to be sent.
+    /// This is a client-facing function, to be called when you want to send a message
+    fn buffer_send(&mut self, message: MessageContainer<P>) {
+        let unacked_message = UnackedMessage {
+            message,
+            last_sent: None,
+        };
+        self.unacked_messages
+            .insert(self.next_send_message_id, unacked_message);
+        self.next_send_message_id += 1;
+    }
+
+    /// Collect the list of messages that need to be sent
     /// Either because they have never been sent, or because they need to be resent
+    /// Needs to be called before [`ReliableSender::send_packet`]
     fn collect_messages_to_send(&mut self) {
         // resend delay is based on the rtt
         let resend_delay = Duration::from_millis(
@@ -90,48 +113,24 @@ impl<P: Clone> ReliableSender<P> {
             }
         }
     }
-}
-
-// Stragegy:
-// - a Message is a single unified data structure that knows how to serialize itself
-// - a Packet can be a single packet, or a multi-fragment slice, or a single fragment of a slice (i.e. a fragment that needs to be resent)
-// - all messages know how to serialize themselves into a packet or a list of packets to send over the wire.
-//   that means they have the information to create their header (i.e. their PacketId or FragmentId)
-// - SEND = get a list of Messages to send
-// (either packets in the buffer, or packets we need to resend cuz they were not acked,
-// or because one of the fragments of the )
-// - (because once we have that list, that list knows how to serialize itself)
-impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
-    /// Add a new message to the buffer of messages to be sent.
-    /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: MessageContainer<P>) {
-        let unacked_message = UnackedMessage {
-            message,
-            last_sent: None,
-        };
-        self.unacked_messages
-            .insert(self.next_send_message_id, unacked_message);
-        self.next_send_message_id += 1;
-    }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
-        // TODO: do we want to ALWAYS call this when we send packet? or should we separate the 2?
-        // collect the messages that need to be sent
-        // (notably unacked messages that need to be resent)
-        self.collect_messages_to_send();
-
+    /// The messages to be sent need to have been collected prior to this point.
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
         // build the packets from those messages
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send, sent_message_ids) =
+        let (remaining_messages_to_send, sent_message_ids) =
             packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
 
         for message_id in sent_message_ids {
             self.message_ids_to_send.remove(&message_id);
         }
-        packets
+    }
+
+    fn has_messages_to_send(&self) -> bool {
+        !self.messages_to_send.is_empty()
     }
 }
 
