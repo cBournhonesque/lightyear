@@ -1,8 +1,8 @@
-use crate::serialize::reader::ReadBuffer;
-use crate::serialize::writer::WriteBuffer;
-use crate::MessageContainer;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::writer::WriteBuffer;
 
 pub(crate) mod channel;
 pub(crate) mod message;
@@ -29,6 +29,9 @@ pub trait SerializableProtocol: Clone {
     //     ) -> anyhow::Result<MessageContainer>;
 }
 
+// TODO: if this all we need from message protocol, then use this!
+//  then we can have messageProtocols require to implement a last marker trait called IsMessageProtocol
+
 impl<'a, T> SerializableProtocol for T
 where
     T: Serialize + DeserializeOwned + Clone,
@@ -44,3 +47,17 @@ where
         reader.deserialize::<Self>()
     }
 }
+
+// #[cfg(test)]
+// impl<'a> SerializableProtocol for i32 {
+//     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+//         writer.serialize(self)
+//     }
+//
+//     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         reader.deserialize::<Self>()
+//     }
+// }

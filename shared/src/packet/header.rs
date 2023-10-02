@@ -84,7 +84,7 @@ impl PacketHeaderManager {
     }
 
     /// Process the header of a received packet (update ack metadata)
-    pub fn process_recv_packet_header(&mut self, header: &PacketHeader) {
+    pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) {
         // update the receive buffer
         self.recv_buffer.recv_packet(header.packet_id);
 
@@ -101,7 +101,7 @@ impl PacketHeaderManager {
     }
 
     /// Prepare the header of the next packet to send
-    pub fn prepare_send_packet_header(
+    pub(crate) fn prepare_send_packet_header(
         &mut self,
         protocol_id: u16,
         packet_type: PacketType,

@@ -29,7 +29,7 @@ self_cell!(
 
 impl<'a> ReadBuffer for ReadWordBuffer<'a> {
     fn capacity(&self) -> usize {
-        self.capacity()
+        self.borrow_owner().capacity()
     }
 
     // fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {

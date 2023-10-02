@@ -135,13 +135,16 @@ impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use mock_instant::MockClock;
+
+    use crate::channel::channel::ReliableSettings;
+
     use super::ChannelSend;
     use super::Instant;
     use super::ReliableSender;
     use super::{MessageContainer, MessageId};
-    use crate::channel::channel::ReliableSettings;
-    use mock_instant::MockClock;
-    use std::time::Duration;
 
     #[test]
     fn test_reliable_sender_internals() {

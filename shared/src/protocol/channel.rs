@@ -1,1 +1,1 @@
-pub(crate) trait ChannelProtocol {}
+pub trait ChannelProtocol {}

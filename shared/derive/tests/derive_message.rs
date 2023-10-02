@@ -3,17 +3,18 @@ pub mod some_message {
 
     use lightyear_derive::message_protocol;
     use lightyear_shared::serialize::writer::WriteBuffer;
+    use lightyear_shared::SerializableProtocol;
 
     // #[derive(Message)]
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
 
     // #[derive(Message)]
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message2(pub u32);
 
-    #[derive(Debug, PartialEq)]
-    #[message_protocol]
+    #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+    // #[message_protocol]
     // #[derive(EnumAsInner)]
     pub enum MyMessageProtocol {
         Message1(Message1),

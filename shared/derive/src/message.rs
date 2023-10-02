@@ -2,10 +2,7 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Type};
 
-pub fn message_impl(
-    input: proc_macro::TokenStream,
-    shared_crate_name: TokenStream,
-) -> proc_macro::TokenStream {
+pub fn message_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     // Helper Properties
@@ -14,11 +11,6 @@ pub fn message_impl(
 
     // Names
     let struct_name = input.ident;
-    let lowercase_struct_name = Ident::new(
-        struct_name.to_string().to_lowercase().as_str(),
-        Span::call_site(),
-    );
-    let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
     let encode_method = encode_method();

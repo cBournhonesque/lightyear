@@ -49,7 +49,7 @@ pub struct FragmentedPacket {}
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
-pub enum Packet<P> {
+pub(crate) enum Packet<P> {
     Single(SinglePacket<P>),
     Fragmented(FragmentedPacket),
 }
@@ -117,7 +117,7 @@ impl<P: SerializableProtocol> Packet<P> {
     }
 
     /// Construct the list of single packets to be sent over the network from this packet
-    pub fn split(self) -> Vec<SinglePacket<P>> {
+    pub(crate) fn split(self) -> Vec<SinglePacket<P>> {
         match self {
             Packet::Single(single_packet) => vec![single_packet],
             Packet::Fragmented(_fragmented_packet) => unimplemented!(),

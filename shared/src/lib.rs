@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused)]
+
 pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
 };
