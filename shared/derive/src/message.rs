@@ -1,5 +1,5 @@
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Type};
 
 pub fn message_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

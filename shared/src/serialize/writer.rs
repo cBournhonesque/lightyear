@@ -18,13 +18,14 @@ pub trait WriteBuffer {
     fn finish_write(&mut self) -> &[u8];
 
     fn num_bits_written(&self) -> usize;
+    fn overflowed(&self) -> bool;
 
     /// Increase the maximum number of bits that can be written with this buffer
-    /// (this is separate from the buffers capacity)
-    fn reserve_bits(&mut self, num_bits: u32);
+    /// (we are tracking them separately from the buffers capacity)
+    fn reserve_bits(&mut self, num_bits: usize);
 
     /// Decrease the maximum number of bits that can be written with this buffer
-    fn release_bits(&mut self, num_bits: u32);
+    fn release_bits(&mut self, num_bits: usize);
 }
 
 pub trait BitWrite {

@@ -43,6 +43,11 @@ impl PacketHeader {
         assert!(i < ACK_BITFIELD_SIZE);
         self.ack_bitfield & (1 << i) != 0
     }
+
+    #[cfg(test)]
+    pub fn get_packet_type(&self) -> PacketType {
+        self.packet_type
+    }
 }
 
 // we can only send acks for the last 32 packets ids before the last received packet

@@ -31,9 +31,10 @@ impl<P: SerializableProtocol> ChannelSend<P> for UnorderedUnreliableSender<P> {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send) = packet_manager.pack_messages(messages_to_send);
+        let (packets, remaining_messages_to_send, _) =
+            packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
         packets
     }
@@ -68,9 +69,10 @@ impl<P: SerializableProtocol> ChannelSend<P> for SequencedUnreliableSender<P> {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send) = packet_manager.pack_messages(messages_to_send);
+        let (packets, remaining_messages_to_send, _) =
+            packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
         packets
     }

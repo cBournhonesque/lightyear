@@ -12,6 +12,12 @@ use crate::ChannelContainer;
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct ChannelKind(TypeId);
 
+impl ChannelKind {
+    pub fn of<C: Channel>() -> Self {
+        Self(TypeId::of::<C>())
+    }
+}
+
 pub struct ChannelRegistry {
     pub(in crate::registry) next_net_id: NetId,
     pub(in crate::registry) kind_map: HashMap<ChannelKind, (NetId, ChannelBuilder)>,

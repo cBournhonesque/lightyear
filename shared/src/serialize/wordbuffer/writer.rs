@@ -21,6 +21,7 @@ use crate::serialize::writer::{BitWrite, WriteBuffer};
 pub struct WriteWordBuffer {
     pub(crate) buffer: WordBuffer,
     pub(crate) writer: WordWriter,
+    max_bits: usize,
 }
 
 #[derive(Encode, Serialize)]
@@ -32,11 +33,16 @@ impl WriteBuffer for WriteWordBuffer {
     //     serialize_compat(t, Fixed, &mut self.writer).context("error serializing")
     // }
 
+    // TODO: define actual error types so users can distinguish between the two
     fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()> {
         let with_gamma = OnlyGammaEncode::<T>(t);
         with_gamma
             .encode(Fixed, &mut self.writer)
-            .context("error serializing")
+            .context("error serializing");
+        // if self.overflowed() {
+        //     bail!("buffer overflowed")
+        // }
+        Ok(())
     }
 
     fn capacity(&self) -> usize {
@@ -46,7 +52,11 @@ impl WriteBuffer for WriteWordBuffer {
     fn with_capacity(capacity: usize) -> Self {
         let mut buffer = WordBuffer::with_capacity(capacity);
         let writer = buffer.start_write();
-        Self { buffer, writer }
+        Self {
+            buffer,
+            writer,
+            max_bits: 0,
+        }
     }
 
     fn start_write(&mut self) {
@@ -60,12 +70,16 @@ impl WriteBuffer for WriteWordBuffer {
         self.writer.num_bits_written()
     }
 
-    fn reserve_bits(&mut self, num_bits: u32) {
-        todo!()
+    fn overflowed(&self) -> bool {
+        self.num_bits_written() > self.max_bits
     }
 
-    fn release_bits(&mut self, num_bits: u32) {
-        todo!()
+    fn reserve_bits(&mut self, num_bits: usize) {
+        self.max_bits += num_bits;
+    }
+
+    fn release_bits(&mut self, num_bits: usize) {
+        self.max_bits -= num_bits;
     }
 }
 

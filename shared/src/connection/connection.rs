@@ -21,7 +21,7 @@ use crate::Channel;
 /// By splitting the data into packets and sending them through a given transport
 pub struct Connection<P: Protocol> {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketManager,
+    packet_manager: PacketManager<P::Message>,
     channels: HashMap<ChannelKind, ChannelContainer<P::Message>>,
     // transport: Box<RefCell<dyn Transport>>,
     remote_addr: SocketAddr,

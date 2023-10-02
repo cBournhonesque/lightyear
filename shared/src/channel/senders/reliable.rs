@@ -116,7 +116,7 @@ impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
-    fn send_packet(&mut self, packet_manager: &mut PacketManager) -> Vec<Packet<P>> {
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) -> Vec<Packet<P>> {
         // TODO: do we want to ALWAYS call this when we send packet? or should we separate the 2?
         // collect the messages that need to be sent
         // (notably unacked messages that need to be resent)
@@ -124,9 +124,11 @@ impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
 
         // build the packets from those messages
         let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (packets, remaining_messages_to_send) = packet_manager.pack_messages(messages_to_send);
+        let (packets, remaining_messages_to_send, sent_message_ids) =
+            packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
-        for message_id in packets.iter().flat_map(|packet| packet.message_ids()) {
+
+        for message_id in sent_message_ids {
             self.message_ids_to_send.remove(&message_id);
         }
         packets

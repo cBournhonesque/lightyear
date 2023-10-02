@@ -1,10 +1,6 @@
 pub mod some_message {
     use serde::{Deserialize, Serialize};
 
-    use lightyear_derive::message_protocol;
-    use lightyear_shared::serialize::writer::WriteBuffer;
-    use lightyear_shared::SerializableProtocol;
-
     // #[derive(Message)]
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
