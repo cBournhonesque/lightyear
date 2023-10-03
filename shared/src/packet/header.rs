@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bitcode::{Decode, Encode};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -24,7 +24,6 @@ pub(crate) struct PacketHeader {
     /// (this means that in total we send acks for 33 packet-ids)
     /// See more information at: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
     ack_bitfield: u32,
-    // pub(crate) channel_header: ChannelHeader,
     // /// Extra data to be included in the header (channel id, maybe fragmented id, tick?)
     // extra_header: Box<dyn PacketHeaderData>,
 }
@@ -61,9 +60,9 @@ pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
     next_packet_id: PacketId,
-    // keep track of the packets we send out and that have not been acked yet,
+    // keep track of the packets (of type Data) we send out and that have not been acked yet,
     // so we can resend them when dropped
-    sent_packets_not_acked: HashMap<PacketId, ()>,
+    sent_packets_not_acked: HashSet<PacketId>,
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
     recv_buffer: ReceiveBuffer,
@@ -73,7 +72,7 @@ impl PacketHeaderManager {
     pub fn new() -> Self {
         Self {
             next_packet_id: PacketId(0),
-            sent_packets_not_acked: HashMap::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
+            sent_packets_not_acked: HashSet::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
             recv_buffer: ReceiveBuffer::new(),
         }
     }
@@ -84,7 +83,7 @@ impl PacketHeaderManager {
     }
 
     #[cfg(test)]
-    pub fn sent_packets_not_acked(&self) -> &HashMap<PacketId, ()> {
+    pub fn sent_packets_not_acked(&self) -> &HashSet<PacketId> {
         &self.sent_packets_not_acked
     }
 
@@ -100,13 +99,26 @@ impl PacketHeaderManager {
 
         // read the ack information (ack id + ack bitfield) from the received header, and update
         // the list of our sent packets that have not been acked yet
-        self.sent_packets_not_acked
-            .remove(&header.last_ack_packet_id);
+        self.update_sent_packets_not_acked(&header.last_ack_packet_id);
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
             if header.get_bitfield_bit(i - 1) {
-                self.sent_packets_not_acked.remove(&packet_id);
+                self.update_sent_packets_not_acked(&packet_id);
             }
+        }
+    }
+
+    /// Update the list of sent packets that have not been acked yet
+    /// when we receive confirmation that packet_id was delivered
+    ///
+    /// Also potentially notify the channels/etc. that the packet was delivered.
+    fn update_sent_packets_not_acked(&mut self, packet_id: &PacketId) {
+        if self.sent_packets_not_acked.contains(packet_id) {
+            // TODO: notify the channels/etc. that the packet was delivered.
+            //  so that all the messages from the reliableSenders can mark the message as received
+            // self.notify_packet_delivered(header.last_ack_packet_id);j
+
+            self.sent_packets_not_acked.remove(&packet_id);
         }
     }
 
@@ -115,7 +127,6 @@ impl PacketHeaderManager {
         &mut self,
         protocol_id: u16,
         packet_type: PacketType,
-        // channel_header: ChannelHeader,
     ) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
@@ -129,10 +140,8 @@ impl PacketHeaderManager {
             packet_id: self.next_packet_id,
             last_ack_packet_id,
             ack_bitfield: self.recv_buffer.get_bitfield(),
-            // channel_header,
-            // extra_header: Box::new(()),
         };
-        self.sent_packets_not_acked.insert(self.next_packet_id, ());
+        self.sent_packets_not_acked.insert(self.next_packet_id);
         self.increment_next_packet_id();
         outgoing_header
     }
@@ -218,6 +227,7 @@ impl ReceiveBuffer {
     }
 }
 
+// TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
     use super::PacketId;

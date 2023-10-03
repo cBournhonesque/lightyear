@@ -161,6 +161,8 @@ impl<P: Protocol> Connection<P> {
     }
 }
 
+// TODO: have a way to update the channels about the messages that have been acked
+
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
