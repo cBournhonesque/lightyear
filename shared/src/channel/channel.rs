@@ -82,15 +82,6 @@ pub struct ChannelSettings {
     pub direction: ChannelDirection,
 }
 
-pub enum ChannelOrdering {
-    /// Messages will arrive in the order that they were sent
-    Ordered,
-    /// Messages will arrive in any order
-    Unordered,
-    /// Only the newest messages are accepted; older messages are discarded
-    Sequenced,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 /// ChannelMode specifies how packets are sent and received
 /// See more information: http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html
@@ -107,6 +98,18 @@ pub enum ChannelMode {
     SequencedReliable(ReliableSettings),
     /// Packets will arrive in the correct order at the destination
     OrderedReliable(ReliableSettings),
+}
+
+impl ChannelMode {
+    pub fn is_reliable(&self) -> bool {
+        match self {
+            ChannelMode::UnorderedUnreliable => false,
+            ChannelMode::SequencedUnreliable => false,
+            ChannelMode::UnorderedReliable(_) => true,
+            ChannelMode::SequencedReliable(_) => true,
+            ChannelMode::OrderedReliable(_) => true,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]

@@ -11,6 +11,7 @@ use crate::connection::io::Io;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
+use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::Protocol;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::serialize::reader::ReadBuffer;
@@ -24,6 +25,10 @@ pub struct Connection<P: Protocol> {
     packet_manager: PacketManager<P::Message>,
     // TODO: add ordering of channels per priority
     channels: HashMap<ChannelKind, ChannelContainer<P::Message>>,
+    // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
+    /// Map to keep track of which messages have been sent in which packets, so that
+    /// reliable senders can stop trying to send a message that has already been received
+    packet_to_message_id_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageId>>>,
     remote_addr: SocketAddr,
 }
 
@@ -32,6 +37,7 @@ impl<P: Protocol> Connection<P> {
         Self {
             packet_manager: PacketManager::new(channel_registry),
             channels: channel_registry.channels(),
+            packet_to_message_id_map: HashMap::new(),
             remote_addr,
         }
     }
@@ -76,10 +82,37 @@ impl<P: Protocol> Connection<P> {
         let packets = self.packet_manager.flush_packets();
 
         // TODO: might need to split into single packets?
-        // Step 2. Send the packets over the network
         for packet in packets {
+            // Step 2. Send the packets over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
             io.send_packet(payload, &self.remote_addr)?;
+
+            // Step 3. Update the packet_to_message_id_map (only for reliable channels)
+            packet
+                .message_ids()
+                .iter()
+                .map(|(channel_id, message_ids)| {
+                    let channel_kind = self
+                        .packet_manager
+                        .channel_registry
+                        .get_kind_from_net_id(*channel_id)
+                        .context("cannot find channel kind")?;
+                    let channel = self
+                        .channels
+                        .get(channel_kind)
+                        .context("Channel not found")?;
+                    let packet_id = packet.header().packet_id;
+                    if channel.setting.mode.is_reliable() {
+                        self.packet_to_message_id_map
+                            .entry(packet_id)
+                            .or_default()
+                            .entry(channel_kind.clone())
+                            .or_default()
+                            .append(&mut message_ids.clone());
+                    }
+                    Ok(())
+                })
+                .collect::<anyhow::Result<()>>()?;
         }
 
         Ok(())
@@ -88,7 +121,7 @@ impl<P: Protocol> Connection<P> {
     /// Listen for packets on the transport and buffer them
     ///
     /// Return when there are no more packets to receive on the transport
-    pub fn listen(&mut self, io: &mut Io) -> anyhow::Result<()> {
+    pub fn recv_packets(&mut self, io: &mut Io) -> anyhow::Result<()> {
         loop {
             match io.create_reader_from_packet()? {
                 Some((mut packet_reader, address)) => {
@@ -114,13 +147,32 @@ impl<P: Protocol> Connection<P> {
             Packet::Fragmented(_) => unimplemented!(),
         };
 
+        // TODO: an option is to have an async task that is on the receiving side of the
+        //  cross-beam channel which tell which packets have been received
+
         // Step 2. Update the packet acks (which packets have we received, and which of our packets
         // have been acked)
-        self.packet_manager
+        let acked_packets = self
+            .packet_manager
             .header_manager
             .process_recv_packet_header(&packet.header);
 
-        // Step 3. Put the messages from the packet in the internal buffers for each channel
+        // Step 3. Update the list of messages that have been acked
+        for acked_packet in acked_packets {
+            if let Some(message_map) = self.packet_to_message_id_map.get(&acked_packet) {
+                for (channel_kind, message_ids) in message_map {
+                    let channel = self
+                        .channels
+                        .get_mut(channel_kind)
+                        .context("Channel not found")?;
+                    for message_id in message_ids {
+                        channel.sender.notify_message_delivered(message_id);
+                    }
+                }
+            }
+        }
+
+        // Step 4. Put the messages from the packet in the internal buffers for each channel
         for (channel_net_id, messages) in packet.data {
             let channel_kind = self
                 .packet_manager
@@ -139,7 +191,6 @@ impl<P: Protocol> Connection<P> {
             }
         }
 
-        // TODO: should we have a mapping from packet_id to message_id?
         Ok(())
     }
 
@@ -267,7 +318,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
 
         // On server side: keep looping to receive bytes on the network, then process them into messages
-        server_connection.listen(&mut server_io);
+        server_connection.recv_packets(&mut server_io);
         let mut data = server_connection.read_messages();
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
@@ -291,7 +342,7 @@ mod tests {
             .packet_manager
             .header_manager
             .sent_packets_not_acked()
-            .contains_key(&PacketId(0)));
+            .contains(&PacketId(0)));
         Ok(())
     }
 }

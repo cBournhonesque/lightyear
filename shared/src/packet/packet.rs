@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,7 @@ use crate::packet::header::PacketHeader;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet_type::PacketType;
+use crate::packet::wrapping_id::MessageId;
 use crate::protocol::SerializableProtocol;
 use crate::registry::NetId;
 use crate::serialize::reader::ReadBuffer;
@@ -57,6 +58,19 @@ impl<P: SerializableProtocol> SinglePacket<P> {
     pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) {
         self.data.entry(channel).or_insert(Vec::new()).push(message);
     }
+
+    /// Return the list of message ids in the packet
+    pub fn message_ids(&self) -> HashMap<NetId, Vec<MessageId>> {
+        self.data
+            .iter()
+            .map(|(&net_id, messages)| {
+                let message_ids: Vec<MessageId> =
+                    messages.iter().filter_map(|message| message.id).collect();
+                (net_id, message_ids)
+            })
+            .collect()
+    }
+
     #[cfg(test)]
     pub fn num_messages(&self) -> usize {
         self.data.iter().map(|(_, messages)| messages.len()).sum()
@@ -194,13 +208,13 @@ impl<P: SerializableProtocol> Packet<P> {
         }
     }
 
-    // /// Return the list of messages in the packet
-    // pub fn messages(&self) -> Vec<&MessageContainer<P>> {
-    //     match self {
-    //         Packet::Single(single_packet) => single_packet.data.iter().collect(),
-    //         Packet::Fragmented(_fragmented_packet) => unimplemented!(),
-    //     }
-    // }
+    /// Return the list of messages in the packet
+    pub fn message_ids(&self) -> HashMap<NetId, Vec<MessageId>> {
+        match self {
+            Packet::Single(single_packet) => single_packet.message_ids(),
+            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+        }
+    }
 
     /// Construct the list of single packets to be sent over the network from this packet
     pub(crate) fn split(self) -> Vec<SinglePacket<P>> {

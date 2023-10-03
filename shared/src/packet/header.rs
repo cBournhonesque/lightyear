@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bitcode::{Decode, Encode};
+use crossbeam::channel::{Receiver, Sender};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,7 @@ pub(crate) struct PacketHeader {
     /// Type of the packet sent
     packet_type: PacketType,
     /// Packet id from the sender's perspective
-    packet_id: PacketId,
+    pub(crate) packet_id: PacketId,
     /// Last ack-ed packet id received by the sender
     last_ack_packet_id: PacketId,
     /// Bitfield of the last 32 packet ids before `ack_id`
@@ -63,6 +64,11 @@ pub struct PacketHeaderManager {
     // keep track of the packets (of type Data) we send out and that have not been acked yet,
     // so we can resend them when dropped
     sent_packets_not_acked: HashSet<PacketId>,
+
+    // channel to notify the sender of the packet_id of the packets that were delivered
+    // ack_notification_sender: Sender<PacketId>,
+    // ack_notification_receiver: Receiver<PacketId>,
+
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
     recv_buffer: ReceiveBuffer,
@@ -70,12 +76,22 @@ pub struct PacketHeaderManager {
 
 impl PacketHeaderManager {
     pub fn new() -> Self {
+        // let (ack_notification_sender, ack_notification_receiver) =
+        //     crossbeam::channel::bounded(MAX_SEND_PACKET_QUEUE_SIZE as usize);
         Self {
             next_packet_id: PacketId(0),
             sent_packets_not_acked: HashSet::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
             recv_buffer: ReceiveBuffer::new(),
+            // ack_notification_sender,
+            // ack_notification_receiver,
         }
     }
+
+    // /// Get the receiver for the ack notification channel
+    // /// It can be cloned if we need multiple receivers
+    // pub fn get_ack_receiver(&self) -> &Receiver<PacketId> {
+    //     &self.ack_notification_receiver
+    // }
 
     /// Return the packet id of the next packet to be sent
     pub fn next_packet_id(&self) -> PacketId {
@@ -93,33 +109,44 @@ impl PacketHeaderManager {
     }
 
     /// Process the header of a received packet (update ack metadata)
-    pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) {
+    ///
+    /// Returns the list of packets that have been newly acked by the remote
+    pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) -> Vec<PacketId> {
         // update the receive buffer
         self.recv_buffer.recv_packet(header.packet_id);
 
+        let mut newly_acked_packets = Vec::new();
+
         // read the ack information (ack id + ack bitfield) from the received header, and update
         // the list of our sent packets that have not been acked yet
-        self.update_sent_packets_not_acked(&header.last_ack_packet_id);
+        if let Some(packet) = self.update_sent_packets_not_acked(&header.last_ack_packet_id) {
+            newly_acked_packets.push(packet);
+        }
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
             if header.get_bitfield_bit(i - 1) {
-                self.update_sent_packets_not_acked(&packet_id);
+                if let Some(packet) = self.update_sent_packets_not_acked(&packet_id) {
+                    newly_acked_packets.push(packet)
+                }
             }
         }
+        newly_acked_packets
     }
 
     /// Update the list of sent packets that have not been acked yet
     /// when we receive confirmation that packet_id was delivered
     ///
     /// Also potentially notify the channels/etc. that the packet was delivered.
-    fn update_sent_packets_not_acked(&mut self, packet_id: &PacketId) {
+    fn update_sent_packets_not_acked(&mut self, packet_id: &PacketId) -> Option<PacketId> {
         if self.sent_packets_not_acked.contains(packet_id) {
-            // TODO: notify the channels/etc. that the packet was delivered.
-            //  so that all the messages from the reliableSenders can mark the message as received
-            // self.notify_packet_delivered(header.last_ack_packet_id);j
+            // TODO: make this non-blocking, but keep trying until it works?
+            // notify that one of the packets we sent got acked
+            // self.ack_notification_sender.send(*packet_id)?;
 
-            self.sent_packets_not_acked.remove(&packet_id);
+            self.sent_packets_not_acked.remove(packet_id);
+            return Some(*packet_id);
         }
+        None
     }
 
     /// Prepare the header of the next packet to send

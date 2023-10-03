@@ -28,9 +28,6 @@ impl<P: SerializableProtocol> ChannelSend<P> for UnorderedUnreliableSender<P> {
         self.messages_to_send.push_back(message);
     }
 
-    // not necessary for an unreliable sender (all the buffered messages can be sent)
-    fn collect_messages_to_send(&mut self) {}
-
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
@@ -39,6 +36,11 @@ impl<P: SerializableProtocol> ChannelSend<P> for UnorderedUnreliableSender<P> {
             packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
     }
+
+    // not necessary for an unreliable sender (all the buffered messages can be sent)
+    fn collect_messages_to_send(&mut self) {}
+
+    fn notify_message_delivered(&mut self, message_id: &MessageId) {}
 
     fn has_messages_to_send(&self) -> bool {
         !self.messages_to_send.is_empty()
@@ -72,9 +74,6 @@ impl<P: SerializableProtocol> ChannelSend<P> for SequencedUnreliableSender<P> {
         self.next_send_message_id += 1;
     }
 
-    // not necessary for an unreliable sender (all the buffered messages can be sent)
-    fn collect_messages_to_send(&mut self) {}
-
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
@@ -83,6 +82,11 @@ impl<P: SerializableProtocol> ChannelSend<P> for SequencedUnreliableSender<P> {
             packet_manager.pack_messages_within_channel(messages_to_send);
         self.messages_to_send = remaining_messages_to_send;
     }
+
+    // not necessary for an unreliable sender (all the buffered messages can be sent)
+    fn collect_messages_to_send(&mut self) {}
+
+    fn notify_message_delivered(&mut self, message_id: &MessageId) {}
 
     fn has_messages_to_send(&self) -> bool {
         !self.messages_to_send.is_empty()

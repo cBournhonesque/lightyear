@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
+crossbeam = "0.8"
 lazy_static = "1.4"
 self_cell = "1.0"
 bitvec = "1.0"

@@ -84,6 +84,21 @@ impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
         self.next_send_message_id += 1;
     }
 
+    /// Take messages from the buffer of messages to be sent, and build a list of packets
+    /// to be sent
+    /// The messages to be sent need to have been collected prior to this point.
+    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
+        // build the packets from those messages
+        let messages_to_send = std::mem::take(&mut self.messages_to_send);
+        let (remaining_messages_to_send, sent_message_ids) =
+            packet_manager.pack_messages_within_channel(messages_to_send);
+        self.messages_to_send = remaining_messages_to_send;
+
+        for message_id in sent_message_ids {
+            self.message_ids_to_send.remove(&message_id);
+        }
+    }
+
     /// Collect the list of messages that need to be sent
     /// Either because they have never been sent, or because they need to be resent
     /// Needs to be called before [`ReliableSender::send_packet`]
@@ -114,19 +129,8 @@ impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
         }
     }
 
-    /// Take messages from the buffer of messages to be sent, and build a list of packets
-    /// to be sent
-    /// The messages to be sent need to have been collected prior to this point.
-    fn send_packet(&mut self, packet_manager: &mut PacketManager<P>) {
-        // build the packets from those messages
-        let messages_to_send = std::mem::take(&mut self.messages_to_send);
-        let (remaining_messages_to_send, sent_message_ids) =
-            packet_manager.pack_messages_within_channel(messages_to_send);
-        self.messages_to_send = remaining_messages_to_send;
-
-        for message_id in sent_message_ids {
-            self.message_ids_to_send.remove(&message_id);
-        }
+    fn notify_message_delivered(&mut self, message_id: &MessageId) {
+        self.unacked_messages.remove(message_id);
     }
 
     fn has_messages_to_send(&self) -> bool {

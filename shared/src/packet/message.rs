@@ -4,7 +4,6 @@ use serde::Serialize;
 
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::SerializableProtocol;
-use crate::registry::message::MessageKind;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 
@@ -39,9 +38,9 @@ impl<P: SerializableProtocol> MessageContainer<P> {
         let message = P::decode(reader)?;
         Ok(Self { id, message })
     }
-    fn kind(&self) -> MessageKind {
-        unimplemented!()
-    }
+    // fn kind(&self) -> MessageKind {
+    //     unimplemented!()
+    // }
 
     pub fn new(message: P) -> Self {
         MessageContainer { id: None, message }
@@ -64,8 +63,8 @@ impl<P: SerializableProtocol> MessageContainer<P> {
 // }
 
 pub trait Message: 'static {
-    /// Get the MessageKind for the message
-    fn kind(&self) -> MessageKind;
+    // /// Get the MessageKind for the message
+    // fn kind(&self) -> MessageKind;
 
     // fn get_builder() -> Box<dyn MessageBuilder>
     // where
