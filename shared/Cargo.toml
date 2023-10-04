@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
+chacha20poly1305 = "0.10"
 crossbeam = "0.8"
 lazy_static = "1.4"
 self_cell = "1.0"
@@ -18,6 +19,8 @@ enum_dispatch = "0.3"
 rand = "0.8"
 ringbuffer = "0.15"
 serde = { version = "1.0.188", features = ["derive"] }
+
+tracing = "0.1"
 
 lightyear_derive = {path = "derive" }
 

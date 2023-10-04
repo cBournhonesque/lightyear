@@ -7,7 +7,6 @@ use bitcode::read::Read;
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::connection::io::Io;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
@@ -15,8 +14,11 @@ use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::Protocol;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::serialize::reader::ReadBuffer;
+use crate::transport::io::Io;
 use crate::transport::Transport;
 use crate::Channel;
+
+// TODO: maybe rename this message manager?
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
@@ -159,14 +161,14 @@ impl<P: Protocol> Connection<P> {
 
         // Step 3. Update the list of messages that have been acked
         for acked_packet in acked_packets {
-            if let Some(message_map) = self.packet_to_message_id_map.get(&acked_packet) {
+            if let Some(message_map) = self.packet_to_message_id_map.remove(&acked_packet) {
                 for (channel_kind, message_ids) in message_map {
                     let channel = self
                         .channels
-                        .get_mut(channel_kind)
+                        .get_mut(&channel_kind)
                         .context("Channel not found")?;
                     for message_id in message_ids {
-                        channel.sender.notify_message_delivered(message_id);
+                        channel.sender.notify_message_delivered(&message_id);
                     }
                 }
             }
@@ -216,6 +218,7 @@ impl<P: Protocol> Connection<P> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::Duration;
@@ -227,8 +230,8 @@ mod tests {
 
     use crate::channel::channel::ReliableSettings;
     use crate::connection::connection::Connection;
-    use crate::connection::io::Io;
     use crate::packet::wrapping_id::{MessageId, PacketId};
+    use crate::transport::io::Io;
     use crate::transport::udp::Socket;
     use crate::transport::Transport;
     use crate::{
@@ -313,9 +316,16 @@ mod tests {
         client_connection.buffer_send(message.clone(), ChannelKind::of::<Channel1>())?;
         client_connection.buffer_send(message.clone(), ChannelKind::of::<Channel2>())?;
         client_connection.send_packets(&mut client_io)?;
+        assert_eq!(
+            client_connection.packet_to_message_id_map,
+            HashMap::from([(
+                PacketId(0),
+                HashMap::from([(channel_kind_1.clone(), vec![MessageId(0)])])
+            )])
+        );
 
         // Sleep to make sure the server receives the message
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(10));
 
         // On server side: keep looping to receive bytes on the network, then process them into messages
         server_connection.recv_packets(&mut server_io);
@@ -343,6 +353,22 @@ mod tests {
             .header_manager
             .sent_packets_not_acked()
             .contains(&PacketId(0)));
+
+        // Server sends back a message
+        server_connection.buffer_send(message.clone(), ChannelKind::of::<Channel1>())?;
+        server_connection.send_packets(&mut server_io)?;
+
+        // Sleep to make sure the client receives the message
+        std::thread::sleep(Duration::from_millis(10));
+
+        // On server side: keep looping to receive bytes on the network, then process them into messages
+        client_connection.recv_packets(&mut client_io);
+
+        // Check that reliability works correctly
+        assert_eq!(client_connection.packet_to_message_id_map.len(), 0);
+        // TODO: check that client_channel_1's sender's unacked messages is empty
+        // let client_channel_1 = client_connection.channels.get(&channel_kind_1).unwrap();
+        // assert_eq!(client_channel_1.sender.)
         Ok(())
     }
 }

@@ -3,11 +3,11 @@ use std::time::Duration;
 #[cfg(not(test))]
 use std::time::Instant;
 
-use anyhow::Result;
 #[cfg(test)]
 use mock_instant::Instant;
 use rand;
 use rand::{thread_rng, Rng};
+use std::io::Result;
 
 use implementation::TimeMinHeap;
 
@@ -69,7 +69,7 @@ fn condition_packet<P: Eq>(
 }
 
 impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketAddr, Box<[u8]>)> {
-    fn recv(&mut self) -> Result<Option<(&[u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         loop {
             // keep trying to receive packets from the inner packet receiver
             match self.packet_receiver.recv() {
@@ -90,7 +90,7 @@ impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketA
             Some((addr, data)) => {
                 // we use `last_packet` to get ownership of the data
                 self.last_packet = Some((addr, data));
-                Ok(Some((self.last_packet.as_ref().unwrap().1.as_ref(), addr)))
+                Ok(Some((self.last_packet.as_mut().unwrap().1.as_mut(), addr)))
             }
             None => Ok(None),
         }

@@ -1,9 +1,9 @@
 //! Interface for the transport layer
 use std::net::SocketAddr;
 
-use anyhow::Result;
-
+use std::io::Result;
 mod conditioner;
+pub(crate) mod io;
 pub(crate) mod udp;
 
 pub trait Transport: PacketReceiver + PacketSender {
@@ -18,5 +18,5 @@ pub trait PacketReceiver {
     /// Receive a packet from the socket. Returns the data read and the origin.
     ///
     /// Returns Ok(None) if no data is available
-    fn recv(&mut self) -> Result<Option<(&[u8], SocketAddr)>>;
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>>;
 }

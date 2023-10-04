@@ -1,7 +1,8 @@
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+use std::io::Result;
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
@@ -32,27 +33,18 @@ impl Socket {
 
 impl Transport for Socket {
     fn local_addr(&self) -> Result<SocketAddr> {
-        self.socket
-            .as_ref()
-            .lock()
-            .unwrap()
-            .local_addr()
-            .map_err(|e| anyhow!(e).context("could not get socket address"))
+        self.socket.as_ref().lock().unwrap().local_addr()
     }
 }
 
 impl PacketSender for Socket {
     fn send(&self, payload: &[u8], address: &SocketAddr) -> Result<()> {
-        match self
-            .socket
+        self.socket
             .as_ref()
             .lock()
             .unwrap()
             .send_to(payload, address)
-        {
-            Err(e) => Err(anyhow!(e).context("error sending to udp socket")),
-            Ok(_) => Ok(()),
-        }
+            .map(|_| ())
     }
 }
 
@@ -77,7 +69,7 @@ impl PacketReceiver for Socket {
     // }
 
     /// Receives a packet from the socket, and stores the results in the provided buffer
-    fn recv(&mut self) -> Result<Option<(&[u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self
             .socket
             .as_ref()
@@ -85,12 +77,12 @@ impl PacketReceiver for Socket {
             .unwrap()
             .recv_from(&mut self.buffer)
         {
-            Ok((recv_len, address)) => Ok(Some((&self.buffer[..recv_len], address))),
+            Ok((recv_len, address)) => Ok(Some((&mut self.buffer[..recv_len], address))),
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 // Nothing to receive on the socket
                 Ok(None)
             }
-            Err(e) => Err(anyhow!(e).context("error receiving from udp socket")),
+            Err(e) => Err(e),
         }
     }
 }

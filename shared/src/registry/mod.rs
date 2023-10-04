@@ -3,6 +3,7 @@ use std::any::Any;
 pub mod channel;
 pub mod message;
 
+/// Id used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
 
 // TODO: read https://willcrichton.net/rust-api-type-patterns/registries.html more in detail
