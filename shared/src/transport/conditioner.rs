@@ -3,11 +3,11 @@ use std::time::Duration;
 #[cfg(not(test))]
 use std::time::Instant;
 
+use anyhow::Result;
 #[cfg(test)]
 use mock_instant::Instant;
 use rand;
 use rand::{thread_rng, Rng};
-use std::io::Result;
 
 use implementation::TimeMinHeap;
 
@@ -76,9 +76,11 @@ impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketA
                 Ok(option) => match option {
                     None => break,
                     // add conditioning (put the packets in the time queue)
-                    Some((data, addr)) => {
-                        condition_packet(&self.config, &mut self.time_queue, (addr, data.into()))
-                    }
+                    Some((data, addr)) => condition_packet(
+                        &self.config,
+                        &mut self.time_queue,
+                        (addr, data.to_vec().into_boxed_slice()),
+                    ),
                 },
                 Err(err) => {
                     return Err(err);

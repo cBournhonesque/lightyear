@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
+netcode = { git = "https://github.com/benny-n/netcode", tag = "v1.2.0" }
 chacha20poly1305 = "0.10"
 crossbeam = "0.8"
 lazy_static = "1.4"
@@ -23,6 +24,8 @@ serde = { version = "1.0.188", features = ["derive"] }
 tracing = "0.1"
 
 lightyear_derive = {path = "derive" }
+thiserror = "1.0.49"
+byteorder = "1.5.0"
 
 [dev-dependencies]
 mock_instant = "0.3"

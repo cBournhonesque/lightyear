@@ -1,8 +1,8 @@
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
-use anyhow::anyhow;
-use std::io::Result;
+use anyhow::Result;
+use anyhow::{anyhow, Context};
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
@@ -32,19 +32,25 @@ impl Socket {
 }
 
 impl Transport for Socket {
-    fn local_addr(&self) -> Result<SocketAddr> {
-        self.socket.as_ref().lock().unwrap().local_addr()
+    fn local_addr(&self) -> SocketAddr {
+        self.socket
+            .as_ref()
+            .lock()
+            .unwrap()
+            .local_addr()
+            .expect("error getting local addr")
     }
 }
 
 impl PacketSender for Socket {
-    fn send(&self, payload: &[u8], address: &SocketAddr) -> Result<()> {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.socket
             .as_ref()
             .lock()
             .unwrap()
             .send_to(payload, address)
             .map(|_| ())
+            .context("error sending packet")
     }
 }
 
@@ -82,7 +88,7 @@ impl PacketReceiver for Socket {
                 // Nothing to receive on the socket
                 Ok(None)
             }
-            Err(e) => Err(e),
+            Err(e) => Err(anyhow!("error receiving packet")),
         }
     }
 }
@@ -103,7 +109,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
         let mut server_socket = Socket::new(&local_addr)?;
-        let client_socket = Socket::new(&local_addr)?;
+        let mut client_socket = Socket::new(&local_addr)?;
 
         let server_addr = server_socket.local_addr()?;
         let client_addr = client_socket.local_addr()?;
@@ -130,7 +136,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
         let server_socket = Socket::new(&local_addr)?;
-        let client_socket = Socket::new(&local_addr)?;
+        let mut client_socket = Socket::new(&local_addr)?;
 
         let server_addr = server_socket.local_addr()?;
         let client_addr = client_socket.local_addr()?;

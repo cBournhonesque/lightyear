@@ -173,7 +173,7 @@ impl<P: SerializableProtocol> Packet<P> {
         Ok(Packet::Single(single_packet))
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     pub fn header(&self) -> &PacketHeader {
         match self {
             Packet::Single(single_packet) => &single_packet.header,

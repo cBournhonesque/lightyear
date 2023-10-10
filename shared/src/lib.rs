@@ -12,6 +12,7 @@ pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
 pub use serialize::writer::WriteBuffer;
+pub use transport::io::Io;
 
 pub mod channel;
 mod connection;
@@ -20,4 +21,4 @@ pub mod packet;
 pub(crate) mod protocol;
 pub mod registry;
 pub mod serialize;
-mod transport;
+pub mod transport;

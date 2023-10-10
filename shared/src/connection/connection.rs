@@ -15,8 +15,8 @@ use crate::protocol::Protocol;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::io::Io;
-use crate::transport::Transport;
-use crate::Channel;
+use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
+use crate::{Channel, ReadWordBuffer};
 
 // TODO: maybe rename this message manager?
 
@@ -58,7 +58,7 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Prepare buckets from the internal send buffers, and send them over the network
-    pub fn send_packets(&mut self, io: &mut Io) -> anyhow::Result<()> {
+    pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
         // Step 1. Get the list of packets to send from all channels
         // TODO: currently each channel creates separate packets
         //  but actually we could put messages from multiple channels in the same packet
@@ -87,7 +87,7 @@ impl<P: Protocol> Connection<P> {
         for packet in packets {
             // Step 2. Send the packets over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
-            io.send_packet(payload, &self.remote_addr)?;
+            io.send(payload, &self.remote_addr)?;
 
             // Step 3. Update the packet_to_message_id_map (only for reliable channels)
             packet
@@ -120,28 +120,31 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
-    /// Listen for packets on the transport and buffer them
-    ///
-    /// Return when there are no more packets to receive on the transport
-    pub fn recv_packets(&mut self, io: &mut Io) -> anyhow::Result<()> {
-        loop {
-            match io.create_reader_from_packet()? {
-                Some((mut packet_reader, address)) => {
-                    if address != self.remote_addr {
-                        bail!("received packet from unknown address");
-                    }
-                    self.recv_packet(&mut packet_reader)?;
-                    continue;
-                }
-                None => break,
-            }
-        }
-        Ok(())
-    }
+    // /// Listen for packets on the transport and buffer them
+    // ///
+    // /// Return when there are no more packets to receive on the transport
+    // pub fn recv_packets(&mut self, io: &mut impl PacketReader) -> anyhow::Result<()> {
+    //     loop {
+    //         match io.read()? {
+    //             None => break,
+    //             Some((reader, addr)) => {
+    //                 // this copies the data into the buffer, so we can read efficiently from it
+    //                 // we can now re-use the transport's buffer.
+    //                 // maybe it would be safer to provide a buffer for the transport to use?
+    //                 if addr != self.remote_addr {
+    //                     bail!("received packet from unknown address");
+    //                 }
+    //                 self.recv_packet(&mut packet_reader)?;
+    //                 continue;
+    //             }
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
-    fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
+    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
         let packet: Packet<P::Message> = self.packet_manager.decode_packet(reader)?;
         let packet = match packet {

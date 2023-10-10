@@ -15,6 +15,7 @@
       <sourceFolder url="file://$MODULE_DIR$/shared/derive/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/shared/serde/derive/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/shared/serde/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/client/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
