@@ -60,10 +60,6 @@ impl<P: Protocol> Connection<P> {
     /// Prepare buckets from the internal send buffers, and send them over the network
     pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
         // Step 1. Get the list of packets to send from all channels
-        // TODO: currently each channel creates separate packets
-        //  but actually we could put messages from multiple channels in the same packet
-        //  and use a map from packet_id to message_id/channel to decide if we need to re-send
-        //  all the messages that were sent through a non-reliable channel don't need to be re-sent
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         for (channel_kind, channel) in self.channels.iter_mut() {
             channel.sender.collect_messages_to_send();
@@ -120,27 +116,30 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
-    // /// Listen for packets on the transport and buffer them
-    // ///
-    // /// Return when there are no more packets to receive on the transport
-    // pub fn recv_packets(&mut self, io: &mut impl PacketReader) -> anyhow::Result<()> {
-    //     loop {
-    //         match io.read()? {
-    //             None => break,
-    //             Some((reader, addr)) => {
-    //                 // this copies the data into the buffer, so we can read efficiently from it
-    //                 // we can now re-use the transport's buffer.
-    //                 // maybe it would be safer to provide a buffer for the transport to use?
-    //                 if addr != self.remote_addr {
-    //                     bail!("received packet from unknown address");
-    //                 }
-    //                 self.recv_packet(&mut packet_reader)?;
-    //                 continue;
-    //             }
-    //         }
-    //     }
-    //     Ok(())
-    // }
+    /// Listen for packets on the transport and buffer them
+    ///
+    /// Return when there are no more packets to receive on the transport
+    pub fn recv_packets<T: ReadBuffer>(
+        &mut self,
+        io: &mut impl PacketReader,
+    ) -> anyhow::Result<()> {
+        loop {
+            match io.read::<T>()? {
+                None => break,
+                Some((mut reader, addr)) => {
+                    // this copies the data into the buffer, so we can read efficiently from it
+                    // we can now re-use the transport's buffer.
+                    // maybe it would be safer to provide a buffer for the transport to use?
+                    if addr != self.remote_addr {
+                        bail!("received packet from unknown address");
+                    }
+                    self.recv_packet(&mut reader)?;
+                    continue;
+                }
+            }
+        }
+        Ok(())
+    }
 
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
@@ -239,7 +238,7 @@ mod tests {
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
-        MessageContainer, Protocol,
+        MessageContainer, Protocol, ReadWordBuffer,
     };
 
     // Messages
@@ -294,8 +293,8 @@ mod tests {
         let socket_addr = SocketAddr::from_str("127.0.0.1:0")?;
         let server_socket = Socket::new(&socket_addr)?;
         let client_socket = Socket::new(&socket_addr)?;
-        let server_addr = server_socket.local_addr()?;
-        let client_addr = client_socket.local_addr()?;
+        let server_addr = server_socket.local_addr();
+        let client_addr = client_socket.local_addr();
 
         dbg!(server_addr);
         dbg!(client_addr);
@@ -331,7 +330,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(10));
 
         // On server side: keep looping to receive bytes on the network, then process them into messages
-        server_connection.recv_packets(&mut server_io);
+        server_connection.recv_packets::<ReadWordBuffer>(&mut server_io);
         let mut data = server_connection.read_messages();
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),

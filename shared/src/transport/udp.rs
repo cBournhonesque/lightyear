@@ -1,8 +1,9 @@
+use std::io::Result;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
-use anyhow::{anyhow, Context};
+// use anyhow::Result;
+// use anyhow::{anyhow, Context};
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
@@ -40,6 +41,10 @@ impl Transport for Socket {
             .local_addr()
             .expect("error getting local addr")
     }
+
+    // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>) {
+    //     (Box::new(self.socket.clone()), Box::new(self.socket.clone()))
+    // }
 }
 
 impl PacketSender for Socket {
@@ -50,7 +55,7 @@ impl PacketSender for Socket {
             .unwrap()
             .send_to(payload, address)
             .map(|_| ())
-            .context("error sending packet")
+        // .context("error sending packet")
     }
 }
 
@@ -88,7 +93,8 @@ impl PacketReceiver for Socket {
                 // Nothing to receive on the socket
                 Ok(None)
             }
-            Err(e) => Err(anyhow!("error receiving packet")),
+            // Err(e) => Err(anyhow!("error receiving packet")),
+            Err(e) => Err(e),
         }
     }
 }
@@ -111,8 +117,8 @@ mod tests {
         let mut server_socket = Socket::new(&local_addr)?;
         let mut client_socket = Socket::new(&local_addr)?;
 
-        let server_addr = server_socket.local_addr()?;
-        let client_addr = client_socket.local_addr()?;
+        let server_addr = server_socket.local_addr();
+        let client_addr = client_socket.local_addr();
 
         let msg = b"hello world";
         client_socket.send(msg, &server_addr)?;
@@ -138,8 +144,8 @@ mod tests {
         let server_socket = Socket::new(&local_addr)?;
         let mut client_socket = Socket::new(&local_addr)?;
 
-        let server_addr = server_socket.local_addr()?;
-        let client_addr = client_socket.local_addr()?;
+        let server_addr = server_socket.local_addr();
+        let client_addr = client_socket.local_addr();
 
         let mut conditioned_server_receiver = ConditionedPacketReceiver::new(
             server_socket,

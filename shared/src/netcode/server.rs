@@ -1,5 +1,6 @@
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crate::Io;
+use crate::transport::udp::Socket;
+use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
+use crate::{Io, ReadBuffer, ReadWordBuffer};
 use std::collections::{HashMap, VecDeque};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -134,7 +135,7 @@ struct ConnectionCache {
     replay_protection: HashMap<ClientIndex, ReplayProtection>,
 
     // packet queue for all clients
-    packet_queue: VecDeque<(Vec<u8>, ClientIndex)>,
+    packet_queue: VecDeque<(ReadWordBuffer, ClientIndex)>,
 
     // corresponds to the server time
     time: f64,
@@ -331,7 +332,6 @@ impl<Ctx> ServerConfig<Ctx> {
 /// ```
 ///
 pub struct Server<Ctx = ()> {
-    io: Io,
     time: f64,
     private_key: Key,
     sequence: u64,
@@ -348,9 +348,8 @@ impl Server {
     /// Create a new server with a default configuration.
     ///
     /// For a custom configuration, use [`Server::with_config`](Server::with_config) instead.
-    pub fn new(io: Io, protocol_id: u64, private_key: Key) -> Result<Self> {
+    pub fn new(protocol_id: u64, private_key: Key) -> Result<Self> {
         let server: Server<()> = Server {
-            io,
             time: 0.0,
             private_key,
             protocol_id,
@@ -362,7 +361,7 @@ impl Server {
             token_entries: TokenEntries::new(),
             cfg: ServerConfig::default(),
         };
-        info!("server started on {}", server.transceiver.addr());
+        // info!("server started on {}", server.io.local_addr());
         Ok(server)
     }
 }
@@ -385,14 +384,8 @@ impl<Ctx> Server<Ctx> {
     /// });
     /// let server = Server::with_config(addr, protocol_id, private_key, cfg).unwrap();
     /// ```
-    pub fn with_config(
-        io: Io,
-        protocol_id: u64,
-        private_key: Key,
-        cfg: ServerConfig<Ctx>,
-    ) -> Result<Self> {
+    pub fn with_config(protocol_id: u64, private_key: Key, cfg: ServerConfig<Ctx>) -> Result<Self> {
         let server = Server {
-            io,
             time: 0.0,
             private_key,
             protocol_id,
@@ -404,7 +397,7 @@ impl<Ctx> Server<Ctx> {
             token_entries: TokenEntries::new(),
             cfg,
         };
-        info!("server started on {}", server.addr());
+        // info!("server started on {}", server.addr());
         Ok(server)
     }
 }
@@ -439,7 +432,12 @@ impl<Ctx> Server<Ctx> {
         }
         Ok(())
     }
-    fn process_packet(&mut self, addr: SocketAddr, packet: Packet) -> Result<()> {
+    fn process_packet(
+        &mut self,
+        addr: SocketAddr,
+        packet: Packet,
+        sender: &mut impl PacketSender,
+    ) -> Result<()> {
         let client_idx = self.conn_cache.find_by_addr(&addr).map(|(idx, _)| idx);
         trace!(
             "server received {} from {}",
@@ -449,15 +447,15 @@ impl<Ctx> Server<Ctx> {
                 .unwrap_or_else(|| addr.to_string())
         );
         match packet {
-            Packet::Request(packet) => self.process_connection_request(addr, packet),
-            Packet::Response(packet) => self.process_connection_response(addr, packet),
+            Packet::Request(packet) => self.process_connection_request(addr, packet, sender),
+            Packet::Response(packet) => self.process_connection_response(addr, packet, sender),
             Packet::KeepAlive(_) => self.touch_client(client_idx),
             Packet::Payload(packet) => {
                 self.touch_client(client_idx)?;
                 if let Some(idx) = client_idx {
                     self.conn_cache
                         .packet_queue
-                        .push_back((packet.buf.to_vec(), idx));
+                        .push_back((ReadWordBuffer::start_read(packet.buf), idx));
                 }
                 Ok(())
             }
@@ -472,20 +470,33 @@ impl<Ctx> Server<Ctx> {
             _ => unreachable!("packet should have been filtered out by `ALLOWED_PACKETS`"),
         }
     }
-    fn send_to_addr(&mut self, packet: Packet, addr: SocketAddr, key: Key) -> Result<()> {
+    fn send_to_addr(
+        &mut self,
+        packet: Packet,
+        addr: SocketAddr,
+        key: Key,
+        sender: &mut impl PacketSender,
+    ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
-        self.io.send(&buf[..size], &addr).map_err(|e| e.into())?;
+        sender
+            .send(&buf[..size], &addr)
+            .map_err(|e| Error::from(e))?;
         self.sequence += 1;
         Ok(())
     }
-    fn send_to_client(&mut self, packet: Packet, idx: ClientIndex) -> Result<()> {
+    fn send_to_client(
+        &mut self,
+        packet: Packet,
+        idx: ClientIndex,
+        sender: &mut impl PacketSender,
+    ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let conn = &mut self.conn_cache.clients[idx.0];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
-        self.io
+        sender
             .send(&buf[..size], &conn.addr)
-            .map_err(|e| e.into())?;
+            .map_err(|e| Error::from(e))?;
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
         conn.sequence += 1;
@@ -495,22 +506,24 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         from_addr: SocketAddr,
         mut packet: RequestPacket,
+        sender: &mut impl PacketSender,
     ) -> Result<()> {
         let mut reader = std::io::Cursor::new(&mut packet.token_data[..]);
         let Ok(token) = ConnectTokenPrivate::read_from(&mut reader) else {
             debug!("server ignored connection request. failed to read connect token");
             return Ok(());
         };
-        if !token
-            .server_addresses
-            .iter()
-            .any(|(_, addr)| addr == self.io.local_addr())
-        {
-            debug!(
-                "server ignored connection request. server address not in connect token whitelist"
-            );
-            return Ok(());
-        };
+        // TODO
+        // if !token
+        //     .server_addresses
+        //     .iter()
+        //     .any(|(_, addr)| addr == io.local_addr())
+        // {
+        //     debug!(
+        //         "server ignored connection request. server address not in connect token whitelist"
+        //     );
+        //     return Ok(());
+        // };
         if self
             .conn_cache
             .find_by_addr(&from_addr)
@@ -545,6 +558,7 @@ impl<Ctx> Server<Ctx> {
                 DeniedPacket::create(),
                 from_addr,
                 token.server_to_client_key,
+                sender,
             )?;
             return Ok(());
         };
@@ -567,6 +581,7 @@ impl<Ctx> Server<Ctx> {
             ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),
             from_addr,
             token.server_to_client_key,
+            sender,
         )?;
         debug!("server sent connection challenge packet");
         self.challenge_sequence += 1;
@@ -576,6 +591,7 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         from_addr: SocketAddr,
         mut packet: ResponsePacket,
+        sender: &mut impl PacketSender,
     ) -> Result<()> {
         let Ok(challenge_token) =
             ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
@@ -597,6 +613,7 @@ impl<Ctx> Server<Ctx> {
                 DeniedPacket::create(),
                 from_addr,
                 self.conn_cache.clients[idx.0].send_key,
+                sender,
             )?;
             return Ok(());
         };
@@ -611,6 +628,7 @@ impl<Ctx> Server<Ctx> {
         self.send_to_client(
             KeepAlivePacket::create(idx.0 as i32, MAX_CLIENTS as i32),
             idx,
+            sender,
         )?;
         self.on_connect(idx);
         Ok(())
@@ -633,7 +651,7 @@ impl<Ctx> Server<Ctx> {
             }
         }
     }
-    fn send_packets(&mut self) -> Result<()> {
+    fn send_packets(&mut self, io: &mut Io) -> Result<()> {
         for idx in 0..MAX_CLIENTS {
             let Some(client) = self.conn_cache.clients.get_mut(idx) else {
                 continue;
@@ -648,12 +666,19 @@ impl<Ctx> Server<Ctx> {
             self.send_to_client(
                 KeepAlivePacket::create(idx as i32, MAX_CLIENTS as i32),
                 ClientIndex(idx),
+                io,
             )?;
             trace!("server sent connection keep-alive packet to client {idx}");
         }
         Ok(())
     }
-    fn recv_packet(&mut self, buf: &mut [u8], now: u64, addr: SocketAddr) -> Result<()> {
+    fn recv_packet(
+        &mut self,
+        buf: &mut [u8],
+        now: u64,
+        addr: SocketAddr,
+        sender: &mut impl PacketSender,
+    ) -> Result<()> {
         if buf.len() <= 1 {
             // Too small to be a packet
             return Ok(());
@@ -691,12 +716,17 @@ impl<Ctx> Server<Ctx> {
                 return Ok(());
             }
         };
-        self.process_packet(addr, packet)
+        self.process_packet(addr, packet, sender)
     }
-    fn recv_packets(&mut self) -> Result<()> {
+
+    fn recv_packets(
+        &mut self,
+        sender: &mut impl PacketSender,
+        mut receiver: &mut impl PacketReceiver,
+    ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        while let Some((mut buf, addr)) = self.io.recv().map_err(|e| e.into())? {
-            self.recv_packet(&mut buf, now, addr)?;
+        while let Some((mut buf, addr)) = receiver.recv().map_err(|e| Error::from(e))? {
+            self.recv_packet(&mut buf, now, addr, sender)?;
         }
         Ok(())
     }
@@ -712,18 +742,19 @@ impl<Ctx> Server<Ctx> {
     /// # Panics
     /// Panics if the server can't send or receive packets.
     /// For a non-panicking version, use [`try_update`](Server::try_update).
-    pub fn update(&mut self, time: f64) {
-        self.try_update(time)
+    pub fn update(&mut self, time: f64, io: &mut Io) {
+        self.try_update(time, io)
             .expect("send/recv error while updating server")
     }
     /// The fallible version of [`update`](Server::update).
     ///
     /// Returns an error if the server can't send or receive packets.
-    pub fn try_update(&mut self, time: f64) -> Result<()> {
+    pub fn try_update(&mut self, time: f64, io: &mut Io) -> Result<()> {
         self.time = time;
         self.conn_cache.update(self.time);
-        self.recv_packets()?;
-        self.send_packets()?;
+        let (sender, receiver) = io.split();
+        self.recv_packets(sender, receiver)?;
+        self.send_packets(io)?;
         self.check_for_timeouts();
         Ok(())
     }
@@ -752,13 +783,13 @@ impl<Ctx> Server<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(Vec<u8>, ClientIndex)> {
+    pub fn recv(&mut self) -> Option<(ReadWordBuffer, ClientIndex)> {
         self.conn_cache.packet_queue.pop_front()
     }
     /// Sends a packet to a client.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`](crate::MAX_PACKET_SIZE).
-    pub fn send(&mut self, buf: &[u8], client_idx: ClientIndex) -> Result<()> {
+    pub fn send(&mut self, buf: &[u8], client_idx: ClientIndex, io: &mut Io) -> Result<()> {
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
@@ -776,17 +807,19 @@ impl<Ctx> Server<Ctx> {
             self.send_to_client(
                 KeepAlivePacket::create(client_idx.0 as i32, MAX_CLIENTS as i32),
                 client_idx,
+                io,
             )?;
         }
         let packet = PayloadPacket::create(buf);
-        self.send_to_client(packet, client_idx)
+        self.send_to_client(packet, client_idx, io)
     }
+
     /// Sends a packet to all connected clients.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`](crate::MAX_PACKET_SIZE).
-    pub fn send_all(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn send_all(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
         for idx in 0..MAX_CLIENTS {
-            match self.send(buf, ClientIndex(idx)) {
+            match self.send(buf, ClientIndex(idx), io) {
                 Ok(_) | Err(Error::ClientNotConnected) | Err(Error::ClientNotFound) => continue,
                 Err(e) => return Err(e),
             }
@@ -817,9 +850,9 @@ impl<Ctx> Server<Ctx> {
     /// ```
     ///
     /// See [`ConnectTokenBuilder`](ConnectTokenBuilder) for more options.
-    pub fn token(&mut self, client_id: ClientId) -> ConnectTokenBuilder<SocketAddr> {
+    pub fn token(&mut self, client_id: ClientId, io: &mut Io) -> ConnectTokenBuilder<SocketAddr> {
         let token_builder = ConnectToken::build(
-            self.io.local_addr(),
+            io.local_addr(),
             self.protocol_id,
             client_id,
             self.private_key,
@@ -830,7 +863,7 @@ impl<Ctx> Server<Ctx> {
     /// Disconnects a client.
     ///
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
-    pub fn disconnect(&mut self, client_idx: ClientIndex) -> Result<()> {
+    pub fn disconnect(&mut self, client_idx: ClientIndex, io: &mut Io) -> Result<()> {
         let Some(conn) = self.conn_cache.clients.get_mut(client_idx.0) else {
             return Ok(());
         };
@@ -839,29 +872,26 @@ impl<Ctx> Server<Ctx> {
         }
         debug!("server disconnecting client {client_idx}");
         for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_to_client(DisconnectPacket::create(), client_idx)?;
+            self.send_to_client(DisconnectPacket::create(), client_idx, io)?;
         }
         self.on_disconnect(client_idx);
         self.conn_cache.remove(client_idx);
         Ok(())
     }
     /// Disconnects all clients.
-    pub fn disconnect_all(&mut self) -> Result<()> {
+    pub fn disconnect_all(&mut self, io: &mut Io) -> Result<()> {
         debug!("server disconnecting all clients");
         for idx in 0..MAX_CLIENTS {
             let Some(conn) = self.conn_cache.clients.get_mut(idx) else {
                 continue;
             };
             if conn.is_connected() {
-                self.disconnect(ClientIndex(idx))?;
+                self.disconnect(ClientIndex(idx), io)?;
             }
         }
         Ok(())
     }
-    /// Gets the local `SocketAddr` this server is bound to.
-    pub fn addr(&self) -> SocketAddr {
-        self.io.local_addr()
-    }
+
     /// Gets the number of connected clients.
     pub fn num_connected_clients(&self) -> usize {
         self.conn_cache
@@ -880,5 +910,12 @@ impl<Ctx> Server<Ctx> {
     /// Gets the address of a client.
     pub fn client_addr(&self, client_idx: ClientIndex) -> Option<SocketAddr> {
         self.conn_cache.clients.get(client_idx.0).map(|c| c.addr)
+    }
+
+    /// Gets the index of a client.
+    pub fn client_index(&self, client_addr: &SocketAddr) -> Option<ClientIndex> {
+        self.conn_cache
+            .find_by_addr(client_addr)
+            .map(|(idx, _)| idx)
     }
 }

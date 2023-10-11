@@ -1,9 +1,9 @@
-use lightyear_shared::netcode::Client as ClientIO;
+use crate::io::ClientIO;
+use anyhow::Context;
 use lightyear_shared::transport::{PacketReader, PacketReceiver};
 use lightyear_shared::{
     ChannelKind, Connection, Io, MessageContainer, Protocol, ReadBuffer, ReadWordBuffer,
 };
-use renetcode::NetcodeError;
 use std::collections::HashMap;
 use std::io::Read;
 use std::time::Duration;
@@ -11,16 +11,24 @@ use std::time::Duration;
 pub(crate) struct ClientId(pub u32);
 
 pub struct Client<P: Protocol> {
-    io: ClientIO,
+    io: Io,
+    netcode: lightyear_shared::netcode::Client,
     message_manager: Connection<P>,
 }
 
 impl<P: Protocol> Client<P> {
-    pub fn new(io: ClientIO, message_manager: Connection<P>) -> Self {
-        Self {
-            io,
-            message_manager,
-        }
+    // pub fn new(io: ClientIO, message_manager: Connection<P>) -> Self {
+    //     Self {
+    //         io,
+    //         message_manager,
+    //     }
+    // }
+
+    /// Maintain connection with server, queues up any packet received from the server
+    pub fn update(&mut self, time: f64) -> anyhow::Result<()> {
+        self.netcode
+            .try_update(time, &mut self.io)
+            .context("Error updating netcode client")
     }
 
     // ///
@@ -38,7 +46,7 @@ impl<P: Protocol> Client<P> {
     //     self.io.update(duration)?;
     //     Ok(())
     // }
-    //
+
     /// Send a message to the server
     pub fn buffer_send(
         &mut self,
@@ -56,17 +64,18 @@ impl<P: Protocol> Client<P> {
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> anyhow::Result<()> {
-        let io = &mut self.io;
-        self.message_manager.send_packets(io)
+        let mut client_io = ClientIO {
+            io: &mut self.io,
+            netcode: &mut self.netcode,
+        };
+        self.message_manager.send_packets(&mut client_io)
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
     pub fn recv_packets(&mut self) -> anyhow::Result<()> {
-        let io = &mut self.io;
         loop {
-            match io.recv_packet()? {
-                Some(buf) => {
-                    let mut reader = ReadWordBuffer::start_read(buf);
+            match self.netcode.recv() {
+                Some(mut reader) => {
                     self.message_manager.recv_packet(&mut reader)?;
                 }
                 None => break,

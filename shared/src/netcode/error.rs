@@ -1,3 +1,4 @@
+use anyhow;
 use thiserror::Error;
 
 /// The result type for all the public methods that can return an error in this crate.
@@ -17,8 +18,6 @@ pub enum Error {
     SystemTime(#[from] std::time::SystemTimeError),
     #[error("invalid connect token: {0}")]
     InvalidToken(super::token::InvalidTokenError),
-    #[error(transparent)]
-    Socket(#[from] std::io::Error),
     #[error(transparent)]
     Crypto(#[from] super::crypto::Error),
     #[error("invalid packet: {0}")]

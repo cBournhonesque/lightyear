@@ -5,6 +5,7 @@ use std::{
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
+use tracing::debug;
 
 use super::{
     bytes::Bytes,
@@ -406,7 +407,7 @@ impl<'p> Packet<'p> {
         let prefix_byte = cursor.read_u8()?;
         let (sequence_len, pkt_kind) = Packet::get_prefix(prefix_byte);
         if allowed_packets & (1 << pkt_kind) == 0 {
-            log::debug!("ignoring packet of type {}, not allowed", pkt_kind);
+            debug!("ignoring packet of type {}, not allowed", pkt_kind);
         }
         if prefix_byte == Packet::REQUEST {
             // connection request packet: first byte should be 0x00

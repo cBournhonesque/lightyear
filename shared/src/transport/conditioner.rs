@@ -3,7 +3,8 @@ use std::time::Duration;
 #[cfg(not(test))]
 use std::time::Instant;
 
-use anyhow::Result;
+use std::io::Result;
+
 #[cfg(test)]
 use mock_instant::Instant;
 use rand;

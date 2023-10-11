@@ -1,5 +1,5 @@
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crate::Io;
+use crate::{Io, ReadBuffer, ReadWordBuffer};
 use anyhow::{bail, Context};
 use std::{
     collections::VecDeque,
@@ -184,7 +184,6 @@ pub enum ClientState {
 /// }
 /// ```
 pub struct Client<Ctx = ()> {
-    io: Io,
     state: ClientState,
     time: f64,
     start_time: f64,
@@ -200,11 +199,12 @@ pub struct Client<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
+    packet_queue: VecDeque<ReadWordBuffer>,
     cfg: ClientConfig<Ctx>,
 }
 
 impl<Ctx> Client<Ctx> {
-    fn from_token(io: Io, token_bytes: &[u8], cfg: ClientConfig<Ctx>) -> Result<Self> {
+    fn from_token(token_bytes: &[u8], cfg: ClientConfig<Ctx>) -> Result<Self> {
         if token_bytes.len() != ConnectToken::SIZE {
             return Err(Error::SizeMismatch(ConnectToken::SIZE, token_bytes.len()));
         }
@@ -219,7 +219,6 @@ impl<Ctx> Client<Ctx> {
             }
         };
         Ok(Self {
-            io,
             state: ClientState::Disconnected,
             time: 0.0,
             start_time: 0.0,
@@ -235,6 +234,7 @@ impl<Ctx> Client<Ctx> {
             replay_protection: ReplayProtection::new(),
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
+            packet_queue: VecDeque::new(),
             cfg,
         })
     }
@@ -256,9 +256,9 @@ impl Client {
     ///
     /// let mut client = Client::new(&token_bytes).unwrap();
     /// ```
-    pub fn new(io: Io, token_bytes: &[u8]) -> Result<Self> {
-        let client = Client::from_token(io, token_bytes, ClientConfig::default())?;
-        info!("client started on {}", client.transceiver.addr());
+    pub fn new(token_bytes: &[u8]) -> Result<Self> {
+        let client = Client::from_token(token_bytes, ClientConfig::default())?;
+        // info!("client started on {}", client.io.local_addr());
         Ok(client)
     }
 }
@@ -285,9 +285,9 @@ impl<Ctx> Client<Ctx> {
     ///
     /// let mut client = Client::with_config(&token_bytes, cfg).unwrap();
     /// ```
-    pub fn with_config(io: Io, token_bytes: &[u8], cfg: ClientConfig<Ctx>) -> Result<Self> {
-        let client = Client::from_token(io, token_bytes, cfg)?;
-        info!("client started on {}", client.transceiver.addr());
+    pub fn with_config(token_bytes: &[u8], cfg: ClientConfig<Ctx>) -> Result<Self> {
+        let client = Client::from_token(token_bytes, cfg)?;
+        // info!("client started on {}", client.io.local_addr());
         Ok(client)
     }
 }
@@ -324,7 +324,7 @@ impl<Ctx> Client<Ctx> {
         self.reset_connection();
         debug!("client disconnected");
     }
-    fn send_packets(&mut self) -> Result<()> {
+    fn send_packets(&mut self, io: &mut Io) -> Result<()> {
         if self.last_send_time + self.cfg.packet_send_rate >= self.time {
             return Ok(());
         }
@@ -348,7 +348,7 @@ impl<Ctx> Client<Ctx> {
             }
             _ => return Ok(()),
         };
-        self.send_packet(packet)
+        self.send_packet(packet, io)
     }
     fn connect_to_next_server(&mut self) -> std::result::Result<(), ()> {
         if self.server_addr_idx + 1 >= self.token.server_addresses.len() {
@@ -359,7 +359,7 @@ impl<Ctx> Client<Ctx> {
         self.connect();
         Ok(())
     }
-    fn send_packet(&mut self, packet: Packet) -> Result<()> {
+    fn send_packet(&mut self, packet: Packet, io: &mut Io) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(
             &mut buf,
@@ -367,9 +367,8 @@ impl<Ctx> Client<Ctx> {
             &self.token.client_to_server_key,
             self.token.protocol_id,
         )?;
-        self.io
-            .send(&buf[..size], &self.server_addr())
-            .map_err(|e| e.into())?;
+        io.send(&buf[..size], &self.server_addr())
+            .map_err(|e| Error::from(e))?;
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -378,9 +377,9 @@ impl<Ctx> Client<Ctx> {
     fn server_addr(&self) -> SocketAddr {
         self.token.server_addresses[self.server_addr_idx]
     }
-    fn process_packet<'a>(&mut self, addr: SocketAddr, packet: Packet) -> Result<Option<&'a [u8]>> {
+    fn process_packet(&mut self, addr: SocketAddr, packet: Packet) -> Result<()> {
         if addr != self.server_addr() {
-            return Ok(None);
+            return Ok(());
         }
         match (packet, self.state) {
             (
@@ -408,17 +407,18 @@ impl<Ctx> Client<Ctx> {
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 debug!("client received payload packet from server");
-                return Ok(Some(pkt.buf));
+                let reader = ReadWordBuffer::start_read(pkt.buf);
+                self.packet_queue.push_back(reader);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
                 self.should_disconnect = true;
                 self.should_disconnect_state = ClientState::Disconnected;
             }
-            _ => return Ok(None),
+            _ => return Ok(()),
         }
         self.last_receive_time = self.time;
-        Ok(None)
+        Ok(())
     }
     fn update_state(&mut self) {
         let is_token_expired = self.time - self.start_time
@@ -465,9 +465,82 @@ impl<Ctx> Client<Ctx> {
         self.reset(new_state);
     }
 
-    /// Receive a packet from the transport.
-    /// If it's a payload packet, return a reference to the contents
+    fn recv_packet(&mut self, buf: &mut [u8], now: u64, addr: SocketAddr) -> Result<()> {
+        if buf.len() <= 1 {
+            // Too small to be a packet
+            return Ok(());
+        }
+        let packet = match Packet::read(
+            buf,
+            self.token.protocol_id,
+            now,
+            self.token.server_to_client_key,
+            Some(&mut self.replay_protection),
+            Self::ALLOWED_PACKETS,
+        ) {
+            Ok(packet) => packet,
+            Err(Error::Crypto(_)) => {
+                debug!("client ignored packet because it failed to decrypt");
+                return Ok(());
+            }
+            Err(e) => {
+                error!("client ignored packet: {e}");
+                return Ok(());
+            }
+        };
+        self.process_packet(addr, packet)
+    }
+
+    fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
+        let mut buf = [0u8; MAX_PACKET_SIZE];
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        while let Some((buf, addr)) = io.recv().map_err(|e| Error::from(e))? {
+            self.recv_packet(buf, now, addr)?;
+        }
+        Ok(())
+    }
+
+    /// Prepares the client to connect to the server.
     ///
+    /// This function does not perform any IO, it only readies the client to send/receive packets on the next call to [`update`](Client::update). <br>
+    pub fn connect(&mut self) {
+        self.reset_connection();
+        self.set_state(ClientState::SendingConnectionRequest);
+        info!(
+            "client connecting to server {} [{}/{}]",
+            self.token.server_addresses[self.server_addr_idx],
+            self.server_addr_idx + 1,
+            self.token.server_addresses.len()
+        );
+    }
+    /// Updates the client.
+    ///
+    /// * Updates the client's elapsed time.
+    /// [* Receives packets from the server, any received payload packets will be queued.]
+    /// * Sends keep-alive or request/response packets to the server to establish/maintain a connection.
+    /// * Updates the client's state - checks for timeouts, errors and transitions to new states.
+    ///
+    /// This method should be called regularly, probably at a fixed rate (e.g., 60Hz).
+    ///
+    /// # Panics
+    /// Panics if the client can't send or receive packets.
+    /// For a non-panicking version, use [`try_update`](Client::try_update).
+    pub fn update(&mut self, time: f64, io: &mut Io) {
+        self.try_update(time, io)
+            .expect("send/recv error while updating client")
+    }
+
+    /// The fallible version of [`update`](Client::update).
+    ///
+    /// Returns an error if the client can't send or receive packets.
+    pub fn try_update(&mut self, time: f64, io: &mut Io) -> Result<()> {
+        self.time = time;
+        self.recv_packets(io)?;
+        self.send_packets(io)?;
+        self.update_state();
+        Ok(())
+    }
+
     /// Receives a packet from the server, if one is available in the queue.
     ///
     /// The packet will be returned as a `Vec<u8>`.
@@ -495,107 +568,38 @@ impl<Ctx> Client<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv_packet<'a>(&mut self) -> Result<Option<&'a [u8]>> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        if let Some((mut buf, addr)) = self.io.recv().map_err(|e| e.into())? {
-            if buf.len() <= 1 {
-                // Too small to be a packet
-                return Ok(None);
-            }
-            let packet = match Packet::read(
-                buf,
-                self.token.protocol_id,
-                now,
-                self.token.server_to_client_key,
-                Some(&mut self.replay_protection),
-                Self::ALLOWED_PACKETS,
-            ) {
-                Ok(packet) => packet,
-                Err(Error::Crypto(_)) => {
-                    debug!("client ignored packet because it failed to decrypt");
-                    return Ok(None);
-                }
-                Err(e) => {
-                    error!("client ignored packet: {e}");
-                    return Ok(None);
-                }
-            };
-            return self.process_packet(addr, packet);
-        }
-        Ok(None)
-    }
-
-    /// Prepares the client to connect to the server.
-    ///
-    /// This function does not perform any IO, it only readies the client to send/receive packets on the next call to [`update`](Client::update). <br>
-    pub fn connect(&mut self) {
-        self.reset_connection();
-        self.set_state(ClientState::SendingConnectionRequest);
-        info!(
-            "client connecting to server {} [{}/{}]",
-            self.token.server_addresses[self.server_addr_idx],
-            self.server_addr_idx + 1,
-            self.token.server_addresses.len()
-        );
-    }
-    /// Updates the client.
-    ///
-    /// * Updates the client's elapsed time.
-    /// * Receives packets from the server, any received payload packets will be queued.
-    /// * Sends keep-alive or request/response packets to the server to establish/maintain a connection.
-    /// * Updates the client's state - checks for timeouts, errors and transitions to new states.
-    ///
-    /// This method should be called regularly, probably at a fixed rate (e.g., 60Hz).
-    ///
-    /// # Panics
-    /// Panics if the client can't send or receive packets.
-    /// For a non-panicking version, use [`try_update`](Client::try_update).
-    pub fn update(&mut self, time: f64) {
-        self.try_update(time)
-            .expect("send/recv error while updating client")
-    }
-    /// The fallible version of [`update`](Client::update).
-    ///
-    /// Returns an error if the client can't send or receive packets.
-    pub fn try_update(&mut self, time: f64) -> Result<()> {
-        self.time = time;
-        self.recv_packets()?;
-        self.send_packets()?;
-        self.update_state();
-        Ok(())
+    pub fn recv(&mut self) -> Option<ReadWordBuffer> {
+        self.packet_queue.pop_front()
     }
 
     /// Sends a packet to the server.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`](crate::MAX_PACKET_SIZE).
-    pub fn send(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn send(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
         if self.state != ClientState::Connected {
             return Ok(());
         }
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
-        self.send_packet(PayloadPacket::create(buf))?;
+        self.send_packet(PayloadPacket::create(buf), io)?;
         Ok(())
     }
     /// Disconnects the client from the server.
     ///
     /// The client will send a number of redundant disconnect packets to the server before transitioning to `Disconnected`.
-    pub fn disconnect(&mut self) -> Result<()> {
+    pub fn disconnect(&mut self, io: &mut Io) -> Result<()> {
         debug!(
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
         for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_packet(DisconnectPacket::create())?;
+            self.send_packet(DisconnectPacket::create(), io)?;
         }
         self.reset(ClientState::Disconnected);
         Ok(())
     }
-    /// Gets the local `SocketAddr` that the client is bound to.
-    pub fn addr(&self) -> SocketAddr {
-        self.io.local_addr()
-    }
+
     /// Gets the current state of the client.
     pub fn state(&self) -> ClientState {
         self.state
@@ -616,14 +620,5 @@ impl<Ctx> Client<Ctx> {
     /// Returns true if the client is disconnected from the server.
     pub fn is_disconnected(&self) -> bool {
         self.state == ClientState::Disconnected
-    }
-}
-
-impl<Ctx> PacketSender for Client<Ctx> {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> anyhow::Result<()> {
-        if address != &self.addr() {
-            bail!("Address does not match server address");
-        }
-        self.send(payload).context("error sending payload")
     }
 }
