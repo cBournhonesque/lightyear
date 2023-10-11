@@ -1,12 +1,10 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::io::Result;
 use std::net::SocketAddr;
 
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
 
 pub struct Io {

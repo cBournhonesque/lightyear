@@ -1,3 +1,9 @@
+use std::{
+    io::{self, Write},
+    mem::size_of,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
+};
+
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
 use thiserror::Error;
@@ -9,12 +15,6 @@ use super::{
     free_list::{FreeList, FreeListIter},
     CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
-};
-
-use std::{
-    io::{self, Write},
-    mem::size_of,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
 };
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;

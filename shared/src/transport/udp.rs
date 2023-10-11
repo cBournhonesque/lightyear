@@ -2,10 +2,10 @@ use std::io::Result;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
+use crate::transport::{PacketReceiver, PacketSender, Transport};
+
 // use anyhow::Result;
 // use anyhow::{anyhow, Context};
-
-use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 // Maximum transmission units; maximum size in bytes of a UDP packet
 // See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/

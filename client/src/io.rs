@@ -5,10 +5,10 @@
 // use std::net::SocketAddr;
 // use std::time::Duration;
 use std::io::Result;
+use std::net::SocketAddr;
 
 use lightyear_shared::transport::PacketSender;
 use lightyear_shared::Io;
-use std::net::SocketAddr;
 
 /// Wrapper around using the netcode.io protocol with a given transport
 pub struct ClientIO<'i, 'n> {

@@ -1,9 +1,10 @@
+use std::io;
+
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{
     aead::{rand_core::RngCore, OsRng},
     AeadInPlace, ChaCha20Poly1305, KeyInit, Tag, XChaCha20Poly1305, XNonce,
 };
-use std::io;
 
 use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 
