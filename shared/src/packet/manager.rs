@@ -66,6 +66,7 @@ impl<P: SerializableProtocol> PacketManager<P> {
             .set_reserved_bits(PACKET_BUFFER_CAPACITY);
     }
 
+    //
     /// Reset the buffers used to encode packets
     pub fn clear_write_buffer(&mut self) {
         self.write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
@@ -76,6 +77,11 @@ impl<P: SerializableProtocol> PacketManager<P> {
     pub(crate) fn encode_packet(&mut self, packet: &Packet<P>) -> anyhow::Result<&[u8]> {
         // TODO: check that we haven't allocated!
         self.clear_write_buffer();
+
+        // write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
+        // packet.encode(write_buffer)?;
+        // write_buffer.finish_write()
+
         packet.encode(&mut self.write_buffer)?;
         let bytes = self.write_buffer.finish_write();
         Ok(bytes)
@@ -138,8 +144,6 @@ impl<P: SerializableProtocol> PacketManager<P> {
     }
 
     // TODO:
-    // - we want the packet manager to handle the channels used as well
-    // - we want messages from multiple channels in the same packet
     // - we can set the priority on the channel level; then users can just create multiple channels
     // - we always send all messages for the same channel at the same time
 

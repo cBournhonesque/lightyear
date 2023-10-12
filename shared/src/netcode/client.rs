@@ -1,12 +1,13 @@
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crate::{Io, ReadBuffer, ReadWordBuffer};
-use anyhow::{bail, Context};
 use std::{
     collections::VecDeque,
-    net::{Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
+
 use tracing::{debug, error, info, trace};
+
+use crate::transport::{PacketReceiver, PacketSender};
+use crate::{Io, ReadBuffer, ReadWordBuffer};
 
 use super::{
     bytes::Bytes,
@@ -374,7 +375,7 @@ impl<Ctx> Client<Ctx> {
         Ok(())
     }
 
-    fn server_addr(&self) -> SocketAddr {
+    pub fn server_addr(&self) -> SocketAddr {
         self.token.server_addresses[self.server_addr_idx]
     }
     fn process_packet(&mut self, addr: SocketAddr, packet: Packet) -> Result<()> {

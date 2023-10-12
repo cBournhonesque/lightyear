@@ -1,9 +1,8 @@
+use std::io::Result;
 use std::net::SocketAddr;
 use std::time::Duration;
 #[cfg(not(test))]
 use std::time::Instant;
-
-use std::io::Result;
 
 #[cfg(test)]
 use mock_instant::Instant;

@@ -107,6 +107,12 @@
 //! }
 //! ```
 
+pub use client::{Client, ClientConfig, ClientState};
+pub use crypto::{generate_key, try_generate_key, Key};
+pub use error::{Error, Result};
+pub use server::{ClientId, ClientIndex, Server, ServerConfig};
+pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
+
 mod bytes;
 mod client;
 mod crypto;
@@ -121,12 +127,6 @@ pub(crate) const MAC_BYTES: usize = 16;
 pub(crate) const MAX_PKT_BUF_SIZE: usize = 1300;
 pub(crate) const CONNECTION_TIMEOUT_SEC: i32 = 15;
 pub(crate) const PACKET_SEND_RATE_SEC: f64 = 1.0 / 10.0;
-
-pub use client::{Client, ClientConfig, ClientState};
-pub use crypto::{generate_key, try_generate_key, Key};
-pub use error::{Error, Result};
-pub use server::{ClientId, ClientIndex, Server, ServerConfig};
-pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 /// The size of a private key in bytes.
 pub const PRIVATE_KEY_BYTES: usize = 32;

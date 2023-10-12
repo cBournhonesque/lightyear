@@ -1,0 +1,19 @@
+[package]
+name = "lightyear_tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[test]]
+name = "simple"
+
+[dependencies]
+lightyear_client = { path = "../client" }
+lightyear_server = { path = "../server" }
+lightyear_shared = { path = "../shared" }
+serde = { version = "1.0.188", features = ["derive"] }
+lazy_static = { version = "1.4.0", features = [] }
+anyhow = { version = "1.0.75", features = [] }
+tracing = "0.1"
+tracing-subscriber = "0.3.17"
+log = "0.4.20"

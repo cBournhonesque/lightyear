@@ -1,8 +1,8 @@
 //! Interface for the transport layer
+use std::io::Result;
 use std::net::SocketAddr;
 
 use crate::ReadBuffer;
-use std::io::Result;
 
 mod conditioner;
 pub(crate) mod io;

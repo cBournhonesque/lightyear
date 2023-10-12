@@ -6,4 +6,5 @@ members = [
     "shared/serde",
     "shared",
     "server",
+    "tests",
 ]

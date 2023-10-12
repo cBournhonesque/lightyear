@@ -1,11 +1,19 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::protocol::channel::ChannelProtocol;
+use crate::protocol::message::MessageProtocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::Channel;
 
 pub(crate) mod channel;
 pub(crate) mod message;
+
+pub enum EnumProtocol<M: MessageProtocol, C: ChannelProtocol> {
+    Message(M),
+    Channel(C),
+}
 
 pub trait Protocol {
     type Message: SerializableProtocol;

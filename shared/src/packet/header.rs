@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use bitcode::{Decode, Encode};
-use crossbeam::channel::{Receiver, Sender};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 

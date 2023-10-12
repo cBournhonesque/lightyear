@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 lightyear_shared = { path = "../shared" }
-renetcode = "0.0.9"
+crossbeam-channel = "0.5.8"
+log = "0.4.20"
 
 [dev-dependencies]
 mock_instant = "0.3"

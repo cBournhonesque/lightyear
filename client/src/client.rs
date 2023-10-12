@@ -2,12 +2,11 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 
-use lightyear_shared::transport::PacketReceiver;
-use lightyear_shared::{ChannelKind, Connection, Io, MessageContainer, Protocol};
+use lightyear_shared::netcode::ConnectToken;
+use lightyear_shared::transport::{PacketReceiver, Transport};
+use lightyear_shared::{ChannelKind, ChannelRegistry, Connection, Io, MessageContainer, Protocol};
 
 use crate::io::ClientIO;
-
-pub(crate) struct ClientId(pub u32);
 
 pub struct Client<P: Protocol> {
     io: Io,
@@ -16,12 +15,33 @@ pub struct Client<P: Protocol> {
 }
 
 impl<P: Protocol> Client<P> {
-    // pub fn new(io: ClientIO, message_manager: Connection<P>) -> Self {
-    //     Self {
-    //         io,
-    //         message_manager,
-    //     }
-    // }
+    pub fn new(io: Io, token: ConnectToken, channel_registry: &'static ChannelRegistry) -> Self {
+        // create netcode client from token
+        let token_bytes = token
+            .try_into_bytes()
+            .expect("couldn't convert token to bytes");
+        let netcode = lightyear_shared::netcode::Client::new(&token_bytes).unwrap();
+
+        let message_manager = Connection::new(netcode.server_addr(), channel_registry);
+        Self {
+            io,
+            netcode,
+            message_manager,
+        }
+    }
+
+    pub fn local_addr(&self) -> std::net::SocketAddr {
+        self.io.local_addr()
+    }
+
+    /// Start the connection process with the server
+    pub fn connect(&mut self) {
+        self.netcode.connect();
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.netcode.is_connected()
+    }
 
     /// Maintain connection with server, queues up any packet received from the server
     pub fn update(&mut self, time: f64) -> anyhow::Result<()> {

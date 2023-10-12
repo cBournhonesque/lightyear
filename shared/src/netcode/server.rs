@@ -1,10 +1,12 @@
-use crate::transport::udp::Socket;
+use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
+use std::ops::Index;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use tracing::{debug, error, trace};
+
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
 use crate::{Io, ReadBuffer, ReadWordBuffer};
-use std::collections::{HashMap, VecDeque};
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, error, info, trace};
 
 use super::{
     bytes::Bytes,
@@ -105,7 +107,7 @@ pub type ClientId = u64;
 
 /// Newtype over `usize` used by the server to identify clients.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ClientIndex(pub(crate) usize);
+pub struct ClientIndex(pub usize);
 
 impl<T> std::ops::Index<ClientIndex> for [T] {
     type Output = T;
@@ -131,6 +133,9 @@ struct ConnectionCache {
     // the main difference being that `Connection` includes the encryption mapping as well.
     clients: FreeList<Connection, MAX_CLIENTS>,
 
+    // map from client address to client index
+    client_id_map: HashMap<SocketAddr, ClientIndex>,
+
     // we are not using a free-list here to not allocate memory up-front, since `ReplayProtection` is biggish (~2kb)
     replay_protection: HashMap<ClientIndex, ReplayProtection>,
 
@@ -145,6 +150,7 @@ impl ConnectionCache {
     fn new(server_time: f64) -> Self {
         Self {
             clients: FreeList::new(),
+            client_id_map: HashMap::with_capacity(MAX_CLIENTS),
             replay_protection: HashMap::with_capacity(MAX_CLIENTS),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
             time: server_time,
@@ -182,6 +188,8 @@ impl ConnectionCache {
         let client_idx = ClientIndex(self.clients.insert(conn));
         self.replay_protection
             .insert(client_idx, ReplayProtection::new());
+
+        self.client_id_map.insert(addr, client_idx);
     }
     fn remove(&mut self, client_idx: ClientIndex) {
         let Some(conn) = self.clients.get_mut(client_idx.0) else {
@@ -190,13 +198,18 @@ impl ConnectionCache {
         if !conn.is_connected() {
             return;
         }
+        self.client_id_map.remove(&conn.addr);
         self.replay_protection.remove(&client_idx);
         self.clients.remove(client_idx.0);
     }
     fn find_by_addr(&self, addr: &SocketAddr) -> Option<(ClientIndex, Connection)> {
-        self.clients
-            .iter()
-            .find_map(|(idx, conn)| (conn.addr == *addr).then_some((ClientIndex(idx), conn)))
+        self.client_id_map
+            .get(addr)
+            .and_then(|idx| self.clients.get(idx.0).map(|conn| (*idx, *conn)))
+
+        // self.clients
+        //     .iter()
+        //     .find_map(|(idx, conn)| (conn.addr == *addr).then_some((ClientIndex(idx), conn)))
     }
     fn find_by_id(&self, client_id: ClientId) -> Option<(ClientIndex, Connection)> {
         self.clients.iter().find_map(|(idx, conn)| {
@@ -707,8 +720,8 @@ impl<Ctx> Server<Ctx> {
             Self::ALLOWED_PACKETS,
         ) {
             Ok(packet) => packet,
-            Err(Error::Crypto(_)) => {
-                debug!("server ignored packet because it failed to decrypt");
+            Err(Error::Crypto(e)) => {
+                debug!(error = ?e, "server ignored packet because it failed to decrypt.");
                 return Ok(());
             }
             Err(e) => {

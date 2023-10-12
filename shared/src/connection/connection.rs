@@ -14,9 +14,8 @@ use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::Protocol;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::serialize::reader::ReadBuffer;
-use crate::transport::io::Io;
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
-use crate::{Channel, ReadWordBuffer};
+use crate::Channel;
 
 // TODO: maybe rename this message manager?
 
@@ -57,6 +56,8 @@ impl<P: Protocol> Connection<P> {
         Ok(channel.sender.buffer_send(message))
     }
 
+    // TODO: change this api so that it's not related to IO and just returns the &[u8] to send
+    //  message manager shouldn't know anything about IO (remote addr, etc)
     /// Prepare buckets from the internal send buffers, and send them over the network
     pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
         // Step 1. Get the list of packets to send from all channels
@@ -234,7 +235,7 @@ mod tests {
     use crate::connection::connection::Connection;
     use crate::packet::wrapping_id::{MessageId, PacketId};
     use crate::transport::io::Io;
-    use crate::transport::udp::Socket;
+    use crate::transport::udp::UdpSocket;
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
@@ -291,18 +292,26 @@ mod tests {
     fn test_connection() -> Result<(), anyhow::Error> {
         // Create connections
         let socket_addr = SocketAddr::from_str("127.0.0.1:0")?;
-        let server_socket = Socket::new(&socket_addr)?;
-        let client_socket = Socket::new(&socket_addr)?;
+        let server_socket = UdpSocket::new(&socket_addr)?;
+        let client_socket = UdpSocket::new(&socket_addr)?;
         let server_addr = server_socket.local_addr();
         let client_addr = client_socket.local_addr();
 
         dbg!(server_addr);
         dbg!(client_addr);
 
-        let mut client_io = Io::new(Box::new(client_socket));
+        let mut client_io = Io::new(
+            client_addr,
+            Box::new(client_socket.clone()),
+            Box::new(client_socket.clone()),
+        );
         let mut client_connection = Connection::<MyProtocol>::new(server_addr, &CHANNEL_REGISTRY);
 
-        let mut server_io = Io::new(Box::new(server_socket));
+        let mut server_io = Io::new(
+            server_addr,
+            Box::new(server_socket.clone()),
+            Box::new(server_socket.clone()),
+        );
         let mut server_connection = Connection::<MyProtocol>::new(client_addr, &CHANNEL_REGISTRY);
 
         // On client side: buffer send messages, and then send

@@ -1,5 +1,5 @@
 use std::io::Result;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -12,17 +12,18 @@ use crate::transport::{PacketReceiver, PacketSender, Transport};
 const MTU: usize = 1472;
 
 /// UDP Socket
-pub struct Socket {
+#[derive(Clone)]
+pub struct UdpSocket {
     /// The underlying UDP Socket. This is wrapped in an Arc<Mutex<>> so that it
     /// can be shared between threads
-    socket: Arc<Mutex<UdpSocket>>,
+    socket: Arc<Mutex<std::net::UdpSocket>>,
     buffer: [u8; MTU],
 }
 
-impl Socket {
+impl UdpSocket {
     /// Create a non-blocking UDP socket
     pub fn new(server_addr: &SocketAddr) -> Result<Self> {
-        let udp_socket = UdpSocket::bind(*server_addr)?;
+        let udp_socket = std::net::UdpSocket::bind(*server_addr)?;
         let socket = Arc::new(Mutex::new(udp_socket));
         socket.as_ref().lock().unwrap().set_nonblocking(true)?;
         Ok(Self {
@@ -32,7 +33,7 @@ impl Socket {
     }
 }
 
-impl Transport for Socket {
+impl Transport for UdpSocket {
     fn local_addr(&self) -> SocketAddr {
         self.socket
             .as_ref()
@@ -47,7 +48,7 @@ impl Transport for Socket {
     // }
 }
 
-impl PacketSender for Socket {
+impl PacketSender for UdpSocket {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.socket
             .as_ref()
@@ -59,7 +60,7 @@ impl PacketSender for Socket {
     }
 }
 
-impl PacketReceiver for Socket {
+impl PacketReceiver for UdpSocket {
     // /// Receive a packet from the socket and store the results in the provided buffer
     // /// Return the number of bytes written
     // fn recv(&mut self, buffer: &[u8]) -> Result<Option<(&[u8], SocketAddr)>> {
@@ -106,7 +107,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
-    use crate::transport::udp::Socket;
+    use crate::transport::udp::UdpSocket;
     use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]
@@ -114,8 +115,8 @@ mod tests {
         // let the OS assigned a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let mut server_socket = Socket::new(&local_addr)?;
-        let mut client_socket = Socket::new(&local_addr)?;
+        let mut server_socket = UdpSocket::new(&local_addr)?;
+        let mut client_socket = UdpSocket::new(&local_addr)?;
 
         let server_addr = server_socket.local_addr();
         let client_addr = client_socket.local_addr();
@@ -141,8 +142,8 @@ mod tests {
         // let the OS assigned a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let server_socket = Socket::new(&local_addr)?;
-        let mut client_socket = Socket::new(&local_addr)?;
+        let server_socket = UdpSocket::new(&local_addr)?;
+        let mut client_socket = UdpSocket::new(&local_addr)?;
 
         let server_addr = server_socket.local_addr();
         let client_addr = client_socket.local_addr();

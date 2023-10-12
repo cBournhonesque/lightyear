@@ -4,3 +4,4 @@ use crate::serialize::writer::WriteBuffer;
 // each message must derive message
 
 // that big enum will implement MessageProtocol via a proc macro
+pub trait MessageProtocol {}
