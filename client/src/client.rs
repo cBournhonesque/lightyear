@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 
+use crate::config::ClientConfig;
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::WriteBuffer;

@@ -905,6 +905,13 @@ impl<Ctx> Server<Ctx> {
         Ok(())
     }
 
+    pub fn client_idxs(&self) -> impl Iterator<Item = ClientIndex> + '_ {
+        self.conn_cache
+            .clients
+            .iter()
+            .map(|(idx, _)| ClientIndex(*idx))
+    }
+
     /// Gets the number of connected clients.
     pub fn num_connected_clients(&self) -> usize {
         self.conn_cache

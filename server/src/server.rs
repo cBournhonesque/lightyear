@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use bevy_ecs::entity::Entity;
+use log::debug;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ClientIndex, ConnectToken, ServerConfig};
+use lightyear_shared::replication::{Replicate, ReplicationMessage, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
 use lightyear_shared::WriteBuffer;
 use lightyear_shared::{ChannelKind, ChannelRegistry, Connection, Io, MessageContainer, Protocol};
-use log::debug;
 
 use crate::io::NetcodeServerContext;
 
@@ -69,9 +71,46 @@ impl<P: Protocol> Server<P> {
         self.io.local_addr()
     }
 
-    pub fn client_id(&self, addr: SocketAddr) -> Option<ClientIndex> {
+    pub fn client_idx(&self, addr: SocketAddr) -> Option<ClientIndex> {
         self.netcode.client_index(&addr)
     }
+    pub fn client_idxs(&self) -> impl Iterator<Item = ClientIndex> + '_ {
+        self.netcode.client_idxs()
+    }
+
+    // REPLICATION
+
+    pub fn entity_spawn(&mut self, entity: Entity, replicate: &Replicate) {
+        let channel_kind = replicate.channel.unwrap();
+        // TODO: use a pre-existing reliable channel for entity actions
+        // let channel_kind = replicate.channel.unwrap_or(default_reliable_channel);
+
+        let buffer_message = |client_idx: ClientIndex| {
+            let message = MessageContainer::new(ReplicationMessage::<P>::SpawnEntity(entity));
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            self.buffer_send(client_idx, message, channel_kind);
+        };
+
+        match replicate.target {
+            ReplicationTarget::All => {
+                for client_idx in self.client_idxs() {
+                    buffer_message(client_idx);
+                }
+            }
+            ReplicationTarget::AllExcept(client_id) => {
+                // TODO: convert to client_idx
+                self.client_idxs()
+                    .filter(|idx| idx != client_id)
+                    .for_each(buffer_message);
+            }
+            ReplicationTarget::Only(client_id) => {
+                // TODO: convert to client_idx
+                buffer_message(client_idx);
+            }
+        }
+    }
+
+    // MESSAGES
 
     /// Queues up a message to be sent to a client
     pub fn buffer_send(

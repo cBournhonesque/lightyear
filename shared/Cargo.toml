@@ -20,6 +20,7 @@ enum_dispatch = "0.3"
 rand = "0.8"
 ringbuffer = "0.15"
 serde = { version = "1.0.188", features = ["derive"] }
+bevy_ecs = { version = "0.11", default-features = false }
 
 tracing = "0.1"
 

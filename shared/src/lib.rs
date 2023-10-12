@@ -18,9 +18,11 @@ pub use transport::udp::UdpSocket;
 
 pub mod channel;
 mod connection;
+mod events;
 pub mod netcode;
 pub mod packet;
 pub(crate) mod protocol;
 pub mod registry;
+pub mod replication;
 pub mod serialize;
 pub mod transport;

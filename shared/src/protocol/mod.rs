@@ -2,17 +2,20 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::channel::ChannelProtocol;
+use crate::protocol::components::ComponentsProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::Channel;
 
 pub(crate) mod channel;
+pub(crate) mod components;
 pub(crate) mod message;
 
-pub enum EnumProtocol<M: MessageProtocol, C: ChannelProtocol> {
+pub enum EnumProtocol<M: MessageProtocol, Ch: ChannelProtocol, C: ComponentsProtocol> {
     Message(M),
-    Channel(C),
+    Channel(Ch),
+    Components(C),
 }
 
 pub trait Protocol {

@@ -12,7 +12,6 @@ use channel::channel_impl;
 use message::message_impl;
 
 mod channel;
-
 mod message;
 mod shared;
 

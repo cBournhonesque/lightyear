@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, Context};
 use bitcode::read::Read;
 
 use crate::channel::channel::ChannelContainer;
@@ -18,6 +17,7 @@ use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
 use crate::{Channel, WriteBuffer};
 
 // TODO: maybe rename this message manager?
+// TODO: maybe don't use protocol but directly 'M: SerializableProtocol' so we can re-use this for messages or components
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
@@ -221,9 +221,7 @@ impl<P: Protocol> Connection<P> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::time::Duration;
 
     use lazy_static::lazy_static;
     use serde::{Deserialize, Serialize};
@@ -233,8 +231,6 @@ mod tests {
     use crate::channel::channel::ReliableSettings;
     use crate::connection::connection::Connection;
     use crate::packet::wrapping_id::{MessageId, PacketId};
-    use crate::transport::io::Io;
-    use crate::transport::udp::UdpSocket;
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,

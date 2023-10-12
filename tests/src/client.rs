@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use lightyear_shared::netcode::{Client, ConnectToken};
+use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::Transport;
-use lightyear_shared::{netcode, Io, Protocol, UdpSocket};
+use lightyear_shared::{Io, Protocol, UdpSocket};
 
 use crate::protocol::CHANNEL_REGISTRY;
 
