@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use anyhow::Context;
 
 use lightyear_shared::netcode::ConnectToken;
-use lightyear_shared::transport::{PacketReceiver, Transport};
+use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
+use lightyear_shared::WriteBuffer;
 use lightyear_shared::{ChannelKind, ChannelRegistry, Connection, Io, MessageContainer, Protocol};
-
-use crate::io::ClientIO;
 
 pub struct Client<P: Protocol> {
     io: Io,
@@ -22,7 +21,7 @@ impl<P: Protocol> Client<P> {
             .expect("couldn't convert token to bytes");
         let netcode = lightyear_shared::netcode::Client::new(&token_bytes).unwrap();
 
-        let message_manager = Connection::new(netcode.server_addr(), channel_registry);
+        let message_manager = Connection::new(channel_registry);
         Self {
             io,
             netcode,
@@ -67,11 +66,12 @@ impl<P: Protocol> Client<P> {
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> anyhow::Result<()> {
-        let mut client_io = ClientIO {
-            io: &mut self.io,
-            netcode: &mut self.netcode,
-        };
-        self.message_manager.send_packets(&mut client_io)
+        let packet_bytes = self.message_manager.send_packets()?;
+        for mut packet_byte in packet_bytes {
+            self.netcode
+                .send(packet_byte.finish_write(), &mut self.io)?;
+        }
+        Ok(())
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager

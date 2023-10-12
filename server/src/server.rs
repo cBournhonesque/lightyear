@@ -4,11 +4,12 @@ use std::net::SocketAddr;
 use anyhow::Context;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ClientIndex, ConnectToken, ServerConfig};
-use lightyear_shared::transport::Transport;
+use lightyear_shared::transport::{PacketSender, Transport};
+use lightyear_shared::WriteBuffer;
 use lightyear_shared::{ChannelKind, ChannelRegistry, Connection, Io, MessageContainer, Protocol};
 use log::debug;
 
-use crate::io::{NetcodeServerContext, ServerIO};
+use crate::io::NetcodeServerContext;
 
 pub struct Server<P: Protocol> {
     // Config
@@ -96,7 +97,7 @@ impl<P: Protocol> Server<P> {
         // handle connections
         for client_idx in self.context.connections.try_iter() {
             let client_addr = self.netcode.client_addr(client_idx).unwrap();
-            let connection = Connection::new(client_addr, self.channel_registry);
+            let connection = Connection::new(self.channel_registry);
             debug!(
                 "New connection from {} (index: {})",
                 client_addr, client_idx
@@ -127,12 +128,11 @@ impl<P: Protocol> Server<P> {
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> anyhow::Result<()> {
-        let mut server_io = ServerIO {
-            io: &mut self.io,
-            netcode: &mut self.netcode,
-        };
-        for connection in &mut self.user_connections.values_mut() {
-            connection.send_packets(&mut server_io)?;
+        for (client_idx, connection) in &mut self.user_connections.iter_mut() {
+            for mut packet_byte in connection.send_packets()? {
+                self.netcode
+                    .send(packet_byte.finish_write(), *client_idx, &mut self.io)?;
+            }
         }
         Ok(())
     }

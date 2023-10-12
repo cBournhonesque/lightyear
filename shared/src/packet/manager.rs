@@ -74,17 +74,18 @@ impl<P: SerializableProtocol> PacketManager<P> {
     }
 
     /// Encode a packet into raw bytes
-    pub(crate) fn encode_packet(&mut self, packet: &Packet<P>) -> anyhow::Result<&[u8]> {
+    pub(crate) fn encode_packet(&mut self, packet: &Packet<P>) -> anyhow::Result<impl WriteBuffer> {
         // TODO: check that we haven't allocated!
-        self.clear_write_buffer();
+        // self.clear_write_buffer();
 
-        // write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
-        // packet.encode(write_buffer)?;
-        // write_buffer.finish_write()
+        let mut write_buffer = WriteWordBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+        write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
+        packet.encode(&mut write_buffer)?;
+        Ok(write_buffer)
 
-        packet.encode(&mut self.write_buffer)?;
-        let bytes = self.write_buffer.finish_write();
-        Ok(bytes)
+        // packet.encode(&mut self.write_buffer)?;
+        // let bytes = self.write_buffer.finish_write();
+        // Ok(bytes)
     }
 
     /// Decode a packet from raw bytes
