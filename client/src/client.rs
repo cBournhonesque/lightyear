@@ -2,29 +2,30 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 
-use crate::config::ClientConfig;
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::WriteBuffer;
-use lightyear_shared::{ChannelKind, ChannelRegistry, Connection, Io, MessageContainer, Protocol};
+use lightyear_shared::{ChannelKind, Io, MessageContainer, MessageManager, Protocol};
 
 pub struct Client<P: Protocol> {
     io: Io,
+    protocol: P,
     netcode: lightyear_shared::netcode::Client,
-    message_manager: Connection<P>,
+    message_manager: MessageManager<P::Message>,
 }
 
 impl<P: Protocol> Client<P> {
-    pub fn new(io: Io, token: ConnectToken, channel_registry: &'static ChannelRegistry) -> Self {
+    pub fn new(io: Io, token: ConnectToken, protocol: P) -> Self {
         // create netcode client from token
         let token_bytes = token
             .try_into_bytes()
             .expect("couldn't convert token to bytes");
         let netcode = lightyear_shared::netcode::Client::new(&token_bytes).unwrap();
 
-        let message_manager = Connection::new(channel_registry);
+        let message_manager = MessageManager::new(protocol.channel_registry());
         Self {
             io,
+            protocol,
             netcode,
             message_manager,
         }

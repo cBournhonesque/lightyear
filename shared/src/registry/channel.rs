@@ -1,11 +1,9 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use anyhow::bail;
-
 use crate::channel::channel::{Channel, ChannelBuilder, ChannelSettings};
-use crate::protocol::SerializableProtocol;
-use crate::registry::NetId;
+use crate::protocol::BitSerializable;
+use crate::registry::{NetId, TypeKind, TypeMapper};
 use crate::ChannelContainer;
 
 /// ChannelKind - internal wrapper around the type of the channel
@@ -18,58 +16,60 @@ impl ChannelKind {
     }
 }
 
+impl TypeKind for ChannelKind {}
+
+impl From<TypeId> for ChannelKind {
+    fn from(type_id: TypeId) -> Self {
+        Self(type_id)
+    }
+}
+
+#[derive(Default)]
 pub struct ChannelRegistry {
-    pub(in crate::registry) next_net_id: NetId,
-    pub(in crate::registry) kind_map: HashMap<ChannelKind, (NetId, ChannelBuilder)>,
-    pub(in crate::registry) id_map: HashMap<NetId, ChannelKind>,
+    // we only store the ChannelBuilder because we might want to create multiple instances of the same channel
+    pub(in crate::registry) builder_map: HashMap<ChannelKind, ChannelBuilder>,
+    pub(in crate::registry) kind_map: TypeMapper<ChannelKind>,
     built: bool,
 }
 impl ChannelRegistry {
     pub fn new() -> Self {
         Self {
-            next_net_id: 0,
-            kind_map: HashMap::new(),
-            id_map: HashMap::new(),
+            builder_map: HashMap::new(),
+            kind_map: TypeMapper::new(),
             built: false,
         }
     }
 
     /// Build all the channels in the registry
-    pub fn channels<P: SerializableProtocol>(&self) -> HashMap<ChannelKind, ChannelContainer<P>> {
+    pub fn channels<M: BitSerializable>(&self) -> HashMap<ChannelKind, ChannelContainer<M>> {
         let mut channels = HashMap::new();
-        for (type_id, (_, builder)) in self.kind_map.iter() {
+        for (type_id, builder) in self.builder_map.iter() {
             channels.insert(*type_id, builder.build());
         }
         channels
     }
 
+    pub fn kind_map(&self) -> TypeMapper<ChannelKind> {
+        self.kind_map.clone()
+    }
+
     /// Register a new type
-    pub fn add<T: Channel + 'static>(&mut self, settings: ChannelSettings) -> anyhow::Result<()> {
-        let channel_kind = ChannelKind(TypeId::of::<T>());
-        if self.kind_map.contains_key(&channel_kind) {
-            bail!("Channel type already registered");
-        }
-        let net_id = self.next_net_id;
-        self.kind_map
-            .insert(channel_kind, (net_id, T::get_builder(settings)));
-        self.id_map.insert(net_id, channel_kind);
-        self.next_net_id += 1;
-        Ok(())
+    pub fn add<T: Channel>(&mut self, settings: ChannelSettings) {
+        let kind = self.kind_map.add::<T>();
+        self.builder_map.insert(kind, T::get_builder(settings));
     }
 
     /// get the registered object for a given type
     pub fn get_builder_from_kind(&self, channel_kind: &ChannelKind) -> Option<&ChannelBuilder> {
-        self.kind_map.get(channel_kind).and_then(|(_, t)| Some(t))
+        self.builder_map.get(channel_kind)
     }
 
     pub fn get_kind_from_net_id(&self, net_id: NetId) -> Option<&ChannelKind> {
-        self.id_map.get(&net_id).and_then(|k| Some(k))
+        self.kind_map.kind(net_id)
     }
 
     pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&NetId> {
-        self.kind_map
-            .get(&kind)
-            .and_then(|(net_id, _)| Some(net_id))
+        self.kind_map.net_id(kind)
     }
 
     pub fn get_builder_from_net_id(&self, net_id: NetId) -> Option<&ChannelBuilder> {
@@ -82,15 +82,6 @@ impl ChannelRegistry {
         self.kind_map.len()
     }
 }
-
-// impl ChannelRegistry {
-//     fn build(&self) -> HashMap<NetId, ChannelContainer> {
-//         let channels = self.id_map
-//             .iter()
-//             .map(|(net_id, type_id)| (*net_id, self.kind_map.get
-//             .collect();
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -111,7 +102,7 @@ mod tests {
             mode: ChannelMode::UnorderedUnreliable,
             direction: ChannelDirection::Bidirectional,
         };
-        registry.add::<MyChannel>(settings.clone())?;
+        registry.add::<MyChannel>(settings.clone());
         assert_eq!(registry.len(), 1);
 
         let mut builder = registry.get_builder_from_net_id(0).unwrap();

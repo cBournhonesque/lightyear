@@ -4,7 +4,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::SerializableProtocol;
+use crate::protocol::BitSerializable;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
@@ -21,7 +21,7 @@ impl<P> UnorderedUnreliableSender<P> {
     }
 }
 
-impl<P: SerializableProtocol> ChannelSend<P> for UnorderedUnreliableSender<P> {
+impl<P: BitSerializable> ChannelSend<P> for UnorderedUnreliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: MessageContainer<P>) {
@@ -65,7 +65,7 @@ impl<P> SequencedUnreliableSender<P> {
     }
 }
 
-impl<P: SerializableProtocol> ChannelSend<P> for SequencedUnreliableSender<P> {
+impl<P: BitSerializable> ChannelSend<P> for SequencedUnreliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, mut message: MessageContainer<P>) {

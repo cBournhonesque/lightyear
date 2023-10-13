@@ -1,7 +1,6 @@
-use crate::netcode::{ClientId, ClientIndex};
-use crate::Protocol;
+use crate::netcode::ClientId;
 
-pub struct Events<P: Protocol> {
+pub struct Events {
     // netcode
     connections: Vec<ClientId>,
     disconnections: Vec<ClientId>,

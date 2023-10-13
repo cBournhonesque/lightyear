@@ -7,11 +7,11 @@ use crate::channel::receivers::ChannelReceiver;
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
 use crate::channel::senders::ChannelSender;
-use crate::protocol::SerializableProtocol;
+use crate::protocol::BitSerializable;
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel
-pub struct ChannelContainer<P: SerializableProtocol> {
+pub struct ChannelContainer<P: BitSerializable> {
     pub setting: ChannelSettings,
     pub(crate) receiver: ChannelReceiver<P>,
     pub(crate) sender: ChannelSender<P>,
@@ -28,7 +28,7 @@ pub struct ChannelBuilder {
 }
 
 impl ChannelBuilder {
-    pub fn build<P: SerializableProtocol>(&self) -> ChannelContainer<P> {
+    pub fn build<P: BitSerializable>(&self) -> ChannelContainer<P> {
         ChannelContainer::new(self.settings.clone())
     }
 }
@@ -40,7 +40,7 @@ impl ChannelBuilder {
 //     // TODO: add fragmentation data
 // }
 
-impl<P: SerializableProtocol> ChannelContainer<P> {
+impl<P: BitSerializable> ChannelContainer<P> {
     pub fn new(settings: ChannelSettings) -> Self {
         let receiver: ChannelReceiver<P>;
         let sender: ChannelSender<P>;

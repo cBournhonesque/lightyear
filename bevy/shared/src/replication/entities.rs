@@ -9,8 +9,6 @@
 // component removed
 
 use bevy_ecs::entity::Entity;
-use bevy_ecs::query::Added;
-use bevy_ecs::system::Query;
 
 // enum EntityAction<C: ComponentProtocol> {
 

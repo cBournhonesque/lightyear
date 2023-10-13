@@ -9,8 +9,8 @@ use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::{Packet, MTU_PAYLOAD_BYTES};
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::{Protocol, SerializableProtocol};
-use crate::registry::channel::ChannelRegistry;
+use crate::protocol::{BitSerializable, Protocol};
+use crate::registry::TypeMapper;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -19,10 +19,9 @@ use crate::ChannelKind;
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = 1 * MTU_PAYLOAD_BYTES;
 
 /// Handles the process of sending and receiving packets
-pub(crate) struct PacketManager<P: SerializableProtocol> {
+pub(crate) struct PacketManager<P: BitSerializable> {
     pub(crate) header_manager: PacketHeaderManager,
-    // TODO: maybe need Arc<> here?
-    pub(crate) channel_registry: &'static ChannelRegistry,
+    pub(crate) channel_kind_map: TypeMapper<ChannelKind>,
 
     /// Current packets that have been built but must be sent over the network
     /// (excludes current_packet)
@@ -44,11 +43,11 @@ pub(crate) struct PacketManager<P: SerializableProtocol> {
 // The MessageContainer just stores Bytes along with the kind of the message.
 // At the very end of the code, we deserialize using the kind of message + the bytes?
 
-impl<P: SerializableProtocol> PacketManager<P> {
-    pub fn new(channel_registry: &'static ChannelRegistry) -> Self {
+impl<P: BitSerializable> PacketManager<P> {
+    pub fn new(channel_kind_map: TypeMapper<ChannelKind>) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
-            channel_registry,
+            channel_kind_map,
             current_packets: Vec::new(),
             current_packet: None,
             current_channel: None,
@@ -164,8 +163,8 @@ impl<P: SerializableProtocol> PacketManager<P> {
         self.current_channel = Some(channel_kind);
         // TODO: we could pass the channel registry as static to the buffers
         let net_id = self
-            .channel_registry
-            .get_net_from_kind(&channel_kind)
+            .channel_kind_map
+            .net_id(&channel_kind)
             .context("Channel not found in registry")?;
         self.try_write_buffer.serialize(net_id)?;
 
@@ -209,11 +208,7 @@ impl<P: SerializableProtocol> PacketManager<P> {
 
         // safety: we always start a new channel before we start building packets
         let channel = self.current_channel.unwrap();
-        let channel_id = self
-            .channel_registry
-            .get_net_from_kind(&channel)
-            .unwrap()
-            .clone();
+        let channel_id = self.channel_kind_map.net_id(&channel).unwrap().clone();
 
         // build new packet
         'packet: loop {
@@ -281,24 +276,23 @@ mod tests {
     #[derive(ChannelInternal)]
     struct Channel2;
 
-    lazy_static! {
-        static ref CHANNEL_REGISTRY: ChannelRegistry = {
-            let settings = ChannelSettings {
-                mode: ChannelMode::UnorderedUnreliable,
-                direction: ChannelDirection::Bidirectional,
-            };
-            let mut c = ChannelRegistry::new();
-            c.add::<Channel1>(settings.clone()).unwrap();
-            c.add::<Channel2>(settings.clone()).unwrap();
-            c
+    fn get_channel_registry() -> ChannelRegistry {
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
         };
+        let mut c = ChannelRegistry::new();
+        c.add::<Channel1>(settings.clone());
+        c.add::<Channel2>(settings.clone());
+        c
     }
 
     #[test]
     fn test_write_small_message() -> anyhow::Result<()> {
-        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::new(channel_registry.kind_map());
         let channel_kind = ChannelKind::of::<Channel1>();
-        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
         let small_message = MessageContainer::new(0);
         manager.build_new_packet();
@@ -317,9 +311,10 @@ mod tests {
 
     #[test]
     fn test_write_big_message() -> anyhow::Result<()> {
-        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::new(channel_registry.kind_map());
         let channel_kind = ChannelKind::of::<Channel1>();
-        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
         let big_bytes = vec![1u8; 2 * MTU_PAYLOAD_BYTES];
         let big_message = MessageContainer::new(big_bytes);
@@ -335,9 +330,10 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_pack_big_message() {
-        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::new(channel_registry.kind_map());
         let channel_kind = ChannelKind::of::<Channel1>();
-        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
         let big_bytes = vec![1u8; 10 * MTU_PAYLOAD_BYTES];
         let big_message = MessageContainer::new(big_bytes);
@@ -348,9 +344,10 @@ mod tests {
 
     #[test]
     fn test_cannot_write_channel() -> anyhow::Result<()> {
-        let mut manager = PacketManager::<i32>::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::<u8>::new(channel_registry.kind_map());
         let channel_kind = ChannelKind::of::<Channel1>();
-        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         manager.build_new_packet();
 
         // only 1 bit can be written
@@ -366,9 +363,10 @@ mod tests {
 
     #[test]
     fn test_write_pack_messages_in_multiple_packets() -> anyhow::Result<()> {
-        let mut manager = PacketManager::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::new(channel_registry.kind_map());
         let channel_kind = ChannelKind::of::<Channel1>();
-        let channel_id = CHANNEL_REGISTRY.get_net_from_kind(&channel_kind).unwrap();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
         let mut message0 = MessageContainer::new(vec![false; MTU_PAYLOAD_BYTES - 100]);
         message0.set_id(MessageId(0));

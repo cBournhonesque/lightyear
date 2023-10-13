@@ -12,9 +12,9 @@ fn test_simple_server_client() -> anyhow::Result<()> {
 
     // Create the server and client
     let client_id = 111;
-    let mut server = lightyear_tests::server::setup::<MyProtocol>()?;
+    let mut server = lightyear_tests::server::setup()?;
     debug!("Created server with local address: {}", server.local_addr());
-    let mut client = lightyear_tests::client::setup::<MyProtocol>(server.token(client_id))?;
+    let mut client = lightyear_tests::client::setup(server.token(client_id))?;
     debug!("Created client with local address: {}", client.local_addr());
 
     // Start the connection

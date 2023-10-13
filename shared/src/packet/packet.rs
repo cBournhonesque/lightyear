@@ -8,7 +8,7 @@ use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::SerializableProtocol;
+use crate::protocol::BitSerializable;
 use crate::registry::NetId;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -23,7 +23,7 @@ pub(crate) const MTU_PAYLOAD_BYTES: usize = 1200;
 /// Single individual packet sent over the network
 /// Contains multiple small messages
 #[derive(Clone)]
-pub(crate) struct SinglePacket<P: SerializableProtocol, const C: usize = MTU_PACKET_BYTES> {
+pub(crate) struct SinglePacket<P: BitSerializable, const C: usize = MTU_PACKET_BYTES> {
     // TODO: the alternative is to simply encode the bytes in the single packet
     //  the packetManager has all the necessary information to know how to encode
     //  a list of messages tied to a channel into a packet, and to decode them
@@ -40,7 +40,7 @@ pub(crate) struct SinglePacket<P: SerializableProtocol, const C: usize = MTU_PAC
     pub(crate) data: BTreeMap<NetId, Vec<MessageContainer<P>>>,
 }
 
-impl<P: SerializableProtocol> SinglePacket<P> {
+impl<P: BitSerializable> SinglePacket<P> {
     fn new(packet_manager: &mut PacketManager<P>) -> Self {
         Self {
             header: packet_manager
@@ -77,7 +77,7 @@ impl<P: SerializableProtocol> SinglePacket<P> {
     }
 }
 
-impl<P: SerializableProtocol> SerializableProtocol for SinglePacket<P> {
+impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
@@ -149,12 +149,12 @@ pub struct FragmentedPacket {}
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
-pub(crate) enum Packet<P: SerializableProtocol> {
+pub(crate) enum Packet<P: BitSerializable> {
     Single(SinglePacket<P>),
     Fragmented(FragmentedPacket),
 }
 
-impl<P: SerializableProtocol> Packet<P> {
+impl<P: BitSerializable> Packet<P> {
     pub(crate) fn new(packet_manager: &mut PacketManager<P>) -> Self {
         Packet::Single(SinglePacket::new(packet_manager))
     }
@@ -235,8 +235,8 @@ mod tests {
     use crate::packet::packet::{Packet, SinglePacket};
     use crate::packet::packet_type::PacketType;
     use crate::{
-        ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings, MessageContainer,
-        ReadBuffer, ReadWordBuffer, SerializableProtocol, WriteBuffer, WriteWordBuffer,
+        BitSerializable, ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings,
+        MessageContainer, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
     };
 
     #[derive(ChannelInternal)]
@@ -245,22 +245,21 @@ mod tests {
     #[derive(ChannelInternal)]
     struct Channel2;
 
-    lazy_static! {
-        static ref CHANNEL_REGISTRY: ChannelRegistry = {
-            let settings = ChannelSettings {
-                mode: ChannelMode::UnorderedUnreliable,
-                direction: ChannelDirection::Bidirectional,
-            };
-            let mut c = ChannelRegistry::new();
-            c.add::<Channel1>(settings.clone()).unwrap();
-            c.add::<Channel2>(settings.clone()).unwrap();
-            c
+    fn get_channel_registry() -> ChannelRegistry {
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
         };
+        let mut c = ChannelRegistry::new();
+        c.add::<Channel1>(settings.clone());
+        c.add::<Channel2>(settings.clone());
+        c
     }
 
     #[test]
     fn test_single_packet_add_messages() {
-        let mut manager = PacketManager::<i32>::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::<i32>::new(channel_registry.kind_map());
         let mut packet = SinglePacket::new(&mut manager);
 
         packet.add_message(0, MessageContainer::new(0));
@@ -272,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_encode_single_packet() -> anyhow::Result<()> {
-        let mut manager = PacketManager::<i32>::new(&CHANNEL_REGISTRY);
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::<i32>::new(channel_registry.kind_map());
         let mut packet = Packet::new(&mut manager);
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);

@@ -3,7 +3,7 @@ use enum_dispatch::enum_dispatch;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::SerializableProtocol;
+use crate::protocol::BitSerializable;
 
 pub(crate) mod reliable;
 pub(crate) mod unreliable;
@@ -11,7 +11,7 @@ pub(crate) mod unreliable;
 /// A trait for sending messages to a channel.
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
-pub trait ChannelSend<P: SerializableProtocol> {
+pub trait ChannelSend<P: BitSerializable> {
     /// Queues a message to be transmitted
     fn buffer_send(&mut self, message: MessageContainer<P>);
 
@@ -33,7 +33,7 @@ pub trait ChannelSend<P: SerializableProtocol> {
 
 /// Enum dispatch lets us derive ChannelSend on each enum variant
 #[enum_dispatch(ChannelSend<P>)]
-pub enum ChannelSender<P: SerializableProtocol> {
+pub enum ChannelSender<P: BitSerializable> {
     UnorderedUnreliable(unreliable::UnorderedUnreliableSender<P>),
     SequencedUnreliable(unreliable::SequencedUnreliableSender<P>),
     Reliable(reliable::ReliableSender<P>),

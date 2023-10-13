@@ -909,7 +909,7 @@ impl<Ctx> Server<Ctx> {
         self.conn_cache
             .clients
             .iter()
-            .map(|(idx, _)| ClientIndex(*idx))
+            .map(|(idx, _)| ClientIndex(idx))
     }
 
     /// Gets the number of connected clients.

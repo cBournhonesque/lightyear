@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
-pub fn message_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn component_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     // Helper Properties
@@ -17,7 +17,7 @@ pub fn message_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let decode_method = decode_method();
 
     let gen = quote! {
-        impl MessageProtocol for #struct_name {}
+        impl ComponentProtocol for #struct_name {}
         // impl BitSerializable for #struct_name {
         //     #encode_method
         //     #decode_method

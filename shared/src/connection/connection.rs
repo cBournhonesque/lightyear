@@ -10,32 +10,30 @@ use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::{MessageId, PacketId};
+use crate::protocol::channel::ChannelProtocol;
 use crate::protocol::Protocol;
 use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
-use crate::{Channel, WriteBuffer};
-
-// TODO: maybe rename this message manager?
-// TODO: maybe don't use protocol but directly 'M: SerializableProtocol' so we can re-use this for messages or components
+use crate::{BitSerializable, Channel, WriteBuffer};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
-pub struct Connection<P: Protocol> {
+pub struct MessageManager<M: BitSerializable> {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketManager<P::Message>,
+    packet_manager: PacketManager<M>,
     // TODO: add ordering of channels per priority
-    channels: HashMap<ChannelKind, ChannelContainer<P::Message>>,
+    channels: HashMap<ChannelKind, ChannelContainer<M>>,
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_id_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageId>>>,
 }
 
-impl<P: Protocol> Connection<P> {
-    pub fn new(channel_registry: &'static ChannelRegistry) -> Self {
+impl<M: BitSerializable> MessageManager<M> {
+    pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
-            packet_manager: PacketManager::new(channel_registry),
+            packet_manager: PacketManager::new(channel_registry.kind_map()),
             channels: channel_registry.channels(),
             packet_to_message_id_map: HashMap::new(),
         }
@@ -44,7 +42,7 @@ impl<P: Protocol> Connection<P> {
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(
         &mut self,
-        message: MessageContainer<P::Message>,
+        message: MessageContainer<M>,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<()> {
         let mut channel = self
@@ -92,8 +90,8 @@ impl<P: Protocol> Connection<P> {
                 .map(|(channel_id, message_ids)| {
                     let channel_kind = self
                         .packet_manager
-                        .channel_registry
-                        .get_kind_from_net_id(*channel_id)
+                        .channel_kind_map
+                        .kind(*channel_id)
                         .context("cannot find channel kind")?;
                     let channel = self
                         .channels
@@ -145,7 +143,7 @@ impl<P: Protocol> Connection<P> {
     /// Update the acks, and put the messages from the packets in internal buffers
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
-        let packet: Packet<P::Message> = self.packet_manager.decode_packet(reader)?;
+        let packet: Packet<M> = self.packet_manager.decode_packet(reader)?;
         let packet = match packet {
             Packet::Single(single_packet) => single_packet,
             Packet::Fragmented(_) => unimplemented!(),
@@ -180,8 +178,8 @@ impl<P: Protocol> Connection<P> {
         for (channel_net_id, messages) in packet.data {
             let channel_kind = self
                 .packet_manager
-                .channel_registry
-                .get_kind_from_net_id(channel_net_id)
+                .channel_kind_map
+                .kind(channel_net_id)
                 .context(format!(
                     "Could not recognize net_id {} as a channel",
                     channel_net_id
@@ -201,7 +199,7 @@ impl<P: Protocol> Connection<P> {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  lets be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<MessageContainer<P::Message>>> {
+    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<MessageContainer<M>>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
@@ -223,14 +221,14 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
-    use lazy_static::lazy_static;
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::ChannelInternal;
 
     use crate::channel::channel::ReliableSettings;
-    use crate::connection::connection::Connection;
+    use crate::connection::connection::MessageManager;
     use crate::packet::wrapping_id::{MessageId, PacketId};
+    use crate::registry::TypeKind;
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
@@ -250,14 +248,6 @@ mod tests {
         Message2(Message2),
     }
 
-    pub enum MyProtocol {
-        MyMessageProtocol(MyMessageProtocol),
-    }
-
-    impl Protocol for MyProtocol {
-        type Message = MyMessageProtocol;
-    }
-
     // Channels
     #[derive(ChannelInternal)]
     struct Channel1;
@@ -265,29 +255,22 @@ mod tests {
     #[derive(ChannelInternal)]
     struct Channel2;
 
-    lazy_static! {
-        static ref CHANNEL_REGISTRY: ChannelRegistry = {
-            let mut c = ChannelRegistry::new();
-            c.add::<Channel1>(ChannelSettings {
-                mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-                direction: ChannelDirection::Bidirectional,
-            })
-            .unwrap();
-            c.add::<Channel2>(ChannelSettings {
-                mode: ChannelMode::UnorderedUnreliable,
-                direction: ChannelDirection::Bidirectional,
-            })
-            .unwrap();
-            c
-        };
-    }
-
     #[test]
     /// We want to test that we can send/receive messages over a connection
     fn test_connection() -> Result<(), anyhow::Error> {
+        let mut CHANNEL_REGISTRY = ChannelRegistry::new();
+        CHANNEL_REGISTRY.add::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            direction: ChannelDirection::Bidirectional,
+        });
+        CHANNEL_REGISTRY.add::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+        });
+
         // Create connections
-        let mut client_connection = Connection::<MyProtocol>::new(&CHANNEL_REGISTRY);
-        let mut server_connection = Connection::<MyProtocol>::new(&CHANNEL_REGISTRY);
+        let mut client_connection = MessageManager::<MyMessageProtocol>::new(&CHANNEL_REGISTRY);
+        let mut server_connection = MessageManager::<MyMessageProtocol>::new(&CHANNEL_REGISTRY);
 
         // client: buffer send messages, and then send
         let with_id = |message: &MessageContainer<_>, id| {
@@ -299,8 +282,8 @@ mod tests {
         let mut message = MessageContainer::new(MyMessageProtocol::Message1(Message1(1)));
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
-        client_connection.buffer_send(message.clone(), ChannelKind::of::<Channel1>())?;
-        client_connection.buffer_send(message.clone(), ChannelKind::of::<Channel2>())?;
+        client_connection.buffer_send(message.clone(), channel_kind_1)?;
+        client_connection.buffer_send(message.clone(), channel_kind_2)?;
         let mut packet_bytes = client_connection.send_packets()?;
         assert_eq!(
             client_connection.packet_to_message_id_map,
@@ -341,7 +324,7 @@ mod tests {
             .contains(&PacketId(0)));
 
         // Server sends back a message
-        server_connection.buffer_send(message.clone(), ChannelKind::of::<Channel1>())?;
+        server_connection.buffer_send(message.clone(), channel_kind_1)?;
         let mut packet_bytes = server_connection.send_packets()?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages

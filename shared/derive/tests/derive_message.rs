@@ -1,6 +1,8 @@
 pub mod some_message {
     use serde::{Deserialize, Serialize};
 
+    use lightyear_derive::message_protocol;
+
     // #[derive(Message)]
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
@@ -9,8 +11,9 @@ pub mod some_message {
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message2(pub u32);
 
-    #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-    // #[message_protocol]
+    // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+    #[derive(Debug, PartialEq)]
+    #[message_protocol]
     // #[derive(EnumAsInner)]
     pub enum MyMessageProtocol {
         Message1(Message1),
@@ -20,7 +23,7 @@ pub mod some_message {
 
 #[cfg(test)]
 mod tests {
-    use lightyear_shared::SerializableProtocol;
+    use lightyear_shared::BitSerializable;
     use lightyear_shared::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
 
     use crate::some_message::MyMessageProtocol;

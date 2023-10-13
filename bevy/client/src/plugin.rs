@@ -1,5 +1,4 @@
-use bevy_app::{App, Plugin as PluginType, Update};
-use lightyear_client::Client;
+use bevy_app::{App, Plugin as PluginType};
 
 pub struct Plugin {}
 

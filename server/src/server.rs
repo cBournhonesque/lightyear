@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use anyhow::Context;
-use bevy_ecs::entity::Entity;
 use log::debug;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ClientIndex, ConnectToken, ServerConfig};
-use lightyear_shared::replication::{Replicate, ReplicationMessage, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
 use lightyear_shared::WriteBuffer;
-use lightyear_shared::{ChannelKind, ChannelRegistry, Connection, Io, MessageContainer, Protocol};
+use lightyear_shared::{ChannelKind, Io, MessageContainer, MessageManager, Protocol};
 
 use crate::io::NetcodeServerContext;
 
@@ -22,13 +20,13 @@ pub struct Server<P: Protocol> {
     netcode: lightyear_shared::netcode::Server<NetcodeServerContext>,
     context: ServerContext,
     // Clients
-    user_connections: HashMap<ClientIndex, Connection<P>>,
+    user_connections: HashMap<ClientIndex, MessageManager<P::Message>>,
     // Protocol
-    channel_registry: &'static ChannelRegistry,
+    protocol: P,
 }
 
 impl<P: Protocol> Server<P> {
-    pub fn new(io: Io, protocol_id: u64, channel_registry: &'static ChannelRegistry) -> Self {
+    pub fn new(io: Io, protocol_id: u64, protocol: P) -> Self {
         // create netcode server
         let private_key = generate_key();
         let (connections_tx, connections_rx) = crossbeam_channel::unbounded();
@@ -55,7 +53,7 @@ impl<P: Protocol> Server<P> {
             netcode,
             context,
             user_connections: HashMap::new(),
-            channel_registry,
+            protocol,
         }
     }
 
@@ -80,35 +78,35 @@ impl<P: Protocol> Server<P> {
 
     // REPLICATION
 
-    pub fn entity_spawn(&mut self, entity: Entity, replicate: &Replicate) {
-        let channel_kind = replicate.channel.unwrap();
-        // TODO: use a pre-existing reliable channel for entity actions
-        // let channel_kind = replicate.channel.unwrap_or(default_reliable_channel);
-
-        let buffer_message = |client_idx: ClientIndex| {
-            let message = MessageContainer::new(ReplicationMessage::<P>::SpawnEntity(entity));
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            self.buffer_send(client_idx, message, channel_kind);
-        };
-
-        match replicate.target {
-            ReplicationTarget::All => {
-                for client_idx in self.client_idxs() {
-                    buffer_message(client_idx);
-                }
-            }
-            ReplicationTarget::AllExcept(client_id) => {
-                // TODO: convert to client_idx
-                self.client_idxs()
-                    .filter(|idx| idx != client_id)
-                    .for_each(buffer_message);
-            }
-            ReplicationTarget::Only(client_id) => {
-                // TODO: convert to client_idx
-                buffer_message(client_idx);
-            }
-        }
-    }
+    // pub fn entity_spawn(&mut self, entity: Entity, replicate: &Replicate) {
+    //     let channel_kind = replicate.channel.unwrap();
+    //     // TODO: use a pre-existing reliable channel for entity actions
+    //     // let channel_kind = replicate.channel.unwrap_or(default_reliable_channel);
+    //
+    //     let buffer_message = |client_idx: ClientIndex| {
+    //         let message = MessageContainer::new(ReplicationMessage::<P>::SpawnEntity(entity));
+    //         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+    //         self.buffer_send(client_idx, message, channel_kind);
+    //     };
+    //
+    //     match replicate.target {
+    //         ReplicationTarget::All => {
+    //             for client_idx in self.client_idxs() {
+    //                 buffer_message(client_idx);
+    //             }
+    //         }
+    //         ReplicationTarget::AllExcept(client_id) => {
+    //             // TODO: convert to client_idx
+    //             self.client_idxs()
+    //                 .filter(|idx| idx != client_id)
+    //                 .for_each(buffer_message);
+    //         }
+    //         ReplicationTarget::Only(client_id) => {
+    //             // TODO: convert to client_idx
+    //             buffer_message(client_idx);
+    //         }
+    //     }
+    // }
 
     // MESSAGES
 
@@ -136,7 +134,7 @@ impl<P: Protocol> Server<P> {
         // handle connections
         for client_idx in self.context.connections.try_iter() {
             let client_addr = self.netcode.client_addr(client_idx).unwrap();
-            let connection = Connection::new(self.channel_registry);
+            let connection = MessageManager::new(self.protocol.channel_registry());
             debug!(
                 "New connection from {} (index: {})",
                 client_addr, client_idx

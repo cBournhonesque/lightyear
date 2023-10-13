@@ -15,6 +15,7 @@ quote = "1.0"
 syn = { version = "2.0", features = ["full"]}
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = "1.0.75"
+enum-kinds = "0.5"
 
 [dev-dependencies]
 lightyear_shared =  { path = ".." }

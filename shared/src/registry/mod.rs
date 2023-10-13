@@ -1,4 +1,6 @@
-use std::any::Any;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::hash::Hash;
 
 pub mod channel;
 pub mod message;
@@ -8,73 +10,54 @@ pub(crate) type NetId = u16;
 
 // TODO: read https://willcrichton.net/rust-api-type-patterns/registries.html more in detail
 
-trait TypeBuilder {}
+pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 
-/// Trait for types that can create their own builders
-pub(crate) trait GetBuilder<T> {
-    fn get_builder(&self) -> Box<T>;
+/// Struct to map a type to an id that can be serialized over the network
+#[derive(Clone)]
+pub struct TypeMapper<K: TypeKind> {
+    pub(in crate::registry) next_net_id: NetId,
+    pub(in crate::registry) kind_map: HashMap<K, NetId>,
+    pub(in crate::registry) id_map: HashMap<NetId, K>,
 }
 
-#[macro_export]
-macro_rules! type_registry {
-    ($name: ident, $T:tt, $builder:tt, $($v:ident: $t:ty),*) => {
-        use crate::registry::NetId;
-        use anyhow::bail;
-        use std::any::TypeId;
-        use std::collections::HashMap;
+impl<K: TypeKind> Default for TypeMapper<K> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        pub struct $name {
-            pub(in registry) next_net_id: NetId,
-            pub(in registry) kind_map: HashMap<TypeId, (NetId, Box<dyn $builder>)>,
-            pub(in registry) id_map: HashMap<NetId, TypeId>,
+impl<K: TypeKind> TypeMapper<K> {
+    pub fn new() -> Self {
+        Self {
+            next_net_id: 0,
+            kind_map: HashMap::new(),
+            id_map: HashMap::new(),
         }
+    }
 
-        impl $name {
-            pub fn new() -> Self {
-                Self {
-                    next_net_id: 0,
-                    kind_map: HashMap::new(),
-                    id_map: HashMap::new(),
-                }
-            }
-
-            /// Register a new type
-            pub fn add<T: $T + 'static>(&mut self, $($v: $t),*) -> anyhow::Result<()> {
-                let type_id = TypeId::of::<T>();
-                if self.kind_map.contains_key(&type_id) {
-                    bail!("Type already registered");
-                }
-                let net_id = self.next_net_id;
-                self.kind_map.insert(type_id, (net_id, T::get_builder($($v,)*)));
-                self.id_map.insert(net_id, type_id);
-                self.next_net_id += 1;
-                Ok(())
-            }
-
-            /// Get the registered object for a given type
-            pub fn get_mut_from_type(&mut self, type_id: &TypeId) -> Option<&mut Box<dyn $builder>> {
-                self.kind_map.get_mut(type_id).and_then(|(_, t)| Some(t))
-            }
-
-            pub fn get_mut_from_net_id(&mut self, net_id: NetId) -> Option<&mut Box<dyn $builder>> {
-                let type_id = self.id_map.get(&net_id)?.clone();
-                self.get_mut_from_type(&type_id)
-            }
-
-            /// Get the registered object for a given type
-            pub fn get_from_type(&self, type_id: &TypeId) -> Option<&Box<dyn $builder>> {
-                self.kind_map.get(type_id).and_then(|(_, t)| Some(t))
-            }
-
-            pub fn get_from_net_id(&self, net_id: NetId) -> Option<&Box<dyn $builder>> {
-                let type_id = self.id_map.get(&net_id)?;
-                self.get_from_type(type_id)
-            }
-
-            #[cfg(test)]
-            fn len(&self) -> usize {
-                self.kind_map.len()
-            }
+    /// Register a new type
+    pub fn add<T: 'static>(&mut self) -> K {
+        let kind = K::from(TypeId::of::<T>());
+        if self.kind_map.contains_key(&kind) {
+            panic!("Type already registered");
         }
-    };
+        let net_id = self.next_net_id;
+        self.kind_map.insert(kind, net_id);
+        self.id_map.insert(net_id, kind);
+        self.next_net_id += 1;
+        kind
+    }
+
+    pub fn kind(&self, net_id: NetId) -> Option<&K> {
+        self.id_map.get(&net_id)
+    }
+
+    pub fn net_id(&self, kind: &K) -> Option<&NetId> {
+        self.kind_map.get(&kind)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.kind_map.len()
+    }
 }

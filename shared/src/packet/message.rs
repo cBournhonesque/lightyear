@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use serde::Serialize;
 
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::SerializableProtocol;
+use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 
@@ -21,7 +21,7 @@ pub struct MessageContainer<P> {
     message: P,
 }
 
-impl<P: SerializableProtocol> MessageContainer<P> {
+impl<P: BitSerializable> MessageContainer<P> {
     /// Serialize the message into a bytes buffer
     /// Returns the number of bits written
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {

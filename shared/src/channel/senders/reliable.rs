@@ -11,7 +11,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::SerializableProtocol;
+use crate::protocol::BitSerializable;
 
 /// A packet that has not been acked yet
 pub struct UnackedMessage<P: Clone> {
@@ -71,7 +71,7 @@ impl<P: Clone> ReliableSender<P> {
 // (either packets in the buffer, or packets we need to resend cuz they were not acked,
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
-impl<P: SerializableProtocol> ChannelSend<P> for ReliableSender<P> {
+impl<P: BitSerializable> ChannelSend<P> for ReliableSender<P> {
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: MessageContainer<P>) {
