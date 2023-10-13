@@ -3,6 +3,7 @@ use std::{
     mem::size_of,
 };
 
+use crate::netcode::ClientId;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
 use tracing::debug;
@@ -228,32 +229,23 @@ impl Bytes for ResponsePacket {
 }
 
 pub struct KeepAlivePacket {
-    pub client_index: i32,
-    pub max_clients: i32,
+    pub client_id: ClientId,
 }
 impl KeepAlivePacket {
-    pub fn create(client_index: i32, max_clients: i32) -> Packet<'static> {
-        Packet::KeepAlive(KeepAlivePacket {
-            client_index,
-            max_clients,
-        })
+    pub fn create(client_id: ClientId) -> Packet<'static> {
+        Packet::KeepAlive(KeepAlivePacket { client_id })
     }
 }
 impl Bytes for KeepAlivePacket {
     type Error = io::Error;
     fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
-        writer.write_i32::<LittleEndian>(self.client_index)?;
-        writer.write_i32::<LittleEndian>(self.max_clients)?;
+        writer.write_u64::<LittleEndian>(self.client_id)?;
         Ok(())
     }
 
     fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
-        let client_index = reader.read_i32::<LittleEndian>()?;
-        let max_clients = reader.read_i32::<LittleEndian>()?;
-        Ok(Self {
-            client_index,
-            max_clients,
-        })
+        let client_id = reader.read_u64::<LittleEndian>()?;
+        Ok(Self { client_id })
     }
 }
 
@@ -639,14 +631,10 @@ mod tests {
         let packet_key = generate_key();
         let protocol_id = 0x1234_5678_9abc_def0;
         let sequence = 0u64;
-        let client_index = 0;
-        let max_clients = 32;
+        let client_id = 0x1234;
         let mut replay_protection = ReplayProtection::new();
 
-        let packet = Packet::KeepAlive(KeepAlivePacket {
-            client_index,
-            max_clients,
-        });
+        let packet = Packet::KeepAlive(KeepAlivePacket { client_id });
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet
@@ -667,8 +655,7 @@ mod tests {
             panic!("wrong packet type");
         };
 
-        assert_eq!(keep_alive_pkt.client_index, client_index);
-        assert_eq!(keep_alive_pkt.max_clients, max_clients);
+        assert_eq!(keep_alive_pkt.client_id, client_id);
     }
 
     #[test]

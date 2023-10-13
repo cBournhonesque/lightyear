@@ -9,8 +9,8 @@ use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::{Packet, MTU_PAYLOAD_BYTES};
 use crate::packet::wrapping_id::MessageId;
+use crate::protocol::registry::TypeMapper;
 use crate::protocol::{BitSerializable, Protocol};
-use crate::registry::TypeMapper;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -258,7 +258,6 @@ mod tests {
     use std::collections::VecDeque;
 
     use bitvec::access::BitAccess;
-    use lazy_static::lazy_static;
 
     use lightyear_derive::ChannelInternal;
 

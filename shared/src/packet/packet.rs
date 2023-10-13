@@ -8,8 +8,8 @@ use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
+use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
-use crate::registry::NetId;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 
@@ -227,8 +227,6 @@ impl<P: BitSerializable> Packet<P> {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
-
     use lightyear_derive::ChannelInternal;
 
     use crate::packet::manager::PacketManager;

@@ -102,45 +102,23 @@ impl Connection {
 
 /// The client id from a connect token, must be unique for each client.
 ///
-/// Note that this is not the same as the [`ClientIndex`](ClientIndex), which is used by the server to identify clients.
+/// Note that this is not the same as the [`ClientId`](ClientId), which is used by the server to identify clients.
 pub type ClientId = u64;
-
-/// Newtype over `usize` used by the server to identify clients.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ClientIndex(pub usize);
-
-impl<T> std::ops::Index<ClientIndex> for [T] {
-    type Output = T;
-    fn index(&self, index: ClientIndex) -> &Self::Output {
-        &self[index.0]
-    }
-}
-
-impl<T> std::ops::IndexMut<ClientIndex> for [T] {
-    fn index_mut(&mut self, index: ClientIndex) -> &mut Self::Output {
-        &mut self[index.0]
-    }
-}
-
-impl std::fmt::Display for ClientIndex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
 
 struct ConnectionCache {
     // this somewhat mimics the original C implementation,
     // the main difference being that `Connection` includes the encryption mapping as well.
-    clients: FreeList<Connection, MAX_CLIENTS>,
+    // clients: FreeList<Connection, MAX_CLIENTS>,
+    clients: HashMap<ClientId, Connection>,
 
-    // map from client address to client index
-    client_id_map: HashMap<SocketAddr, ClientIndex>,
+    // map from client address to client id
+    client_id_map: HashMap<SocketAddr, ClientId>,
 
     // we are not using a free-list here to not allocate memory up-front, since `ReplayProtection` is biggish (~2kb)
-    replay_protection: HashMap<ClientIndex, ReplayProtection>,
+    replay_protection: HashMap<ClientId, ReplayProtection>,
 
     // packet queue for all clients
-    packet_queue: VecDeque<(ReadWordBuffer, ClientIndex)>,
+    packet_queue: VecDeque<(ReadWordBuffer, ClientId)>,
 
     // corresponds to the server time
     time: f64,
@@ -149,7 +127,7 @@ struct ConnectionCache {
 impl ConnectionCache {
     fn new(server_time: f64) -> Self {
         Self {
-            clients: FreeList::new(),
+            clients: HashMap::with_capacity(MAX_CLIENTS),
             client_id_map: HashMap::with_capacity(MAX_CLIENTS),
             replay_protection: HashMap::with_capacity(MAX_CLIENTS),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
@@ -185,42 +163,36 @@ impl ConnectionCache {
             receive_key,
             sequence: 0,
         };
-        let client_idx = ClientIndex(self.clients.insert(conn));
+        self.clients.insert(client_id, conn);
         self.replay_protection
-            .insert(client_idx, ReplayProtection::new());
+            .insert(client_id, ReplayProtection::new());
 
-        self.client_id_map.insert(addr, client_idx);
+        self.client_id_map.insert(addr, client_id);
     }
-    fn remove(&mut self, client_idx: ClientIndex) {
-        let Some(conn) = self.clients.get_mut(client_idx.0) else {
+    fn remove(&mut self, client_id: ClientId) {
+        let Some(conn) = self.clients.get(&client_id) else {
             return;
         };
         if !conn.is_connected() {
             return;
         }
         self.client_id_map.remove(&conn.addr);
-        self.replay_protection.remove(&client_idx);
-        self.clients.remove(client_idx.0);
+        self.replay_protection.remove(&client_id);
+        self.clients.remove(&client_id);
     }
-    fn find_by_addr(&self, addr: &SocketAddr) -> Option<(ClientIndex, Connection)> {
+    fn find_by_addr(&self, addr: &SocketAddr) -> Option<(ClientId, Connection)> {
         self.client_id_map
             .get(addr)
-            .and_then(|idx| self.clients.get(idx.0).map(|conn| (*idx, *conn)))
-
-        // self.clients
-        //     .iter()
-        //     .find_map(|(idx, conn)| (conn.addr == *addr).then_some((ClientIndex(idx), conn)))
+            .and_then(|id| self.clients.get(id).map(|conn| (*id, *conn)))
     }
-    fn find_by_id(&self, client_id: ClientId) -> Option<(ClientIndex, Connection)> {
-        self.clients.iter().find_map(|(idx, conn)| {
-            (conn.client_id == client_id).then_some((ClientIndex(idx), conn))
-        })
+    fn find_by_id(&self, client_id: ClientId) -> Option<Connection> {
+        self.clients.get(&client_id).cloned()
     }
     fn update(&mut self, time: f64) {
         self.time = time;
     }
 }
-type Callback<Ctx> = Box<dyn FnMut(ClientIndex, &mut Ctx) + Send + Sync + 'static>;
+type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'static>;
 /// Configuration for a server.
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
@@ -296,7 +268,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// See [`ServerConfig`](ServerConfig) for an example.
     pub fn on_connect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientIndex, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, &mut Ctx) + Send + Sync + 'static,
     {
         self.on_connect = Some(Box::new(cb));
         self
@@ -307,7 +279,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// See [`ServerConfig`](ServerConfig) for an example.
     pub fn on_disconnect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientIndex, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, &mut Ctx) + Send + Sync + 'static,
     {
         self.on_disconnect = Some(Box::new(cb));
         self
@@ -421,21 +393,21 @@ impl<Ctx> Server<Ctx> {
         | 1 << Packet::KEEP_ALIVE
         | 1 << Packet::PAYLOAD
         | 1 << Packet::DISCONNECT;
-    fn on_connect(&mut self, client_idx: ClientIndex) {
+    fn on_connect(&mut self, client_id: ClientId) {
         if let Some(cb) = self.cfg.on_connect.as_mut() {
-            cb(client_idx, &mut self.cfg.context)
+            cb(client_id, &mut self.cfg.context)
         }
     }
-    fn on_disconnect(&mut self, client_idx: ClientIndex) {
+    fn on_disconnect(&mut self, client_id: ClientId) {
         if let Some(cb) = self.cfg.on_disconnect.as_mut() {
-            cb(client_idx, &mut self.cfg.context)
+            cb(client_id, &mut self.cfg.context)
         }
     }
-    fn touch_client(&mut self, client_idx: Option<ClientIndex>) -> Result<()> {
-        let Some(idx) = client_idx else {
+    fn touch_client(&mut self, client_id: Option<ClientId>) -> Result<()> {
+        let Some(id) = client_id else {
             return Ok(());
         };
-        let Some(conn) = self.conn_cache.clients.get_mut(idx.0) else {
+        let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
             return Ok(());
         };
         conn.last_receive_time = self.time;
@@ -451,21 +423,21 @@ impl<Ctx> Server<Ctx> {
         packet: Packet,
         sender: &mut impl PacketSender,
     ) -> Result<()> {
-        let client_idx = self.conn_cache.find_by_addr(&addr).map(|(idx, _)| idx);
+        let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
         trace!(
             "server received {} from {}",
             packet.to_string(),
-            client_idx
+            client_id
                 .map(|idx| format!("client {idx}"))
                 .unwrap_or_else(|| addr.to_string())
         );
         match packet {
             Packet::Request(packet) => self.process_connection_request(addr, packet, sender),
             Packet::Response(packet) => self.process_connection_response(addr, packet, sender),
-            Packet::KeepAlive(_) => self.touch_client(client_idx),
+            Packet::KeepAlive(_) => self.touch_client(client_id),
             Packet::Payload(packet) => {
-                self.touch_client(client_idx)?;
-                if let Some(idx) = client_idx {
+                self.touch_client(client_id)?;
+                if let Some(idx) = client_id {
                     self.conn_cache
                         .packet_queue
                         .push_back((ReadWordBuffer::start_read(packet.buf), idx));
@@ -473,7 +445,7 @@ impl<Ctx> Server<Ctx> {
                 Ok(())
             }
             Packet::Disconnect(_) => {
-                if let Some(idx) = client_idx {
+                if let Some(idx) = client_id {
                     debug!("server disconnected client {idx}");
                     self.on_disconnect(idx);
                     self.conn_cache.remove(idx);
@@ -501,11 +473,15 @@ impl<Ctx> Server<Ctx> {
     fn send_to_client(
         &mut self,
         packet: Packet,
-        idx: ClientIndex,
+        id: ClientId,
         sender: &mut impl PacketSender,
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
-        let conn = &mut self.conn_cache.clients[idx.0];
+        let conn = &mut self
+            .conn_cache
+            .clients
+            .get_mut(&id)
+            .expect("invalid client id");
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
         sender
             .send(&buf[..size], &conn.addr)
@@ -548,7 +524,7 @@ impl<Ctx> Server<Ctx> {
         if self
             .conn_cache
             .find_by_id(token.client_id)
-            .is_some_and(|(_, conn)| conn.is_connected())
+            .is_some_and(|conn| conn.is_connected())
         {
             debug!("server ignored connection request. a client with this id is already connected");
             return Ok(());
@@ -612,7 +588,8 @@ impl<Ctx> Server<Ctx> {
             debug!("server ignored connection response. failed to decrypt challenge token");
             return Ok(());
         };
-        let Some((idx, conn)) = self.conn_cache.find_by_id(challenge_token.client_id) else {
+        let id: ClientId = challenge_token.client_id;
+        let Some(conn) = self.conn_cache.find_by_id(id) else {
             debug!("server ignored connection response. no packet send key");
             return Ok(());
         };
@@ -620,17 +597,16 @@ impl<Ctx> Server<Ctx> {
             debug!("server ignored connection request. a client with this id is already connected");
             return Ok(());
         };
+        let client = self
+            .conn_cache
+            .clients
+            .get_mut(&id)
+            .expect("invalid client id");
         if self.num_connected_clients() >= MAX_CLIENTS {
             debug!("server denied connection response. server is full");
-            self.send_to_addr(
-                DeniedPacket::create(),
-                from_addr,
-                self.conn_cache.clients[idx.0].send_key,
-                sender,
-            )?;
+            self.send_to_addr(DeniedPacket::create(), from_addr, client.send_key, sender)?;
             return Ok(());
         };
-        let client = &mut self.conn_cache.clients[idx.0];
         client.connect();
         client.last_send_time = self.time;
         client.last_receive_time = self.time;
@@ -638,20 +614,12 @@ impl<Ctx> Server<Ctx> {
             "server accepted client {} with id {}",
             idx, challenge_token.client_id
         );
-        self.send_to_client(
-            KeepAlivePacket::create(idx.0 as i32, MAX_CLIENTS as i32),
-            idx,
-            sender,
-        )?;
-        self.on_connect(idx);
+        self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
+        self.on_connect(id);
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
-        for idx in 0..MAX_CLIENTS {
-            let Some(client) = self.conn_cache.clients.get_mut(idx) else {
-                continue;
-            };
-            let idx = ClientIndex(idx);
+        for (&id, client) in self.conn_cache.clients.iter() {
             if !client.is_connected() {
                 continue;
             }
@@ -659,16 +627,13 @@ impl<Ctx> Server<Ctx> {
                 && client.last_receive_time + (client.timeout as f64) < self.time
             {
                 debug!("server timed out client {idx}");
-                self.on_disconnect(idx);
-                self.conn_cache.remove(idx);
+                self.on_disconnect(id);
+                self.conn_cache.remove(id);
             }
         }
     }
     fn send_packets(&mut self, io: &mut Io) -> Result<()> {
-        for idx in 0..MAX_CLIENTS {
-            let Some(client) = self.conn_cache.clients.get_mut(idx) else {
-                continue;
-            };
+        for (&id, client) in self.conn_cache.clients.iter() {
             if !client.is_connected() {
                 continue;
             }
@@ -676,11 +641,7 @@ impl<Ctx> Server<Ctx> {
                 continue;
             }
 
-            self.send_to_client(
-                KeepAlivePacket::create(idx as i32, MAX_CLIENTS as i32),
-                ClientIndex(idx),
-                io,
-            )?;
+            self.send_to_client(KeepAlivePacket::create(id), id, io)?;
             trace!("server sent connection keep-alive packet to client {idx}");
         }
         Ok(())
@@ -700,10 +661,14 @@ impl<Ctx> Server<Ctx> {
             // Regardless of whether an entry in the connection cache exists for the client or not,
             // if the packet is a connection request we need to use the server's private key to decrypt it.
             _ if buf[0] == Packet::REQUEST => (self.private_key, None),
-            Some((client_idx, _)) => (
+            Some((client_id, _)) => (
                 // If the packet is not a connection request, use the receive key to decrypt it.
-                self.conn_cache.clients[client_idx.0].receive_key,
-                self.conn_cache.replay_protection.get_mut(&client_idx),
+                self.conn_cache
+                    .clients
+                    .get(&client_id)
+                    .expect("client id not found")
+                    .receive_key,
+                self.conn_cache.replay_protection.get_mut(&client_id),
             ),
             None => {
                 // Not a connection request packet, and not a known client, so ignore
@@ -796,17 +761,17 @@ impl<Ctx> Server<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(ReadWordBuffer, ClientIndex)> {
+    pub fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)> {
         self.conn_cache.packet_queue.pop_front()
     }
     /// Sends a packet to a client.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`](crate::MAX_PACKET_SIZE).
-    pub fn send(&mut self, buf: &[u8], client_idx: ClientIndex, io: &mut Io) -> Result<()> {
+    pub fn send(&mut self, buf: &[u8], client_id: ClientId, io: &mut Io) -> Result<()> {
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
-        let Some(conn) = self.conn_cache.clients.get_mut(client_idx.0) else {
+        let Some(conn) = self.conn_cache.clients.get_mut(&client_id) else {
             return Err(Error::ClientNotFound);
         };
         if !conn.is_connected() {
@@ -817,22 +782,18 @@ impl<Ctx> Server<Ctx> {
         }
         if !conn.is_confirmed() {
             // send a keep-alive packet to the client to confirm the connection
-            self.send_to_client(
-                KeepAlivePacket::create(client_idx.0 as i32, MAX_CLIENTS as i32),
-                client_idx,
-                io,
-            )?;
+            self.send_to_client(KeepAlivePacket::create(client_id), client_id, io)?;
         }
         let packet = PayloadPacket::create(buf);
-        self.send_to_client(packet, client_idx, io)
+        self.send_to_client(packet, client_id, io)
     }
 
     /// Sends a packet to all connected clients.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`](crate::MAX_PACKET_SIZE).
     pub fn send_all(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
-        for idx in 0..MAX_CLIENTS {
-            match self.send(buf, ClientIndex(idx), io) {
+        for id in self.conn_cache.clients.keys() {
+            match self.send(buf, *id, io) {
                 Ok(_) | Err(Error::ClientNotConnected) | Err(Error::ClientNotFound) => continue,
                 Err(e) => return Err(e),
             }
@@ -876,40 +837,37 @@ impl<Ctx> Server<Ctx> {
     /// Disconnects a client.
     ///
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
-    pub fn disconnect(&mut self, client_idx: ClientIndex, io: &mut Io) -> Result<()> {
-        let Some(conn) = self.conn_cache.clients.get_mut(client_idx.0) else {
+    pub fn disconnect(&mut self, client_id: ClientId, io: &mut Io) -> Result<()> {
+        let Some(conn) = self.conn_cache.clients.get_mut(&client_id) else {
             return Ok(());
         };
         if !conn.is_connected() {
             return Ok(());
         }
-        debug!("server disconnecting client {client_idx}");
+        debug!("server disconnecting client {client_id}");
         for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_to_client(DisconnectPacket::create(), client_idx, io)?;
+            self.send_to_client(DisconnectPacket::create(), client_id, io)?;
         }
-        self.on_disconnect(client_idx);
-        self.conn_cache.remove(client_idx);
+        self.on_disconnect(client_id);
+        self.conn_cache.remove(client_id);
         Ok(())
     }
     /// Disconnects all clients.
     pub fn disconnect_all(&mut self, io: &mut Io) -> Result<()> {
         debug!("server disconnecting all clients");
-        for idx in 0..MAX_CLIENTS {
-            let Some(conn) = self.conn_cache.clients.get_mut(idx) else {
+        for id in self.conn_cache.clients.keys() {
+            let Some(conn) = self.conn_cache.clients.get_mut(id) else {
                 continue;
             };
             if conn.is_connected() {
-                self.disconnect(ClientIndex(idx), io)?;
+                self.disconnect(*id, io)?;
             }
         }
         Ok(())
     }
 
-    pub fn client_idxs(&self) -> impl Iterator<Item = ClientIndex> + '_ {
-        self.conn_cache
-            .clients
-            .iter()
-            .map(|(idx, _)| ClientIndex(idx))
+    pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.conn_cache.clients.keys()
     }
 
     /// Gets the number of connected clients.
@@ -920,22 +878,9 @@ impl<Ctx> Server<Ctx> {
             .filter(|(_, c)| c.is_connected())
             .count()
     }
-    /// Gets the [`ClientId`](ClientId) of a client.
-    pub fn client_id(&self, client_idx: ClientIndex) -> Option<ClientId> {
-        self.conn_cache
-            .clients
-            .get(client_idx.0)
-            .map(|c| c.client_id)
-    }
-    /// Gets the address of a client.
-    pub fn client_addr(&self, client_idx: ClientIndex) -> Option<SocketAddr> {
-        self.conn_cache.clients.get(client_idx.0).map(|c| c.addr)
-    }
 
-    /// Gets the index of a client.
-    pub fn client_index(&self, client_addr: &SocketAddr) -> Option<ClientIndex> {
-        self.conn_cache
-            .find_by_addr(client_addr)
-            .map(|(idx, _)| idx)
+    /// Gets the address of a client.
+    pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
+        self.conn_cache.clients.get(&client_id).map(|c| c.addr)
     }
 }

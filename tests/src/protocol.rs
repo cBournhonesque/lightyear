@@ -29,7 +29,7 @@ pub enum MyComponentsProtocol {
     Component1(Component1),
 }
 
-protocolize!(MyMessageProtocol, MyComponentsProtocol);
+protocolize!(MyProtocol, MyMessageProtocol, MyComponentsProtocol);
 
 // Channels
 #[derive(Channel)]

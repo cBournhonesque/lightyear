@@ -1,16 +1,17 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::channel::ChannelProtocol;
+use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::{Channel, ChannelRegistry, ChannelSettings};
+use crate::{Channel, ChannelSettings};
 
 pub(crate) mod channel;
 pub(crate) mod component;
 pub(crate) mod message;
+pub(crate) mod registry;
 
 // create this struct using a macro, where we provide the message and component enums
 // protocolize!(MyMessage, MyComponents)
@@ -31,17 +32,19 @@ pub(crate) mod message;
 // TODO: give an option to change names of types
 #[macro_export]
 macro_rules! protocolize {
-    ($message:ty, $components:ty) => {
-        mod my_protocol {
+    ($protocol:ident, $message:ty, $components:ty) => {
+        use lightyear_shared::paste;
+        paste! {
+        mod [<$protocol _module>] {
             use super::*;
             use lightyear_shared::{
-                paste, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, Entity,
+                Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, Entity,
                 MessageProtocol, Protocol,
             };
             use serde::{Deserialize, Serialize};
 
             #[derive(Default)]
-            pub struct MyProtocol {
+            pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
 
@@ -50,14 +53,14 @@ macro_rules! protocolize {
                 EntitySpawned(Entity),
                 EntityDespawned(Entity),
                 ComponentInserted(Entity, $components),
-                ComponentRemoved(Entity, paste! { [<$components Kind>] }),
+                ComponentRemoved(Entity, [<$components Kind>]),
                 // ComponentRemoved(Entity, Discriminant<$components>),
                 EntityUpdate(Entity, Vec<$components>),
             }
 
             impl ComponentProtocol for GeneratedComponentsProtocol {}
 
-            impl Protocol for MyProtocol {
+            impl Protocol for $protocol {
                 type Message = $message;
                 type Components = GeneratedComponentsProtocol;
 
@@ -71,7 +74,8 @@ macro_rules! protocolize {
                 }
             }
         }
-        pub use my_protocol::MyProtocol;
+        pub use [<$protocol _module>]::$protocol;
+        }
     };
 }
 
@@ -90,9 +94,6 @@ pub trait BitSerializable: Clone {
     where
         Self: Sized;
 }
-
-// TODO: if this all we need from message protocol, then use this!
-//  then we can have messageProtocols require to implement a last marker trait called IsMessageProtocol
 
 impl<'a, T> BitSerializable for T
 where

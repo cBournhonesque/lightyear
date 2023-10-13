@@ -2,7 +2,7 @@ use log::debug;
 
 use lightyear_shared::netcode::ClientIndex;
 use lightyear_shared::{ChannelKind, MessageContainer};
-use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol, MyProtocol};
+use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
 #[test]
 fn test_simple_server_client() -> anyhow::Result<()> {

@@ -14,10 +14,10 @@ pub use lightyear_derive::{
     component_protocol, message_protocol, Channel, ComponentProtocol, MessageProtocol,
 };
 pub use packet::message::{Message, MessageContainer};
+pub use protocol::channel::{ChannelKind, ChannelRegistry};
 pub use protocol::component::ComponentProtocol;
 pub use protocol::message::MessageProtocol;
 pub use protocol::{BitSerializable, Protocol};
-pub use registry::channel::{ChannelKind, ChannelRegistry};
 pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
@@ -31,7 +31,6 @@ mod events;
 pub mod netcode;
 pub mod packet;
 pub(crate) mod protocol;
-pub mod registry;
 pub mod replication;
 pub mod serialize;
 pub mod transport;

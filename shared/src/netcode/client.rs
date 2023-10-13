@@ -229,8 +229,6 @@ impl<Ctx> Client<Ctx> {
             sequence: 0,
             challenge_token_sequence: 0,
             challenge_token_data: [0u8; ChallengeToken::SIZE],
-            client_index: 0,
-            max_clients: 0,
             token,
             replay_protection: ReplayProtection::new(),
             should_disconnect: false,
@@ -317,8 +315,6 @@ impl<Ctx> Client<Ctx> {
     }
     fn reset(&mut self, new_state: ClientState) {
         self.sequence = 0;
-        self.client_index = 0;
-        self.max_clients = 0;
         self.start_time = 0.0;
         self.server_addr_idx = 0;
         self.set_state(new_state);
@@ -401,8 +397,6 @@ impl<Ctx> Client<Ctx> {
             }
             (Packet::KeepAlive(pkt), ClientState::SendingChallengeResponse) => {
                 debug!("client received connection keep-alive packet from server");
-                self.client_index = pkt.client_index;
-                self.max_clients = pkt.max_clients;
                 self.set_state(ClientState::Connected);
                 info!("client connected to server");
             }

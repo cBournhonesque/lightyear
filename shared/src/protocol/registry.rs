@@ -2,9 +2,6 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::hash::Hash;
 
-pub mod channel;
-pub mod message;
-
 /// Id used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
 
@@ -15,9 +12,9 @@ pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 /// Struct to map a type to an id that can be serialized over the network
 #[derive(Clone)]
 pub struct TypeMapper<K: TypeKind> {
-    pub(in crate::registry) next_net_id: NetId,
-    pub(in crate::registry) kind_map: HashMap<K, NetId>,
-    pub(in crate::registry) id_map: HashMap<NetId, K>,
+    pub(in crate::protocol) next_net_id: NetId,
+    pub(in crate::protocol) kind_map: HashMap<K, NetId>,
+    pub(in crate::protocol) id_map: HashMap<NetId, K>,
 }
 
 impl<K: TypeKind> Default for TypeMapper<K> {
@@ -57,7 +54,7 @@ impl<K: TypeKind> TypeMapper<K> {
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize {
+    pub(in crate::protocol) fn len(&self) -> usize {
         self.kind_map.len()
     }
 }

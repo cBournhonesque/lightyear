@@ -10,12 +10,10 @@ use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::Packet;
 use crate::packet::wrapping_id::{MessageId, PacketId};
-use crate::protocol::channel::ChannelProtocol;
 use crate::protocol::Protocol;
-use crate::registry::channel::{ChannelKind, ChannelRegistry};
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
-use crate::{BitSerializable, Channel, WriteBuffer};
+use crate::{BitSerializable, Channel, ChannelKind, ChannelRegistry, WriteBuffer};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
@@ -228,7 +226,6 @@ mod tests {
     use crate::channel::channel::ReliableSettings;
     use crate::connection::connection::MessageManager;
     use crate::packet::wrapping_id::{MessageId, PacketId};
-    use crate::registry::TypeKind;
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
@@ -258,19 +255,19 @@ mod tests {
     #[test]
     /// We want to test that we can send/receive messages over a connection
     fn test_connection() -> Result<(), anyhow::Error> {
-        let mut CHANNEL_REGISTRY = ChannelRegistry::new();
-        CHANNEL_REGISTRY.add::<Channel1>(ChannelSettings {
+        let mut channel_registry = ChannelRegistry::new();
+        channel_registry.add::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             direction: ChannelDirection::Bidirectional,
         });
-        CHANNEL_REGISTRY.add::<Channel2>(ChannelSettings {
+        channel_registry.add::<Channel2>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             direction: ChannelDirection::Bidirectional,
         });
 
         // Create connections
-        let mut client_connection = MessageManager::<MyMessageProtocol>::new(&CHANNEL_REGISTRY);
-        let mut server_connection = MessageManager::<MyMessageProtocol>::new(&CHANNEL_REGISTRY);
+        let mut client_connection = MessageManager::<MyMessageProtocol>::new(&channel_registry);
+        let mut server_connection = MessageManager::<MyMessageProtocol>::new(&channel_registry);
 
         // client: buffer send messages, and then send
         let with_id = |message: &MessageContainer<_>, id| {

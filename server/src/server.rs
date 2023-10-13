@@ -5,9 +5,10 @@ use anyhow::Context;
 use log::debug;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ClientIndex, ConnectToken, ServerConfig};
+use lightyear_shared::replication::{Replicate, ReplicationMessage, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
 use lightyear_shared::WriteBuffer;
-use lightyear_shared::{ChannelKind, Io, MessageContainer, MessageManager, Protocol};
+use lightyear_shared::{ChannelKind, Entity, Io, MessageContainer, MessageManager, Protocol};
 
 use crate::io::NetcodeServerContext;
 
@@ -20,7 +21,7 @@ pub struct Server<P: Protocol> {
     netcode: lightyear_shared::netcode::Server<NetcodeServerContext>,
     context: ServerContext,
     // Clients
-    user_connections: HashMap<ClientIndex, MessageManager<P::Message>>,
+    user_connections: HashMap<ClientId, MessageManager<P::Message>>,
     // Protocol
     protocol: P,
 }
@@ -78,42 +79,42 @@ impl<P: Protocol> Server<P> {
 
     // REPLICATION
 
-    // pub fn entity_spawn(&mut self, entity: Entity, replicate: &Replicate) {
-    //     let channel_kind = replicate.channel.unwrap();
-    //     // TODO: use a pre-existing reliable channel for entity actions
-    //     // let channel_kind = replicate.channel.unwrap_or(default_reliable_channel);
-    //
-    //     let buffer_message = |client_idx: ClientIndex| {
-    //         let message = MessageContainer::new(ReplicationMessage::<P>::SpawnEntity(entity));
-    //         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-    //         self.buffer_send(client_idx, message, channel_kind);
-    //     };
-    //
-    //     match replicate.target {
-    //         ReplicationTarget::All => {
-    //             for client_idx in self.client_idxs() {
-    //                 buffer_message(client_idx);
-    //             }
-    //         }
-    //         ReplicationTarget::AllExcept(client_id) => {
-    //             // TODO: convert to client_idx
-    //             self.client_idxs()
-    //                 .filter(|idx| idx != client_id)
-    //                 .for_each(buffer_message);
-    //         }
-    //         ReplicationTarget::Only(client_id) => {
-    //             // TODO: convert to client_idx
-    //             buffer_message(client_idx);
-    //         }
-    //     }
-    // }
+    pub fn entity_spawn(&mut self, entity: Entity, replicate: &Replicate) {
+        let channel_kind = replicate.channel.unwrap();
+        // TODO: use a pre-existing reliable channel for entity actions
+        // let channel_kind = replicate.channel.unwrap_or(default_reliable_channel);
+
+        let buffer_message = |client_idx: ClientIndex| {
+            let message = MessageContainer::new(ReplicationMessage::<P>::SpawnEntity(entity));
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            self.buffer_send(client_idx, message, channel_kind);
+        };
+
+        match replicate.target {
+            ReplicationTarget::All => {
+                for client_idx in self.client_idxs() {
+                    buffer_message(client_idx);
+                }
+            }
+            ReplicationTarget::AllExcept(client_id) => {
+                // TODO: convert to client_idx
+                self.client_idxs()
+                    .filter(|idx| idx != client_id)
+                    .for_each(buffer_message);
+            }
+            ReplicationTarget::Only(client_id) => {
+                // TODO: convert to client_idx
+                buffer_message(client_idx);
+            }
+        }
+    }
 
     // MESSAGES
 
     /// Queues up a message to be sent to a client
     pub fn buffer_send(
         &mut self,
-        client_id: ClientIndex,
+        client_id: ClientId,
         message: MessageContainer<P::Message>,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<()> {
