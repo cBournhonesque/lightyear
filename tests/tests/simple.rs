@@ -1,6 +1,5 @@
 use log::debug;
 
-use lightyear_shared::netcode::ClientIndex;
 use lightyear_shared::{ChannelKind, MessageContainer};
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
@@ -38,8 +37,7 @@ fn test_simple_server_client() -> anyhow::Result<()> {
             server.recv_packets()?;
             server.send_packets()?;
 
-            let client_index = ClientIndex(0);
-            let messages = server.read_messages(client_index);
+            let messages = server.read_messages(client_id);
             if !messages.is_empty() {
                 assert_eq!(
                     messages.get(&channel_kind_2),
@@ -60,7 +58,7 @@ fn test_simple_server_client() -> anyhow::Result<()> {
             client.send_packets()?;
 
             if client.is_connected() {
-                client.buffer_send(message1, channel_kind_2)?;
+                client.buffer_send::<Channel2>(message1)?;
                 client.send_packets()?;
                 break;
             }

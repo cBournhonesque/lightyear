@@ -261,8 +261,8 @@ mod tests {
 
     use lightyear_derive::ChannelInternal;
 
-    use crate::packet::manager::PacketManager;
     use crate::packet::packet::MTU_PAYLOAD_BYTES;
+    use crate::packet::packet_manager::PacketManager;
     use crate::packet::wrapping_id::MessageId;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,

@@ -4,8 +4,8 @@ use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::packet::header::PacketHeader;
-use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
+use crate::packet::packet_manager::PacketManager;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::registry::NetId;
@@ -229,8 +229,8 @@ impl<P: BitSerializable> Packet<P> {
 mod tests {
     use lightyear_derive::ChannelInternal;
 
-    use crate::packet::manager::PacketManager;
     use crate::packet::packet::{Packet, SinglePacket};
+    use crate::packet::packet_manager::PacketManager;
     use crate::packet::packet_type::PacketType;
     use crate::{
         BitSerializable, ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings,

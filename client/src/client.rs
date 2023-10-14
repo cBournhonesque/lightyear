@@ -4,7 +4,7 @@ use anyhow::Context;
 
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
-use lightyear_shared::WriteBuffer;
+use lightyear_shared::{Channel, WriteBuffer};
 use lightyear_shared::{ChannelKind, Io, MessageContainer, MessageManager, Protocol};
 
 pub struct Client<P: Protocol> {
@@ -52,12 +52,11 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Send a message to the server
-    pub fn buffer_send(
+    pub fn buffer_send<C: Channel>(
         &mut self,
         message: MessageContainer<P::Message>,
-        channel_kind: ChannelKind,
     ) -> anyhow::Result<()> {
-        self.message_manager.buffer_send(message, channel_kind)
+        self.message_manager.buffer_send::<C>(message)
     }
 
     /// Receive messages from the server

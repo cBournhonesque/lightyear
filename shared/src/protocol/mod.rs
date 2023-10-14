@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::ComponentProtocol;
+use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
 use crate::protocol::message::MessageProtocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -38,31 +38,19 @@ macro_rules! protocolize {
         mod [<$protocol _module>] {
             use super::*;
             use lightyear_shared::{
-                Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, Entity,
+                Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind, Entity,
                 MessageProtocol, Protocol,
             };
-            use serde::{Deserialize, Serialize};
 
             #[derive(Default)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
 
-            #[derive(Serialize, Deserialize, Clone)]
-            pub enum GeneratedComponentsProtocol {
-                EntitySpawned(Entity),
-                EntityDespawned(Entity),
-                ComponentInserted(Entity, $components),
-                ComponentRemoved(Entity, [<$components Kind>]),
-                // ComponentRemoved(Entity, Discriminant<$components>),
-                EntityUpdate(Entity, Vec<$components>),
-            }
-
-            impl ComponentProtocol for GeneratedComponentsProtocol {}
-
             impl Protocol for $protocol {
                 type Message = $message;
-                type Components = GeneratedComponentsProtocol;
+                type Components = $components;
+                type ComponentKinds = [<$components Kind>];
 
                 fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self {
                     self.channel_registry.add::<C>(settings);
@@ -82,6 +70,7 @@ macro_rules! protocolize {
 pub trait Protocol {
     type Message: MessageProtocol;
     type Components: ComponentProtocol;
+    type ComponentKinds: ComponentProtocolKind;
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
     fn channel_registry(&self) -> &ChannelRegistry;
 }

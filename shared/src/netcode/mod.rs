@@ -110,13 +110,14 @@
 pub use client::{Client, ClientConfig, ClientState};
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
-pub use server::{ClientId, ClientIndex, Server, ServerConfig};
+pub use server::{ClientId, Server, ServerConfig};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 mod bytes;
 mod client;
 mod crypto;
 mod error;
+
 mod free_list;
 mod packet;
 mod replay;

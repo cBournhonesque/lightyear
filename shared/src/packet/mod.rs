@@ -1,6 +1,7 @@
 pub mod header;
-pub(crate) mod manager;
 pub mod message;
+pub mod message_manager;
 pub mod packet;
+pub(crate) mod packet_manager;
 mod packet_type;
 pub mod wrapping_id;

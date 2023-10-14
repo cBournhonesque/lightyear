@@ -1,8 +1,8 @@
 use crossbeam_channel::Sender;
 
-use lightyear_shared::netcode::ClientIndex;
+use lightyear_shared::netcode::ClientId;
 
 pub struct NetcodeServerContext {
-    pub connections: Sender<ClientIndex>,
-    pub disconnections: Sender<ClientIndex>,
+    pub connections: Sender<ClientId>,
+    pub disconnections: Sender<ClientId>,
 }

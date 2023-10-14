@@ -9,7 +9,7 @@ use quote::{format_ident, quote};
 use syn::{parse_macro_input, ItemEnum};
 
 use channel::channel_impl;
-use component::component_impl;
+use component::{component_impl, component_kind_impl};
 use message::message_impl;
 
 mod channel;
@@ -104,6 +104,11 @@ pub fn component_derive_internal(input: proc_macro::TokenStream) -> proc_macro::
     component_impl(input)
 }
 
+#[proc_macro_derive(ComponentProtocolKind)]
+pub fn component_kind_derive_internal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    component_kind_impl(input)
+}
+
 #[proc_macro_attribute]
 pub fn component_protocol_internal(
     _metadata: proc_macro::TokenStream,
@@ -122,10 +127,11 @@ pub fn component_protocol_internal(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use crate::{EnumKind, ReadBuffer, WriteBuffer, BitSerializable, ComponentProtocol};
+            use crate::{EnumKind, ReadBuffer, WriteBuffer, BitSerializable,
+                ComponentProtocol, ComponentProtocolKind};
 
             #[derive(ComponentProtocol, EnumKind, Serialize, Deserialize, Clone)]
-            #[enum_kind(#enum_kind_name, derive(Serialize, Deserialize))]
+            #[enum_kind(#enum_kind_name, derive(Serialize, Deserialize, ComponentProtocolKind))]
             #item
         }
         pub use #module_name::#enum_name as #enum_name;
@@ -152,10 +158,11 @@ pub fn component_protocol(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use lightyear_shared::{EnumKind, ReadBuffer, WriteBuffer, BitSerializable, ComponentProtocol};
+            use lightyear_shared::{EnumKind, ReadBuffer, WriteBuffer, BitSerializable,
+                ComponentProtocol, ComponentProtocolKind};
 
             #[derive(ComponentProtocol, EnumKind, Serialize, Deserialize, Clone)]
-            #[enum_kind(#enum_kind_name, derive(Serialize, Deserialize))]
+            #[enum_kind(#enum_kind_name, derive(Serialize, Deserialize, ComponentProtocolKind))]
             #item
         }
         pub use #module_name::#enum_name as #enum_name;

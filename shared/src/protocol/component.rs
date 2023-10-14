@@ -1,3 +1,6 @@
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
 use crate::serialize::writer::WriteBuffer;
 use crate::BitSerializable;
 
@@ -5,7 +8,10 @@ use crate::BitSerializable;
 // each message must derive message
 
 // that big enum will implement MessageProtocol via a proc macro
-pub trait ComponentProtocol: BitSerializable {}
+// TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
+pub trait ComponentProtocol: BitSerializable + Serialize + DeserializeOwned {}
+
+pub trait ComponentProtocolKind: BitSerializable + Serialize + DeserializeOwned {}
 
 // user provides an enum of all possible components that might be replicated
 // enum MyComponentProtocol {

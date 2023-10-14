@@ -1,3 +1,3 @@
-pub use connection::MessageManager;
+pub use connection::Connection;
 
 mod connection;

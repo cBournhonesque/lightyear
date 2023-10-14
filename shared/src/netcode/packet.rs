@@ -3,10 +3,11 @@ use std::{
     mem::size_of,
 };
 
-use crate::netcode::ClientId;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
 use tracing::debug;
+
+use crate::netcode::ClientId;
 
 use super::{
     bytes::Bytes,

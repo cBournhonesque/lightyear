@@ -4,11 +4,11 @@ use std::net::SocketAddr;
 use anyhow::Context;
 use log::debug;
 
-use lightyear_shared::netcode::{generate_key, ClientId, ClientIndex, ConnectToken, ServerConfig};
-use lightyear_shared::replication::{Replicate, ReplicationMessage, ReplicationTarget};
+use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken, ServerConfig};
+use lightyear_shared::replication::{Replicate, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
-use lightyear_shared::WriteBuffer;
-use lightyear_shared::{ChannelKind, Entity, Io, MessageContainer, MessageManager, Protocol};
+use lightyear_shared::{Channel, ChannelKind, Entity, Io, MessageContainer, Protocol};
+use lightyear_shared::{Connection, WriteBuffer};
 
 use crate::io::NetcodeServerContext;
 
@@ -21,7 +21,7 @@ pub struct Server<P: Protocol> {
     netcode: lightyear_shared::netcode::Server<NetcodeServerContext>,
     context: ServerContext,
     // Clients
-    user_connections: HashMap<ClientId, MessageManager<P::Message>>,
+    user_connections: HashMap<ClientId, Connection<P>>,
     // Protocol
     protocol: P,
 }
@@ -37,11 +37,11 @@ impl<P: Protocol> Server<P> {
             disconnections: disconnections_tx,
         };
         let cfg = ServerConfig::with_context(server_context)
-            .on_connect(|idx, ctx| {
-                ctx.connections.send(idx).unwrap();
+            .on_connect(|id, ctx| {
+                ctx.connections.send(id).unwrap();
             })
-            .on_disconnect(|idx, ctx| {
-                ctx.disconnections.send(idx).unwrap();
+            .on_disconnect(|id, ctx| {
+                ctx.disconnections.send(id).unwrap();
             });
         let netcode =
             lightyear_shared::netcode::Server::with_config(protocol_id, private_key, cfg).unwrap();
@@ -70,41 +70,46 @@ impl<P: Protocol> Server<P> {
         self.io.local_addr()
     }
 
-    pub fn client_idx(&self, addr: SocketAddr) -> Option<ClientIndex> {
-        self.netcode.client_index(&addr)
-    }
-    pub fn client_idxs(&self) -> impl Iterator<Item = ClientIndex> + '_ {
-        self.netcode.client_idxs()
+    // pub fn client_id(&self, addr: SocketAddr) -> Option<ClientId> {
+    //     self.netcode.client_ids()
+    // }
+
+    pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.netcode.client_ids()
     }
 
     // REPLICATION
 
-    pub fn entity_spawn(&mut self, entity: Entity, replicate: &Replicate) {
-        let channel_kind = replicate.channel.unwrap();
-        // TODO: use a pre-existing reliable channel for entity actions
-        // let channel_kind = replicate.channel.unwrap_or(default_reliable_channel);
-
-        let buffer_message = |client_idx: ClientIndex| {
-            let message = MessageContainer::new(ReplicationMessage::<P>::SpawnEntity(entity));
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            self.buffer_send(client_idx, message, channel_kind);
-        };
+    // TODO: MAYBE THE EXTERNAL API SHOULD USE <C> API FOR CLARITY
+    //  BUT INTERNALLY WE SHOULD PASS CHANNEL_KINDS AROUND? BECAUSE IT IS EASIER TO USE WITH CHANNEL REGISTRY?
+    //  HERE HOW DO WE SPECIFY TO USE THE DEFAULT CHANNEL IF NOT PROVIDED?
+    pub fn entity_spawn<C: Channel>(&mut self, entity: Entity, replicate: &Replicate<C>) {
+        let mut buffer_message =
+            |client_id: ClientId, user_connections: &mut HashMap<ClientId, Connection<P>>| {
+                // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+                user_connections
+                    .get_mut(&client_id)
+                    .expect("client not found")
+                    .replication_manager
+                    .buffer_spawn_entity::<C>(entity);
+            };
 
         match replicate.target {
             ReplicationTarget::All => {
-                for client_idx in self.client_idxs() {
-                    buffer_message(client_idx);
+                let client_ids: Vec<ClientId> = self.client_ids().collect();
+                for client_id in client_ids {
+                    buffer_message(client_id, &mut self.user_connections);
                 }
             }
             ReplicationTarget::AllExcept(client_id) => {
-                // TODO: convert to client_idx
-                self.client_idxs()
-                    .filter(|idx| idx != client_id)
-                    .for_each(buffer_message);
+                let client_ids: Vec<ClientId> =
+                    self.client_ids().filter(|id| *id != client_id).collect();
+                for client_id in client_ids {
+                    buffer_message(client_id, &mut self.user_connections);
+                }
             }
             ReplicationTarget::Only(client_id) => {
-                // TODO: convert to client_idx
-                buffer_message(client_idx);
+                buffer_message(client_id, &mut self.user_connections);
             }
         }
     }
@@ -112,16 +117,16 @@ impl<P: Protocol> Server<P> {
     // MESSAGES
 
     /// Queues up a message to be sent to a client
-    pub fn buffer_send(
+    pub fn buffer_send<C: Channel>(
         &mut self,
         client_id: ClientId,
         message: MessageContainer<P::Message>,
-        channel_kind: ChannelKind,
     ) -> anyhow::Result<()> {
         self.user_connections
             .get_mut(&client_id)
             .context("client not found")?
-            .buffer_send(message, channel_kind)
+            .message_manager
+            .buffer_send::<C>(message)
     }
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients
@@ -135,7 +140,7 @@ impl<P: Protocol> Server<P> {
         // handle connections
         for client_idx in self.context.connections.try_iter() {
             let client_addr = self.netcode.client_addr(client_idx).unwrap();
-            let connection = MessageManager::new(self.protocol.channel_registry());
+            let connection = Connection::new(self.protocol.channel_registry());
             debug!(
                 "New connection from {} (index: {})",
                 client_addr, client_idx
@@ -155,10 +160,10 @@ impl<P: Protocol> Server<P> {
     /// TODO: maybe use events?
     pub fn read_messages(
         &mut self,
-        client_id: ClientIndex,
+        client_id: ClientId,
     ) -> HashMap<ChannelKind, Vec<MessageContainer<P::Message>>> {
         if let Some(connection) = self.user_connections.get_mut(&client_id) {
-            connection.read_messages()
+            connection.message_manager.read_messages()
         } else {
             HashMap::new()
         }
@@ -167,7 +172,7 @@ impl<P: Protocol> Server<P> {
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> anyhow::Result<()> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
-            for mut packet_byte in connection.send_packets()? {
+            for mut packet_byte in connection.message_manager.send_packets()? {
                 self.netcode
                     .send(packet_byte.finish_write(), *client_idx, &mut self.io)?;
             }
@@ -183,6 +188,7 @@ impl<P: Protocol> Server<P> {
                     self.user_connections
                         .get_mut(&client_id)
                         .context("client not found")?
+                        .message_manager
                         .recv_packet(&mut reader)?;
                 }
                 None => break,
@@ -193,6 +199,6 @@ impl<P: Protocol> Server<P> {
 }
 
 pub struct ServerContext {
-    pub connections: crossbeam_channel::Receiver<ClientIndex>,
-    pub disconnections: crossbeam_channel::Receiver<ClientIndex>,
+    pub connections: crossbeam_channel::Receiver<ClientId>,
+    pub disconnections: crossbeam_channel::Receiver<ClientId>,
 }

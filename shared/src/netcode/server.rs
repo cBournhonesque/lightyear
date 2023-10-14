@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::ops::Index;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::{debug, error, trace};
@@ -12,7 +11,6 @@ use super::{
     bytes::Bytes,
     crypto::{self, Key},
     error::{Error, Result},
-    free_list::FreeList,
     packet::{
         ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
         RequestPacket, ResponsePacket,
@@ -108,7 +106,6 @@ pub type ClientId = u64;
 struct ConnectionCache {
     // this somewhat mimics the original C implementation,
     // the main difference being that `Connection` includes the encryption mapping as well.
-    // clients: FreeList<Connection, MAX_CLIENTS>,
     clients: HashMap<ClientId, Connection>,
 
     // map from client address to client id
@@ -180,6 +177,11 @@ impl ConnectionCache {
         self.replay_protection.remove(&client_id);
         self.clients.remove(&client_id);
     }
+
+    fn ids(&self) -> Vec<ClientId> {
+        self.clients.keys().cloned().collect()
+    }
+
     fn find_by_addr(&self, addr: &SocketAddr) -> Option<(ClientId, Connection)> {
         self.client_id_map
             .get(addr)
@@ -412,7 +414,7 @@ impl<Ctx> Server<Ctx> {
         };
         conn.last_receive_time = self.time;
         if !conn.is_confirmed() {
-            debug!("server confirmed connection with client {idx}");
+            debug!("server confirmed connection with client {id}");
             conn.confirm();
         }
         Ok(())
@@ -597,43 +599,59 @@ impl<Ctx> Server<Ctx> {
             debug!("server ignored connection request. a client with this id is already connected");
             return Ok(());
         };
+
+        if self.num_connected_clients() >= MAX_CLIENTS {
+            debug!("server denied connection response. server is full");
+            self.send_to_addr(
+                DeniedPacket::create(),
+                from_addr,
+                self.conn_cache
+                    .clients
+                    .get(&id)
+                    .expect("invalid client id")
+                    .send_key,
+                sender,
+            )?;
+            return Ok(());
+        };
         let client = self
             .conn_cache
             .clients
             .get_mut(&id)
             .expect("invalid client id");
-        if self.num_connected_clients() >= MAX_CLIENTS {
-            debug!("server denied connection response. server is full");
-            self.send_to_addr(DeniedPacket::create(), from_addr, client.send_key, sender)?;
-            return Ok(());
-        };
         client.connect();
         client.last_send_time = self.time;
         client.last_receive_time = self.time;
         debug!(
             "server accepted client {} with id {}",
-            idx, challenge_token.client_id
+            id, challenge_token.client_id
         );
         self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
         self.on_connect(id);
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
-        for (&id, client) in self.conn_cache.clients.iter() {
+        for id in self.conn_cache.ids() {
+            let Some(client) = self.conn_cache.clients.get_mut(&id) else {
+                continue;
+            };
             if !client.is_connected() {
                 continue;
             }
             if client.timeout.is_positive()
                 && client.last_receive_time + (client.timeout as f64) < self.time
             {
-                debug!("server timed out client {idx}");
+                debug!("server timed out client {id}");
                 self.on_disconnect(id);
                 self.conn_cache.remove(id);
             }
         }
     }
     fn send_packets(&mut self, io: &mut Io) -> Result<()> {
-        for (&id, client) in self.conn_cache.clients.iter() {
+        for id in self.conn_cache.ids() {
+            let Some(client) = self.conn_cache.clients.get_mut(&id) else {
+                continue;
+            };
             if !client.is_connected() {
                 continue;
             }
@@ -642,7 +660,7 @@ impl<Ctx> Server<Ctx> {
             }
 
             self.send_to_client(KeepAlivePacket::create(id), id, io)?;
-            trace!("server sent connection keep-alive packet to client {idx}");
+            trace!("server sent connection keep-alive packet to client {id}");
         }
         Ok(())
     }
@@ -792,8 +810,8 @@ impl<Ctx> Server<Ctx> {
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`](crate::MAX_PACKET_SIZE).
     pub fn send_all(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
-        for id in self.conn_cache.clients.keys() {
-            match self.send(buf, *id, io) {
+        for id in self.conn_cache.ids() {
+            match self.send(buf, id, io) {
                 Ok(_) | Err(Error::ClientNotConnected) | Err(Error::ClientNotFound) => continue,
                 Err(e) => return Err(e),
             }
@@ -855,19 +873,19 @@ impl<Ctx> Server<Ctx> {
     /// Disconnects all clients.
     pub fn disconnect_all(&mut self, io: &mut Io) -> Result<()> {
         debug!("server disconnecting all clients");
-        for id in self.conn_cache.clients.keys() {
-            let Some(conn) = self.conn_cache.clients.get_mut(id) else {
+        for id in self.conn_cache.ids() {
+            let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
                 continue;
             };
             if conn.is_connected() {
-                self.disconnect(*id, io)?;
+                self.disconnect(id, io)?;
             }
         }
         Ok(())
     }
 
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
-        self.conn_cache.clients.keys()
+        self.conn_cache.clients.keys().map(|id| *id)
     }
 
     /// Gets the number of connected clients.

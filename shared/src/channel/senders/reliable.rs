@@ -8,8 +8,8 @@ use mock_instant::Instant;
 
 use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::ChannelSend;
-use crate::packet::manager::PacketManager;
 use crate::packet::message::MessageContainer;
+use crate::packet::packet_manager::PacketManager;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 

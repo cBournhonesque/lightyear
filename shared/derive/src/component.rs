@@ -43,3 +43,16 @@ fn decode_method() -> TokenStream {
         }
     }
 }
+
+pub fn component_kind_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    // Names
+    let struct_name = input.ident;
+
+    // Methods
+    let gen = quote! {
+        impl ComponentProtocolKind for #struct_name {}
+    };
+    proc_macro::TokenStream::from(gen)
+}

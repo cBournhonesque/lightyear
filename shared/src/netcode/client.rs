@@ -194,8 +194,6 @@ pub struct Client<Ctx = ()> {
     sequence: u64,
     challenge_token_sequence: u64,
     challenge_token_data: [u8; ChallengeToken::SIZE],
-    client_index: i32,
-    max_clients: i32,
     token: ConnectToken,
     replay_protection: ReplayProtection,
     should_disconnect: bool,
@@ -341,7 +339,7 @@ impl<Ctx> Client<Ctx> {
             }
             ClientState::Connected => {
                 trace!("client sending connection keep-alive packet to server");
-                KeepAlivePacket::create(0, 0)
+                KeepAlivePacket::create(0)
             }
             _ => return Ok(()),
         };
