@@ -16,6 +16,7 @@ use lightyear_derive::ChannelInternal;
 use crate::netcode::ClientId;
 use crate::{BitSerializable, ComponentProtocol, ComponentProtocolKind, ReadBuffer, WriteBuffer};
 
+mod entity_map;
 pub mod manager;
 
 /// Default channel to replicate entity updates reliably
@@ -54,7 +55,7 @@ pub enum ReplicationTarget {
 pub enum ReplicationMessage<C, K> {
     // reliable
     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
-    SpawnEntity(Entity),
+    SpawnEntity(Entity, Vec<C>),
     DespawnEntity(Entity),
     InsertComponent(Entity, C),
     RemoveComponent(Entity, K),

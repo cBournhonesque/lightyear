@@ -49,6 +49,10 @@ impl<P: BitSerializable> MessageContainer<P> {
     pub fn set_id(&mut self, id: MessageId) {
         self.id = Some(id);
     }
+
+    pub fn inner(self) -> P {
+        self.message
+    }
 }
 
 // pub trait MessageBuilder {

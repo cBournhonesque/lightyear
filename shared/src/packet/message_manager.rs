@@ -38,13 +38,13 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Buffer a message to be sent on this connection
-    pub fn buffer_send<C: Channel>(&mut self, message: MessageContainer<M>) -> anyhow::Result<()> {
+    pub fn buffer_send<C: Channel>(&mut self, message: M) -> anyhow::Result<()> {
         let channel_kind = ChannelKind::of::<C>();
         let mut channel = self
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
-        Ok(channel.sender.buffer_send(message))
+        Ok(channel.sender.buffer_send(MessageContainer::new(message)))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -193,7 +193,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
-    //  lets be conservative and just return the messages right now. We could switch to an iterator
+    //  let be conservative and just return the messages right now. We could switch to an iterator
     pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<MessageContainer<M>>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {

@@ -22,6 +22,7 @@ pub trait Channel: 'static {
 }
 
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct ChannelBuilder {
     // TODO: this has been made public just for testing integartion tests
     pub settings: ChannelSettings,

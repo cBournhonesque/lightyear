@@ -10,6 +10,7 @@ anyhow = "1.0"
 lightyear_shared = { path = "../shared" }
 crossbeam-channel = "0.5.8"
 log = "0.4.20"
+bevy_app = { version = "0.11", default-features = false}
 bevy_ecs = { version = "0.11", default-features = false}
 
 [dev-dependencies]

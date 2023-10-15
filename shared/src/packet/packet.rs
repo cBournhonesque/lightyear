@@ -24,18 +24,6 @@ pub(crate) const MTU_PAYLOAD_BYTES: usize = 1200;
 /// Contains multiple small messages
 #[derive(Clone)]
 pub(crate) struct SinglePacket<P: BitSerializable, const C: usize = MTU_PACKET_BYTES> {
-    // TODO: the alternative is to simply encode the bytes in the single packet
-    //  the packetManager has all the necessary information to know how to encode
-    //  a list of messages tied to a channel into a packet, and to decode them
-    //  PROS: all complexity is only in one object (packet_manager), less indirection
-    //  CONS: less clear what the structure of a packet is. Hidden knowledge inside PacketManager
-    // pub(crate) bytes: [u8; MTU_PACKET_BYTES],
-
-    // TODO: the alternative is to encode the structure of the packet in the struct
-    //  and have custom encode/decode functions for it that take care of continue bits, etc.
-    //  data: BTreeMap<NetId, Vec<MessageContainer<P>>>,
-    //  PROS: less "magic" in the packet_manager, more explicit of how a packet is built
-    //  CONS: more boilerplate, more complicated?
     pub(crate) header: PacketHeader,
     pub(crate) data: BTreeMap<NetId, Vec<MessageContainer<P>>>,
 }

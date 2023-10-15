@@ -9,7 +9,7 @@ pub use paste::paste;
 pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
 };
-pub use connection::Connection;
+pub use connection::{Connection, Events};
 pub use lightyear_derive::{
     component_protocol, message_protocol, Channel, ComponentProtocol, ComponentProtocolKind,
     MessageProtocol,
@@ -30,7 +30,6 @@ pub use transport::udp::UdpSocket;
 
 pub mod channel;
 mod connection;
-mod events;
 pub mod netcode;
 pub mod packet;
 pub(crate) mod protocol;

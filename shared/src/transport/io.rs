@@ -9,8 +9,8 @@ use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
 
 pub struct Io {
     local_addr: SocketAddr,
-    sender: Box<dyn PacketSender + Send>,
-    receiver: Box<dyn PacketReceiver + Send>,
+    sender: Box<dyn PacketSender + Send + Sync>,
+    receiver: Box<dyn PacketReceiver + Send + Sync>,
     // transport: Box<dyn Transport>,
     // read_buffer: ReadBuffer<'_>,
 }
@@ -25,8 +25,8 @@ impl Io {
 
     pub fn new(
         local_addr: SocketAddr,
-        sender: Box<dyn PacketSender + Send>,
-        receiver: Box<dyn PacketReceiver + Send>,
+        sender: Box<dyn PacketSender + Send + Sync>,
+        receiver: Box<dyn PacketReceiver + Send + Sync>,
     ) -> Self {
         Self {
             local_addr,
@@ -40,8 +40,8 @@ impl Io {
     pub fn split(
         &mut self,
     ) -> (
-        &mut Box<dyn PacketSender + Send>,
-        &mut Box<dyn PacketReceiver + Send>,
+        &mut Box<dyn PacketSender + Send + Sync>,
+        &mut Box<dyn PacketReceiver + Send + Sync>,
     ) {
         (&mut self.sender, &mut self.receiver)
     }
@@ -75,13 +75,13 @@ impl PacketReader for Io {
     }
 }
 
-impl PacketSender for Box<dyn PacketSender + Send> {
+impl PacketSender for Box<dyn PacketSender + Send + Sync> {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         (**self).send(payload, address)
     }
 }
 
-impl PacketReceiver for Box<dyn PacketReceiver + Send> {
+impl PacketReceiver for Box<dyn PacketReceiver + Send + Sync> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         (**self).recv()
     }

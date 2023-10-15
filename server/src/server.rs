@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use anyhow::Context;
+use anyhow::{Context, Result};
+use bevy_ecs::prelude::Resource;
 use log::debug;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken, ServerConfig};
 use lightyear_shared::replication::{Replicate, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Entity, Io, MessageContainer, Protocol};
+use lightyear_shared::{Channel, Entity, Io, Protocol};
 use lightyear_shared::{Connection, WriteBuffer};
 
+use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
 
+#[derive(Resource)]
 pub struct Server<P: Protocol> {
     // Config
 
@@ -83,35 +86,40 @@ impl<P: Protocol> Server<P> {
     // TODO: MAYBE THE EXTERNAL API SHOULD USE <C> API FOR CLARITY
     //  BUT INTERNALLY WE SHOULD PASS CHANNEL_KINDS AROUND? BECAUSE IT IS EASIER TO USE WITH CHANNEL REGISTRY?
     //  HERE HOW DO WE SPECIFY TO USE THE DEFAULT CHANNEL IF NOT PROVIDED?
-    pub fn entity_spawn<C: Channel>(&mut self, entity: Entity, replicate: &Replicate<C>) {
-        let mut buffer_message =
-            |client_id: ClientId, user_connections: &mut HashMap<ClientId, Connection<P>>| {
-                // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-                user_connections
-                    .get_mut(&client_id)
-                    .expect("client not found")
-                    .replication_manager
-                    .buffer_spawn_entity::<C>(entity);
-            };
+    pub fn entity_spawn<C: Channel>(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate<C>,
+    ) -> Result<()> {
+        let mut buffer_message = |client_id: ClientId,
+                                  user_connections: &mut HashMap<ClientId, Connection<P>>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
+                .buffer_spawn_entity::<C>(entity)
+        };
 
         match replicate.target {
             ReplicationTarget::All => {
                 let client_ids: Vec<ClientId> = self.client_ids().collect();
                 for client_id in client_ids {
-                    buffer_message(client_id, &mut self.user_connections);
+                    buffer_message(client_id, &mut self.user_connections)?;
                 }
             }
             ReplicationTarget::AllExcept(client_id) => {
                 let client_ids: Vec<ClientId> =
                     self.client_ids().filter(|id| *id != client_id).collect();
                 for client_id in client_ids {
-                    buffer_message(client_id, &mut self.user_connections);
+                    buffer_message(client_id, &mut self.user_connections)?;
                 }
             }
             ReplicationTarget::Only(client_id) => {
-                buffer_message(client_id, &mut self.user_connections);
+                buffer_message(client_id, &mut self.user_connections)?;
             }
         }
+        Ok(())
     }
 
     // MESSAGES
@@ -120,18 +128,17 @@ impl<P: Protocol> Server<P> {
     pub fn buffer_send<C: Channel>(
         &mut self,
         client_id: ClientId,
-        message: MessageContainer<P::Message>,
-    ) -> anyhow::Result<()> {
+        message: P::Message,
+    ) -> Result<()> {
         self.user_connections
             .get_mut(&client_id)
             .context("client not found")?
-            .message_manager
-            .buffer_send::<C>(message)
+            .buffer_message::<C>(message)
     }
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients
     /// Sends keep-alive packets + any non-payload packet needed for netcode
-    pub fn update(&mut self, time: f64) -> anyhow::Result<()> {
+    pub fn update(&mut self, time: f64) -> Result<()> {
         // update netcode server
         self.netcode
             .try_update(time, &mut self.io)
@@ -156,23 +163,33 @@ impl<P: Protocol> Server<P> {
         Ok(())
     }
 
-    /// Receive messages from the server
-    /// TODO: maybe use events?
-    pub fn read_messages(
-        &mut self,
-        client_id: ClientId,
-    ) -> HashMap<ChannelKind, Vec<MessageContainer<P::Message>>> {
-        if let Some(connection) = self.user_connections.get_mut(&client_id) {
-            connection.message_manager.read_messages()
-        } else {
-            HashMap::new()
+    pub fn receive(&mut self) -> ServerEvents<P> {
+        let mut events = ServerEvents::new();
+        for (client_id, connection) in &mut self.user_connections.iter_mut() {
+            let connection_events = connection.receive();
+            if !connection_events.is_empty() {
+                events.push_events(*client_id, connection_events);
+            }
         }
+        events
     }
 
+    // /// Receive messages from the server
+    // pub fn read_messages(
+    //     &mut self,
+    //     client_id: ClientId,
+    // ) -> HashMap<ChannelKind, Vec<MessageContainer<P::Message>>> {
+    //     if let Some(connection) = self.user_connections.get_mut(&client_id) {
+    //         connection.message_manager.read_messages()
+    //     } else {
+    //         HashMap::new()
+    //     }
+    // }
+
     /// Send packets that are ready from the message manager through the transport layer
-    pub fn send_packets(&mut self) -> anyhow::Result<()> {
+    pub fn send_packets(&mut self) -> Result<()> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
-            for mut packet_byte in connection.message_manager.send_packets()? {
+            for mut packet_byte in connection.send_packets()? {
                 self.netcode
                     .send(packet_byte.finish_write(), *client_idx, &mut self.io)?;
             }
@@ -181,10 +198,11 @@ impl<P: Protocol> Server<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub fn recv_packets(&mut self) -> anyhow::Result<()> {
+    pub fn recv_packets(&mut self) -> Result<()> {
         loop {
             match self.netcode.recv() {
                 Some((mut reader, client_id)) => {
+                    // TODO: use connection to apply on BOTH message manager and replication manager
                     self.user_connections
                         .get_mut(&client_id)
                         .context("client not found")?

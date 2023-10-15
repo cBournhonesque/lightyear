@@ -5,6 +5,20 @@
   - one server: 1 game room per core?
 
 
+# TODO:
+
+- add packet fragmentation similar to reliable.io or renet, so that we know how send packets will work
+- make packets compatible with containing messages OR components
+  - either we make Packet<M, C, Ck>, but its becoming a bit involved
+  - or make packet depend on something like 
+     enum Either<M, C, Ck> {
+       Message(M)
+       ReplicationMessage(C, Ck)
+     }
+  and probably share the same channel_registry and packet_manager between message_manager and replication_manager?
+  - or we could have a way to *merge* packets?
+
+
 # Tenets
 
 * similar to naia, but tightly integrated with Bevy. No need to wade through WorldProxy, etc.

@@ -1,17 +1,18 @@
-use std::collections::HashMap;
-
 use anyhow::Context;
+use anyhow::Result;
+use bevy_ecs::prelude::Resource;
 
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
-use lightyear_shared::{Channel, WriteBuffer};
-use lightyear_shared::{ChannelKind, Io, MessageContainer, MessageManager, Protocol};
+use lightyear_shared::{Channel, Connection, Events, WriteBuffer};
+use lightyear_shared::{Io, Protocol};
 
+#[derive(Resource)]
 pub struct Client<P: Protocol> {
     io: Io,
     protocol: P,
     netcode: lightyear_shared::netcode::Client,
-    message_manager: MessageManager<P::Message>,
+    connection: Connection<P>,
 }
 
 impl<P: Protocol> Client<P> {
@@ -22,12 +23,12 @@ impl<P: Protocol> Client<P> {
             .expect("couldn't convert token to bytes");
         let netcode = lightyear_shared::netcode::Client::new(&token_bytes).unwrap();
 
-        let message_manager = MessageManager::new(protocol.channel_registry());
+        let connection = Connection::new(protocol.channel_registry());
         Self {
             io,
             protocol,
             netcode,
-            message_manager,
+            connection,
         }
     }
 
@@ -44,6 +45,8 @@ impl<P: Protocol> Client<P> {
         self.netcode.is_connected()
     }
 
+    // REPLICATION
+
     /// Maintain connection with server, queues up any packet received from the server
     pub fn update(&mut self, time: f64) -> anyhow::Result<()> {
         self.netcode
@@ -52,22 +55,18 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Send a message to the server
-    pub fn buffer_send<C: Channel>(
-        &mut self,
-        message: MessageContainer<P::Message>,
-    ) -> anyhow::Result<()> {
-        self.message_manager.buffer_send::<C>(message)
+    pub fn buffer_send<C: Channel>(&mut self, message: P::Message) -> Result<()> {
+        self.connection.buffer_message::<C>(message)
     }
 
     /// Receive messages from the server
-    /// TODO: maybe use events?
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<MessageContainer<P::Message>>> {
-        self.message_manager.read_messages()
+    pub fn receive(&mut self) -> Events<P> {
+        self.connection.receive()
     }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> anyhow::Result<()> {
-        let packet_bytes = self.message_manager.send_packets()?;
+        let packet_bytes = self.connection.send_packets()?;
         for mut packet_byte in packet_bytes {
             self.netcode
                 .send(packet_byte.finish_write(), &mut self.io)?;
@@ -80,7 +79,7 @@ impl<P: Protocol> Client<P> {
         loop {
             match self.netcode.recv() {
                 Some(mut reader) => {
-                    self.message_manager.recv_packet(&mut reader)?;
+                    self.connection.recv_packet(&mut reader)?;
                 }
                 None => break,
             }

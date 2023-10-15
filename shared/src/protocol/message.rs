@@ -1,3 +1,6 @@
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
 use crate::serialize::writer::WriteBuffer;
 use crate::BitSerializable;
 
@@ -5,4 +8,4 @@ use crate::BitSerializable;
 // each message must derive message
 
 // that big enum will implement MessageProtocol via a proc macro
-pub trait MessageProtocol: BitSerializable {}
+pub trait MessageProtocol: BitSerializable + Serialize + DeserializeOwned + Clone {}

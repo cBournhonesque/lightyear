@@ -1,3 +1,5 @@
+mod systems;
+
 use bevy_app::{App, Plugin as PluginType};
 
 pub struct Plugin {}

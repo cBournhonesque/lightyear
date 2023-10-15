@@ -1,6 +1,6 @@
 use log::debug;
 
-use lightyear_shared::{ChannelKind, MessageContainer};
+use lightyear_shared::ChannelKind;
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
 #[test]
@@ -22,9 +22,7 @@ fn test_simple_server_client() -> anyhow::Result<()> {
     let start = std::time::Instant::now();
     let tick_rate_secs = std::time::Duration::from_secs_f64(1.0 / 30.0);
 
-    let message1 = MessageContainer::new(MyMessageProtocol::Message1(Message1(
-        "Hello World".to_string(),
-    )));
+    let message1 = MyMessageProtocol::Message1(Message1("Hello World".to_string()));
     let message1_expected = message1.clone();
     // let channel_kind_1 = ChannelKind::of::<Channel1>();
     let channel_kind_2 = ChannelKind::of::<Channel2>();
@@ -37,12 +35,16 @@ fn test_simple_server_client() -> anyhow::Result<()> {
             server.recv_packets()?;
             server.send_packets()?;
 
-            let messages = server.read_messages(client_id);
-            if !messages.is_empty() {
-                assert_eq!(
-                    messages.get(&channel_kind_2),
-                    Some(&vec![message1_expected])
-                );
+            let events = server.receive();
+
+            if !events.is_empty() {
+                let messages = events
+                    .events
+                    .get(&client_id)
+                    .unwrap()
+                    .messages
+                    .get(&channel_kind_2);
+                assert_eq!(messages, Some(&vec![message1_expected]));
                 break;
             }
 

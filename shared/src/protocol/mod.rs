@@ -42,7 +42,7 @@ macro_rules! protocolize {
                 MessageProtocol, Protocol,
             };
 
-            #[derive(Default)]
+            #[derive(Default, Clone)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -67,10 +67,10 @@ macro_rules! protocolize {
     };
 }
 
-pub trait Protocol {
-    type Message: MessageProtocol;
-    type Components: ComponentProtocol;
-    type ComponentKinds: ComponentProtocolKind;
+pub trait Protocol: Send + Sync + Clone + 'static {
+    type Message: MessageProtocol + Send + Sync;
+    type Components: ComponentProtocol + Send + Sync;
+    type ComponentKinds: ComponentProtocolKind + Send + Sync;
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
     fn channel_registry(&self) -> &ChannelRegistry;
 }
