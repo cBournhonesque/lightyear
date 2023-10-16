@@ -9,7 +9,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::{Channel, ChannelSettings};
 
 pub(crate) mod channel;
-pub(crate) mod component;
+pub mod component;
 pub(crate) mod message;
 pub(crate) mod registry;
 

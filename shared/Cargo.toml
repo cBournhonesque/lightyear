@@ -23,6 +23,7 @@ serde = { version = "1.0.188", features = ["derive"] }
 bevy_ecs = { version = "0.11", default-features = false }
 paste = "1.0"
 enum-kinds = "0.5"
+enum_delegate = "0.2"
 
 tracing = "0.1"
 

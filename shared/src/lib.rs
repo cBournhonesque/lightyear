@@ -3,6 +3,9 @@
 
 // re-exports
 pub use bevy_ecs::prelude::Entity;
+pub use bevy_ecs::world::{EntityMut, World};
+pub use enum_delegate;
+pub use enum_dispatch::enum_dispatch;
 pub use enum_kinds::EnumKind;
 pub use paste::paste;
 
@@ -17,8 +20,7 @@ pub use lightyear_derive::{
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
 pub use protocol::channel::{ChannelKind, ChannelRegistry};
-pub use protocol::component::ComponentProtocol;
-pub use protocol::component::ComponentProtocolKind;
+pub use protocol::component::{ComponentBehaviour, ComponentProtocol, ComponentProtocolKind};
 pub use protocol::message::MessageProtocol;
 pub use protocol::{BitSerializable, Protocol};
 pub use serialize::reader::ReadBuffer;
@@ -32,7 +34,7 @@ pub mod channel;
 mod connection;
 pub mod netcode;
 pub mod packet;
-pub(crate) mod protocol;
+pub mod protocol;
 pub mod replication;
 pub mod serialize;
 pub mod transport;

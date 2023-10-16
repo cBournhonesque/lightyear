@@ -1,3 +1,7 @@
+use bevy_ecs::component::TableStorage;
+use bevy_ecs::prelude::Component;
+use bevy_ecs::world::EntityMut;
+use enum_dispatch::enum_dispatch;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -9,22 +13,22 @@ use crate::BitSerializable;
 
 // that big enum will implement MessageProtocol via a proc macro
 // TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
-pub trait ComponentProtocol: BitSerializable + Serialize + DeserializeOwned {}
+pub trait ComponentProtocol:
+    BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour
+{
+    // fn insert(self, entity: &mut EntityMut);
+}
+
+#[enum_delegate::register]
+pub trait ComponentBehaviour {
+    /// Insert the component for an entity
+    fn insert(self, entity: &mut EntityMut);
+}
+
+impl<T: Component> ComponentBehaviour for T {
+    fn insert(self, entity: &mut EntityMut) {
+        entity.insert(self);
+    }
+}
 
 pub trait ComponentProtocolKind: BitSerializable + Serialize + DeserializeOwned {}
-
-// user provides an enum of all possible components that might be replicated
-// enum MyComponentProtocol {
-//  component1,
-//  component2,
-// }
-
-// and via a derive macro we generate the final enum of things that we can send via the network
-
-// enum ComponentProtocol {
-//   EntitySpawned(Entity),
-//   EntityDespawned(Entity),
-//   ComponentInserted(Entity, MyComponentProtocol),
-//   ComponentRemoved(Entity, ComponentKind),
-//   EntityUpdate(Entity, Vec<MyComponentProtocol>),   -> entity + all components that changed
-// }

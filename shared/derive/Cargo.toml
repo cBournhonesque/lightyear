@@ -16,8 +16,14 @@ syn = { version = "2.0", features = ["full"]}
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = "1.0.75"
 enum-kinds = "0.5"
+enum_dispatch = "0.3"
+enum_delegate = "0.2"
+
+
 
 [dev-dependencies]
 lightyear_shared =  { path = ".." }
+bevy_ecs = { version = "0.11", default-features = false}
+
 
 

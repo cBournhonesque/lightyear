@@ -303,6 +303,7 @@ impl Bytes for ChallengeToken {
 /// ```
 ///
 /// Alternatively, you can use [`Server::token`](struct.Server.html#method.token) to generate a connect token from an already existing [`Server`](crate::Server).
+#[derive(Clone)]
 pub struct ConnectToken {
     pub(crate) version_info: [u8; NETCODE_VERSION.len()],
     pub(crate) protocol_id: u64,

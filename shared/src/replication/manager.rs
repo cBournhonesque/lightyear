@@ -2,7 +2,7 @@ use crate::connection::ProtocolMessage;
 use crate::packet::message_manager::MessageManager;
 use crate::replication::entity_map::EntityMap;
 use crate::replication::ReplicationMessage;
-use crate::{ChannelRegistry, Protocol};
+use crate::{ChannelRegistry, ComponentBehaviour, ComponentProtocol, Protocol};
 use bevy_ecs::prelude::World;
 use tracing::debug;
 
@@ -26,8 +26,14 @@ impl ReplicationManager {
         match message {
             ProtocolMessage::Replication(replication) => match replication {
                 ReplicationMessage::SpawnEntity(entity, components) => {
-                    let local_entity = world.spawn(components.into()).id();
-                    self.entity_map.insert(entity, local_entity);
+                    // let local_entity = world.spawn(components.into()).id();
+
+                    // TODO: optimize by using batch functions
+                    let mut local_entity_mut = world.spawn_empty();
+                    for component in components {
+                        component.insert(&mut local_entity_mut);
+                    }
+                    self.entity_map.insert(entity, local_entity_mut.id());
                 }
                 ReplicationMessage::DespawnEntity(entity) => {
                     if let Some(local_entity) = self.entity_map.remove_by_remote(entity) {
@@ -39,7 +45,9 @@ impl ReplicationManager {
                     if let Some(local_entity) = self.entity_map.from_remote(entity) {
                         if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
                             // TODO: convert the component into inner
-                            entity_mut.insert(component);
+                            //  maybe for each
+                            component.insert(&mut entity_mut);
+                            // entity_mut.insert(c);
                         } else {
                             debug!("Could not insert component because local entity {:?} was not found", local_entity);
                         }

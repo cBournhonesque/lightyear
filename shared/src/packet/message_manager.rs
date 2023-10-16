@@ -194,12 +194,12 @@ impl<M: BitSerializable> MessageManager<M> {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<MessageContainer<M>>> {
+    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<M>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
             while let Some(message) = channel.receiver.read_message() {
-                messages.push(message);
+                messages.push(message.inner());
             }
             if !messages.is_empty() {
                 map.insert(channel_kind.clone(), messages);

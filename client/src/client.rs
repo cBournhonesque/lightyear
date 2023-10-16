@@ -1,6 +1,6 @@
 use anyhow::Context;
 use anyhow::Result;
-use bevy_ecs::prelude::Resource;
+use bevy_ecs::prelude::{Resource, World};
 
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
@@ -60,8 +60,8 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive messages from the server
-    pub fn receive(&mut self) -> Events<P> {
-        self.connection.receive()
+    pub fn receive(&mut self, world: &mut World) -> Events<P> {
+        self.connection.receive(world)
     }
 
     /// Send packets that are ready from the message manager through the transport layer

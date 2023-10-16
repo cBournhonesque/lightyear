@@ -127,11 +127,13 @@ pub fn component_protocol_internal(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use crate::{EnumKind, ReadBuffer, WriteBuffer, BitSerializable,
-                ComponentProtocol, ComponentProtocolKind};
+            use crate::{enum_dispatch, EnumKind, enum_delegate};
+            use crate::{EntityMut, ReadBuffer, WriteBuffer, BitSerializable,
+                ComponentProtocol, ComponentBehaviour, ComponentProtocolKind};
 
             #[derive(ComponentProtocol, EnumKind, Serialize, Deserialize, Clone)]
             #[enum_kind(#enum_kind_name, derive(Serialize, Deserialize, ComponentProtocolKind))]
+            #[enum_dispatch(ComponentBehaviour)]
             #item
         }
         pub use #module_name::#enum_name as #enum_name;
@@ -158,11 +160,13 @@ pub fn component_protocol(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use lightyear_shared::{EnumKind, ReadBuffer, WriteBuffer, BitSerializable,
-                ComponentProtocol, ComponentProtocolKind};
+            use lightyear_shared::{enum_dispatch, EnumKind, enum_delegate};
+            use lightyear_shared::{EntityMut, ReadBuffer, WriteBuffer, BitSerializable,
+                ComponentBehaviour, ComponentProtocol, ComponentProtocolKind};
 
             #[derive(ComponentProtocol, EnumKind, Serialize, Deserialize, Clone)]
             #[enum_kind(#enum_kind_name, derive(Serialize, Deserialize, ComponentProtocolKind))]
+            #[enum_delegate::implement(ComponentBehaviour)]
             #item
         }
         pub use #module_name::#enum_name as #enum_name;

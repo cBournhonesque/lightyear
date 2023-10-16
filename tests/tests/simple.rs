@@ -1,6 +1,6 @@
 use log::debug;
 
-use lightyear_shared::ChannelKind;
+use lightyear_shared::{ChannelKind, World};
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
 #[test]
@@ -30,12 +30,13 @@ fn test_simple_server_client() -> anyhow::Result<()> {
     // Run the server and client in parallel
     let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting server thread");
+        let mut World = World::default();
         loop {
             server.update(start.elapsed().as_secs_f64())?;
             server.recv_packets()?;
             server.send_packets()?;
 
-            let events = server.receive();
+            let events = server.receive(&mut World);
 
             if !events.is_empty() {
                 let messages = events

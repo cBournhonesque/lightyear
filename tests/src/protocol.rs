@@ -1,3 +1,4 @@
+use bevy_ecs::prelude::Component;
 use serde::{Deserialize, Serialize};
 
 use lightyear_shared::channel::channel::ReliableSettings;
@@ -20,7 +21,7 @@ pub enum MyMessageProtocol {
     Message2(Message2),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Component1;
 
 #[derive(Debug, PartialEq)]

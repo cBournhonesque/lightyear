@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bevy_ecs::component::Components;
 use bevy_ecs::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
@@ -60,8 +61,13 @@ impl<P: Protocol> Connection<P> {
         self.message_manager.buffer_send::<C>(message)
     }
 
-    pub fn buffer_spawn_entity<C: Channel>(&mut self, entity: Entity) -> Result<()> {
-        let message = ProtocolMessage::Replication(ReplicationMessage::SpawnEntity(entity));
+    pub fn buffer_spawn_entity<C: Channel>(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+    ) -> Result<()> {
+        let message =
+            ProtocolMessage::Replication(ReplicationMessage::SpawnEntity(entity, components));
         // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
         self.message_manager.buffer_send::<C>(message)
     }
@@ -71,19 +77,16 @@ impl<P: Protocol> Connection<P> {
         self.message_manager.buffer_send::<C>(message)
     }
 
-    // TODO: make world optional?
+    // TODO: make world optional? or separate receiving into messages and applying into world?
     /// Read messages received from buffer (either messages or replication events) and push them to events
     pub fn receive(&mut self, world: &mut World) -> Events<P> {
         for (channel_kind, messages) in self.message_manager.read_messages() {
             for message in messages {
-                // TODO: maybe we only need the component kind in the events, so we don't need to copy the message!
-                // update events
-                message
-                    .inner()
-                    .push_to_events(channel_kind, &mut self.events);
-
+                // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
                 // apply replication messages to the world
-                self.replication_manager.apply_world(world, message)
+                self.replication_manager.apply_world(world, message.clone());
+                // update events
+                message.push_to_events(channel_kind, &mut self.events);
             }
         }
 

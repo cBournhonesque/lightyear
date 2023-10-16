@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "client",
     "shared/derive",
-    "shared/serde",
     "shared",
     "server",
     "tests",

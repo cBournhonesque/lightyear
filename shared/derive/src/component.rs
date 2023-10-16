@@ -18,6 +18,8 @@ pub fn component_impl(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 
     let gen = quote! {
         impl ComponentProtocol for #struct_name {}
+
+        // TODO: we don't need to implement for now because we get it for free from Serialize + Deserialize
         // impl BitSerializable for #struct_name {
         //     #encode_method
         //     #decode_method

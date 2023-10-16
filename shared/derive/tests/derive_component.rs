@@ -1,14 +1,13 @@
 pub mod some_component {
+    use bevy_ecs::prelude::Component;
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::component_protocol;
 
-    // #[derive(Component)]
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Component1(pub u8);
 
-    // #[derive(Component)]
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Component2(pub u32);
 
     // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

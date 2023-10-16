@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
-use bevy_ecs::prelude::Resource;
+use bevy_ecs::prelude::{Resource, World};
 use log::debug;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken, ServerConfig};
@@ -89,6 +89,7 @@ impl<P: Protocol> Server<P> {
     pub fn entity_spawn<C: Channel>(
         &mut self,
         entity: Entity,
+        components: Vec<P::Components>,
         replicate: &Replicate<C>,
     ) -> Result<()> {
         let mut buffer_message = |client_id: ClientId,
@@ -98,7 +99,7 @@ impl<P: Protocol> Server<P> {
             user_connections
                 .get_mut(&client_id)
                 .expect("client not found")
-                .buffer_spawn_entity::<C>(entity)
+                .buffer_spawn_entity::<C>(entity, components.clone())
         };
 
         match replicate.target {
@@ -163,10 +164,10 @@ impl<P: Protocol> Server<P> {
         Ok(())
     }
 
-    pub fn receive(&mut self) -> ServerEvents<P> {
+    pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
         let mut events = ServerEvents::new();
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
-            let connection_events = connection.receive();
+            let connection_events = connection.receive(world);
             if !connection_events.is_empty() {
                 events.push_events(*client_id, connection_events);
             }
