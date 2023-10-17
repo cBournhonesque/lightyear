@@ -1,5 +1,7 @@
+use lightyear_client::Authentication;
 use log::debug;
 
+use lightyear_shared::netcode::generate_key;
 use lightyear_shared::{ChannelKind, World};
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
@@ -10,10 +12,18 @@ fn test_simple_server_client() -> anyhow::Result<()> {
         .init();
 
     // Create the server and client
-    let client_id = 111;
-    let mut server = lightyear_tests::server::setup()?;
+    let protocol_id = 0;
+    let private_key = generate_key();
+    let mut server = lightyear_tests::server::setup(protocol_id, private_key)?;
     debug!("Created server with local address: {}", server.local_addr());
-    let mut client = lightyear_tests::client::setup(server.token(client_id))?;
+    let client_id = 111;
+    let auth = Authentication::Manual {
+        server_addr: server.local_addr(),
+        protocol_id,
+        private_key,
+        client_id,
+    };
+    let mut client = lightyear_tests::client::setup(auth)?;
     debug!("Created client with local address: {}", client.local_addr());
 
     // Start the connection

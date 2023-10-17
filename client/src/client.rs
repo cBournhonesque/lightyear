@@ -1,9 +1,10 @@
 use anyhow::Context;
 use anyhow::Result;
 use bevy_ecs::prelude::{Resource, World};
+use std::net::SocketAddr;
 
-use lightyear_shared::netcode::Client as NetcodeClient;
-use lightyear_shared::netcode::ConnectToken;
+use lightyear_shared::netcode::{generate_key, Client as NetcodeClient};
+use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::{Channel, Connection, Events, WriteBuffer};
 use lightyear_shared::{Io, Protocol};
@@ -18,10 +19,37 @@ pub struct Client<P: Protocol> {
     connection: Connection<P>,
 }
 
+pub enum Authentication {
+    Token(ConnectToken),
+    Manual {
+        server_addr: SocketAddr,
+        client_id: u64,
+        private_key: Key,
+        protocol_id: u64,
+    },
+}
+
+impl Authentication {
+    fn get_token(self) -> Option<ConnectToken> {
+        match self {
+            Authentication::Token(token) => Some(token),
+            Authentication::Manual {
+                server_addr,
+                client_id,
+                private_key,
+                protocol_id,
+            } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
+                .generate()
+                .ok(),
+        }
+    }
+}
+
 impl<P: Protocol> Client<P> {
-    pub fn new(config: ClientConfig, token: ConnectToken, protocol: P) -> Self {
+    pub fn new(config: ClientConfig, auth: Authentication, protocol: P) -> Self {
+        let token = auth.get_token().expect("could not generate token");
         let token_bytes = token.try_into_bytes().unwrap();
-        let netcode = NetcodeClient::with_config(&token_bytes, config.netcode)
+        let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
             .expect("could not create netcode client");
         let io = Io::from_config(config.io).expect("could not build io");
 
@@ -34,7 +62,7 @@ impl<P: Protocol> Client<P> {
         }
     }
 
-    pub fn local_addr(&self) -> std::net::SocketAddr {
+    pub fn local_addr(&self) -> SocketAddr {
         self.io.local_addr()
     }
 

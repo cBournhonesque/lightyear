@@ -16,16 +16,14 @@ mod systems;
 
 pub struct PluginConfig<P: Protocol> {
     server_config: ServerConfig,
-    protocol_id: u64,
     protocol: P,
 }
 
 // TODO: put all this in ClientConfig?
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(server_config: ServerConfig, protocol_id: u64, protocol: P) -> Self {
+    pub fn new(server_config: ServerConfig, protocol: P) -> Self {
         PluginConfig {
             server_config,
-            protocol_id,
             protocol,
         }
     }
@@ -47,7 +45,7 @@ impl<P: Protocol> Plugin<P> {
 impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let server = Server::new(config.server_config, config.protocol_id, config.protocol);
+        let server = Server::new(config.server_config, config.protocol);
 
         app
             // RESOURCES //

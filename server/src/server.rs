@@ -31,7 +31,7 @@ pub struct Server<P: Protocol> {
 }
 
 impl<P: Protocol> Server<P> {
-    pub fn new(config: ServerConfig, protocol_id: u64, protocol: P) -> Self {
+    pub fn new(config: ServerConfig, protocol: P) -> Self {
         // create netcode server
         let private_key = config.netcode.private_key.unwrap_or(generate_key());
         let (connections_tx, connections_rx) = crossbeam_channel::unbounded();
@@ -50,8 +50,12 @@ impl<P: Protocol> Server<P> {
         cfg = cfg.keep_alive_send_rate(config.netcode.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.netcode.num_disconnect_packets);
 
-        let netcode = lightyear_shared::netcode::Server::with_config(protocol_id, private_key, cfg)
-            .expect("Could not create server netcode");
+        let netcode = lightyear_shared::netcode::Server::with_config(
+            config.netcode.protocol_id,
+            private_key,
+            cfg,
+        )
+        .expect("Could not create server netcode");
         let io = Io::from_config(config.io).expect("Could not create io");
         let context = ServerContext {
             connections: connections_rx,

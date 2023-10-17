@@ -7,6 +7,7 @@ use bevy_ecs::prelude::IntoSystemConfigs;
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::Protocol;
 
+use crate::client::Authentication;
 use crate::config::ClientConfig;
 use crate::plugin::sets::ClientSet;
 use crate::plugin::systems::{receive, send};
@@ -19,16 +20,16 @@ mod systems;
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
     protocol: P,
-    token: ConnectToken,
+    auth: Authentication,
 }
 
 // TODO: put all this in ClientConfig?
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, protocol: P, token: ConnectToken) -> Self {
+    pub fn new(client_config: ClientConfig, protocol: P, auth: Authentication) -> Self {
         PluginConfig {
             client_config,
             protocol,
-            token,
+            auth,
         }
     }
 }
@@ -49,7 +50,7 @@ impl<P: Protocol> Plugin<P> {
 impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let client = Client::new(config.client_config, config.token, config.protocol);
+        let client = Client::new(config.client_config, config.auth, config.protocol);
 
         app
             // RESOURCES //
