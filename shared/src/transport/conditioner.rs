@@ -119,7 +119,7 @@ impl LinkConditionerConfig {
         }
     }
 
-    /// Creates a new LinkConditioner that simulates a connection which is in an
+    /// Creates a new `LinkConditioner` that simulates a connection which is in an
     /// average condition
     pub fn average_condition() -> Self {
         LinkConditionerConfig {
@@ -129,7 +129,7 @@ impl LinkConditionerConfig {
         }
     }
 
-    /// Creates a new LinkConditioner that simulates a connection which is in an
+    /// Creates a new `LinkConditioner` that simulates a connection which is in an
     /// poor condition
     pub fn poor_condition() -> Self {
         LinkConditionerConfig {

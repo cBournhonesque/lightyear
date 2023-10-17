@@ -56,6 +56,7 @@ const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
+#[derive(Default)]
 pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
@@ -182,6 +183,12 @@ pub struct ReceiveBuffer {
     buffer: ConstGenericRingBuffer<bool, { ACK_BITFIELD_SIZE as usize }>,
 }
 
+impl Default for ReceiveBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReceiveBuffer {
     fn new() -> Self {
         let mut buffer = ConstGenericRingBuffer::new();
@@ -231,8 +238,6 @@ impl ReceiveBuffer {
             // update the most recent packet received
             self.last_recv_packet_id = Some(id);
         }
-
-        ()
     }
 
     /// Convert the Receive Buffer to the bitfield that we need to send in the PacketHeader

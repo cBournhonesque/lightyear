@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
+use crate::UdpSocket;
 
 pub struct Io {
     local_addr: SocketAddr,
@@ -15,6 +16,10 @@ pub struct Io {
     // read_buffer: ReadBuffer<'_>,
 }
 
+pub enum IoConfig {
+    UdpSocket(SocketAddr),
+}
+
 impl Io {
     // pub(crate) fn new(transport: Box<dyn Transport>) -> Self {
     //     Self {
@@ -22,6 +27,18 @@ impl Io {
     //         // read_buffer: ReadBuffer::new(),
     //     }
     // }
+
+    pub fn from_config(config: IoConfig) -> Result<Self> {
+        match config {
+            IoConfig::UdpSocket(addr) => {
+                let socket = UdpSocket::new(&addr)?;
+                let local_addr = socket.local_addr();
+                let sender = Box::new(socket.clone());
+                let receiver = Box::new(socket);
+                Ok(Self::new(local_addr, sender, receiver))
+            }
+        }
+    }
 
     pub fn new(
         local_addr: SocketAddr,

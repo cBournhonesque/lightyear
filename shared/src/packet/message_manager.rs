@@ -44,7 +44,8 @@ impl<M: BitSerializable> MessageManager<M> {
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
-        Ok(channel.sender.buffer_send(MessageContainer::new(message)))
+        channel.sender.buffer_send(MessageContainer::new(message));
+        Ok(())
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -57,11 +58,10 @@ impl<M: BitSerializable> MessageManager<M> {
             if channel.sender.has_messages_to_send() {
                 // start a new channel in the current packet.
                 // If there's not enough space, start writing in a new packet
-                if !self.packet_manager.can_add_channel(channel_kind.clone())? {
+                if !self.packet_manager.can_add_channel(*channel_kind)? {
                     self.packet_manager.build_new_packet();
                     // can add channel starts writing a new packet if needed
-                    let added_new_channel =
-                        self.packet_manager.can_add_channel(channel_kind.clone())?;
+                    let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
                     debug_assert!(added_new_channel);
                 }
                 channel.sender.send_packet(&mut self.packet_manager);
@@ -82,7 +82,7 @@ impl<M: BitSerializable> MessageManager<M> {
             packet
                 .message_ids()
                 .iter()
-                .map(|(channel_id, message_ids)| {
+                .try_for_each(|(channel_id, message_ids)| {
                     let channel_kind = self
                         .packet_manager
                         .channel_kind_map
@@ -97,13 +97,12 @@ impl<M: BitSerializable> MessageManager<M> {
                         self.packet_to_message_id_map
                             .entry(packet_id)
                             .or_default()
-                            .entry(channel_kind.clone())
+                            .entry(*channel_kind)
                             .or_default()
                             .append(&mut message_ids.clone());
                     }
-                    Ok(())
-                })
-                .collect::<anyhow::Result<()>>()?;
+                    Ok::<(), anyhow::Error>(())
+                })?;
         }
 
         Ok(bytes)
@@ -181,7 +180,7 @@ impl<M: BitSerializable> MessageManager<M> {
                 ))?;
             let channel = self
                 .channels
-                .get_mut(&channel_kind)
+                .get_mut(channel_kind)
                 .ok_or_else(|| anyhow!("Channel not found"))?;
             for message in messages {
                 channel.receiver.buffer_recv(message)?;
@@ -202,7 +201,7 @@ impl<M: BitSerializable> MessageManager<M> {
                 messages.push(message.inner());
             }
             if !messages.is_empty() {
-                map.insert(channel_kind.clone(), messages);
+                map.insert(*channel_kind, messages);
             }
         }
         map

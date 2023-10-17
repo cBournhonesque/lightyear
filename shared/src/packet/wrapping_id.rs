@@ -10,7 +10,7 @@ macro_rules! wrapping_id {
     ($struct_name:ident) => {
         // define the struct
         #[derive(
-            Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq,
+            Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default,
         )]
         pub struct $struct_name(pub u16);
 

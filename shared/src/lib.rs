@@ -27,7 +27,7 @@ pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
 pub use serialize::writer::WriteBuffer;
-pub use transport::io::Io;
+pub use transport::io::{Io, IoConfig};
 pub use transport::udp::UdpSocket;
 
 pub mod channel;

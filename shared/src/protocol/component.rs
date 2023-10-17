@@ -1,7 +1,5 @@
-use bevy_ecs::component::TableStorage;
 use bevy_ecs::prelude::Component;
 use bevy_ecs::world::EntityMut;
-use enum_dispatch::enum_dispatch;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 

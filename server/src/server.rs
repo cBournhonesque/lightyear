@@ -3,9 +3,9 @@ use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use bevy_ecs::prelude::{Resource, World};
-use log::debug;
+use tracing::debug;
 
-use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken, ServerConfig};
+use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
 use lightyear_shared::{Channel, Entity, Io, Protocol};
@@ -13,6 +13,7 @@ use lightyear_shared::{Connection, WriteBuffer};
 
 use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
+use crate::ServerConfig;
 
 #[derive(Resource)]
 pub struct Server<P: Protocol> {
@@ -30,24 +31,28 @@ pub struct Server<P: Protocol> {
 }
 
 impl<P: Protocol> Server<P> {
-    pub fn new(io: Io, protocol_id: u64, protocol: P) -> Self {
+    pub fn new(config: ServerConfig, protocol_id: u64, protocol: P) -> Self {
         // create netcode server
-        let private_key = generate_key();
+        let private_key = config.netcode.private_key.unwrap_or(generate_key());
         let (connections_tx, connections_rx) = crossbeam_channel::unbounded();
         let (disconnections_tx, disconnections_rx) = crossbeam_channel::unbounded();
         let server_context = NetcodeServerContext {
             connections: connections_tx,
             disconnections: disconnections_tx,
         };
-        let cfg = ServerConfig::with_context(server_context)
+        let mut cfg = lightyear_shared::netcode::ServerConfig::with_context(server_context)
             .on_connect(|id, ctx| {
                 ctx.connections.send(id).unwrap();
             })
             .on_disconnect(|id, ctx| {
                 ctx.disconnections.send(id).unwrap();
             });
-        let netcode =
-            lightyear_shared::netcode::Server::with_config(protocol_id, private_key, cfg).unwrap();
+        cfg = cfg.keep_alive_send_rate(config.netcode.keep_alive_send_rate);
+        cfg = cfg.num_disconnect_packets(config.netcode.num_disconnect_packets);
+
+        let netcode = lightyear_shared::netcode::Server::with_config(protocol_id, private_key, cfg)
+            .expect("Could not create server netcode");
+        let io = Io::from_config(config.io).expect("Could not create io");
         let context = ServerContext {
             connections: connections_rx,
             disconnections: disconnections_rx,
@@ -63,10 +68,7 @@ impl<P: Protocol> Server<P> {
 
     /// Generate a connect token for a client with id `client_id`
     pub fn token(&mut self, client_id: ClientId) -> ConnectToken {
-        self.netcode
-            .token(client_id, &mut self.io)
-            .generate()
-            .unwrap()
+        self.netcode.token(client_id, &self.io).generate().unwrap()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -146,14 +148,11 @@ impl<P: Protocol> Server<P> {
             .context("Error updating netcode server")?;
 
         // handle connections
-        for client_idx in self.context.connections.try_iter() {
-            let client_addr = self.netcode.client_addr(client_idx).unwrap();
+        for client_id in self.context.connections.try_iter() {
+            let client_addr = self.netcode.client_addr(client_id).unwrap();
             let connection = Connection::new(self.protocol.channel_registry());
-            debug!(
-                "New connection from {} (index: {})",
-                client_addr, client_idx
-            );
-            self.user_connections.insert(client_idx, connection);
+            debug!("New connection from {} (id: {})", client_addr, client_id);
+            self.user_connections.insert(client_id, connection);
         }
 
         // handle disconnections
@@ -200,18 +199,13 @@ impl<P: Protocol> Server<P> {
 
     /// Receive packets from the transport layer and buffer them with the message manager
     pub fn recv_packets(&mut self) -> Result<()> {
-        loop {
-            match self.netcode.recv() {
-                Some((mut reader, client_id)) => {
-                    // TODO: use connection to apply on BOTH message manager and replication manager
-                    self.user_connections
-                        .get_mut(&client_id)
-                        .context("client not found")?
-                        .message_manager
-                        .recv_packet(&mut reader)?;
-                }
-                None => break,
-            }
+        while let Some((mut reader, client_id)) = self.netcode.recv() {
+            // TODO: use connection to apply on BOTH message manager and replication manager
+            self.user_connections
+                .get_mut(&client_id)
+                .context("client not found")?
+                .message_manager
+                .recv_packet(&mut reader)?;
         }
         Ok(())
     }

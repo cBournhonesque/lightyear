@@ -40,11 +40,11 @@ impl<P: BitSerializable> SinglePacket<P> {
     }
 
     pub fn add_channel(&mut self, channel: NetId) {
-        self.data.entry(channel).or_insert(Vec::new());
+        self.data.entry(channel).or_default();
     }
 
     pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) {
-        self.data.entry(channel).or_insert(Vec::new()).push(message);
+        self.data.entry(channel).or_default().push(message);
     }
 
     /// Return the list of message ids in the packet
@@ -75,7 +75,7 @@ impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
             .iter()
             .enumerate()
             .map(|(i, v)| (i == self.data.len() - 1, v))
-            .map(|(is_last_channel, (channel_id, messages))| {
+            .try_for_each(|(is_last_channel, (channel_id, messages))| {
                 writer.serialize(channel_id)?;
 
                 // initial continue bit for messages (are there messages for this channel or not?)
@@ -84,18 +84,16 @@ impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
                     .iter()
                     .enumerate()
                     .map(|(j, w)| (j == messages.len() - 1, w))
-                    .map(|(is_last_message, message)| {
+                    .try_for_each(|(is_last_message, message)| {
                         message.encode(writer)?;
                         // write message continue bit (1 if there is another message to writer after)
                         writer.serialize(&!is_last_message)?;
                         Ok::<(), anyhow::Error>(())
-                    })
-                    .collect::<anyhow::Result<()>>()?;
+                    })?;
                 // write channel continue bit (1 if there is another channel to writer after)
                 writer.serialize(&!is_last_channel)?;
                 Ok::<(), anyhow::Error>(())
-            })
-            .collect::<anyhow::Result<()>>()?;
+            })?;
         Ok(())
     }
 
@@ -178,7 +176,7 @@ impl<P: BitSerializable> Packet<P> {
         }
     }
 
-    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) -> () {
+    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) {
         match self {
             Packet::Single(single_packet) => {
                 single_packet.add_message(channel, message);

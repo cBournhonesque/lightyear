@@ -50,7 +50,7 @@ impl<K: TypeKind> TypeMapper<K> {
     }
 
     pub fn net_id(&self, kind: &K) -> Option<&NetId> {
-        self.kind_map.get(&kind)
+        self.kind_map.get(kind)
     }
 
     #[cfg(test)]

@@ -2,10 +2,13 @@ use anyhow::Context;
 use anyhow::Result;
 use bevy_ecs::prelude::{Resource, World};
 
+use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::{Channel, Connection, Events, WriteBuffer};
 use lightyear_shared::{Io, Protocol};
+
+use crate::config::ClientConfig;
 
 #[derive(Resource)]
 pub struct Client<P: Protocol> {
@@ -16,12 +19,11 @@ pub struct Client<P: Protocol> {
 }
 
 impl<P: Protocol> Client<P> {
-    pub fn new(io: Io, token: ConnectToken, protocol: P) -> Self {
-        // create netcode client from token
-        let token_bytes = token
-            .try_into_bytes()
-            .expect("couldn't convert token to bytes");
-        let netcode = lightyear_shared::netcode::Client::new(&token_bytes).unwrap();
+    pub fn new(config: ClientConfig, token: ConnectToken, protocol: P) -> Self {
+        let token_bytes = token.try_into_bytes().unwrap();
+        let netcode = NetcodeClient::with_config(&token_bytes, config.netcode)
+            .expect("could not create netcode client");
+        let io = Io::from_config(config.io).expect("could not build io");
 
         let connection = Connection::new(protocol.channel_registry());
         Self {
@@ -48,7 +50,7 @@ impl<P: Protocol> Client<P> {
     // REPLICATION
 
     /// Maintain connection with server, queues up any packet received from the server
-    pub fn update(&mut self, time: f64) -> anyhow::Result<()> {
+    pub fn update(&mut self, time: f64) -> Result<()> {
         self.netcode
             .try_update(time, &mut self.io)
             .context("Error updating netcode client")
@@ -65,7 +67,7 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Send packets that are ready from the message manager through the transport layer
-    pub fn send_packets(&mut self) -> anyhow::Result<()> {
+    pub fn send_packets(&mut self) -> Result<()> {
         let packet_bytes = self.connection.send_packets()?;
         for mut packet_byte in packet_bytes {
             self.netcode
@@ -75,14 +77,9 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub fn recv_packets(&mut self) -> anyhow::Result<()> {
-        loop {
-            match self.netcode.recv() {
-                Some(mut reader) => {
-                    self.connection.recv_packet(&mut reader)?;
-                }
-                None => break,
-            }
+    pub fn recv_packets(&mut self) -> Result<()> {
+        while let Some(mut reader) = self.netcode.recv() {
+            self.connection.recv_packet(&mut reader)?;
         }
         Ok(())
     }

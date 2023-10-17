@@ -1,5 +1,4 @@
 use anyhow::Result;
-use bevy_ecs::component::Components;
 use bevy_ecs::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
@@ -49,7 +48,7 @@ impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
             message_manager: MessageManager::new(channel_registry),
-            replication_manager: ReplicationManager::new(),
+            replication_manager: Default::default(),
             events: Events::new(),
         }
     }

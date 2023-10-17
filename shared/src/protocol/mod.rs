@@ -84,7 +84,7 @@ pub trait BitSerializable: Clone {
         Self: Sized;
 }
 
-impl<'a, T> BitSerializable for T
+impl<T> BitSerializable for T
 where
     T: Serialize + DeserializeOwned + Clone,
 {

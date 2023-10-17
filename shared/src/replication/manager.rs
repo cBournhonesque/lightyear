@@ -1,22 +1,17 @@
-use crate::connection::ProtocolMessage;
-use crate::packet::message_manager::MessageManager;
-use crate::replication::entity_map::EntityMap;
-use crate::replication::ReplicationMessage;
-use crate::{ChannelRegistry, ComponentBehaviour, ComponentProtocol, Protocol};
 use bevy_ecs::prelude::World;
 use tracing::debug;
 
+use crate::connection::ProtocolMessage;
+use crate::replication::entity_map::EntityMap;
+use crate::replication::ReplicationMessage;
+use crate::{ComponentBehaviour, Protocol};
+
+#[derive(Default)]
 pub struct ReplicationManager {
     pub entity_map: EntityMap,
 }
 
 impl ReplicationManager {
-    pub fn new() -> Self {
-        Self {
-            entity_map: EntityMap::new(),
-        }
-    }
-
     pub(crate) fn apply_world<P: Protocol>(
         &mut self,
         world: &mut World,
@@ -42,7 +37,7 @@ impl ReplicationManager {
                 }
                 ReplicationMessage::InsertComponent(entity, component) => {
                     // TODO: add kind in debug message?
-                    if let Some(local_entity) = self.entity_map.from_remote(entity) {
+                    if let Some(local_entity) = self.entity_map.get_local(entity) {
                         if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
                             // TODO: convert the component into inner
                             //  maybe for each
@@ -58,7 +53,7 @@ impl ReplicationManager {
                     );
                 }
                 ReplicationMessage::RemoveComponent(entity, component_kind) => {
-                    if let Some(local_entity) = self.entity_map.from_remote(entity) {
+                    if let Some(local_entity) = self.entity_map.get_local(entity) {
                         if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
                             // TODO: HOW TO GET COMPONENT TYPE FROM KIND? (i.e. enum inner type from kind)
                             // entity_mut.remove::<component_kind>();

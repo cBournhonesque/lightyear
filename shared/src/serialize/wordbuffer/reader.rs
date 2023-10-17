@@ -61,7 +61,7 @@ impl ReadBuffer for ReadWordBuffer {
             let mut_buffer: &mut WordBuffer;
             unsafe {
                 let const_ptr = buffer as *const WordBuffer;
-                let mut_ptr = const_ptr as *mut WordBuffer;
+                let mut_ptr = const_ptr.cast_mut();
                 mut_buffer = &mut *mut_ptr;
             }
             let (reader, context) = mut_buffer.start_read(bytes);

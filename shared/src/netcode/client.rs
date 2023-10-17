@@ -363,7 +363,7 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
         )?;
         io.send(&buf[..size], &self.server_addr())
-            .map_err(|e| Error::from(e))?;
+            .map_err(Error::from)?;
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -487,7 +487,7 @@ impl<Ctx> Client<Ctx> {
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         let mut buf = [0u8; MAX_PACKET_SIZE];
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        while let Some((buf, addr)) = io.recv().map_err(|e| Error::from(e))? {
+        while let Some((buf, addr)) = io.recv().map_err(Error::from)? {
             self.recv_packet(buf, now, addr)?;
         }
         Ok(())

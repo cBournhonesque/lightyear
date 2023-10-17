@@ -1,3 +1,6 @@
+use lightyear_shared::IoConfig;
+
 pub struct ClientConfig {
-    netcode: lightyear_shared::netcode::ClientConfig<()>,
+    pub netcode: lightyear_shared::netcode::ClientConfig<()>,
+    pub io: IoConfig,
 }

@@ -22,6 +22,12 @@ pub struct Events<P: Protocol> {
     empty: bool,
 }
 
+impl<P: Protocol> Default for Events<P> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<P: Protocol> Events<P> {
     pub fn new() -> Self {
         Self {

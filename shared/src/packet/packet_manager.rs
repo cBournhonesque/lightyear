@@ -16,7 +16,7 @@ use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::ChannelKind;
 
-pub(crate) const PACKET_BUFFER_CAPACITY: usize = 1 * MTU_PAYLOAD_BYTES;
+pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES;
 
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager<P: BitSerializable> {
@@ -180,7 +180,7 @@ impl<P: BitSerializable> PacketManager<P> {
         self.current_packet
             .as_mut()
             .expect("No current packet being built")
-            .add_channel(net_id.clone());
+            .add_channel(*net_id);
         Ok(true)
     }
 
@@ -208,7 +208,7 @@ impl<P: BitSerializable> PacketManager<P> {
 
         // safety: we always start a new channel before we start building packets
         let channel = self.current_channel.unwrap();
-        let channel_id = self.channel_kind_map.net_id(&channel).unwrap().clone();
+        let channel_id = *self.channel_kind_map.net_id(&channel).unwrap();
 
         // build new packet
         'packet: loop {
@@ -234,7 +234,7 @@ impl<P: BitSerializable> PacketManager<P> {
                 // TODO: check if message size is too big for a single packet, in which case we fragment!
                 if self.can_add_message(&mut packet, &message).is_ok_and(|b| b) {
                     // add message to packet
-                    if let Some(id) = message.id.clone() {
+                    if let Some(id) = message.id {
                         sent_message_ids.push(id);
                     }
                     packet.add_message(channel_id, message);

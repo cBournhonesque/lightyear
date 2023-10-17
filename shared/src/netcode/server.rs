@@ -194,7 +194,7 @@ impl ConnectionCache {
         self.time = time;
     }
 }
-type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'static>;
+pub type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'static>;
 /// Configuration for a server.
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
@@ -466,9 +466,7 @@ impl<Ctx> Server<Ctx> {
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
-        sender
-            .send(&buf[..size], &addr)
-            .map_err(|e| Error::from(e))?;
+        sender.send(&buf[..size], &addr).map_err(Error::from)?;
         self.sequence += 1;
         Ok(())
     }
@@ -485,9 +483,7 @@ impl<Ctx> Server<Ctx> {
             .get_mut(&id)
             .expect("invalid client id");
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
-        sender
-            .send(&buf[..size], &conn.addr)
-            .map_err(|e| Error::from(e))?;
+        sender.send(&buf[..size], &conn.addr).map_err(Error::from)?;
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
         conn.sequence += 1;
@@ -721,8 +717,8 @@ impl<Ctx> Server<Ctx> {
         mut receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        while let Some((mut buf, addr)) = receiver.recv().map_err(|e| Error::from(e))? {
-            self.recv_packet(&mut buf, now, addr, sender)?;
+        while let Some((mut buf, addr)) = receiver.recv().map_err(Error::from)? {
+            self.recv_packet(buf, now, addr, sender)?;
         }
         Ok(())
     }
@@ -842,7 +838,7 @@ impl<Ctx> Server<Ctx> {
     /// ```
     ///
     /// See [`ConnectTokenBuilder`](ConnectTokenBuilder) for more options.
-    pub fn token(&mut self, client_id: ClientId, io: &mut Io) -> ConnectTokenBuilder<SocketAddr> {
+    pub fn token(&mut self, client_id: ClientId, io: &Io) -> ConnectTokenBuilder<SocketAddr> {
         let token_builder = ConnectToken::build(
             io.local_addr(),
             self.protocol_id,
@@ -885,7 +881,7 @@ impl<Ctx> Server<Ctx> {
     }
 
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
-        self.conn_cache.clients.keys().map(|id| *id)
+        self.conn_cache.clients.keys().copied()
     }
 
     /// Gets the number of connected clients.

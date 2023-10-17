@@ -1,50 +1,65 @@
-mod events;
+use std::ops::DerefMut;
+use std::sync::Mutex;
+
+use bevy_app::{App, Plugin as PluginType, PostUpdate, PreUpdate};
+use bevy_ecs::prelude::IntoSystemConfigs;
+
+use lightyear_shared::netcode::ConnectToken;
+use lightyear_shared::Protocol;
 
 use crate::config::ClientConfig;
+use crate::plugin::sets::ClientSet;
+use crate::plugin::systems::{receive, send};
 use crate::Client;
-use bevy_app::{App, Plugin as PluginType};
-use lightyear_shared::netcode::ConnectToken;
-use lightyear_shared::{Io, Protocol};
-use std::sync::Mutex;
+
+mod events;
+mod sets;
+mod systems;
 
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
     protocol: P,
-    io: Io,
     token: ConnectToken,
 }
 
 // TODO: put all this in ClientConfig?
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, protocol: P, io: Io, token: ConnectToken) -> Self {
+    pub fn new(client_config: ClientConfig, protocol: P, token: ConnectToken) -> Self {
         PluginConfig {
             client_config,
             protocol,
-            io,
             token,
         }
     }
 }
 pub struct Plugin<P: Protocol> {
-    config: PluginConfig<P>,
+    // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference
+    // in build()
+    config: Mutex<Option<PluginConfig<P>>>,
 }
 
 impl<P: Protocol> Plugin<P> {
     pub fn new(config: PluginConfig<P>) -> Self {
-        Self { config }
+        Self {
+            config: Mutex::new(Some(config)),
+        }
     }
 }
 
 impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
-        // let io = std::mem::take(&mut self.config.io);
-        // let client = Client::new(io, config.token, config.protocol);
+        let config = self.config.lock().unwrap().deref_mut().take().unwrap();
+        let client = Client::new(config.client_config, config.token, config.protocol);
 
-        // app
-        // RESOURCES //
-        // .insert_resource(client);
-        // EVENTS //
-        // SYSTEM SETS //
-        // SYSTEMS //
+        app
+            // RESOURCES //
+            .insert_resource(client)
+            // SYSTEM SETS //
+            .configure_set(PreUpdate, ClientSet::Receive)
+            .configure_set(PostUpdate, ClientSet::Send)
+            // EVENTS //
+            // SYSTEMS //
+            .add_systems(PreUpdate, receive::<P>.in_set(ClientSet::Receive))
+            .add_systems(PostUpdate, send::<P>.in_set(ClientSet::Send));
     }
 }
