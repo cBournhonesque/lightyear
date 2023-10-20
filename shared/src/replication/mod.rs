@@ -5,8 +5,10 @@
 
 use std::marker::PhantomData;
 
+use anyhow::Result;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
+use bevy_ecs::prelude::Resource;
 use bitcode::__private::Serialize;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -14,7 +16,10 @@ use serde::Deserialize;
 use lightyear_derive::ChannelInternal;
 
 use crate::netcode::ClientId;
-use crate::{BitSerializable, ComponentProtocol, ComponentProtocolKind, ReadBuffer, WriteBuffer};
+use crate::{
+    BitSerializable, Channel, ChannelKind, ComponentProtocol, ComponentProtocolKind, Protocol,
+    ReadBuffer, WriteBuffer,
+};
 
 mod entity_map;
 pub mod manager;
@@ -25,15 +30,33 @@ pub mod manager;
 pub struct DefaultReliableChannel;
 
 /// Component that indicates that an entity should be replicated.
-#[derive(Component, Clone, Copy, Default)]
-pub struct Replicate<C = DefaultReliableChannel> {
+#[derive(Component, Clone, Copy)]
+pub struct Replicate {
     // TODO: be able to specify channel separately for entiy spawn/despawn and component insertion/removal?
     /// Optional: the channel to use for replicating entity updates.
     // pub channel: Option<ChannelKind>,
 
     /// The channel to use for replication (indicated by the generic type)
-    pub channel: PhantomData<C>,
+    pub channel: ChannelKind,
     pub target: ReplicationTarget,
+}
+
+impl Replicate {
+    pub fn with_channel<C: Channel>() -> Self {
+        Self {
+            channel: ChannelKind::of::<C>(),
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for Replicate {
+    fn default() -> Self {
+        Self {
+            channel: ChannelKind::of::<DefaultReliableChannel>(),
+            target: ReplicationTarget::default(),
+        }
+    }
 }
 
 // TODO: we would also like to be able to indicate how a component gets replicated (which channel; reliably or not, etc.)
@@ -61,4 +84,20 @@ pub enum ReplicationMessage<C, K> {
     RemoveComponent(Entity, K),
     // unreliable
     EntityUpdate(Entity, Vec<C>),
+}
+
+pub trait ReplicationSend<P: Protocol>: Resource {
+    fn entity_spawn(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        replicate: &Replicate,
+    ) -> Result<()>;
+
+    fn entity_update(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        replicate: &Replicate,
+    ) -> Result<()>;
 }

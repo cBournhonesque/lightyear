@@ -2,11 +2,12 @@ use anyhow::Context;
 use anyhow::Result;
 use bevy_ecs::prelude::{Resource, World};
 use std::net::SocketAddr;
+use tracing::{debug, trace};
 
 use lightyear_shared::netcode::{generate_key, Client as NetcodeClient};
 use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
-use lightyear_shared::{Channel, Connection, Events, WriteBuffer};
+use lightyear_shared::{Channel, ChannelKind, Connection, Events, WriteBuffer};
 use lightyear_shared::{Io, Protocol};
 
 use crate::config::ClientConfig;
@@ -86,11 +87,13 @@ impl<P: Protocol> Client<P> {
 
     /// Send a message to the server
     pub fn buffer_send<C: Channel>(&mut self, message: P::Message) -> Result<()> {
-        self.connection.buffer_message::<C>(message)
+        let channel = ChannelKind::of::<C>();
+        self.connection.buffer_message(message, channel)
     }
 
     /// Receive messages from the server
     pub fn receive(&mut self, world: &mut World) -> Events<P> {
+        trace!("Receive server packets");
         self.connection.receive(world)
     }
 

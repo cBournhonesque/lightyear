@@ -1,25 +1,38 @@
-use bevy::prelude::{App, ResMut, Startup};
+use bevy::prelude::{App, Commands, ResMut, Startup, World};
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 use tracing::{debug, info};
 
 use lightyear_client::{Authentication, Client};
+use lightyear_server::Server;
 use lightyear_shared::netcode::generate_key;
-use lightyear_tests::protocol::MyProtocol;
+use lightyear_shared::replication::Replicate;
+use lightyear_tests::protocol::{Channel2, MyProtocol};
 
-// fn client_init(mut client: ResMut<Client<MyProtocol>>) {
-fn client_init() {
-    panic!();
-    println!("clientinit");
-    dbg!("hi");
+fn client_init(mut client: ResMut<Client<MyProtocol>>) {
     info!("Connecting to server");
-    // client.connect();
+    client.connect();
 }
+
+fn server_init(mut commands: Commands) {
+    info!("Spawning entity on server");
+    commands.spawn(Replicate::<Channel2>::default());
+}
+
+// fn server_init(world: &mut World) {
+//     info!("Spawning entity on server");
+//     std::thread::sleep(Duration::from_secs(1));
+//     let replicate = Replicate::<Channel2>::default();
+//     let entity = world.spawn(replicate.clone()).id();
+//     let mut server = world.resource_mut::<Server<MyProtocol>>();
+//     server.entity_spawn(entity, vec![], &replicate).unwrap();
+// }
 
 #[test]
 fn test_simple_bevy_server_client() -> anyhow::Result<()> {
     tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::TRACE)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
 
     // Shared config
@@ -29,13 +42,14 @@ fn test_simple_bevy_server_client() -> anyhow::Result<()> {
     let client_id = 111;
 
     // Run the server and client in parallel
-    // let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
-    //     debug!("Starting server thread");
-    //     let mut server_app = App::new();
-    //     lightyear_tests::server::bevy_setup(&mut server_app, server_addr);
-    //     server_app.run();
-    //     Ok(())
-    // });
+    let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
+        debug!("Starting server thread");
+        let mut server_app = App::new();
+        lightyear_tests::server::bevy_setup(&mut server_app, server_addr, protocol_id, private_key);
+        server_app.add_systems(Startup, server_init);
+        server_app.run();
+        Ok(())
+    });
     let client_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting client thread");
         let mut client_app = App::new();
@@ -46,11 +60,11 @@ fn test_simple_bevy_server_client() -> anyhow::Result<()> {
             client_id,
         };
         lightyear_tests::client::bevy_setup(&mut client_app, auth);
-        // client_app.add_systems(Startup, client_init);
+        client_app.add_systems(Startup, client_init);
         client_app.run();
         Ok(())
     });
-    // server_thread.join().expect("server thread has panicked")?;
     client_thread.join().expect("client thread has panicked")?;
+    server_thread.join().expect("server thread has panicked")?;
     Ok(())
 }

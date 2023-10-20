@@ -1,4 +1,7 @@
+use bitcode::word_buffer::WordWriter;
+use bytes::Bytes;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use serde::Serialize;
 
@@ -6,6 +9,15 @@ use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::{ReadWordBuffer, WriteWordBuffer};
+
+// strategies to avoid copying:
+// - have a net_id for each message or component
+//   be able to take a reference to a M and serialize it into bytes (so we can cheaply clone)
+//   in the serialized message, include the net_id (for decoding)
+//   no bit padding
+
+// -
 
 /// A Message is a logical unit of data that should be transmitted over a network
 ///
@@ -14,7 +26,70 @@ use crate::serialize::writer::WriteBuffer;
 ///
 /// A Message knows how to serialize itself (messageType + Data)
 /// and knows how many bits it takes to serialize itself
+///
+/// In the message container, we already store the serialized representation of the message.
+/// The main reason is so that we can avoid copies, by directly serializing references into raw bits
 // #[derive(Serialize, Deserialize)]
+// #[derive(Clone, PartialEq, Debug)]
+// pub struct MessageContainer<P: BitSerializable> {
+//     pub(crate) id: Option<MessageId>,
+//     // we use bytes so we can cheaply copy the message container (for example in reliable sender)
+//     pub(crate) message: Bytes,
+//     // TODO: we use num_bits to avoid padding each message to a full byte when serializing
+//     // num_bits: usize,
+//     // message: P,
+//     marker: PhantomData<P>,
+// }
+//
+// impl<P: BitSerializable> MessageContainer<P> {
+//     /// Serialize the message into a bytes buffer
+//     /// Returns the number of bits written
+//     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+//         let num_bits_before = writer.num_bits_written();
+//         writer.serialize(&self.id)?;
+//         // TODO: only serialize the bits that matter (without padding!)
+//         self.message.as_ref().encode(writer)?;
+//         let num_bits_written = writer.num_bits_written() - num_bits_before;
+//         Ok(num_bits_written)
+//     }
+//
+//     /// Deserialize from the bytes buffer into a Message
+//     pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
+//         let id = reader.deserialize::<Option<MessageId>>()?;
+//         let raw_bytes = <[u8]>::decode(reader)?;
+//         let message = Bytes::from(raw_bytes);
+//         Ok(Self {
+//             id,
+//             message,
+//             marker: Default::default(),
+//         })
+//     }
+//
+//     pub fn new<P: BitSerializable>(message: &P) -> Self {
+//         // TODO: reuse the same buffer for writing message containers
+//         let mut buffer = WriteWordBuffer::with_capacity(1024);
+//         buffer.start_write();
+//         message.encode(&mut buffer).unwrap();
+//         let bytes = buffer.finish_write();
+//         // let num_bits_written = buffer.num_bits_written();
+//         MessageContainer {
+//             id: None,
+//             message: Bytes::from(bytes),
+//             marker: Default::default(),
+//         }
+//     }
+//
+//     pub fn set_id(&mut self, id: MessageId) {
+//         self.id = Some(id);
+//     }
+//
+//     pub fn inner(self) -> P {
+//         // TODO: have a way to do this without any copy?
+//         let mut reader = ReadWordBuffer::start_read(self.message.as_ref());
+//         P::decode(&mut reader).unwrap()
+//     }
+// }
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct MessageContainer<P> {
     pub(crate) id: Option<MessageId>,
@@ -51,6 +126,7 @@ impl<P: BitSerializable> MessageContainer<P> {
     }
 
     pub fn inner(self) -> P {
+        // TODO: have a way to do this without any copy?
         self.message
     }
 }

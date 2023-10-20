@@ -32,10 +32,13 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
     Ok(Server::new(config, protocol()))
 }
 
-pub fn bevy_setup(app: &mut App, addr: SocketAddr) {
+pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key: Key) {
     // create udp-socket based io
+    let netcode_config = NetcodeConfig::default()
+        .with_protocol_id(protocol_id)
+        .with_key(private_key);
     let config = ServerConfig {
-        netcode: NetcodeConfig::default(),
+        netcode: netcode_config,
         io: IoConfig::UdpSocket(addr),
     };
     let plugin_config = PluginConfig::new(config, protocol());

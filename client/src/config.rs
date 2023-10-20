@@ -1,5 +1,5 @@
 use lightyear_shared::netcode::{ConnectToken, ConnectTokenBuilder, Key};
-use lightyear_shared::IoConfig;
+use lightyear_shared::{IoConfig, SharedConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 pub struct NetcodeConfig {
@@ -25,6 +25,7 @@ impl NetcodeConfig {
 }
 
 pub struct ClientConfig {
+    pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
 }

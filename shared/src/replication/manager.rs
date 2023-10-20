@@ -1,9 +1,10 @@
-use bevy_ecs::prelude::World;
+use bevy_ecs::component::ComponentId;
+use bevy_ecs::prelude::{FromWorld, World};
 use tracing::debug;
 
 use crate::connection::ProtocolMessage;
 use crate::replication::entity_map::EntityMap;
-use crate::replication::ReplicationMessage;
+use crate::replication::{Replicate, ReplicationMessage};
 use crate::{ComponentBehaviour, Protocol};
 
 #[derive(Default)]
@@ -11,7 +12,11 @@ pub struct ReplicationManager {
     pub entity_map: EntityMap,
 }
 
+/// We want:
+/// - entity actions to be done reliably
+/// - entity updates (component updates) to be done unreliably
 impl ReplicationManager {
+    /// Apply any replication messages to the world
     pub(crate) fn apply_world<P: Protocol>(
         &mut self,
         world: &mut World,
@@ -66,7 +71,13 @@ impl ReplicationManager {
                         entity
                     );
                 }
-                ReplicationMessage::EntityUpdate(_, _) => {}
+                ReplicationMessage::EntityUpdate(entity, components) => {
+                    let mut local_entity_mut =
+                        self.entity_map.get_by_remote_or_spawn(world, entity);
+                    for component in components {
+                        component.insert(&mut local_entity_mut);
+                    }
+                }
             },
             ProtocolMessage::Message(_) => {}
         }

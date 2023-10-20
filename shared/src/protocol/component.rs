@@ -17,6 +17,7 @@ pub trait ComponentProtocol:
     // fn insert(self, entity: &mut EntityMut);
 }
 
+/// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 #[enum_delegate::register]
 pub trait ComponentBehaviour {
     /// Insert the component for an entity

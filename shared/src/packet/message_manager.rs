@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
 use bitcode::read::Read;
+use tracing::debug;
 
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -38,8 +39,8 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Buffer a message to be sent on this connection
-    pub fn buffer_send<C: Channel>(&mut self, message: M) -> anyhow::Result<()> {
-        let channel_kind = ChannelKind::of::<C>();
+    pub fn buffer_send(&mut self, message: M, channel_kind: ChannelKind) -> anyhow::Result<()> {
+        debug!("Buffering message to channel");
         let mut channel = self
             .channels
             .get_mut(&channel_kind)

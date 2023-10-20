@@ -38,6 +38,16 @@ pub fn channel_impl(
             impl Channel for #struct_name {
                 #get_builder_method
             }
+            impl Default for #struct_name {
+                fn default() -> Self {
+                    Self
+                }
+            }
+            impl Clone for #struct_name {
+                fn clone(&self) -> Self {
+                    Self
+                }
+            }
         }
     };
 

@@ -1,6 +1,10 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use crate::replication::Replicate;
 use bevy_ecs::entity::Entity;
+use bevy_ecs::prelude::World;
+use bevy_ecs::world::EntityMut;
 
 #[derive(Default)]
 pub struct EntityMap {
@@ -23,23 +27,26 @@ impl EntityMap {
         self.local_to_remote.get(&local_entity)
     }
 
-    // /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
-    // pub(super) fn get_by_remote_or_spawn<'a>(
-    //     &mut self,
-    //     world: &'a mut World,
-    //     remote_entity: Entity,
-    // ) -> EntityMut<'a> {
-    //     match self.remote_to_local.entry(remote_entity) {
-    //         Entry::Occupied(entry) => world.entity_mut(*entry.get()),
-    //         Entry::Vacant(entry) => {
-    //             let local_entity = world.spawn(Replicate);
-    //             entry.insert(local_entity.id());
-    //             self.local_to_remote
-    //                 .insert(local_entity.id(), remote_entity);
-    //             local_entity
-    //         }
-    //     }
-    // }
+    /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
+    pub(super) fn get_by_remote_or_spawn<'a>(
+        &mut self,
+        world: &'a mut World,
+        remote_entity: Entity,
+    ) -> EntityMut<'a> {
+        match self.remote_to_local.entry(remote_entity) {
+            Entry::Occupied(entry) => world.entity_mut(*entry.get()),
+            Entry::Vacant(entry) => {
+                // TODO: why could this happen?
+                // - new connection; all existing entity are transmitted
+                // - entity got despawned on client while this update was being transmitted, in which case we don't want to respawn.
+                let local_entity = world.spawn(Replicate::default());
+                entry.insert(local_entity.id());
+                self.local_to_remote
+                    .insert(local_entity.id(), remote_entity);
+                local_entity
+            }
+        }
+    }
 
     pub(super) fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
         let local_entity = self.remote_to_local.remove(&remote_entity);

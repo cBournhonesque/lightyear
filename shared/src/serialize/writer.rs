@@ -5,7 +5,9 @@ pub trait WriteBuffer {
     // type Writer: BitWrite;
 
     /// Serialize the given value into the buffer
-    /// There is 0-7 bits of padding so that the serialized value is byte-aligned
+    /// There is no padding when we serialize a value (i.e. it's possible to add a single bit
+    /// to the buffer)
+
     fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()>;
 
     fn capacity(&self) -> usize;
@@ -15,6 +17,7 @@ pub trait WriteBuffer {
     fn start_write(&mut self);
 
     /// Returns the finalized bytes (with padding to make a full byte)
+    /// There is 0-7 bits of padding so that the serialized value is byte-aligned
     fn finish_write(&mut self) -> &[u8];
 
     fn num_bits_written(&self) -> usize;

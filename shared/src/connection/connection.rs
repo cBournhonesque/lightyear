@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::prelude::{Entity, FromWorld, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
 
@@ -48,32 +48,45 @@ impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
             message_manager: MessageManager::new(channel_registry),
-            replication_manager: Default::default(),
+            replication_manager: ReplicationManager::default(),
             events: Events::new(),
         }
     }
 }
 
 impl<P: Protocol> Connection<P> {
-    pub fn buffer_message<C: Channel>(&mut self, message: P::Message) -> Result<()> {
+    pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
         let message = ProtocolMessage::Message(message);
-        self.message_manager.buffer_send::<C>(message)
+        self.message_manager.buffer_send(message, channel)
     }
 
-    pub fn buffer_spawn_entity<C: Channel>(
+    pub fn buffer_spawn_entity(
         &mut self,
         entity: Entity,
         components: Vec<P::Components>,
+        channel: ChannelKind,
     ) -> Result<()> {
         let message =
             ProtocolMessage::Replication(ReplicationMessage::SpawnEntity(entity, components));
         // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
-        self.message_manager.buffer_send::<C>(message)
+        self.message_manager.buffer_send(message, channel)
     }
 
-    pub fn buffer_despawn_entity<C: Channel>(&mut self, entity: Entity) -> Result<()> {
+    pub fn buffer_update_entity(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        channel: ChannelKind,
+    ) -> Result<()> {
+        let message =
+            ProtocolMessage::Replication(ReplicationMessage::EntityUpdate(entity, components));
+        // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
+        self.message_manager.buffer_send(message, channel)
+    }
+
+    pub fn buffer_despawn_entity(&mut self, entity: Entity, channel: ChannelKind) -> Result<()> {
         let message = ProtocolMessage::Replication(ReplicationMessage::DespawnEntity(entity));
-        self.message_manager.buffer_send::<C>(message)
+        self.message_manager.buffer_send(message, channel)
     }
 
     // TODO: make world optional? or separate receiving into messages and applying into world?

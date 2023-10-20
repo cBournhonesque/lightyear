@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::{Res, ResMut};
+use bevy_ecs::prelude::{Mut, Res, ResMut, World};
 use bevy_time::Time;
 use tracing::trace;
 
@@ -6,12 +6,22 @@ use lightyear_shared::Protocol;
 
 use crate::Client;
 
-pub(crate) fn receive<P: Protocol>(time: Res<Time>, mut client: ResMut<Client<P>>) {
+pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
-    // update client state, send keep-alives, receive packets from io
-    client.update(time.elapsed().as_secs_f64()).unwrap();
-    // buffer packets into message managers
-    client.recv_packets().unwrap();
+    world.resource_scope(|world, mut client: Mut<Client<P>>| {
+        let time = world.get_resource::<Time>().unwrap();
+
+        // update client state, send keep-alives, receive packets from io
+        client.update(time.elapsed().as_secs_f64()).unwrap();
+        // buffer packets into message managers
+        client.recv_packets().unwrap();
+        // receive packets from message managers
+        let events = client.receive(world);
+        if !events.is_empty() {
+            dbg!(events.spawns);
+            panic!();
+        }
+    });
 }
 
 pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
