@@ -8,7 +8,7 @@ use lightyear_shared::Protocol;
 
 use crate::config::ServerConfig;
 use crate::plugin::sets::ServerSet;
-use crate::plugin::systems::{receive, replicate_entity_spawn, send};
+use crate::plugin::systems::{receive, send, send_entity_spawn};
 use crate::Server;
 
 mod sets;
@@ -60,7 +60,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 PostUpdate,
                 (
                     (
-                        replicate_entity_spawn::<P>,
+                        send_entity_spawn::<P>,
                         // replicate_entity_updates::<P>),
                     ),
                     send::<P>,

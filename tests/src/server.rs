@@ -3,16 +3,12 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::app::App;
-use bevy::log::LogPlugin;
-use bevy::prelude::PluginGroup;
-use bevy::{DefaultPlugins, MinimalPlugins};
-use lightyear_client::Authentication;
-use tracing::Level;
+use bevy::MinimalPlugins;
 
 use lightyear_server::PluginConfig;
 use lightyear_server::{NetcodeConfig, Plugin};
 use lightyear_server::{Server, ServerConfig};
-use lightyear_shared::netcode::{ClientId, ConnectToken, Key};
+use lightyear_shared::netcode::Key;
 use lightyear_shared::IoConfig;
 
 use crate::protocol::{protocol, MyProtocol};

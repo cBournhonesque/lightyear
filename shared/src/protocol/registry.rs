@@ -9,6 +9,9 @@ pub(crate) type NetId = u16;
 
 pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 
+// needs trait_alias feature
+// type TypeKind = From<TypeId> + Copy + PartialEq + Eq + Hash {};
+
 /// Struct to map a type to an id that can be serialized over the network
 #[derive(Clone)]
 pub struct TypeMapper<K: TypeKind> {

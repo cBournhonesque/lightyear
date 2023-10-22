@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::{Mut, Res, ResMut, World};
+use bevy_ecs::prelude::{Mut, ResMut, World};
 use bevy_time::Time;
 use tracing::trace;
 

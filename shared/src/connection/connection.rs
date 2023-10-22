@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bevy_ecs::prelude::{Entity, FromWorld, World};
+use bevy_ecs::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
 
@@ -7,13 +7,13 @@ use crate::connection::events::Events;
 use crate::packet::message_manager::MessageManager;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
-use crate::{Channel, ChannelKind, ChannelRegistry, Protocol, ReadBuffer, WriteBuffer};
+use crate::{ChannelKind, ChannelRegistry, Protocol, ReadBuffer, WriteBuffer};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
 pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager<ProtocolMessage<P>>,
-    pub replication_manager: ReplicationManager,
+    pub replication_manager: ReplicationManager<P>,
     pub events: Events<P>,
 }
 
@@ -69,7 +69,32 @@ impl<P: Protocol> Connection<P> {
         let message =
             ProtocolMessage::Replication(ReplicationMessage::SpawnEntity(entity, components));
         // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
-        self.message_manager.buffer_send(message, channel)
+        if self.replication_manager.send_entity_spawn(entity) {
+            self.message_manager.buffer_send(message, channel)?
+        }
+        Ok(())
+    }
+
+    /// Buffer a component insert for an entity
+    pub fn buffer_update_entity_single_component(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        channel: ChannelKind,
+    ) -> Result<()> {
+        self.replication_manager
+            .send_entity_update_single_component(entity, component, channel);
+        Ok(())
+    }
+
+    /// Finalize any messages that we need to send for replication
+    pub fn prepare_replication_send(&mut self) {
+        self.replication_manager
+            .prepare_send()
+            .into_iter()
+            .for_each(|(channel, message)| {
+                self.message_manager.buffer_send(message, channel);
+            })
     }
 
     pub fn buffer_update_entity(

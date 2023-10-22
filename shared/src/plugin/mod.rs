@@ -1,9 +1,12 @@
-mod replication;
-mod systems;
-
 use bevy_app::prelude::Plugin;
 use bevy_app::App;
+
 pub use replication::ReplicationData;
+pub use sets::ReplicationSet;
+
+mod replication;
+mod sets;
+pub mod systems;
 
 pub struct SharedPlugin;
 

@@ -1,6 +1,7 @@
-use crate::replication::Replicate;
 use bevy_ecs::component::ComponentId;
 use bevy_ecs::prelude::{FromWorld, Resource, World};
+
+use crate::replication::Replicate;
 
 #[derive(Resource)]
 pub struct ReplicationData {

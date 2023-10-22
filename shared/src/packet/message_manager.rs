@@ -266,17 +266,11 @@ mod tests {
         let mut server_connection = MessageManager::<MyMessageProtocol>::new(&channel_registry);
 
         // client: buffer send messages, and then send
-        let with_id = |message: &MessageContainer<_>, id| {
-            let mut m = message.clone();
-            m.set_id(MessageId(id));
-            m
-        };
-
-        let mut message = MessageContainer::new(MyMessageProtocol::Message1(Message1(1)));
+        let mut message = MyMessageProtocol::Message1(Message1(1));
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
-        client_connection.buffer_send::<Channel1>(message.clone())?;
-        client_connection.buffer_send::<Channel2>(message.clone())?;
+        client_connection.buffer_send(message.clone(), channel_kind_1)?;
+        client_connection.buffer_send(message.clone(), channel_kind_2)?;
         let mut packet_bytes = client_connection.send_packets()?;
         assert_eq!(
             client_connection.packet_to_message_id_map,
@@ -292,10 +286,7 @@ mod tests {
                 .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.finish_write()))?;
         }
         let mut data = server_connection.read_messages();
-        assert_eq!(
-            data.get(&channel_kind_1).unwrap(),
-            &vec![with_id(&message, 0)]
-        );
+        assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
         assert_eq!(data.get(&channel_kind_2).unwrap(), &vec![message.clone()]);
 
         // Confirm what happens if we try to receive but there is nothing on the io
@@ -317,7 +308,7 @@ mod tests {
             .contains(&PacketId(0)));
 
         // Server sends back a message
-        server_connection.buffer_send::<Channel1>(message.clone())?;
+        server_connection.buffer_send(message.clone(), channel_kind_1)?;
         let mut packet_bytes = server_connection.send_packets()?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages

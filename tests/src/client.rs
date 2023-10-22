@@ -1,19 +1,18 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::app::{App, PluginGroup};
-use bevy::log::{Level, LogPlugin};
-use bevy::{DefaultPlugins, MinimalPlugins};
+use bevy::app::App;
+use bevy::MinimalPlugins;
 
 use lightyear_client::{Authentication, ClientConfig, Plugin, PluginConfig};
-use lightyear_shared::netcode::ConnectToken;
-use lightyear_shared::IoConfig;
+use lightyear_shared::{IoConfig, SharedConfig};
 
 use crate::protocol::{protocol, MyProtocol};
 
 pub fn setup(auth: Authentication) -> anyhow::Result<lightyear_client::Client<MyProtocol>> {
     let addr = SocketAddr::from_str("127.0.0.1:0")?;
     let config = ClientConfig {
+        shared: SharedConfig::default(),
         netcode: Default::default(),
         io: IoConfig::UdpSocket(addr),
     };
@@ -26,6 +25,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
     // create udp-socket based io
     let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
     let config = ClientConfig {
+        shared: SharedConfig::default(),
         netcode: Default::default(),
         io: IoConfig::UdpSocket(addr),
     };

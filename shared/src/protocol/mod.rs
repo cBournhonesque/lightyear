@@ -1,9 +1,11 @@
+use bevy_app::App;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
 use crate::protocol::message::MessageProtocol;
+use crate::replication::ReplicationSend;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::{Channel, ChannelSettings};
@@ -38,8 +40,8 @@ macro_rules! protocolize {
         mod [<$protocol _module>] {
             use super::*;
             use lightyear_shared::{
-                Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind, Entity,
-                MessageProtocol, Protocol,
+                App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
+                Entity, MessageProtocol, Protocol, ReplicationSend
             };
 
             #[derive(Default, Clone)]
@@ -60,6 +62,10 @@ macro_rules! protocolize {
                 fn channel_registry(&self) -> &ChannelRegistry {
                     &self.channel_registry
                 }
+
+                fn add_systems<R: ReplicationSend<Self>>(app: &mut App) {
+                    Self::Components::add_systems::<Self, R>(app);
+                }
             }
         }
         pub use [<$protocol _module>]::$protocol;
@@ -73,6 +79,7 @@ pub trait Protocol: Send + Sync + Clone + 'static {
     type ComponentKinds: ComponentProtocolKind + Send + Sync;
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
     fn channel_registry(&self) -> &ChannelRegistry;
+    fn add_systems<R: ReplicationSend<Self>>(app: &mut App);
 }
 
 /// Something that can be serialized bit by bit

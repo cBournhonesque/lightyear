@@ -1,11 +1,10 @@
-use bevy::prelude::{App, Commands, ResMut, Startup, World};
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
+
+use bevy::prelude::{App, Commands, ResMut, Startup};
 use tracing::{debug, info};
 
 use lightyear_client::{Authentication, Client};
-use lightyear_server::Server;
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::replication::Replicate;
 use lightyear_tests::protocol::{Channel2, MyProtocol};

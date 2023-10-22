@@ -1,10 +1,11 @@
+use std::net::SocketAddr;
+
 use anyhow::Context;
 use anyhow::Result;
 use bevy_ecs::prelude::{Resource, World};
-use std::net::SocketAddr;
-use tracing::{debug, trace};
+use tracing::trace;
 
-use lightyear_shared::netcode::{generate_key, Client as NetcodeClient};
+use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::{Channel, ChannelKind, Connection, Events, WriteBuffer};

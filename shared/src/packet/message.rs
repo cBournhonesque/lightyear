@@ -1,7 +1,4 @@
-use bitcode::word_buffer::WordWriter;
-use bytes::Bytes;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
 use serde::Serialize;
 
@@ -9,7 +6,6 @@ use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::{ReadWordBuffer, WriteWordBuffer};
 
 // strategies to avoid copying:
 // - have a net_id for each message or component

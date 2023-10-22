@@ -25,7 +25,7 @@ pub enum MyMessageProtocol {
 pub struct Component1;
 
 #[derive(Debug, PartialEq)]
-#[component_protocol]
+#[component_protocol(protocol = MyProtocol)]
 pub enum MyComponentsProtocol {
     Component1(Component1),
 }

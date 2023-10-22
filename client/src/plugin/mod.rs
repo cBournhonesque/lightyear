@@ -4,7 +4,6 @@ use std::sync::Mutex;
 use bevy_app::{App, Plugin as PluginType, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::IntoSystemConfigs;
 
-use lightyear_shared::netcode::ConnectToken;
 use lightyear_shared::Protocol;
 
 use crate::client::Authentication;

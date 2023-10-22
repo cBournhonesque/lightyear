@@ -1,10 +1,11 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use crate::replication::Replicate;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::World;
 use bevy_ecs::world::EntityMut;
+
+use crate::replication::Replicate;
 
 #[derive(Default)]
 pub struct EntityMap {

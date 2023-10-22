@@ -1,10 +1,11 @@
+use bevy_app::App;
 use bevy_ecs::prelude::Component;
 use bevy_ecs::world::EntityMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::serialize::writer::WriteBuffer;
-use crate::BitSerializable;
+use crate::{BitSerializable, Protocol, ReplicationSend};
 
 // client writes an Enum containing all their message type
 // each message must derive message
@@ -14,8 +15,11 @@ use crate::BitSerializable;
 pub trait ComponentProtocol:
     BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour
 {
+    fn add_systems<P: Protocol, R: ReplicationSend<P>>(app: &mut App);
     // fn insert(self, entity: &mut EntityMut);
 }
+
+pub trait Replicable: Component + Clone {}
 
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 #[enum_delegate::register]

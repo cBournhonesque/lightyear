@@ -6,7 +6,7 @@ use bevy_ecs::prelude::{Resource, World};
 use tracing::debug;
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
-use lightyear_shared::replication::{Replicate, ReplicationTarget};
+use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
 use lightyear_shared::{Channel, ChannelKind, Entity, Io, Protocol};
 use lightyear_shared::{Connection, WriteBuffer};
@@ -89,44 +89,10 @@ impl<P: Protocol> Server<P> {
 
     // REPLICATION
 
-    pub fn entity_spawn(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        replicate: &Replicate,
-    ) -> Result<()> {
-        debug!("Spawning entity on server {:?}", entity);
-        let mut buffer_message = |client_id: ClientId,
-                                  channel: ChannelKind,
-                                  connection: &mut Connection<P>|
-         -> Result<()> {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_spawn_entity(entity, components.clone(), channel)
-        };
-        self.apply_replication(replicate, Box::new(buffer_message))
-    }
-
-    pub fn entity_update(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        replicate: &Replicate,
-    ) -> Result<()> {
-        debug!("Spawning entity on server {:?}", entity);
-        let mut buffer_message = |client_id: ClientId,
-                                  channel: ChannelKind,
-                                  connection: &mut Connection<P>|
-         -> Result<()> {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_update_entity(entity, components.clone(), channel)
-        };
-        self.apply_replication(replicate, Box::new(buffer_message))
-    }
-
-    fn apply_replication(
+    fn apply_replication<F: Fn(ClientId, ChannelKind, &mut Connection<P>) -> Result<()>>(
         &mut self,
         replicate: &Replicate,
-        f: Box<dyn Fn(ClientId, ChannelKind, &mut Connection<P>) -> Result<()>>,
+        f: F,
     ) -> Result<()> {
         match replicate.target {
             ReplicationTarget::All => {
@@ -251,4 +217,99 @@ impl<P: Protocol> Server<P> {
 pub struct ServerContext {
     pub connections: crossbeam_channel::Receiver<ClientId>,
     pub disconnections: crossbeam_channel::Receiver<ClientId>,
+}
+
+impl<P: Protocol> ReplicationSend<P> for Server<P> {
+    fn entity_spawn(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        replicate: &Replicate,
+    ) -> Result<()> {
+        debug!("Spawning entity on server {:?}", entity);
+        let mut buffer_message = |client_id: ClientId,
+                                  channel: ChannelKind,
+                                  connection: &mut Connection<P>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            connection.buffer_spawn_entity(entity, components.clone(), channel)
+        };
+        self.apply_replication(replicate, buffer_message)
+    }
+
+    fn entity_despawn(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        replicate: &Replicate,
+    ) -> Result<()> {
+        todo!()
+    }
+
+    fn component_insert(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate,
+    ) -> Result<()> {
+        todo!()
+    }
+
+    fn component_remove(
+        &mut self,
+        entity: Entity,
+        component_kind: P::ComponentKinds,
+        replicate: &Replicate,
+    ) -> Result<()> {
+        todo!()
+    }
+
+    fn entity_update_single_component(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate,
+    ) -> Result<()> {
+        debug!(
+            "Updating single component for entity {:?} on server",
+            entity
+        );
+        let mut buffer_message = |client_id: ClientId,
+                                  channel: ChannelKind,
+                                  connection: &mut Connection<P>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            connection.buffer_update_entity_single_component(entity, component.clone(), channel)
+        };
+        self.apply_replication(replicate, buffer_message)
+    }
+
+    fn entity_update(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        replicate: &Replicate,
+    ) -> Result<()> {
+        debug!("Updating components for entity {:?} on server", entity);
+        let mut buffer_message = |client_id: ClientId,
+                                  channel: ChannelKind,
+                                  connection: &mut Connection<P>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            connection.buffer_update_entity(entity, components.clone(), channel)
+        };
+        self.apply_replication(replicate, buffer_message)
+    }
+
+    fn prepare_replicate_send(&mut self) {
+        debug!("Finalizing replication messages on server");
+        let client_ids: Vec<ClientId> = self.client_ids().collect();
+        for client_id in client_ids {
+            let connection = self
+                .user_connections
+                .get_mut(&client_id)
+                .expect("client not found");
+            connection.prepare_replication_send();
+        }
+    }
 }

@@ -3,8 +3,6 @@
 // bevy systems to add/update/remove components and entities
 // (potentially let users choose which channel to use for these?)
 
-use std::marker::PhantomData;
-
 use anyhow::Result;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
@@ -29,6 +27,10 @@ pub mod manager;
 #[derive(ChannelInternal)]
 pub struct DefaultReliableChannel;
 
+/// Component inserted to each replicable entities, to detect when they are despawned
+#[derive(Component, Clone, Copy)]
+pub struct DespawnTracker;
+
 /// Component that indicates that an entity should be replicated.
 #[derive(Component, Clone, Copy)]
 pub struct Replicate {
@@ -39,6 +41,9 @@ pub struct Replicate {
     /// The channel to use for replication (indicated by the generic type)
     pub channel: ChannelKind,
     pub target: ReplicationTarget,
+    // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
+    //  it just keeps living but doesn't receive any updates
+    //  should we make this configurable?
 }
 
 impl Replicate {
@@ -94,10 +99,52 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         replicate: &Replicate,
     ) -> Result<()>;
 
+    fn entity_despawn(
+        &mut self,
+        entity: Entity,
+        components: Vec<P::Components>,
+        replicate: &Replicate,
+    ) -> Result<()>;
+
+    fn component_insert(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate,
+    ) -> Result<()>;
+
+    fn component_remove(
+        &mut self,
+        entity: Entity,
+        component_kind: P::ComponentKinds,
+        replicate: &Replicate,
+    ) -> Result<()>;
+
+    fn entity_update_single_component(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate,
+    ) -> Result<()>;
+
     fn entity_update(
         &mut self,
         entity: Entity,
         components: Vec<P::Components>,
         replicate: &Replicate,
     ) -> Result<()>;
+
+    /// Any operation that needs to happen before we can send the replication messages
+    /// (for example collecting the individual single component updates into a single message)
+    fn prepare_replicate_send(&mut self);
 }
+
+// pub trait ReplicationReceive<P: Protocol>: Resource {
+//     fn entity_spawn(
+//         &mut self,
+//         entity: Entity,
+//         components: Vec<P::Components>,
+//         replicate: &Replicate,
+//     ) -> Result<()>;
+//
+// }
