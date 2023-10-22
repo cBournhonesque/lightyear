@@ -23,7 +23,6 @@ lightyear_shared=  { path = ".." }
 enum-as-inner = "0.6.0"
 bevy_ecs = { version = "0.11", default-features = false}
 bevy = { version = "0.11", default-features = false}
-enum-kinds = "0.5"
 enum_delegate = "0.2"
 
 

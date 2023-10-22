@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bevy_ecs::prelude::{Entity, World};
-use tracing::debug;
+use tracing::{debug, debug_span};
 
 use crate::connection::ProtocolMessage;
 use crate::replication::entity_map::EntityMap;
@@ -105,10 +105,15 @@ impl<P: Protocol> ReplicationManager<P> {
 
     /// Apply any replication messages to the world
     pub(crate) fn apply_world(&mut self, world: &mut World, message: ProtocolMessage<P>) {
-        // TODO: add span
+        let span = debug_span!("apply received replication message to world").entered();
         match message {
             ProtocolMessage::Replication(replication) => match replication {
                 ReplicationMessage::SpawnEntity(entity, components) => {
+                    let component_kinds = components
+                        .iter()
+                        .map(|c| c.into())
+                        .collect::<Vec<P::ComponentKinds>>();
+                    debug!(?entity, ?component_kinds, "Received spawn entity");
                     // let local_entity = world.spawn(components.into()).id();
 
                     // TODO: we only run spawn_entity if we don't already have an entity in the process of being spawned
@@ -166,8 +171,14 @@ impl<P: Protocol> ReplicationManager<P> {
                     );
                 }
                 ReplicationMessage::EntityUpdate(entity, components) => {
+                    let kinds = components
+                        .iter()
+                        .map(|c| c.into())
+                        .collect::<Vec<P::ComponentKinds>>();
+                    debug!(?entity, ?kinds, "Received entity update");
                     let mut local_entity_mut =
                         self.entity_map.get_by_remote_or_spawn(world, entity);
+                    // TODO: keep track of the components inserted?
                     for component in components {
                         component.insert(&mut local_entity_mut);
                     }

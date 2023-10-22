@@ -3,6 +3,7 @@ use bevy_ecs::prelude::Component;
 use bevy_ecs::world::EntityMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::fmt::Debug;
 
 use crate::serialize::writer::WriteBuffer;
 use crate::{BitSerializable, Protocol, ReplicationSend};
@@ -15,11 +16,9 @@ use crate::{BitSerializable, Protocol, ReplicationSend};
 pub trait ComponentProtocol:
     BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour
 {
-    fn add_systems<P: Protocol, R: ReplicationSend<P>>(app: &mut App);
-    // fn insert(self, entity: &mut EntityMut);
+    type Protocol: Protocol;
+    fn add_replication_send_systems<R: ReplicationSend<Self::Protocol>>(app: &mut App);
 }
-
-pub trait Replicable: Component + Clone {}
 
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 #[enum_delegate::register]
@@ -34,4 +33,12 @@ impl<T: Component> ComponentBehaviour for T {
     }
 }
 
-pub trait ComponentProtocolKind: BitSerializable + Serialize + DeserializeOwned {}
+pub trait ComponentProtocolKind:
+    BitSerializable
+    + Serialize
+    + DeserializeOwned
+    + Debug
+    + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
+{
+    type Protocol: Protocol;
+}

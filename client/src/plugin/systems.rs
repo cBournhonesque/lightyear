@@ -1,6 +1,6 @@
 use bevy_ecs::prelude::{Mut, ResMut, World};
 use bevy_time::Time;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use lightyear_shared::Protocol;
 
@@ -19,7 +19,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         let events = client.receive(world);
         if !events.is_empty() {
             dbg!(events.spawns);
-            panic!();
+            // panic!();
         }
     });
 }

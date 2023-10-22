@@ -1,6 +1,7 @@
 use bevy_app::App;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
@@ -15,21 +16,14 @@ pub mod component;
 pub(crate) mod message;
 pub(crate) mod registry;
 
-// create this struct using a macro, where we provide the message and component enums
-// protocolize!(MyMessage, MyComponents)
-// which generates
-
-// pub struct MyProtocol {
-//   channel_registry
-// }
-
-// impl Protocol for MyProtocol {
-//   type Message: MyMessage;
-// }
-
-// create a struct MyProtocol that satisfies trait Protocol
-// - we need the struct to access the channel registry
-// - we need the trait Protocol to access the associated types
+pub trait Protocol: Send + Sync + Clone + 'static {
+    type Message: MessageProtocol + Send + Sync;
+    type Components: ComponentProtocol<Protocol = Self> + Send + Sync;
+    type ComponentKinds: ComponentProtocolKind<Protocol = Self> + Send + Sync;
+    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
+    fn channel_registry(&self) -> &ChannelRegistry;
+    fn add_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App);
+}
 
 // TODO: give an option to change names of types
 #[macro_export]
@@ -63,23 +57,14 @@ macro_rules! protocolize {
                     &self.channel_registry
                 }
 
-                fn add_systems<R: ReplicationSend<Self>>(app: &mut App) {
-                    Self::Components::add_systems::<Self, R>(app);
+                fn add_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App) {
+                    Self::Components::add_replication_send_systems::<R>(app);
                 }
             }
         }
         pub use [<$protocol _module>]::$protocol;
         }
     };
-}
-
-pub trait Protocol: Send + Sync + Clone + 'static {
-    type Message: MessageProtocol + Send + Sync;
-    type Components: ComponentProtocol + Send + Sync;
-    type ComponentKinds: ComponentProtocolKind + Send + Sync;
-    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
-    fn channel_registry(&self) -> &ChannelRegistry;
-    fn add_systems<R: ReplicationSend<Self>>(app: &mut App);
 }
 
 /// Something that can be serialized bit by bit

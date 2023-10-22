@@ -1,7 +1,7 @@
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::{Added, Query, Res, ResMut};
 use bevy_time::Time;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use lightyear_shared::replication::{Replicate, ReplicationSend};
 use lightyear_shared::Protocol;

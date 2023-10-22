@@ -22,7 +22,7 @@ pub(crate) const MTU_PAYLOAD_BYTES: usize = 1200;
 
 /// Single individual packet sent over the network
 /// Contains multiple small messages
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct SinglePacket<P: BitSerializable, const C: usize = MTU_PACKET_BYTES> {
     pub(crate) header: PacketHeader,
     pub(crate) data: BTreeMap<NetId, Vec<MessageContainer<P>>>,
@@ -129,12 +129,14 @@ impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
 
 /// A packet that is split into multiple fragments
 /// because it contains a message that is too big
+#[derive(Debug)]
 pub struct FragmentedPacket {}
 
 /// Abstraction for data that is sent over the network
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) enum Packet<P: BitSerializable> {
     Single(SinglePacket<P>),
     Fragmented(FragmentedPacket),

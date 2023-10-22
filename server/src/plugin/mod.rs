@@ -2,9 +2,9 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy_app::{App, Plugin as PluginType, PostUpdate, PreUpdate};
-use bevy_ecs::prelude::IntoSystemConfigs;
+use bevy_ecs::prelude::{IntoSystemConfigs, IntoSystemSetConfig};
 
-use lightyear_shared::Protocol;
+use lightyear_shared::{Protocol, ReplicationSend, ReplicationSet};
 
 use crate::config::ServerConfig;
 use crate::plugin::sets::ServerSet;
@@ -47,26 +47,18 @@ impl<P: Protocol> PluginType for Plugin<P> {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let server = Server::new(config.server_config, config.protocol);
 
+        P::add_replication_send_systems::<Server<P>>(app);
+
         app
             // RESOURCES //
             .insert_resource(server)
             // SYSTEM SETS //
             .configure_set(PreUpdate, ServerSet::Receive)
-            .configure_set(PostUpdate, ServerSet::Send)
+            .configure_set(PostUpdate, ReplicationSet::Send)
+            .configure_set(PostUpdate, ServerSet::Send.after(ReplicationSet::Send))
             // EVENTS //
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ServerSet::Receive))
-            .add_systems(
-                PostUpdate,
-                (
-                    (
-                        send_entity_spawn::<P>,
-                        // replicate_entity_updates::<P>),
-                    ),
-                    send::<P>,
-                )
-                    .chain()
-                    .in_set(ServerSet::Send),
-            );
+            .add_systems(PostUpdate, send::<P>.in_set(ServerSet::Send));
     }
 }

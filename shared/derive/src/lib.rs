@@ -9,7 +9,7 @@ use quote::{format_ident, quote};
 use syn::{parse_macro_input, ItemEnum};
 
 use channel::channel_impl;
-use component::{component_impl, component_kind_impl};
+use component::component_impl;
 use message::message_impl;
 
 mod channel;
@@ -98,11 +98,6 @@ pub fn message_protocol(
 
 // Components
 
-#[proc_macro_derive(ComponentProtocolKind)]
-pub fn component_protocol_kind(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    component_kind_impl(input)
-}
-
 #[proc_macro_attribute]
 pub fn component_protocol_internal(
     args: proc_macro::TokenStream,
@@ -119,13 +114,4 @@ pub fn component_protocol(
 ) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { lightyear_shared };
     component_impl(args, input, shared_crate_name)
-}
-
-fn get_module_name_for_enum(item: &ItemEnum) -> Ident {
-    let enum_name = &item.ident;
-    let lowercase_struct_name = Ident::new(
-        enum_name.to_string().to_lowercase().as_str(),
-        Span::call_site(),
-    );
-    format_ident!("define_{}", lowercase_struct_name)
 }

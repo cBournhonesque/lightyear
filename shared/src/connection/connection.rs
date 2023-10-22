@@ -2,6 +2,7 @@ use anyhow::Result;
 use bevy_ecs::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
+use tracing::{debug, trace, trace_span};
 
 use crate::connection::events::Events;
 use crate::packet::message_manager::MessageManager;
@@ -17,6 +18,7 @@ pub struct Connection<P: Protocol> {
     pub events: Events<P>,
 }
 
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(Serialize, Deserialize, Clone)]
 pub enum ProtocolMessage<P: Protocol> {
     Message(P::Message),
@@ -117,7 +119,9 @@ impl<P: Protocol> Connection<P> {
     // TODO: make world optional? or separate receiving into messages and applying into world?
     /// Read messages received from buffer (either messages or replication events) and push them to events
     pub fn receive(&mut self, world: &mut World) -> Events<P> {
+        trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
+            debug!(?channel_kind, "Received messages");
             for message in messages {
                 // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
                 // apply replication messages to the world

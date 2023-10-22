@@ -2,7 +2,7 @@ pub mod some_component {
     use bevy_ecs::prelude::Component;
     use serde::{Deserialize, Serialize};
 
-    use lightyear_derive::component_protocol;
+    use lightyear_derive::{component_protocol, message_protocol};
     use lightyear_shared::protocolize;
 
     #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -20,7 +20,8 @@ pub mod some_component {
         Component2(Component2),
     }
 
-    enum MyMessageProtocol {}
+    #[message_protocol]
+    pub enum MyMessageProtocol {}
 
     protocolize!(MyProtocol, MyMessageProtocol, MyComponentProtocol);
 }

@@ -8,7 +8,6 @@ pub use bevy_ecs::prelude::Entity;
 pub use bevy_ecs::world::{EntityMut, World};
 pub use enum_delegate;
 pub use enum_dispatch::enum_dispatch;
-pub use enum_kinds::EnumKind;
 pub use paste::paste;
 
 pub use channel::channel::{
@@ -16,9 +15,7 @@ pub use channel::channel::{
 };
 pub use config::SharedConfig;
 pub use connection::{Connection, Events};
-pub use lightyear_derive::{
-    component_protocol, message_protocol, Channel, ComponentProtocolKind, MessageProtocol,
-};
+pub use lightyear_derive::{component_protocol, message_protocol, Channel, MessageProtocol};
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
 pub use plugin::{ReplicationData, ReplicationSet, SharedPlugin};

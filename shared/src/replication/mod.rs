@@ -4,6 +4,7 @@
 // (potentially let users choose which channel to use for these?)
 
 use anyhow::Result;
+use bevy_app::App;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::Resource;
@@ -79,6 +80,8 @@ pub enum ReplicationTarget {
 
 // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
 //  better to not add trait bounds on structs directly anyway
+
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(Serialize, Deserialize, Clone)]
 pub enum ReplicationMessage<C, K> {
     // reliable

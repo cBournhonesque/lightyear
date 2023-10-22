@@ -74,6 +74,7 @@ impl<M: BitSerializable> MessageManager<M> {
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
         for packet in packets {
+            // debug!(?packet, "Sending packet");
             // Step 2. Send the packets over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
             bytes.push(payload);

@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
+use bevy_app::App;
 use bevy_ecs::prelude::{Resource, World};
-use tracing::debug;
+use tracing::{debug, debug_span, trace_span};
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
@@ -96,8 +97,7 @@ impl<P: Protocol> Server<P> {
     ) -> Result<()> {
         match replicate.target {
             ReplicationTarget::All => {
-                let client_ids: Vec<ClientId> = self.client_ids().collect();
-                for client_id in client_ids {
+                for client_id in self.netcode.connected_client_ids() {
                     let connection = self
                         .user_connections
                         .get_mut(&client_id)
@@ -106,9 +106,11 @@ impl<P: Protocol> Server<P> {
                 }
             }
             ReplicationTarget::AllExcept(client_id) => {
-                let client_ids: Vec<ClientId> =
-                    self.client_ids().filter(|id| *id != client_id).collect();
-                for client_id in client_ids {
+                for client_id in self
+                    .netcode
+                    .connected_client_ids()
+                    .filter(|id| *id != client_id)
+                {
                     let connection = self
                         .user_connections
                         .get_mut(&client_id)
@@ -191,7 +193,10 @@ impl<P: Protocol> Server<P> {
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
+        let span = trace_span!("send_packets").entered();
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
+            let client_span =
+                trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
             for mut packet_byte in connection.send_packets()? {
                 self.netcode
                     .send(packet_byte.finish_write(), *client_idx, &mut self.io)?;
@@ -226,7 +231,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         components: Vec<P::Components>,
         replicate: &Replicate,
     ) -> Result<()> {
-        debug!("Spawning entity on server {:?}", entity);
+        // debug!(?entity, "Spawning entity");
         let mut buffer_message = |client_id: ClientId,
                                   channel: ChannelKind,
                                   connection: &mut Connection<P>|
@@ -270,9 +275,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         component: P::Components,
         replicate: &Replicate,
     ) -> Result<()> {
+        let kind: P::ComponentKinds = (&component).into();
         debug!(
-            "Updating single component for entity {:?} on server",
-            entity
+            ?entity,
+            component = ?kind,
+            "Updating single component"
         );
         let mut buffer_message = |client_id: ClientId,
                                   channel: ChannelKind,
@@ -290,7 +297,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         components: Vec<P::Components>,
         replicate: &Replicate,
     ) -> Result<()> {
-        debug!("Updating components for entity {:?} on server", entity);
+        debug!("Updating components for entity {:?}", entity);
         let mut buffer_message = |client_id: ClientId,
                                   channel: ChannelKind,
                                   connection: &mut Connection<P>|
@@ -302,9 +309,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     }
 
     fn prepare_replicate_send(&mut self) {
-        debug!("Finalizing replication messages on server");
-        let client_ids: Vec<ClientId> = self.client_ids().collect();
-        for client_id in client_ids {
+        // debug!("Finalizing replication messages on server");
+        let span = trace_span!("prepare_replicate_send").entered();
+        for client_id in self.netcode.connected_client_ids() {
             let connection = self
                 .user_connections
                 .get_mut(&client_id)

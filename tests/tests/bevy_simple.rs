@@ -3,10 +3,12 @@ use std::str::FromStr;
 
 use bevy::prelude::{App, Commands, ResMut, Startup};
 use tracing::{debug, info};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear_client::{Authentication, Client};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::replication::Replicate;
+use lightyear_shared::ChannelKind;
 use lightyear_tests::protocol::{Channel2, MyProtocol};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {
@@ -16,7 +18,10 @@ fn client_init(mut client: ResMut<Client<MyProtocol>>) {
 
 fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
-    commands.spawn(Replicate::<Channel2>::default());
+    commands.spawn(Replicate {
+        channel: ChannelKind::of::<Channel2>(),
+        ..Default::default()
+    });
 }
 
 // fn server_init(world: &mut World) {
@@ -31,6 +36,7 @@ fn server_init(mut commands: Commands) {
 #[test]
 fn test_simple_bevy_server_client() -> anyhow::Result<()> {
     tracing_subscriber::FmtSubscriber::builder()
+        .with_span_events(FmtSpan::ENTER)
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
