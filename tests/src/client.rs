@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::app::App;
-use bevy::MinimalPlugins;
 
 use lightyear_client::{Authentication, ClientConfig, Plugin, PluginConfig};
 use lightyear_shared::{IoConfig, SharedConfig};
@@ -31,9 +30,5 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);
     let plugin = Plugin::new(plugin_config);
-    // app.add_plugins(DefaultPlugins.set(LogPlugin {
-    //     level: Level::TRACE,
-    //     filter: "lightyear=trace,lightyear_client=trace,lightyear_tests=trace".to_string(),
-    // }))
-    app.add_plugins(MinimalPlugins).add_plugins(plugin);
+    app.add_plugins(plugin);
 }

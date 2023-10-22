@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::app::App;
-use bevy::MinimalPlugins;
 
 use lightyear_server::PluginConfig;
 use lightyear_server::{NetcodeConfig, Plugin};
@@ -39,5 +38,5 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
     };
     let plugin_config = PluginConfig::new(config, protocol());
     let plugin = Plugin::new(plugin_config);
-    app.add_plugins(MinimalPlugins).add_plugins(plugin);
+    app.add_plugins(plugin);
 }

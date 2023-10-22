@@ -2,7 +2,7 @@ use anyhow::Result;
 use bevy_ecs::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, trace_span};
 
 use crate::connection::events::Events;
 use crate::packet::message_manager::MessageManager;
@@ -39,7 +39,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                     }
                 }
                 _ => {
-                    todo!()
+                    // todo!()
                 }
             },
         }

@@ -8,7 +8,7 @@ use lightyear_shared::{Protocol, ReplicationSend, ReplicationSet};
 
 use crate::config::ServerConfig;
 use crate::plugin::sets::ServerSet;
-use crate::plugin::systems::{receive, send, send_entity_spawn};
+use crate::plugin::systems::{receive, send};
 use crate::Server;
 
 mod sets;

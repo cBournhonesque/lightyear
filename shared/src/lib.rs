@@ -12,6 +12,7 @@ pub use paste::paste;
 
 pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
+    ReliableSettings,
 };
 pub use config::SharedConfig;
 pub use connection::{Connection, Events};
@@ -23,6 +24,7 @@ pub use protocol::channel::{ChannelKind, ChannelRegistry};
 pub use protocol::component::{ComponentBehaviour, ComponentProtocol, ComponentProtocolKind};
 pub use protocol::message::MessageProtocol;
 pub use protocol::{BitSerializable, Protocol};
+pub use replication::DefaultReliableChannel;
 pub use replication::ReplicationSend;
 pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;

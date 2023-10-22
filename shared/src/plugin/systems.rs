@@ -25,15 +25,14 @@ pub fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSe
     <P as Protocol>::Components: From<C>,
 {
     query.iter().for_each(|(entity, component, replicate)| {
-        // send an component_insert for components that were newly added
-        if component.is_added() {
-            sender
-                .component_insert(entity, component.clone().into(), replicate)
-                .unwrap();
-        }
+        // // send an component_insert for components that were newly added
+        // if component.is_added() {
+        //     sender
+        //         .component_insert(entity, component.clone().into(), replicate)
+        //         .unwrap();
+        // }
         // only update components that were not newly added ?
         if component.is_changed() && !component.is_added() {
-            // debug!("send_component_update");
             sender
                 .entity_update_single_component(entity, component.clone().into(), replicate)
                 .unwrap();

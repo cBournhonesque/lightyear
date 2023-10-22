@@ -1,9 +1,8 @@
-use bevy_ecs::entity::Entity;
-use bevy_ecs::prelude::{Added, Query, Res, ResMut};
+use bevy_ecs::prelude::{Res, ResMut};
 use bevy_time::Time;
-use tracing::{debug, trace};
+use tracing::trace;
 
-use lightyear_shared::replication::{Replicate, ReplicationSend};
+use lightyear_shared::replication::ReplicationSend;
 use lightyear_shared::Protocol;
 
 use crate::Server;
@@ -31,20 +30,6 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
 }
 
 // TODO: on connect event, replicate everything!
-
-pub(crate) fn send_entity_spawn<P: Protocol>(
-    mut server: ResMut<Server<P>>,
-    // try doing entity spawn whenever replicate gets added (as it could be the first time)
-    query: Query<(Entity, &Replicate), Added<Replicate>>,
-) {
-    // TODO: distinguish between new entity or just replicate got added ?
-    //  Maybe by adding an extra component the first time the entity gets created? or a flag in the Replicate component?
-
-    for (entity, replicate) in query.iter() {
-        server.entity_spawn(entity, vec![], replicate);
-    }
-}
-
 // pub(crate) fn send_entity_despawn<P: Protocol>(
 //     mut server: ResMut<Server<P>>,
 //     mut query: RemovedComponents<DespawnTracker>,

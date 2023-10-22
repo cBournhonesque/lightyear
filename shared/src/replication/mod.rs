@@ -4,7 +4,6 @@
 // (potentially let users choose which channel to use for these?)
 
 use anyhow::Result;
-use bevy_app::App;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::Resource;

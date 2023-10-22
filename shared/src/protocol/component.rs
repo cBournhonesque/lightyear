@@ -1,9 +1,10 @@
+use std::fmt::Debug;
+
 use bevy_app::App;
 use bevy_ecs::prelude::Component;
 use bevy_ecs::world::EntityMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::Debug;
 
 use crate::serialize::writer::WriteBuffer;
 use crate::{BitSerializable, Protocol, ReplicationSend};

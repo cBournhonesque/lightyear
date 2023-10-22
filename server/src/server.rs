@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
-use bevy_app::App;
 use bevy_ecs::prelude::{Resource, World};
-use tracing::{debug, debug_span, trace_span};
+use tracing::{debug, trace_span};
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};

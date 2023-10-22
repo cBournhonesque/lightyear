@@ -7,6 +7,12 @@ publish = false
 [[test]]
 name = "simple"
 
+[[test]]
+name = "bevy_simple"
+
+[[test]]
+name = "bevy_headless"
+
 [dependencies]
 lightyear_client = { path = "../client" }
 lightyear_server = { path = "../server" }
@@ -17,4 +23,7 @@ anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
 tracing-subscriber = "0.3.17"
 log = "0.4.20"
-bevy = { version = "0.11", default-features = false, features = ["bevy_core_pipeline"] }
+bevy = { version = "0.11", features = ["bevy_core_pipeline"] }
+
+[dev-dependencies]
+clap = { version = "4.4", features = ["derive"] }

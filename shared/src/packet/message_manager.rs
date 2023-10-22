@@ -40,7 +40,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(&mut self, message: M, channel_kind: ChannelKind) -> anyhow::Result<()> {
-        debug!("Buffering message to channel");
+        // debug!("Buffering message to channel");
         let mut channel = self
             .channels
             .get_mut(&channel_kind)
@@ -226,7 +226,7 @@ mod tests {
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
-        MessageContainer, MessageManager, Protocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
+        MessageManager, Protocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
     };
 
     // Messages

@@ -1,8 +1,10 @@
-use bevy::MinimalPlugins;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::prelude::{App, Commands, ResMut, Startup};
+use bevy::log::LogPlugin;
+use bevy::prelude::{App, Commands, PluginGroup, ResMut, Startup};
+use bevy::winit::WinitPlugin;
+use bevy::DefaultPlugins;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -50,15 +52,28 @@ fn test_simple_bevy_server_client() -> anyhow::Result<()> {
     // Run the server and client in parallel
     let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting server thread");
-        let mut server_app = App::new().add_plugins(MinimalPlugins);
+        let mut server_app = App::new();
+        server_app.add_plugins(
+            DefaultPlugins
+                .build()
+                .disable::<LogPlugin>()
+                .disable::<WinitPlugin>(),
+        );
         lightyear_tests::server::bevy_setup(&mut server_app, server_addr, protocol_id, private_key);
         server_app.add_systems(Startup, server_init);
         server_app.run();
+        debug!("finish server run");
         Ok(())
     });
     let client_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting client thread");
-        let mut client_app = App::new().add_plugins(MinimalPlugins);
+        let mut client_app = App::new();
+        client_app.add_plugins(
+            DefaultPlugins
+                .build()
+                .disable::<LogPlugin>()
+                .disable::<WinitPlugin>(),
+        );
         let auth = Authentication::Manual {
             server_addr,
             protocol_id,
@@ -68,9 +83,11 @@ fn test_simple_bevy_server_client() -> anyhow::Result<()> {
         lightyear_tests::client::bevy_setup(&mut client_app, auth);
         client_app.add_systems(Startup, client_init);
         client_app.run();
+        debug!("finish client run");
         Ok(())
     });
     client_thread.join().expect("client thread has panicked")?;
     server_thread.join().expect("server thread has panicked")?;
+    debug!("OVER");
     Ok(())
 }

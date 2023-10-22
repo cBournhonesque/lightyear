@@ -1,8 +1,8 @@
-use bevy::MinimalPlugins;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::prelude::{App, Commands, ResMut, Startup};
+use bevy::MinimalPlugins;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -50,7 +50,8 @@ fn test_simple_bevy_server_client() -> anyhow::Result<()> {
     // Run the server and client in parallel
     let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting server thread");
-        let mut server_app = App::new().add_plugins(MinimalPlugins);
+        let mut server_app = App::new();
+        server_app.add_plugins(MinimalPlugins);
         lightyear_tests::server::bevy_setup(&mut server_app, server_addr, protocol_id, private_key);
         server_app.add_systems(Startup, server_init);
         server_app.run();
@@ -58,7 +59,8 @@ fn test_simple_bevy_server_client() -> anyhow::Result<()> {
     });
     let client_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting client thread");
-        let mut client_app = App::new().add_plugins(MinimalPlugins);
+        let mut client_app = App::new();
+        client_app.add_plugins(MinimalPlugins);
         let auth = Authentication::Manual {
             server_addr,
             protocol_id,

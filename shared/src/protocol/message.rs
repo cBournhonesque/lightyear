@@ -1,7 +1,7 @@
+use std::any::TypeId;
+
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::any::TypeId;
-use std::collections::HashMap;
 
 use crate::protocol::registry::{TypeKind, TypeMapper};
 use crate::serialize::writer::WriteBuffer;

@@ -1,7 +1,8 @@
+use std::fmt::Debug;
+
 use bevy_app::App;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
 
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
@@ -35,10 +36,11 @@ macro_rules! protocolize {
             use super::*;
             use lightyear_shared::{
                 App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
-                Entity, MessageProtocol, Protocol, ReplicationSend
+                DefaultReliableChannel, Entity, MessageProtocol, Protocol, ReplicationSend,
+                ReliableSettings, ChannelDirection, ChannelMode,
             };
 
-            #[derive(Default, Clone)]
+            #[derive(Clone)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -59,6 +61,19 @@ macro_rules! protocolize {
 
                 fn add_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App) {
                     Self::Components::add_replication_send_systems::<R>(app);
+                }
+            }
+
+            impl Default for $protocol {
+                fn default() -> Self {
+                    let mut protocol = Self {
+                        channel_registry: ChannelRegistry::default(),
+                    };
+                    protocol.add_channel::<DefaultReliableChannel>(ChannelSettings {
+                        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+                        direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol
                 }
             }
         }
