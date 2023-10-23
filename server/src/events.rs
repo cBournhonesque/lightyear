@@ -55,6 +55,8 @@ impl<P: Protocol> ServerEvents<P> {
     }
 }
 
+// TODO: this seems overly complicated for no reason
+//  just write iter_connections(), etc.
 pub trait IterEvent<'a, P: Protocol>
 where
     <Self as IterEvent<'a, P>>::Item: 'a,

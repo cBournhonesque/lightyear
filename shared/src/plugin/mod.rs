@@ -4,6 +4,7 @@ use bevy_app::App;
 pub use replication::ReplicationData;
 pub use sets::ReplicationSet;
 
+pub mod events;
 mod replication;
 mod sets;
 pub mod systems;

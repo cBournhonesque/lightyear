@@ -47,6 +47,19 @@ impl<P: Protocol> ReplicationManager<P> {
         true
     }
 
+    pub(crate) fn send_component_insert(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        channel: ChannelKind,
+    ) {
+        // buffer the component update for that entity
+        self.individual_component_updates
+            .entry((entity, channel))
+            .or_default()
+            .push(component);
+    }
+
     pub(crate) fn send_entity_update_single_component(
         &mut self,
         entity: Entity,

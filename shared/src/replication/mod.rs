@@ -39,6 +39,7 @@ pub struct Replicate {
     // pub channel: Option<ChannelKind>,
 
     /// The channel to use for replication (indicated by the generic type)
+    // TODO: distinguish between replicating actions (inserts/etc.) vs updates
     pub channel: ChannelKind,
     pub target: ReplicationTarget,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
@@ -75,6 +76,17 @@ pub enum ReplicationTarget {
     AllExcept(ClientId),
     /// Send updates only to one specific client
     Only(ClientId),
+}
+
+impl ReplicationTarget {
+    /// Return true if we should replicate to the specified client
+    pub fn should_replicate_to(&self, client_id: ClientId) -> bool {
+        match &self {
+            ReplicationTarget::All => true,
+            ReplicationTarget::AllExcept(id) => *id != client_id,
+            ReplicationTarget::Only(id) => *id == client_id,
+        }
+    }
 }
 
 // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296

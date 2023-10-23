@@ -4,14 +4,13 @@ use std::sync::Mutex;
 use bevy_app::{App, Plugin as PluginType, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::{IntoSystemConfigs, IntoSystemSetConfig};
 
-use lightyear_shared::{Protocol, ReplicationSend, ReplicationSet};
+use lightyear_shared::{ConnectEvent, DisconnectEvent, Protocol, ReplicationSend, ReplicationSet};
 
 use crate::config::ServerConfig;
 use crate::plugin::sets::ServerSet;
 use crate::plugin::systems::{receive, send};
 use crate::Server;
 
-pub(crate) mod events;
 mod sets;
 mod systems;
 
@@ -58,8 +57,8 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .configure_set(PostUpdate, ReplicationSet::Send)
             .configure_set(PostUpdate, ServerSet::Send.after(ReplicationSet::Send))
             // EVENTS //
-            .add_event::<events::ConnectEvent>()
-            .add_event::<events::DisconnectEvent>()
+            .add_event::<ConnectEvent>()
+            .add_event::<DisconnectEvent>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ServerSet::Receive))
             .add_systems(PostUpdate, send::<P>.in_set(ServerSet::Send));

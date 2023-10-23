@@ -261,7 +261,20 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         component: P::Components,
         replicate: &Replicate,
     ) -> Result<()> {
-        todo!()
+        let kind: P::ComponentKinds = (&component).into();
+        debug!(
+            ?entity,
+            component = ?kind,
+            "Inserting single component"
+        );
+        let mut buffer_message = |client_id: ClientId,
+                                  channel: ChannelKind,
+                                  connection: &mut Connection<P>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            connection.buffer_update_entity_single_component(entity, component.clone(), channel)
+        };
+        self.apply_replication(replicate, buffer_message)
     }
 
     fn component_remove(

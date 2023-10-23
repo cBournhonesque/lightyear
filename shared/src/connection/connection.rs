@@ -78,6 +78,18 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Buffer a component insert for an entity
+    pub fn buffer_component_insert(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        channel: ChannelKind,
+    ) -> Result<()> {
+        self.replication_manager
+            .send_component_insert(entity, component, channel);
+        Ok(())
+    }
+
+    /// Buffer a component insert for an entity
     pub fn buffer_update_entity_single_component(
         &mut self,
         entity: Entity,

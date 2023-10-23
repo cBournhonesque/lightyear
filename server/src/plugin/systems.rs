@@ -3,7 +3,7 @@ use bevy_time::Time;
 use tracing::{debug, trace};
 
 use lightyear_shared::replication::ReplicationSend;
-use lightyear_shared::Protocol;
+use lightyear_shared::{ConnectEvent, DisconnectEvent, Protocol};
 
 use crate::Server;
 
@@ -24,22 +24,20 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         if !events.is_empty() {
             // Connect Event
             if events.has::<crate::events::ConnectEvent>() {
-                let mut connect_event_writer = world
-                    .get_resource_mut::<Events<crate::plugin::events::ConnectEvent>>()
-                    .unwrap();
+                let mut connect_event_writer =
+                    world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
                 for client_id in events.into_iter::<crate::events::ConnectEvent>() {
                     debug!("Client connected event: {}", client_id);
-                    connect_event_writer.send(crate::plugin::events::ConnectEvent(client_id));
+                    connect_event_writer.send(ConnectEvent(client_id));
                 }
             }
 
             // Disconnect Event
             if events.has::<crate::events::DisconnectEvent>() {
-                let mut connect_event_writer = world
-                    .get_resource_mut::<Events<crate::plugin::events::DisconnectEvent>>()
-                    .unwrap();
+                let mut connect_event_writer =
+                    world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
                 for client_id in events.into_iter::<crate::events::DisconnectEvent>() {
-                    connect_event_writer.send(crate::plugin::events::DisconnectEvent(client_id));
+                    connect_event_writer.send(DisconnectEvent(client_id));
                 }
             }
         }
