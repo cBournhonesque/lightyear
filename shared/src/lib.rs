@@ -15,7 +15,7 @@ pub use channel::channel::{
     ReliableSettings,
 };
 pub use config::SharedConfig;
-pub use connection::{Connection, Events};
+pub use connection::{Connection, ConnectionEvents};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, MessageProtocol};
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;

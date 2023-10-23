@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 
+use crate::netcode::ClientId;
 use bevy_ecs::prelude::Entity;
 
-use crate::{ChannelKind, Protocol};
+use crate::{Channel, ChannelKind, Message, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
-pub struct Events<P: Protocol> {
+pub struct ConnectionEvents<P: Protocol> {
     // netcode
-    // connections: Vec<ClientId>,
-    // disconnections: Vec<ClientId>,
+    // pub connections: Vec<ClientId>,
+    // pub disconnections: Vec<ClientId>,
 
     // messages
+    // TODO: add MessageKinds?
     pub messages: HashMap<ChannelKind, Vec<P::Message>>,
     // replication
     pub spawns: Vec<Entity>,
@@ -22,13 +24,13 @@ pub struct Events<P: Protocol> {
     empty: bool,
 }
 
-impl<P: Protocol> Default for Events<P> {
+impl<P: Protocol> Default for ConnectionEvents<P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<P: Protocol> Events<P> {
+impl<P: Protocol> ConnectionEvents<P> {
     pub fn new() -> Self {
         Self {
             // netcode
@@ -68,3 +70,48 @@ impl<P: Protocol> Events<P> {
         self.empty = false;
     }
 }
+
+pub trait IterConnectionEvent<P: Protocol> {
+    type Iter;
+    type IntoIter;
+
+    fn iter(events: &mut ConnectionEvents<P>) -> Self::Iter;
+
+    fn has(events: &ConnectionEvents<P>) -> bool;
+}
+
+// pub struct MessageEvent<C: Channel, M: Message> {
+//     _phantom: std::marker::PhantomData<(C, M)>,
+// }
+//
+// impl<P: Protocol, C> IterEvent<P> for MessageEvent<, M> {
+//     type Iter = IntoIter<M>;
+//
+//     fn iter(events: &mut Events<E>) -> Self::Iter {
+//         let channel_kind: ChannelKind = ChannelKind::of::<C>();
+//         if let Some(channel_map) = events.messages.get_mut(&channel_kind) {
+//             let message_kind: MessageKind = MessageKind::of::<M>();
+//             if let Some(boxed_list) = channel_map.remove(&message_kind) {
+//                 let mut output_list: Vec<M> = Vec::new();
+//
+//                 for boxed_message in boxed_list {
+//                     let boxed_any = boxed_message.to_boxed_any();
+//                     let message = boxed_any.downcast::<M>().unwrap();
+//                     output_list.push(*message);
+//                 }
+//
+//                 return IntoIterator::into_iter(output_list);
+//             }
+//         }
+//         return IntoIterator::into_iter(Vec::new());
+//     }
+//
+//     fn has(events: &Events<E>) -> bool {
+//         let channel_kind: ChannelKind = ChannelKind::of::<C>();
+//         if let Some(channel_map) = events.messages.get(&channel_kind) {
+//             let message_kind: MessageKind = MessageKind::of::<M>();
+//             return channel_map.contains_key(&message_kind);
+//         }
+//         return false;
+//     }
+// }

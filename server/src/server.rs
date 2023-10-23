@@ -28,6 +28,8 @@ pub struct Server<P: Protocol> {
     user_connections: HashMap<ClientId, Connection<P>>,
     // Protocol
     protocol: P,
+    // Events
+    events: ServerEvents<P>,
 }
 
 impl<P: Protocol> Server<P> {
@@ -67,6 +69,7 @@ impl<P: Protocol> Server<P> {
             context,
             user_connections: HashMap::new(),
             protocol,
+            events: ServerEvents::new(),
         }
     }
 
@@ -156,26 +159,28 @@ impl<P: Protocol> Server<P> {
             let client_addr = self.netcode.client_addr(client_id).unwrap();
             let connection = Connection::new(self.protocol.channel_registry());
             debug!("New connection from {} (id: {})", client_addr, client_id);
+            self.events.push_connections(client_id);
             self.user_connections.insert(client_id, connection);
         }
 
         // handle disconnections
         for client_id in self.context.disconnections.try_iter() {
             debug!("Client {} got disconnected", client_id);
+            self.events.push_disconnects(client_id);
             self.user_connections.remove(&client_id);
         }
         Ok(())
     }
 
     pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
-        let mut events = ServerEvents::new();
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             let connection_events = connection.receive(world);
             if !connection_events.is_empty() {
-                events.push_events(*client_id, connection_events);
+                self.events.push_events(*client_id, connection_events);
             }
         }
-        events
+        // return all received messages and reset the buffer
+        std::mem::replace(&mut self.events, ServerEvents::new())
     }
 
     // /// Receive messages from the server

@@ -11,6 +11,7 @@ use crate::plugin::sets::ServerSet;
 use crate::plugin::systems::{receive, send};
 use crate::Server;
 
+pub(crate) mod events;
 mod sets;
 mod systems;
 
@@ -57,6 +58,8 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .configure_set(PostUpdate, ReplicationSet::Send)
             .configure_set(PostUpdate, ServerSet::Send.after(ReplicationSet::Send))
             // EVENTS //
+            .add_event::<events::ConnectEvent>()
+            .add_event::<events::DisconnectEvent>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ServerSet::Receive))
             .add_systems(PostUpdate, send::<P>.in_set(ServerSet::Send));

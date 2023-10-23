@@ -8,6 +8,7 @@ use crate::replication::{Replicate, ReplicationSend};
 use crate::{Protocol, ReplicationSet};
 
 pub fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
+    // TODO: read connct events; if connect events, replicate spawn entity even if replicate wasn't just added! (same for other systems)
     // try doing entity spawn whenever replicate gets added
     query: Query<(Entity, &Replicate), Added<Replicate>>,
     // query: Query<(Entity, &Replicate)>,

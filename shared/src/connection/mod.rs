@@ -1,6 +1,6 @@
 pub use connection::Connection;
 pub use connection::ProtocolMessage;
-pub use events::Events;
+pub use events::ConnectionEvents;
 
 mod connection;
 mod events;

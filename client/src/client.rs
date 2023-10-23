@@ -8,7 +8,7 @@ use tracing::trace;
 use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Connection, Events, WriteBuffer};
+use lightyear_shared::{Channel, ChannelKind, Connection, ConnectionEvents, WriteBuffer};
 use lightyear_shared::{Io, Protocol};
 
 use crate::config::ClientConfig;
@@ -93,7 +93,7 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive messages from the server
-    pub fn receive(&mut self, world: &mut World) -> Events<P> {
+    pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
         self.connection.receive(world)
     }

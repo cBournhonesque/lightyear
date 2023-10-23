@@ -1,23 +1,49 @@
-use bevy_ecs::prelude::{Res, ResMut};
+use bevy_ecs::prelude::{Events, Mut, Res, ResMut, World};
 use bevy_time::Time;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use lightyear_shared::replication::ReplicationSend;
 use lightyear_shared::Protocol;
 
 use crate::Server;
 
-// TODO: rename io receive ?
-// or do additional receive stuff here.
-pub(crate) fn receive<P: Protocol>(time: Res<Time>, mut server: ResMut<Server<P>>) {
+pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");
-    // update client state, send keep-alives, receive packets from io
-    server.update(time.elapsed().as_secs_f64()).unwrap();
-    // buffer packets into message managers
-    server.recv_packets().unwrap();
+    world.resource_scope(|world, mut server: Mut<Server<P>>| {
+        let time = world.get_resource::<Time>().unwrap();
 
-    // receive events
-    // server.receive()
+        // update client state, send keep-alives, receive packets from io
+        server.update(time.elapsed().as_secs_f64()).unwrap();
+        // buffer packets into message managers
+        server.recv_packets().unwrap();
+
+        // receive events
+        let mut events = server.receive(world);
+
+        // Write the received events into bevy events
+        if !events.is_empty() {
+            // Connect Event
+            if events.has::<crate::events::ConnectEvent>() {
+                let mut connect_event_writer = world
+                    .get_resource_mut::<Events<crate::plugin::events::ConnectEvent>>()
+                    .unwrap();
+                for client_id in events.into_iter::<crate::events::ConnectEvent>() {
+                    debug!("Client connected event: {}", client_id);
+                    connect_event_writer.send(crate::plugin::events::ConnectEvent(client_id));
+                }
+            }
+
+            // Disconnect Event
+            if events.has::<crate::events::DisconnectEvent>() {
+                let mut connect_event_writer = world
+                    .get_resource_mut::<Events<crate::plugin::events::DisconnectEvent>>()
+                    .unwrap();
+                for client_id in events.into_iter::<crate::events::DisconnectEvent>() {
+                    connect_event_writer.send(crate::plugin::events::DisconnectEvent(client_id));
+                }
+            }
+        }
+    });
 }
 
 // or do additional send stuff here

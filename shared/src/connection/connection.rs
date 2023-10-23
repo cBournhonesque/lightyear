@@ -4,7 +4,7 @@ use bitcode::__private::Serialize;
 use serde::Deserialize;
 use tracing::{debug, trace_span};
 
-use crate::connection::events::Events;
+use crate::connection::events::ConnectionEvents;
 use crate::packet::message_manager::MessageManager;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
@@ -15,7 +15,7 @@ use crate::{ChannelKind, ChannelRegistry, Protocol, ReadBuffer, WriteBuffer};
 pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager<ProtocolMessage<P>>,
     pub replication_manager: ReplicationManager<P>,
-    pub events: Events<P>,
+    pub events: ConnectionEvents<P>,
 }
 
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -26,7 +26,7 @@ pub enum ProtocolMessage<P: Protocol> {
 }
 
 impl<P: Protocol> ProtocolMessage<P> {
-    fn push_to_events(self, channel_kind: ChannelKind, events: &mut Events<P>) {
+    fn push_to_events(self, channel_kind: ChannelKind, events: &mut ConnectionEvents<P>) {
         match self {
             ProtocolMessage::Message(message) => {
                 events.push_message(channel_kind, message);
@@ -51,7 +51,7 @@ impl<P: Protocol> Connection<P> {
         Self {
             message_manager: MessageManager::new(channel_registry),
             replication_manager: ReplicationManager::default(),
-            events: Events::new(),
+            events: ConnectionEvents::new(),
         }
     }
 }
@@ -118,7 +118,7 @@ impl<P: Protocol> Connection<P> {
 
     // TODO: make world optional? or separate receiving into messages and applying into world?
     /// Read messages received from buffer (either messages or replication events) and push them to events
-    pub fn receive(&mut self, world: &mut World) -> Events<P> {
+    pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             debug!(?channel_kind, "Received messages");
@@ -133,7 +133,7 @@ impl<P: Protocol> Connection<P> {
 
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
-        std::mem::replace(&mut self.events, Events::new())
+        std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
     /// Send packets that are ready to be sent
