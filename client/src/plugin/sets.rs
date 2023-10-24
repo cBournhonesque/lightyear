@@ -1,4 +1,4 @@
-use bevy_ecs::schedule::SystemSet;
+use bevy::prelude::SystemSet;
 
 /// Set with replication and event systems related to client.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

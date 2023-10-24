@@ -9,7 +9,7 @@ struct MacroAttrs {
     protocol: Ident,
 }
 
-pub fn component_impl(
+pub fn component_protocol_impl(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
     shared_crate_name: TokenStream,

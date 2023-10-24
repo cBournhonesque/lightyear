@@ -1,5 +1,4 @@
-use bevy_ecs::prelude::{Mut, ResMut, World};
-use bevy_time::Time;
+use bevy::prelude::{Mut, ResMut, Time, World};
 use tracing::trace;
 
 use lightyear_shared::Protocol;

@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 
-use bevy_app::App;
-use bevy_ecs::prelude::Component;
-use bevy_ecs::world::EntityMut;
+use bevy::ecs::world::EntityMut;
+use bevy::prelude::{App, Component};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 

@@ -1,5 +1,5 @@
 pub mod some_component {
-    use bevy_ecs::prelude::Component;
+    use bevy::prelude::Component;
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};

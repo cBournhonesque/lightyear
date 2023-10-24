@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use lightyear_shared::netcode::ClientId;
-use lightyear_shared::{ConnectionEvents, Protocol};
+use lightyear_shared::{ConnectionEvents, Message, Protocol};
 
 pub struct ServerEvents<P: Protocol> {
     pub connections: Vec<ClientId>,
@@ -23,6 +23,21 @@ impl<P: Protocol> ServerEvents<P> {
 
     pub fn is_empty(&self) -> bool {
         self.empty
+    }
+
+    // TODO: could also return a IntoIterMessages struct and impl Iterator for that
+
+    // TODO: seems like we cannot chain iterators like this; because then we need to keep &mut Self around
+    //  instead we want to take the contents
+    pub fn into_iter_messages<M: Message>(&mut self) -> impl Iterator<Item = (M, ClientId)> + '_
+    where
+        P::Message: TryInto<M, Error = ()>,
+    {
+        self.events.iter_mut().flat_map(|(client_id, events)| {
+            let messages = events.into_iter_messages::<M>();
+            let client_ids = std::iter::once(client_id.clone()).cycle();
+            return messages.zip(client_ids);
+        })
     }
 
     pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {

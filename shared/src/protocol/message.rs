@@ -11,7 +11,22 @@ use crate::{BitSerializable, Message};
 // each message must derive message
 
 // that big enum will implement MessageProtocol via a proc macro
-pub trait MessageProtocol: BitSerializable + Serialize + DeserializeOwned + Clone {}
+pub trait MessageProtocol:
+    BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour
+{
+}
+
+/// Trait to delegate a method from the messageProtocol enum to the inner Message type
+#[enum_delegate::register]
+pub trait MessageBehaviour {
+    fn kind(&self) -> MessageKind;
+}
+
+impl<M: Message> MessageBehaviour for M {
+    fn kind(&self) -> MessageKind {
+        MessageKind::of::<M>()
+    }
+}
 
 /// MessageKind - internal wrapper around the type of the message
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]

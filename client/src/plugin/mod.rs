@@ -1,8 +1,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use bevy_app::{App, Plugin as PluginType, PostUpdate, PreUpdate};
-use bevy_ecs::prelude::IntoSystemConfigs;
+use bevy::prelude::{App, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate};
 
 use lightyear_shared::Protocol;
 

@@ -1,4 +1,4 @@
-use bevy_ecs::schedule::SystemSet;
+use bevy::prelude::SystemSet;
 
 // TODO: share sets between client and server?
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

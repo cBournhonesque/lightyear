@@ -2,10 +2,9 @@
 #![allow(unused)]
 
 // re-exports
-pub use bevy_app::prelude::App;
-pub use bevy_app::prelude::PostUpdate;
-pub use bevy_ecs::prelude::Entity;
-pub use bevy_ecs::world::{EntityMut, World};
+pub use bevy::ecs::world::EntityMut;
+pub use bevy::prelude::{App, Entity, PostUpdate, World};
+pub use enum_as_inner::EnumAsInner;
 pub use enum_delegate;
 pub use enum_dispatch::enum_dispatch;
 pub use paste::paste;
@@ -16,14 +15,14 @@ pub use channel::channel::{
 };
 pub use config::SharedConfig;
 pub use connection::{Connection, ConnectionEvents};
-pub use lightyear_derive::{component_protocol, message_protocol, Channel, MessageProtocol};
+pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
 pub use plugin::events::{ConnectEvent, DisconnectEvent};
 pub use plugin::{ReplicationData, ReplicationSet, SharedPlugin};
 pub use protocol::channel::{ChannelKind, ChannelRegistry};
 pub use protocol::component::{ComponentBehaviour, ComponentProtocol, ComponentProtocolKind};
-pub use protocol::message::MessageProtocol;
+pub use protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
 pub use protocol::{BitSerializable, Protocol};
 pub use replication::DefaultReliableChannel;
 pub use replication::ReplicationSend;

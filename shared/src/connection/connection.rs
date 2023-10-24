@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bevy_ecs::prelude::{Entity, World};
+use bevy::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
 use tracing::{debug, trace_span};

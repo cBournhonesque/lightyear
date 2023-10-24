@@ -1,9 +1,8 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use bevy_ecs::entity::Entity;
-use bevy_ecs::prelude::World;
-use bevy_ecs::world::EntityMut;
+use bevy::ecs::world::EntityMut;
+use bevy::prelude::{Entity, World};
 
 use crate::replication::Replicate;
 

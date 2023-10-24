@@ -9,8 +9,8 @@ use quote::{format_ident, quote};
 use syn::{parse_macro_input, ItemEnum};
 
 use channel::channel_impl;
-use component::component_impl;
-use message::message_impl;
+use component::component_protocol_impl;
+use message::{message_impl, message_protocol_impl};
 
 mod channel;
 mod component;
@@ -34,66 +34,34 @@ pub fn channel_derive_internal(input: proc_macro::TokenStream) -> proc_macro::To
 
 // Message
 
-/// Derives the Message trait for a given struct, for internal
-#[proc_macro_derive(MessageProtocol)]
+#[proc_macro_derive(Message)]
+pub fn message_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let shared_crate_name = quote! { lightyear_shared };
+    message_impl(input, shared_crate_name)
+}
+
+#[proc_macro_derive(MessageInternal)]
 pub fn message_derive_internal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    message_impl(input)
+    let shared_crate_name = quote! { crate };
+    message_impl(input, shared_crate_name)
 }
 
 #[proc_macro_attribute]
 pub fn message_protocol_internal(
-    _metadata: proc_macro::TokenStream,
+    args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let item = parse_macro_input!(input as ItemEnum);
-    let enum_name = &item.ident;
-    let lowercase_struct_name = Ident::new(
-        enum_name.to_string().to_lowercase().as_str(),
-        Span::call_site(),
-    );
-    let module_name = format_ident!("define_{}", lowercase_struct_name);
-
-    let output = quote! {
-        mod #module_name {
-            use super::*;
-            use serde::{Serialize, Deserialize};
-            use crate::{ReadBuffer, WriteBuffer, BitSerializable, MessageProtocol};
-
-            #[derive(MessageProtocol, Serialize, Deserialize, Clone)]
-            #item
-        }
-        pub use #module_name::#enum_name as #enum_name;
-
-    };
-    output.into()
+    let shared_crate_name = quote! { crate };
+    message_protocol_impl(args, input, shared_crate_name)
 }
 
 #[proc_macro_attribute]
 pub fn message_protocol(
-    _metadata: proc_macro::TokenStream,
+    args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let item = parse_macro_input!(input as ItemEnum);
-    let enum_name = &item.ident;
-    let lowercase_struct_name = Ident::new(
-        enum_name.to_string().to_lowercase().as_str(),
-        Span::call_site(),
-    );
-    let module_name = format_ident!("define_{}", lowercase_struct_name);
-
-    let output = quote! {
-        mod #module_name {
-            use super::*;
-            use serde::{Serialize, Deserialize};
-            use lightyear_shared::{ReadBuffer, WriteBuffer, BitSerializable, MessageProtocol};
-
-            #[derive(MessageProtocol, Serialize, Deserialize, Clone)]
-            #item
-        }
-        pub use #module_name::#enum_name as #enum_name;
-
-    };
-    output.into()
+    let shared_crate_name = quote! { lightyear_shared };
+    message_protocol_impl(args, input, shared_crate_name)
 }
 
 // Components
@@ -104,7 +72,7 @@ pub fn component_protocol_internal(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { crate };
-    component_impl(args, input, shared_crate_name)
+    component_protocol_impl(args, input, shared_crate_name)
 }
 
 #[proc_macro_attribute]
@@ -113,5 +81,5 @@ pub fn component_protocol(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { lightyear_shared };
-    component_impl(args, input, shared_crate_name)
+    component_protocol_impl(args, input, shared_crate_name)
 }

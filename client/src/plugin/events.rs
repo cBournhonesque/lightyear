@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bevy_ecs::event::Event;
+use bevy::prelude::Event;
 
 use lightyear_shared::{ChannelKind, Protocol};
 

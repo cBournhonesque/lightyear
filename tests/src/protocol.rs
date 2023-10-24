@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use lightyear_shared::channel::channel::ReliableSettings;
 use lightyear_shared::Protocol;
 use lightyear_shared::{component_protocol, message_protocol};
-use lightyear_shared::{protocolize, Channel};
+use lightyear_shared::{protocolize, Channel, Message};
 use lightyear_shared::{ChannelDirection, ChannelMode, ChannelSettings};
 
 // Messages
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message1(pub String);
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
 #[derive(Debug, PartialEq)]

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use anyhow::Context;
 use anyhow::Result;
-use bevy_ecs::prelude::{Resource, World};
+use bevy::prelude::{Resource, World};
 use tracing::trace;
 
 use lightyear_shared::netcode::Client as NetcodeClient;

@@ -1,15 +1,16 @@
-use bevy_app::{App, PostUpdate};
-use bevy_ecs::change_detection::Ref;
-use bevy_ecs::prelude::{
-    Added, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs, ResMut,
+use bevy::prelude::{
+    Added, App, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs, PostUpdate,
+    Query, Ref, ResMut,
 };
-use bevy_ecs::system::Query;
 use std::ops::Deref;
 use tracing::debug;
 
 use crate::replication::{Replicate, ReplicationSend};
 use crate::{ConnectEvent, Protocol, ReplicationSet};
 
+// TODO: maybe there was no point in making this generic in replication send; because
+//  connect-events is only available on the server ? or should we also add it in the client ?
+//  we can also separate the on_connect part to a separate system
 pub fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     // try doing entity spawn whenever replicate gets added
     query: Query<(Entity, Ref<Replicate>)>,

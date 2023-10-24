@@ -1,5 +1,5 @@
-use bevy_ecs::component::ComponentId;
-use bevy_ecs::prelude::{FromWorld, Resource, World};
+use bevy::ecs::component::ComponentId;
+use bevy::prelude::{FromWorld, Resource, World};
 
 use crate::replication::Replicate;
 

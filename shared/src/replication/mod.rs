@@ -4,9 +4,7 @@
 // (potentially let users choose which channel to use for these?)
 
 use anyhow::Result;
-use bevy_ecs::component::Component;
-use bevy_ecs::entity::Entity;
-use bevy_ecs::prelude::Resource;
+use bevy::prelude::{Component, Entity, Resource};
 use bitcode::__private::Serialize;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;

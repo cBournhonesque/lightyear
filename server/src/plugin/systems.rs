@@ -1,5 +1,4 @@
-use bevy_ecs::prelude::{Events, Mut, Res, ResMut, World};
-use bevy_time::Time;
+use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
 use tracing::{debug, trace};
 
 use lightyear_shared::replication::ReplicationSend;

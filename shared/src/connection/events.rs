@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::iter;
 
 use crate::netcode::ClientId;
-use bevy_ecs::prelude::Entity;
+use bevy::prelude::{Component, Entity};
 
-use crate::{Channel, ChannelKind, Message, Protocol};
+use crate::protocol::message::MessageKind;
+use crate::{Channel, ChannelKind, Message, MessageBehaviour, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
 pub struct ConnectionEvents<P: Protocol> {
@@ -12,8 +14,7 @@ pub struct ConnectionEvents<P: Protocol> {
     // pub disconnections: Vec<ClientId>,
 
     // messages
-    // TODO: add MessageKinds?
-    pub messages: HashMap<ChannelKind, Vec<P::Message>>,
+    pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
     pub spawns: Vec<Entity>,
     pub despawns: Vec<Entity>,
@@ -49,11 +50,53 @@ impl<P: Protocol> ConnectionEvents<P> {
         }
     }
 
+    // TODO: add channel_kind in the output? add channel as a generic parameter?
+    pub fn into_iter_messages<M: Message>(&mut self) -> impl Iterator<Item = M>
+    where
+        // M: From<P::Message>,
+        // TODO: this Error = () bound is not ideal..
+        P::Message: TryInto<M, Error = ()>,
+    {
+        let message_kind = MessageKind::of::<M>();
+        self.messages
+            .remove(&message_kind)
+            .into_iter()
+            .flat_map(|data| {
+                data.into_iter().flat_map(|(_, messages)| {
+                    messages.into_iter().map(|message| {
+                        // SAFETY: we checked via message kind that only messages of the type M
+                        // are in the list
+                        message.try_into().unwrap()
+                    })
+                })
+            })
+    }
+
+    // pub fn into_iter_messages_from_channel<M: Message, C: Channel>(
+    //     &mut self,
+    // ) -> impl Iterator<Item = M> {
+    //     let message_kind = MessageKind::of::<M>();
+    //     let channel_kind = ChannelKind::of::<C>();
+    //     if let Some(data) = self.messages.remove(&message_kind) {
+    //         if let Some(data) = data.remove(&channel_kind) {
+    //             return data.into_iter();
+    //         }
+    //     }
+    //     return Vec::new().into_iter();
+    // }
+
+    // pub fn into_iter_component<C: Component>(&mut self) -> impl Iterator<>
+
     pub fn is_empty(&self) -> bool {
         self.empty
     }
     pub(crate) fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
-        self.messages.entry(channel_kind).or_default().push(message);
+        self.messages
+            .entry(message.kind())
+            .or_default()
+            .entry(channel_kind)
+            .or_default()
+            .push(message);
         self.empty = false;
     }
 
@@ -115,3 +158,40 @@ pub trait IterConnectionEvent<P: Protocol> {
 //         return false;
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::tests::{
+        Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
+    };
+
+    #[test]
+    fn test_iter_messages() {
+        let mut events = ConnectionEvents::<MyProtocol>::new();
+        let channel_kind_1 = ChannelKind::of::<Channel1>();
+        let channel_kind_2 = ChannelKind::of::<Channel2>();
+        let message1_a = Message1("hello".to_string());
+        let message1_b = Message1("world".to_string());
+        events.push_message(
+            channel_kind_1,
+            MyMessageProtocol::Message1(message1_a.clone()),
+        );
+        events.push_message(
+            channel_kind_2,
+            MyMessageProtocol::Message1(message1_b.clone()),
+        );
+        events.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
+
+        // check that we have the correct messages
+        let messages: Vec<Message1> = events.into_iter_messages().collect();
+        assert!(messages.contains(&message1_a));
+        assert!(messages.contains(&message1_b));
+
+        // check that there are no more message of that kind in the events
+        assert!(!events.messages.contains_key(&MessageKind::of::<Message1>()));
+
+        // check that we still have the other message kinds
+        assert!(events.messages.contains_key(&MessageKind::of::<Message2>()));
+    }
+}

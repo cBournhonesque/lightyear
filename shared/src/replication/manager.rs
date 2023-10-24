@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bevy_ecs::prelude::{Entity, World};
+use bevy::prelude::{Entity, World};
 use tracing::{debug, debug_span};
 
 use crate::connection::ProtocolMessage;

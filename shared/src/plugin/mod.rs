@@ -1,5 +1,4 @@
-use bevy_app::prelude::Plugin;
-use bevy_app::App;
+use bevy::prelude::{App, Plugin};
 
 pub use replication::ReplicationData;
 pub use sets::ReplicationSet;

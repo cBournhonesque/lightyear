@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::SystemSet;
+use bevy::prelude::SystemSet;
 
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

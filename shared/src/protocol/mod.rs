@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use bevy_app::App;
+use bevy::prelude::App;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -29,12 +29,13 @@ pub trait Protocol: Send + Sync + Clone + 'static {
 // TODO: give an option to change names of types
 #[macro_export]
 macro_rules! protocolize {
-    ($protocol:ident, $message:ty, $components:ty) => {
-        use lightyear_shared::paste;
+
+    ($protocol:ident, $message:ty, $components:ty, $shared_crate_name:ident) => {
+        use $shared_crate_name::paste;
         paste! {
         mod [<$protocol _module>] {
             use super::*;
-            use lightyear_shared::{
+            use $shared_crate_name::{
                 App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
                 DefaultReliableChannel, Entity, MessageProtocol, Protocol, ReplicationSend,
                 ReliableSettings, ChannelDirection, ChannelMode,
@@ -80,6 +81,9 @@ macro_rules! protocolize {
         pub use [<$protocol _module>]::$protocol;
         }
     };
+    ($protocol:ident, $message:ty, $components:ty) => {
+        protocolize!($protocol, $message, $components, lightyear_shared);
+    };
 }
 
 /// Something that can be serialized bit by bit
@@ -104,5 +108,60 @@ where
         Self: Sized,
     {
         reader.deserialize::<Self>()
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::{ChannelDirection, ChannelMode, Message, ReliableSettings};
+    use bevy::prelude::Component;
+    use lightyear_derive::{
+        component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
+    };
+
+    // Messages
+    #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    pub struct Message1(pub String);
+
+    #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    pub struct Message2(pub u32);
+
+    #[derive(Debug, PartialEq)]
+    #[message_protocol_internal]
+    pub enum MyMessageProtocol {
+        Message1(Message1),
+        Message2(Message2),
+    }
+
+    #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+    pub struct Component1;
+
+    #[derive(Debug, PartialEq)]
+    #[component_protocol_internal(protocol = MyProtocol)]
+    pub enum MyComponentsProtocol {
+        Component1(Component1),
+    }
+
+    protocolize!(MyProtocol, MyMessageProtocol, MyComponentsProtocol, crate);
+
+    // Channels
+    #[derive(ChannelInternal)]
+    pub struct Channel1;
+
+    #[derive(ChannelInternal)]
+    pub struct Channel2;
+
+    pub fn test_protocol() -> MyProtocol {
+        let mut p = MyProtocol::default();
+        p.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            direction: ChannelDirection::Bidirectional,
+        });
+        p.add_channel::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+        });
+        p
     }
 }
