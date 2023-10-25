@@ -1,5 +1,7 @@
+use bevy::prelude::Event;
 use std::fmt::Debug;
 
+use crate::connection::events::EventContext;
 use serde::Serialize;
 
 use crate::packet::wrapping_id::MessageId;
@@ -138,7 +140,8 @@ impl<P: BitSerializable> MessageContainer<P> {
 //     ) -> anyhow::Result<MessageContainer>;
 // }
 
-pub trait Message: 'static {
+// TODO: for now messages must be able to be used as events, since we output them in our message events
+pub trait Message: EventContext {
     // /// Get the MessageKind for the message
     // fn kind(&self) -> MessageKind;
 

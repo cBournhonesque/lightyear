@@ -1,11 +1,13 @@
+use bevy::prelude::{Event, World};
 use std::any::TypeId;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use crate::connection::events::{EventContext, IterMessageEvent};
 use crate::protocol::registry::{TypeKind, TypeMapper};
 use crate::serialize::writer::WriteBuffer;
-use crate::{BitSerializable, Message};
+use crate::{BitSerializable, Message, Protocol};
 
 // client writes an Enum containing all their message type
 // each message must derive message
@@ -14,6 +16,13 @@ use crate::{BitSerializable, Message};
 pub trait MessageProtocol:
     BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour
 {
+    type Protocol: Protocol;
+
+    /// Takes messages that were written and writes MessageEvents
+    fn push_message_events<E: IterMessageEvent<Self::Protocol, Ctx>, Ctx: EventContext>(
+        world: &mut World,
+        events: &mut E,
+    );
 }
 
 /// Trait to delegate a method from the messageProtocol enum to the inner Message type

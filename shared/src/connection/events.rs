@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::iter;
 
 use crate::netcode::ClientId;
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, Event};
 
 use crate::protocol::message::MessageKind;
 use crate::{Channel, ChannelKind, Message, MessageBehaviour, Protocol};
@@ -51,26 +51,31 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 
     // TODO: add channel_kind in the output? add channel as a generic parameter?
-    pub fn into_iter_messages<M: Message>(&mut self) -> impl Iterator<Item = M>
-    where
-        // M: From<P::Message>,
-        // TODO: this Error = () bound is not ideal..
-        P::Message: TryInto<M, Error = ()>,
-    {
-        let message_kind = MessageKind::of::<M>();
-        self.messages
-            .remove(&message_kind)
-            .into_iter()
-            .flat_map(|data| {
-                data.into_iter().flat_map(|(_, messages)| {
-                    messages.into_iter().map(|message| {
-                        // SAFETY: we checked via message kind that only messages of the type M
-                        // are in the list
-                        message.try_into().unwrap()
-                    })
-                })
-            })
-    }
+    // pub fn into_iter_messages<M: Message>(&mut self) -> impl Iterator<Item = M>
+    // where
+    //     // M: From<P::Message>,
+    //     // TODO: this Error = () bound is not ideal..
+    //     P::Message: TryInto<M, Error = ()>,
+    // {
+    //     let message_kind = MessageKind::of::<M>();
+    //     self.messages
+    //         .remove(&message_kind)
+    //         .into_iter()
+    //         .flat_map(|data| {
+    //             data.into_iter().flat_map(|(_, messages)| {
+    //                 messages.into_iter().map(|message| {
+    //                     // SAFETY: we checked via message kind that only messages of the type M
+    //                     // are in the list
+    //                     message.try_into().unwrap()
+    //                 })
+    //             })
+    //         })
+    // }
+
+    // pub fn has_messages<M: Message>(&self) -> bool {
+    //     let message_kind = MessageKind::of::<M>();
+    //     self.messages.contains_key(&message_kind)
+    // }
 
     // pub fn into_iter_messages_from_channel<M: Message, C: Channel>(
     //     &mut self,
@@ -90,7 +95,7 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn is_empty(&self) -> bool {
         self.empty
     }
-    pub(crate) fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
+    pub fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
         self.messages
             .entry(message.kind())
             .or_default()
@@ -114,6 +119,77 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 }
 
+/// Data that can be used in an Event
+/// Same as `Event`, but we implement it automatically for all compatible types
+pub trait EventContext: Send + Sync + 'static {}
+
+impl<T: Send + Sync + 'static> EventContext for T {}
+
+pub trait IterMessageEvent<P: Protocol, Ctx: EventContext = ()> {
+    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)>>
+    where
+        P::Message: TryInto<M, Error = ()>;
+
+    fn has_messages<M: Message>(&self) -> bool;
+}
+
+impl<P: Protocol> IterMessageEvent<P> for ConnectionEvents<P> {
+    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, ())>>
+    where
+        // TODO: should we change this to `Into`
+        P::Message: TryInto<M, Error = ()>,
+    {
+        let message_kind = MessageKind::of::<M>();
+        if let Some(data) = self.messages.remove(&message_kind) {
+            return Box::new(data.into_iter().flat_map(|(_, messages)| {
+                messages.into_iter().map(|message| {
+                    // SAFETY: we checked via message kind that only messages of the type M
+                    // are in the list
+                    (message.try_into().unwrap(), ())
+                })
+            }));
+        }
+        return Box::new(iter::empty());
+    }
+
+    fn has_messages<M: Message>(&self) -> bool {
+        let message_kind = MessageKind::of::<M>();
+        self.messages.contains_key(&message_kind)
+    }
+}
+
+// pub trait IterMessageEvent<M: Message, P: Protocol, Ctx = ()>
+// where
+//     P::Message: TryInto<M, Error = ()>,
+// {
+//     fn into_iter_messages(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)>>;
+//
+//     fn has_messages(&self) -> bool;
+// }
+
+// impl<M: Message, P: Protocol> IterMessageEvent<M, P> for ConnectionEvents<P> {
+//     fn into_iter_messages(&mut self) -> Box<dyn Iterator<Item = (M, ())>> {
+//         let message_kind = MessageKind::of::<M>();
+//         if let Some(data) = self.messages.remove(&message_kind) {
+//             return Box::new(data.into_iter().flat_map(|data| {
+//                 data.into_iter().flat_map(|(_, messages)| {
+//                     messages.into_iter().map(|message| {
+//                         // SAFETY: we checked via message kind that only messages of the type M
+//                         // are in the list
+//                         (message.try_into().unwrap(), ())
+//                     })
+//                 })
+//             }));
+//         }
+//         return Box::new(iter::empty());
+//     }
+//
+//     fn has_messages(&self) -> bool {
+//         let message_kind = MessageKind::of::<M>();
+//         self.messages.contains_key(&message_kind)
+//     }
+// }
+//
 pub trait IterConnectionEvent<P: Protocol> {
     type Iter;
     type IntoIter;

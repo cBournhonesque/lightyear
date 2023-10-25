@@ -18,7 +18,7 @@ pub(crate) mod message;
 pub(crate) mod registry;
 
 pub trait Protocol: Send + Sync + Clone + 'static {
-    type Message: MessageProtocol + Send + Sync;
+    type Message: MessageProtocol<Protocol = Self> + Send + Sync;
     type Components: ComponentProtocol<Protocol = Self> + Send + Sync;
     type ComponentKinds: ComponentProtocolKind<Protocol = Self> + Send + Sync;
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
@@ -111,7 +111,6 @@ where
     }
 }
 
-#[cfg(test)]
 pub mod tests {
     use super::*;
     use crate::{ChannelDirection, ChannelMode, Message, ReliableSettings};
@@ -128,7 +127,7 @@ pub mod tests {
     pub struct Message2(pub u32);
 
     #[derive(Debug, PartialEq)]
-    #[message_protocol_internal]
+    #[message_protocol_internal(protocol = "MyProtocol")]
     pub enum MyMessageProtocol {
         Message1(Message1),
         Message2(Message2),

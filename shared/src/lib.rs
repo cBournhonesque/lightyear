@@ -16,6 +16,7 @@ pub use channel::channel::{
 pub use config::SharedConfig;
 pub use connection::{Connection, ConnectionEvents};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
+pub use netcode::ClientId;
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
 pub use plugin::events::{ConnectEvent, DisconnectEvent};
@@ -35,7 +36,7 @@ pub use transport::udp::UdpSocket;
 
 pub mod channel;
 mod config;
-mod connection;
+pub mod connection;
 pub mod netcode;
 pub mod packet;
 pub mod plugin;

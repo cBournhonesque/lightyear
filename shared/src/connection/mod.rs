@@ -3,4 +3,4 @@ pub use connection::ProtocolMessage;
 pub use events::ConnectionEvents;
 
 mod connection;
-mod events;
+pub mod events;

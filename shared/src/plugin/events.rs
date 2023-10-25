@@ -10,9 +10,16 @@ pub struct ConnectEvent(pub ClientId);
 pub struct DisconnectEvent(pub ClientId);
 
 // TODO: for server
+#[derive(Event)]
+pub struct MessageEvent<M: Message, Ctx = ()> {
+    inner: M,
+    context: Ctx,
+}
 
-pub struct MessageEvent<M: Message> {
-    inner: HashMap<ChannelKind, Vec<(ClientId, M)>>,
+impl<M: Message, Ctx> MessageEvent<M, Ctx> {
+    pub fn new(inner: M, context: Ctx) -> Self {
+        Self { inner, context }
+    }
 }
 
 #[derive(Event)]

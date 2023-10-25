@@ -12,6 +12,7 @@ use crate::plugin::sets::ServerSet;
 use crate::plugin::systems::{receive, send};
 use crate::Server;
 
+mod events;
 mod sets;
 mod systems;
 

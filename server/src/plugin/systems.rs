@@ -1,8 +1,9 @@
-use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
+use bevy::prelude::{EventWriter, Events, Mut, Res, ResMut, Time, World};
 use tracing::{debug, trace};
 
+use crate::events::ServerEvents;
 use lightyear_shared::replication::ReplicationSend;
-use lightyear_shared::{ConnectEvent, DisconnectEvent, Protocol};
+use lightyear_shared::{ConnectEvent, DisconnectEvent, Message, MessageProtocol, Protocol};
 
 use crate::Server;
 
@@ -21,6 +22,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
         // Write the received events into bevy events
         if !events.is_empty() {
+            // TODO: write these as systems?
+
             // Connect Event
             if events.has::<crate::events::ConnectEvent>() {
                 let mut connect_event_writer =
@@ -39,6 +42,9 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                     connect_event_writer.send(DisconnectEvent(client_id));
                 }
             }
+
+            // Message Events
+            P::Message::push_message_events(world, &mut events);
         }
     });
 }

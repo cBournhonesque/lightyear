@@ -60,7 +60,7 @@ pub fn component_protocol_impl(
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable,
                 ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, PostUpdate, Protocol,
                 ReplicationSet, ReplicationSend};
-            use #shared_crate_name::plugin::systems::add_replication_send_systems;
+            use #shared_crate_name::plugin::systems::replication::add_replication_send_systems;
 
             #[derive(Serialize, Deserialize, Clone)]
             #[enum_delegate::implement(ComponentBehaviour)]

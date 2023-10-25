@@ -1,7 +1,8 @@
 pub mod some_message {
     use serde::{Deserialize, Serialize};
 
-    use lightyear_derive::message_protocol;
+    use lightyear_derive::{component_protocol, message_protocol};
+    use lightyear_shared::protocolize;
 
     // #[derive(Message)]
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -13,12 +14,17 @@ pub mod some_message {
 
     // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     #[derive(Debug, PartialEq)]
-    #[message_protocol]
+    #[message_protocol(protocol = "MyProtocol")]
     // #[derive(EnumAsInner)]
     pub enum MyMessageProtocol {
         Message1(Message1),
         Message2(Message2),
     }
+
+    #[component_protocol(protocol = "MyProtocol")]
+    pub enum MyComponentProtocol {}
+
+    protocolize!(MyProtocol, MyMessageProtocol, MyComponentProtocol);
 }
 
 #[cfg(test)]

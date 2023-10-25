@@ -11,7 +11,7 @@ use crate::{ConnectEvent, Protocol, ReplicationSet};
 // TODO: maybe there was no point in making this generic in replication send; because
 //  connect-events is only available on the server ? or should we also add it in the client ?
 //  we can also separate the on_connect part to a separate system
-pub fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
+fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     // try doing entity spawn whenever replicate gets added
     query: Query<(Entity, Ref<Replicate>)>,
     mut connect_events: EventReader<ConnectEvent>,
@@ -40,7 +40,7 @@ pub fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     })
 }
 
-pub fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
+fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, Ref<C>, &Replicate)>,
     mut connect_events: EventReader<ConnectEvent>,
     mut sender: ResMut<R>,
