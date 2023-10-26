@@ -10,8 +10,8 @@ use crate::{Channel, ChannelKind, Message, MessageBehaviour, Protocol};
 // TODO: don't make fields pub but instead make accessors
 pub struct ConnectionEvents<P: Protocol> {
     // netcode
-    // pub connections: Vec<ClientId>,
-    // pub disconnections: Vec<ClientId>,
+    pub connection: bool,
+    pub disconnection: bool,
 
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
@@ -35,8 +35,8 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn new() -> Self {
         Self {
             // netcode
-            // connections: Vec::new(),
-            // disconnections: Vec::new(),
+            connection: false,
+            disconnection: false,
             // messages
             messages: HashMap::new(),
             // replication
@@ -48,6 +48,25 @@ impl<P: Protocol> ConnectionEvents<P> {
             // bookkeeping
             empty: true,
         }
+    }
+
+    /// If true, the connection was established
+    pub fn has_connection(&self) -> bool {
+        self.connection
+    }
+
+    pub fn push_connection(&mut self) {
+        self.connection = true;
+        self.empty = false;
+    }
+
+    pub fn has_disconnection(&self) -> bool {
+        self.disconnection
+    }
+
+    pub fn push_disconnection(&mut self) {
+        self.disconnection = true;
+        self.empty = false;
     }
 
     // TODO: add channel_kind in the output? add channel as a generic parameter?
@@ -155,6 +174,22 @@ impl<P: Protocol> IterMessageEvent<P> for ConnectionEvents<P> {
     fn has_messages<M: Message>(&self) -> bool {
         let message_kind = MessageKind::of::<M>();
         self.messages.contains_key(&message_kind)
+    }
+}
+
+pub trait IterEntitySpawnEvent<Ctx: EventContext = ()> {
+    fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
+    fn has_entity_spawn(&self) -> bool;
+}
+
+impl<P: Protocol> IterEntitySpawnEvent for ConnectionEvents<P> {
+    fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+        let spawns = std::mem::take(&mut self.spawns);
+        Box::new(spawns.into_iter().map(|entity| (entity, ())))
+    }
+
+    fn has_entity_spawn(&self) -> bool {
+        !self.spawns.is_empty()
     }
 }
 

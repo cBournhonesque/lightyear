@@ -20,7 +20,7 @@ use lightyear_shared::plugin::events::MessageEvent;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
-    ChannelSettings, IoConfig, Message, Protocol, SharedConfig,
+    ChannelSettings, EntitySpawnEvent, IoConfig, Message, Protocol, SharedConfig,
 };
 
 fn main() {
@@ -122,7 +122,14 @@ fn setup(app: &mut App, cli: Cli) {
             let plugin_config = lightyear_client::PluginConfig::new(config, protocol(), auth);
             app.add_plugins(lightyear_client::Plugin::new(plugin_config));
             app.add_systems(Startup, client_init);
-            app.add_systems(Update, (draw_boxes_system, receive_message1_client));
+            app.add_systems(
+                Update,
+                (
+                    draw_boxes_system,
+                    receive_message1_client,
+                    receive_entity_spawn,
+                ),
+            );
         }
     }
 }
@@ -233,5 +240,11 @@ fn draw_boxes_system(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &Playe
 fn receive_message1_client(mut reader: EventReader<MessageEvent<Message1>>) {
     for event in reader.iter() {
         info!("Received message: {:?}", event.message());
+    }
+}
+
+fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
+    for event in reader.iter() {
+        info!("Received entity spawn: {:?}", event.entity());
     }
 }

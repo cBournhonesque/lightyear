@@ -160,9 +160,9 @@ impl<P: Protocol> Server<P> {
         // handle connections
         for client_id in self.context.connections.try_iter() {
             let client_addr = self.netcode.client_addr(client_id).unwrap();
-            let connection = Connection::new(self.protocol.channel_registry());
+            let mut connection = Connection::new(self.protocol.channel_registry());
+            connection.events.push_connection();
             debug!("New connection from {} (id: {})", client_addr, client_id);
-            self.events.push_connections(client_id);
             self.user_connections.insert(client_id, connection);
         }
 

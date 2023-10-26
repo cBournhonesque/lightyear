@@ -3,7 +3,9 @@ use std::sync::Mutex;
 
 use bevy::prelude::{App, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate};
 
-use lightyear_shared::{MessageProtocol, Protocol};
+use lightyear_shared::{
+    ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+};
 
 use crate::client::Authentication;
 use crate::config::ClientConfig;
@@ -64,6 +66,9 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .configure_set(PreUpdate, ClientSet::Receive)
             .configure_set(PostUpdate, ClientSet::Send)
             // EVENTS //
+            .add_event::<ConnectEvent>()
+            .add_event::<DisconnectEvent>()
+            .add_event::<EntitySpawnEvent>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ClientSet::Receive))
             .add_systems(PostUpdate, send::<P>.in_set(ClientSet::Send));

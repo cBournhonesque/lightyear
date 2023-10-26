@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
-use lightyear_shared::connection::events::IterMessageEvent;
+use lightyear_shared::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
 use lightyear_shared::netcode::ClientId;
-use lightyear_shared::{ConnectionEvents, Message, Protocol};
+use lightyear_shared::{ConnectionEvents, Entity, Message, Protocol};
 
 pub struct ServerEvents<P: Protocol> {
-    pub connections: Vec<ClientId>,
-    pub disconnects: Vec<ClientId>,
+    // TODO: cannot include connection/disconnection directly into ConnectionEvents, because we remove
+    //  the connection event upon disconnection ?
 
+    // pub connections: Vec<ClientId>,
+    pub disconnects: Vec<ClientId>,
     pub events: HashMap<ClientId, ConnectionEvents<P>>,
     pub empty: bool,
 }
@@ -15,7 +17,7 @@ pub struct ServerEvents<P: Protocol> {
 impl<P: Protocol> ServerEvents<P> {
     pub(crate) fn new() -> Self {
         Self {
-            connections: Vec::new(),
+            // connections: Vec::new(),
             disconnects: Vec::new(),
             events: HashMap::new(),
             empty: true,
@@ -47,23 +49,45 @@ impl<P: Protocol> ServerEvents<P> {
     //         .any(|(_, connection_events)| connection_events.has_messages::<M>())
     // }
 
-    pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {
-        return V::into_iter(self);
+    // TODO: should we consume connections?
+    pub fn iter_connections(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.events
+            .iter()
+            .filter_map(|(client_id, events)| events.has_connection().then_some(client_id.clone()))
     }
 
-    pub fn iter<'a, V: IterEvent<'a, P>>(&'a self) -> V::Iter {
-        return V::iter(self);
+    pub fn has_connections(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_connection())
     }
 
-    pub fn has<V: for<'a> IterEvent<'a, P>>(&self) -> bool {
-        return V::has(self);
+    pub fn iter_disconnections(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.events
+            .iter()
+            .filter_map(|(client_id, events)| events.has_connection().then_some(client_id.clone()))
     }
 
-    pub(crate) fn push_connections(&mut self, client_id: ClientId) {
-        self.connections.push(client_id);
-        self.empty = false;
+    pub fn has_disconnections(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_connection())
     }
 
+    // pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {
+    //     return V::into_iter(self);
+    // }
+    //
+    // pub fn iter<'a, V: IterEvent<'a, P>>(&'a self) -> V::Iter {
+    //     return V::iter(self);
+    // }
+    //
+    // pub fn has<V: for<'a> IterEvent<'a, P>>(&self) -> bool {
+    //     return V::has(self);
+    // }
+
+    // Cannot only use the 'disconnect' field in the events, because we remove the events
+    // upon disconnection
     pub(crate) fn push_disconnects(&mut self, client_id: ClientId) {
         self.disconnects.push(client_id);
         self.empty = false;
@@ -96,63 +120,79 @@ impl<P: Protocol> IterMessageEvent<P, ClientId> for ServerEvents<P> {
     }
 }
 
-// TODO: this seems overly complicated for no reason
-//  just write iter_connections(), etc.
-pub trait IterEvent<'a, P: Protocol>
-where
-    <Self as IterEvent<'a, P>>::Item: 'a,
-{
-    type Item;
-    type Iter: Iterator<Item = &'a Self::Item>;
-    type IntoIter: Iterator<Item = Self::Item>;
-
-    fn iter(events: &'a ServerEvents<P>) -> Self::Iter;
-    fn into_iter(events: &mut ServerEvents<P>) -> Self::IntoIter;
-
-    fn has(events: &ServerEvents<P>) -> bool;
-}
-
-pub struct ConnectEvent;
-
-impl<'a, P: Protocol> IterEvent<'a, P> for ConnectEvent {
-    type Item = ClientId;
-    type Iter = std::slice::Iter<'a, ClientId>;
-    type IntoIter = std::vec::IntoIter<ClientId>;
-
-    fn iter(events: &'a ServerEvents<P>) -> Self::Iter {
-        events.connections.iter()
+impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
+    fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
+        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            let entities = events.into_iter_entity_spawn().map(|(entity, _)| entity);
+            let client_ids = std::iter::once(client_id.clone()).cycle();
+            return entities.zip(client_ids);
+        }))
     }
 
-    fn into_iter(events: &mut ServerEvents<P>) -> Self::IntoIter {
-        let list = std::mem::take(&mut events.connections);
-        return IntoIterator::into_iter(list);
-    }
-
-    fn has(events: &ServerEvents<P>) -> bool {
-        !events.connections.is_empty()
+    fn has_entity_spawn(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_entity_spawn())
     }
 }
 
-pub struct DisconnectEvent;
-
-impl<'a, P: Protocol> IterEvent<'a, P> for DisconnectEvent {
-    type Item = ClientId;
-    type Iter = std::slice::Iter<'a, ClientId>;
-    type IntoIter = std::vec::IntoIter<ClientId>;
-
-    fn iter(events: &'a ServerEvents<P>) -> Self::Iter {
-        events.disconnects.iter()
-    }
-
-    fn into_iter(events: &mut ServerEvents<P>) -> Self::IntoIter {
-        let list = std::mem::take(&mut events.disconnects);
-        return IntoIterator::into_iter(list);
-    }
-
-    fn has(events: &ServerEvents<P>) -> bool {
-        !events.disconnects.is_empty()
-    }
-}
+// // TODO: this seems overly complicated for no reason
+// //  just write iter_connections(), etc.
+// pub trait IterEvent<'a, P: Protocol>
+// where
+//     <Self as IterEvent<'a, P>>::Item: 'a,
+// {
+//     type Item;
+//     type Iter: Iterator<Item = &'a Self::Item>;
+//     type IntoIter: Iterator<Item = Self::Item>;
+//
+//     fn iter(events: &'a ServerEvents<P>) -> Self::Iter;
+//     fn into_iter(events: &mut ServerEvents<P>) -> Self::IntoIter;
+//
+//     fn has(events: &ServerEvents<P>) -> bool;
+// }
+//
+// pub struct ConnectEvent;
+//
+// impl<'a, P: Protocol> IterEvent<'a, P> for ConnectEvent {
+//     type Item = ClientId;
+//     type Iter = std::slice::Iter<'a, ClientId>;
+//     type IntoIter = std::vec::IntoIter<ClientId>;
+//
+//     fn iter(events: &'a ServerEvents<P>) -> Self::Iter {
+//         events.connections.iter()
+//     }
+//
+//     fn into_iter(events: &mut ServerEvents<P>) -> Self::IntoIter {
+//         let list = std::mem::take(&mut events.connections);
+//         return IntoIterator::into_iter(list);
+//     }
+//
+//     fn has(events: &ServerEvents<P>) -> bool {
+//         !events.connections.is_empty()
+//     }
+// }
+//
+// pub struct DisconnectEvent;
+//
+// impl<'a, P: Protocol> IterEvent<'a, P> for DisconnectEvent {
+//     type Item = ClientId;
+//     type Iter = std::slice::Iter<'a, ClientId>;
+//     type IntoIter = std::vec::IntoIter<ClientId>;
+//
+//     fn iter(events: &'a ServerEvents<P>) -> Self::Iter {
+//         events.disconnects.iter()
+//     }
+//
+//     fn into_iter(events: &mut ServerEvents<P>) -> Self::IntoIter {
+//         let list = std::mem::take(&mut events.disconnects);
+//         return IntoIterator::into_iter(list);
+//     }
+//
+//     fn has(events: &ServerEvents<P>) -> bool {
+//         !events.disconnects.is_empty()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

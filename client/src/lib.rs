@@ -7,4 +7,5 @@ pub use plugin::{Plugin, PluginConfig};
 
 pub(crate) mod client;
 mod config;
+mod events;
 mod plugin;

@@ -1,7 +1,10 @@
-use bevy::prelude::{Mut, ResMut, Time, World};
-use tracing::trace;
+use bevy::prelude::{Events, Mut, ResMut, Time, World};
+use tracing::{debug, trace};
 
-use lightyear_shared::{MessageProtocol, Protocol};
+use lightyear_shared::connection::events::IterEntitySpawnEvent;
+use lightyear_shared::{
+    ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+};
 
 use crate::Client;
 
@@ -20,8 +23,32 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             dbg!(&events.spawns);
             // panic!();
 
+            if events.has_connection() {
+                let mut connect_event_writer =
+                    world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
+                debug!("Client connected event");
+                connect_event_writer.send(ConnectEvent::new(()));
+            }
+
+            if events.has_disconnection() {
+                let mut disconnect_event_writer =
+                    world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
+                debug!("Client disconnected event");
+                disconnect_event_writer.send(DisconnectEvent::new(()));
+            }
+
             // Message Events
             P::Message::push_message_events(world, &mut events);
+
+            // Spawn entity event
+            if events.has_entity_spawn() {
+                let mut entity_spawn_event_writer = world
+                    .get_resource_mut::<Events<EntitySpawnEvent>>()
+                    .unwrap();
+                for (entity, _) in events.into_iter_entity_spawn() {
+                    entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, ()));
+                }
+            }
         }
     });
 }

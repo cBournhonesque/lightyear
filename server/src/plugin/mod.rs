@@ -6,8 +6,8 @@ use bevy::prelude::{
 };
 
 use lightyear_shared::{
-    ClientId, ConnectEvent, DisconnectEvent, MessageProtocol, Protocol, ReplicationSend,
-    ReplicationSet,
+    ClientId, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+    ReplicationSend, ReplicationSet,
 };
 
 use crate::config::ServerConfig;
@@ -63,8 +63,9 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .configure_set(PostUpdate, ReplicationSet::Send)
             .configure_set(PostUpdate, ServerSet::Send.after(ReplicationSet::Send))
             // EVENTS //
-            .add_event::<ConnectEvent>()
-            .add_event::<DisconnectEvent>()
+            .add_event::<ConnectEvent<ClientId>>()
+            .add_event::<DisconnectEvent<ClientId>>()
+            .add_event::<EntitySpawnEvent<ClientId>>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ServerSet::Receive))
             .add_systems(PostUpdate, send::<P>.in_set(ServerSet::Send));
