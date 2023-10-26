@@ -12,13 +12,21 @@ pub struct DisconnectEvent(pub ClientId);
 // TODO: for server
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
-    inner: M,
+    message: M,
     context: Ctx,
 }
 
 impl<M: Message, Ctx> MessageEvent<M, Ctx> {
-    pub fn new(inner: M, context: Ctx) -> Self {
-        Self { inner, context }
+    pub fn new(message: M, context: Ctx) -> Self {
+        Self { message, context }
+    }
+
+    pub fn message(&self) -> &M {
+        &self.message
+    }
+
+    pub fn context(&self) -> &Ctx {
+        &self.context
     }
 }
 

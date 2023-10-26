@@ -8,7 +8,7 @@ use tracing::{debug, trace_span};
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Entity, Io, Protocol};
+use lightyear_shared::{Channel, ChannelKind, Entity, Io, Message, Protocol};
 use lightyear_shared::{Connection, WriteBuffer};
 
 use crate::events::ServerEvents;
@@ -134,16 +134,19 @@ impl<P: Protocol> Server<P> {
     // MESSAGES
 
     /// Queues up a message to be sent to a client
-    pub fn buffer_send<C: Channel>(
+    pub fn buffer_send<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
-        message: P::Message,
-    ) -> Result<()> {
+        message: M,
+    ) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
         let channel = ChannelKind::of::<C>();
         self.user_connections
             .get_mut(&client_id)
             .context("client not found")?
-            .buffer_message(message, channel)
+            .buffer_message(message.into(), channel)
     }
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients

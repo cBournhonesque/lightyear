@@ -33,7 +33,7 @@ macro_rules! protocolize {
     ($protocol:ident, $message:ty, $components:ty, $shared_crate_name:ident) => {
         use $shared_crate_name::paste;
         paste! {
-        mod [<$protocol _module>] {
+        mod [<$protocol:lower _module>] {
             use super::*;
             use $shared_crate_name::{
                 App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
@@ -78,7 +78,7 @@ macro_rules! protocolize {
                 }
             }
         }
-        pub use [<$protocol _module>]::$protocol;
+        pub use [<$protocol:lower _module>]::$protocol;
         }
     };
     ($protocol:ident, $message:ty, $components:ty) => {

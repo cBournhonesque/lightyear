@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use bevy::prelude::{App, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate};
 
-use lightyear_shared::Protocol;
+use lightyear_shared::{MessageProtocol, Protocol};
 
 use crate::client::Authentication;
 use crate::config::ClientConfig;
@@ -49,6 +49,13 @@ impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let client = Client::new(config.client_config, config.auth, config.protocol);
+
+        // TODO: it's annoying to have to keep that () around...
+        //  revisit this.. amybe the into_iter_messages returns directly an object that
+        //  can be created from Ctx and Message
+        //  For Server it's the MessageEvent<M, ClientId>
+        //  For Client it's MessageEvent<M> directly
+        P::Message::add_events::<()>(app);
 
         app
             // RESOURCES //

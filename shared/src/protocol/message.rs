@@ -1,4 +1,4 @@
-use bevy::prelude::{Event, World};
+use bevy::prelude::{App, Event, World};
 use std::any::TypeId;
 
 use serde::de::DeserializeOwned;
@@ -17,6 +17,10 @@ pub trait MessageProtocol:
     BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour
 {
     type Protocol: Protocol;
+
+    // TODO: combine these 2 into a single function that takes app?
+    /// Add events to the app
+    fn add_events<Ctx: EventContext>(app: &mut App);
 
     /// Takes messages that were written and writes MessageEvents
     fn push_message_events<E: IterMessageEvent<Self::Protocol, Ctx>, Ctx: EventContext>(

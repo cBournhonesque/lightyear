@@ -1,7 +1,7 @@
 use bevy::prelude::{Mut, ResMut, Time, World};
 use tracing::trace;
 
-use lightyear_shared::Protocol;
+use lightyear_shared::{MessageProtocol, Protocol};
 
 use crate::Client;
 
@@ -15,10 +15,13 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         // buffer packets into message managers
         client.recv_packets().unwrap();
         // receive packets from message managers
-        let events = client.receive(world);
+        let mut events = client.receive(world);
         if !events.is_empty() {
-            dbg!(events.spawns);
+            dbg!(&events.spawns);
             // panic!();
+
+            // Message Events
+            P::Message::push_message_events(world, &mut events);
         }
     });
 }

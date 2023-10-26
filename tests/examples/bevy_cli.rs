@@ -13,13 +13,14 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use lightyear_client::{Authentication, Client, ClientConfig};
-use lightyear_server::{NetcodeConfig, ServerConfig};
+use lightyear_server::{NetcodeConfig, Server, ServerConfig};
 use lightyear_shared::channel::channel::ReliableSettings;
 use lightyear_shared::netcode::{ClientId, Key};
+use lightyear_shared::plugin::events::MessageEvent;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
-    ChannelSettings, IoConfig, Protocol, SharedConfig,
+    ChannelSettings, IoConfig, Message, Protocol, SharedConfig,
 };
 
 fn main() {
@@ -96,7 +97,10 @@ fn setup(app: &mut App, cli: Cli) {
             let plugin_config = lightyear_server::PluginConfig::new(config, protocol());
             app.add_plugins(lightyear_server::Plugin::new(plugin_config));
             app.add_systems(Startup, server_init);
-            app.add_systems(Update, (input_system, draw_boxes_system));
+            app.add_systems(
+                Update,
+                (input_system, draw_boxes_system, send_message_system),
+            );
         }
         Cli::Client {
             client_id,
@@ -118,7 +122,7 @@ fn setup(app: &mut App, cli: Cli) {
             let plugin_config = lightyear_client::PluginConfig::new(config, protocol(), auth);
             app.add_plugins(lightyear_client::Plugin::new(plugin_config));
             app.add_systems(Startup, client_init);
-            app.add_systems(Update, draw_boxes_system_client);
+            app.add_systems(Update, (draw_boxes_system, receive_message1_client));
         }
     }
 }
@@ -170,8 +174,14 @@ pub enum Components {
     PlayerColor(PlayerColor),
 }
 
-#[message_protocol]
-pub enum Messages {}
+#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Message1(usize);
+
+#[derive(Debug)]
+#[message_protocol(protocol = "MyProtocol")]
+pub enum Messages {
+    Message1(Message1),
+}
 
 protocolize!(MyProtocol, Messages, Components);
 
@@ -196,6 +206,18 @@ fn input_system(mut player: Query<&mut PlayerPosition>, input: Res<Input<KeyCode
     }
 }
 
+/// Send messages from server to client
+fn send_message_system(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
+    if input.pressed(KeyCode::M) {
+        // TODO: add way to send message to all
+        let message = Message1(5);
+        info!("Send message: {:?}", message);
+        server.buffer_send::<Channel1, _>(ClientId::default(), Message1(5));
+    }
+}
+
+/// System that draws the boxed of the player positions.
+/// The components should be replicated from the server to the client
 fn draw_boxes_system(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
     for (position, color) in &players {
         gizmos.rect(
@@ -207,13 +229,9 @@ fn draw_boxes_system(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &Playe
     }
 }
 
-fn draw_boxes_system_client(mut gizmos: Gizmos, players: Query<&PlayerPosition>) {
-    for (position) in &players {
-        gizmos.rect(
-            Vec3::new(position.x, position.y, 0.0),
-            Quat::IDENTITY,
-            Vec2::ONE * 50.0,
-            Color::GREEN,
-        );
+/// System to receive messages on the client
+fn receive_message1_client(mut reader: EventReader<MessageEvent<Message1>>) {
+    for event in reader.iter() {
+        info!("Received message: {:?}", event.message());
     }
 }

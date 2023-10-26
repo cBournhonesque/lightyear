@@ -126,7 +126,7 @@ pub trait EventContext: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> EventContext for T {}
 
 pub trait IterMessageEvent<P: Protocol, Ctx: EventContext = ()> {
-    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)>>
+    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)> + '_>
     where
         P::Message: TryInto<M, Error = ()>;
 

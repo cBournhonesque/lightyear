@@ -5,7 +5,10 @@ use bevy::prelude::{
     App, IntoSystemConfigs, IntoSystemSetConfig, Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
-use lightyear_shared::{ConnectEvent, DisconnectEvent, Protocol, ReplicationSend, ReplicationSet};
+use lightyear_shared::{
+    ClientId, ConnectEvent, DisconnectEvent, MessageProtocol, Protocol, ReplicationSend,
+    ReplicationSet,
+};
 
 use crate::config::ServerConfig;
 use crate::plugin::sets::ServerSet;
@@ -50,6 +53,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
         let server = Server::new(config.server_config, config.protocol);
 
         P::add_replication_send_systems::<Server<P>>(app);
+        P::Message::add_events::<ClientId>(app);
 
         app
             // RESOURCES //

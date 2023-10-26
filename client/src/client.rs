@@ -8,17 +8,23 @@ use tracing::trace;
 use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Connection, ConnectionEvents, WriteBuffer};
+use lightyear_shared::{Channel, ChannelKind, Connection, ConnectionEvents, Message, WriteBuffer};
 use lightyear_shared::{Io, Protocol};
 
 use crate::config::ClientConfig;
 
 #[derive(Resource)]
 pub struct Client<P: Protocol> {
+    // Io
     io: Io,
-    protocol: P,
+    // netcode
     netcode: lightyear_shared::netcode::Client,
+    // connection
     connection: Connection<P>,
+    // protocol
+    protocol: P,
+    // events
+    events: ConnectionEvents<P>,
 }
 
 pub enum Authentication {
@@ -61,6 +67,7 @@ impl<P: Protocol> Client<P> {
             protocol,
             netcode,
             connection,
+            events: ConnectionEvents::new(),
         }
     }
 
@@ -87,9 +94,12 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Send a message to the server
-    pub fn buffer_send<C: Channel>(&mut self, message: P::Message) -> Result<()> {
+    pub fn buffer_send<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
         let channel = ChannelKind::of::<C>();
-        self.connection.buffer_message(message, channel)
+        self.connection.buffer_message(message.into(), channel)
     }
 
     /// Receive messages from the server

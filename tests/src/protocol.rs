@@ -15,7 +15,7 @@ pub struct Message1(pub String);
 pub struct Message2(pub u32);
 
 #[derive(Debug, PartialEq)]
-#[message_protocol]
+#[message_protocol(protocol = "MyProtocol")]
 pub enum MyMessageProtocol {
     Message1(Message1),
     Message2(Message2),
@@ -25,7 +25,7 @@ pub enum MyMessageProtocol {
 pub struct Component1;
 
 #[derive(Debug, PartialEq)]
-#[component_protocol(protocol = MyProtocol)]
+#[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     Component1(Component1),
 }

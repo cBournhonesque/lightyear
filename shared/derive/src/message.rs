@@ -59,7 +59,8 @@ pub fn message_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
-    let push_message_events_method = push_message_events_method(fields, protocol);
+    let add_events_method = add_events_method(&fields);
+    let push_message_events_method = push_message_events_method(&fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -67,12 +68,13 @@ pub fn message_protocol_impl(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use bevy::prelude::{World};
+            use bevy::prelude::{App, World};
             use #shared_crate_name::{enum_delegate, EnumAsInner};
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable, MessageBehaviour,
                 MessageProtocol, MessageKind};
             use #shared_crate_name::connection::events::{EventContext, IterMessageEvent};
             use #shared_crate_name::plugin::systems::events::push_message_events;
+            use #shared_crate_name::plugin::events::MessageEvent;
 
             #[derive(Serialize, Deserialize, Clone)]
             #[enum_delegate::implement(MessageBehaviour)]
@@ -82,6 +84,7 @@ pub fn message_protocol_impl(
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
 
+                #add_events_method
                 #push_message_events_method
 
             }
@@ -97,7 +100,7 @@ pub fn message_protocol_impl(
     proc_macro::TokenStream::from(output)
 }
 
-fn push_message_events_method(fields: Vec<&Field>, protocol_name: &Ident) -> TokenStream {
+fn push_message_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -111,6 +114,23 @@ fn push_message_events_method(fields: Vec<&Field>, protocol_name: &Ident) -> Tok
             world: &mut World,
             events: &mut E
         )
+        {
+            #body
+        }
+    }
+}
+
+fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            app.add_event::<MessageEvent<#component_type, Ctx>>();
+        };
+    }
+    quote! {
+        fn add_events<Ctx: EventContext>(app: &mut App)
         {
             #body
         }
