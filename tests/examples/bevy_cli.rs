@@ -20,7 +20,8 @@ use lightyear_shared::plugin::events::MessageEvent;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
-    ChannelSettings, EntitySpawnEvent, IoConfig, Message, Protocol, SharedConfig,
+    ChannelSettings, ConnectEvent, ConnectionEvents, DisconnectEvent, EntitySpawnEvent, IoConfig,
+    Message, Protocol, SharedConfig,
 };
 
 fn main() {
@@ -66,7 +67,6 @@ fn server_init(mut commands: Commands) {
             ..default()
         },
     ));
-    commands.spawn(PlayerBundle::new(0, Vec2::ZERO, Color::GREEN));
 }
 
 fn client_init(mut commands: Commands, mut client: ResMut<Client<MyProtocol>>) {
@@ -99,7 +99,12 @@ fn setup(app: &mut App, cli: Cli) {
             app.add_systems(Startup, server_init);
             app.add_systems(
                 Update,
-                (input_system, draw_boxes_system, send_message_system),
+                (
+                    server_handle_connections,
+                    input_system,
+                    draw_boxes_system,
+                    send_message_system,
+                ),
             );
         }
         Cli::Client {
@@ -192,11 +197,40 @@ pub enum Messages {
 
 protocolize!(MyProtocol, Messages, Components);
 
+/// Server connection system
+fn server_handle_connections(
+    // TODO: give type alias to ConnectionEvents<ClientId> ? (such as ServerConnectionEvents)?
+    mut connections: EventReader<ConnectEvent<ClientId>>,
+    mut disconnections: EventReader<DisconnectEvent<ClientId>>,
+    mut commands: Commands,
+) {
+    for connection in connections.iter() {
+        let client_id = connection.context();
+        info!("New connection from client: {:?}", client_id);
+        // Generate pseudo random color from client id.
+        let r = ((client_id % 23) as f32) / 23.0;
+        let g = ((client_id % 27) as f32) / 27.0;
+        let b = ((client_id % 39) as f32) / 39.0;
+        commands.spawn(PlayerBundle::new(
+            *client_id,
+            Vec2::ZERO,
+            Color::rgb(r, g, b),
+        ));
+    }
+    for disconnection in disconnections.iter() {
+        info!("Client disconnected: {:?}", disconnection.context());
+    }
+}
+
 /// Input system: for now, lets server move the Player entity, and the components
 /// should get replicated
 ///
-fn input_system(mut player: Query<&mut PlayerPosition>, input: Res<Input<KeyCode>>) {
-    if let Ok(mut position) = player.get_single_mut() {
+fn input_system(
+    mut player: Query<(Entity, &mut PlayerPosition)>,
+    input: Res<Input<KeyCode>>,
+    mut commands: Commands,
+) {
+    if let Ok((entity, mut position)) = player.get_single_mut() {
         const MOVE_SPEED: f32 = 10.0;
         if input.pressed(KeyCode::Right) {
             position.x += MOVE_SPEED;
@@ -210,16 +244,19 @@ fn input_system(mut player: Query<&mut PlayerPosition>, input: Res<Input<KeyCode
         if input.pressed(KeyCode::Down) {
             position.y -= MOVE_SPEED;
         }
+        if input.pressed(KeyCode::D) {
+            commands.entity(entity).despawn();
+        }
     }
 }
 
-/// Send messages from server to client
+/// Send messages from server to clients
 fn send_message_system(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
     if input.pressed(KeyCode::M) {
         // TODO: add way to send message to all
         let message = Message1(5);
         info!("Send message: {:?}", message);
-        server.buffer_send::<Channel1, _>(ClientId::default(), Message1(5));
+        server.broadcast_send::<Channel1, Message1>(Message1(5));
     }
 }
 

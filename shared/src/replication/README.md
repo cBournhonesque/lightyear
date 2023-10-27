@@ -83,7 +83,11 @@ AI:
 ## insert component
 
 - if entity does not exist locally (on server), abort
-- 
+
+
+## removed component
+
+We don't want to send this if there is a pending entity despawn (order systems correctly)
 
 
 ## send updates

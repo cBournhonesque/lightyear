@@ -22,7 +22,9 @@ pub use packet::message_manager::MessageManager;
 pub use plugin::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
 pub use plugin::{ReplicationData, ReplicationSet, SharedPlugin};
 pub use protocol::channel::{ChannelKind, ChannelRegistry};
-pub use protocol::component::{ComponentBehaviour, ComponentProtocol, ComponentProtocolKind};
+pub use protocol::component::{
+    ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind, IntoKind,
+};
 pub use protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
 pub use protocol::{BitSerializable, Protocol};
 pub use replication::DefaultReliableChannel;

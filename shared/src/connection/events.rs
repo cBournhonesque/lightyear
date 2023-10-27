@@ -193,6 +193,24 @@ impl<P: Protocol> IterEntitySpawnEvent for ConnectionEvents<P> {
     }
 }
 
+// pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
+//     fn into_iter_entity_spawn<C: Component>(
+//         &mut self,
+//     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
+//     fn has_entity_spawn<C: Component>(&self) -> bool;
+// }
+//
+// impl<P: Protocol> IterComponentInsertEvent for ConnectionEvents<P> {
+//     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+//         let spawns = std::mem::take(&mut self.spawns);
+//         Box::new(spawns.into_iter().map(|entity| (entity, ())))
+//     }
+//
+//     fn has_entity_spawn(&self) -> bool {
+//         !self.spawns.is_empty()
+//     }
+// }
+
 // pub trait IterMessageEvent<M: Message, P: Protocol, Ctx = ()>
 // where
 //     P::Message: TryInto<M, Error = ()>,
@@ -225,14 +243,14 @@ impl<P: Protocol> IterEntitySpawnEvent for ConnectionEvents<P> {
 //     }
 // }
 //
-pub trait IterConnectionEvent<P: Protocol> {
-    type Iter;
-    type IntoIter;
-
-    fn iter(events: &mut ConnectionEvents<P>) -> Self::Iter;
-
-    fn has(events: &ConnectionEvents<P>) -> bool;
-}
+// pub trait IterConnectionEvent<P: Protocol> {
+//     type Iter;
+//     type IntoIter;
+//
+//     fn iter(events: &mut ConnectionEvents<P>) -> Self::Iter;
+//
+//     fn has(events: &ConnectionEvents<P>) -> bool;
+// }
 
 // pub struct MessageEvent<C: Channel, M: Message> {
 //     _phantom: std::marker::PhantomData<(C, M)>,

@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use bevy::prelude::{App, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate};
 
 use lightyear_shared::{
-    ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+    ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol, ReplicationData,
 };
 
 use crate::client::Authentication;
@@ -53,7 +53,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
         let client = Client::new(config.client_config, config.auth, config.protocol);
 
         // TODO: it's annoying to have to keep that () around...
-        //  revisit this.. amybe the into_iter_messages returns directly an object that
+        //  revisit this.. maybe the into_iter_messages returns directly an object that
         //  can be created from Ctx and Message
         //  For Server it's the MessageEvent<M, ClientId>
         //  For Client it's MessageEvent<M> directly
@@ -62,6 +62,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
         app
             // RESOURCES //
             .insert_resource(client)
+            .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_set(PreUpdate, ClientSet::Receive)
             .configure_set(PostUpdate, ClientSet::Send)

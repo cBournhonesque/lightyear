@@ -13,7 +13,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::{Channel, ChannelSettings};
 
 pub(crate) mod channel;
-pub mod component;
+pub(crate) mod component;
 pub(crate) mod message;
 pub(crate) mod registry;
 
@@ -23,7 +23,7 @@ pub trait Protocol: Send + Sync + Clone + 'static {
     type ComponentKinds: ComponentProtocolKind<Protocol = Self> + Send + Sync;
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
     fn channel_registry(&self) -> &ChannelRegistry;
-    fn add_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App);
+    fn add_per_component_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App);
 }
 
 // TODO: give an option to change names of types
@@ -37,8 +37,8 @@ macro_rules! protocolize {
             use super::*;
             use $shared_crate_name::{
                 App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
-                DefaultReliableChannel, Entity, MessageProtocol, Protocol, ReplicationSend,
-                ReliableSettings, ChannelDirection, ChannelMode,
+                ComponentKindBehaviour, IntoKind, DefaultReliableChannel, Entity, MessageProtocol,
+                Protocol, ReplicationSend, ReliableSettings, ChannelDirection, ChannelMode,
             };
 
             #[derive(Clone)]
@@ -60,8 +60,8 @@ macro_rules! protocolize {
                     &self.channel_registry
                 }
 
-                fn add_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App) {
-                    Self::Components::add_replication_send_systems::<R>(app);
+                fn add_per_component_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App) {
+                    Self::Components::add_per_component_replication_send_systems::<R>(app);
                 }
             }
 

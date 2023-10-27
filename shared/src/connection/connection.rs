@@ -77,6 +77,11 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
+    pub fn buffer_despawn_entity(&mut self, entity: Entity, channel: ChannelKind) -> Result<()> {
+        let message = ProtocolMessage::Replication(ReplicationMessage::DespawnEntity(entity));
+        self.message_manager.buffer_send(message, channel)
+    }
+
     /// Buffer a component insert for an entity
     pub fn buffer_component_insert(
         &mut self,
@@ -87,6 +92,19 @@ impl<P: Protocol> Connection<P> {
         self.replication_manager
             .send_component_insert(entity, component, channel);
         Ok(())
+    }
+
+    /// Buffer a component remove for an entity
+    pub fn buffer_component_remove(
+        &mut self,
+        entity: Entity,
+        component: P::ComponentKinds,
+        channel: ChannelKind,
+    ) -> Result<()> {
+        // TODO: maybe don't send the component remove if the entity is despawning?
+        let message =
+            ProtocolMessage::Replication(ReplicationMessage::RemoveComponent(entity, component));
+        self.message_manager.buffer_send(message, channel)
     }
 
     /// Buffer a component insert for an entity
@@ -120,11 +138,7 @@ impl<P: Protocol> Connection<P> {
         let message =
             ProtocolMessage::Replication(ReplicationMessage::EntityUpdate(entity, components));
         // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
-        self.message_manager.buffer_send(message, channel)
-    }
-
-    pub fn buffer_despawn_entity(&mut self, entity: Entity, channel: ChannelKind) -> Result<()> {
-        let message = ProtocolMessage::Replication(ReplicationMessage::DespawnEntity(entity));
+        //  e.g. should we still send updates if the entity is despawning?
         self.message_manager.buffer_send(message, channel)
     }
 

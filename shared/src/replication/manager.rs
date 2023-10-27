@@ -6,7 +6,7 @@ use tracing::{debug, debug_span};
 use crate::connection::ProtocolMessage;
 use crate::replication::entity_map::EntityMap;
 use crate::replication::{Replicate, ReplicationMessage};
-use crate::{ChannelKind, ComponentBehaviour, Protocol};
+use crate::{ChannelKind, ComponentBehaviour, ComponentKindBehaviour, Protocol, ReplicationData};
 
 // TODO: maybe store additional information about the entity?
 //  (e.g. the value of the replicate component)?
@@ -19,6 +19,7 @@ pub struct ReplicationManager<P: Protocol> {
     pub entity_map: EntityMap,
     pub remote_entity_status: HashMap<Entity, EntityStatus>,
     pub individual_component_updates: HashMap<(Entity, ChannelKind), Vec<P::Components>>,
+    // pub global_replication_data: &'a ReplicationData,
 }
 
 impl<P: Protocol> Default for ReplicationManager<P> {
@@ -27,6 +28,7 @@ impl<P: Protocol> Default for ReplicationManager<P> {
             entity_map: EntityMap::default(),
             remote_entity_status: HashMap::new(),
             individual_component_updates: HashMap::new(),
+            // global_replication_data,
         }
     }
 }
@@ -35,6 +37,16 @@ impl<P: Protocol> Default for ReplicationManager<P> {
 /// - entity actions to be done reliably
 /// - entity updates (component updates) to be done unreliably
 impl<P: Protocol> ReplicationManager<P> {
+    // pub fn new(global_replication_data: &ReplicationData) -> Self {
+    //     Self {
+    //         entity_map: EntityMap::default(),
+    //         remote_entity_status: HashMap::new(),
+    //         individual_component_updates: HashMap::new(),
+    //
+    //         global_replication_data,
+    //     }
+    // }
+
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
     pub(crate) fn send_entity_spawn(&mut self, entity: Entity) -> bool {
@@ -58,6 +70,14 @@ impl<P: Protocol> ReplicationManager<P> {
             .entry((entity, channel))
             .or_default()
             .push(component);
+    }
+
+    pub(crate) fn send_component_remove(
+        &mut self,
+        entity: Entity,
+        component: P::ComponentKinds,
+        channel: ChannelKind,
+    ) {
     }
 
     pub(crate) fn send_entity_update_single_component(
@@ -134,8 +154,13 @@ impl<P: Protocol> ReplicationManager<P> {
                     //  or do we? I'm not sure we would send this twice, because of the bevy system logic
                     //  but maybe we would do, if we remove Replicate and then Re-add it?
 
-                    // TODO: optimize by using batch functions
+                    // Ignore if we already received the entity
+                    if self.entity_map.get_local(entity).is_some() {
+                        return;
+                    }
                     let mut local_entity_mut = world.spawn_empty();
+
+                    // TODO: optimize by using batch functions
                     for component in components {
                         component.insert(&mut local_entity_mut);
                     }
@@ -151,15 +176,13 @@ impl<P: Protocol> ReplicationManager<P> {
                     }
                 }
                 ReplicationMessage::InsertComponent(entity, component) => {
-                    // TODO:
-
-                    // TODO: add kind in debug message?
+                    let kind: P::ComponentKinds = (&component).into();
+                    debug!(?entity, ?kind, "Received InsertComponent");
                     if let Some(local_entity) = self.entity_map.get_local(entity) {
                         if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
                             // TODO: convert the component into inner
                             //  maybe for each
                             component.insert(&mut entity_mut);
-                            // entity_mut.insert(c);
                         } else {
                             debug!("Could not insert component because local entity {:?} was not found", local_entity);
                         }
@@ -170,10 +193,10 @@ impl<P: Protocol> ReplicationManager<P> {
                     );
                 }
                 ReplicationMessage::RemoveComponent(entity, component_kind) => {
+                    debug!(?entity, ?component_kind, "Received RemoveComponent");
                     if let Some(local_entity) = self.entity_map.get_local(entity) {
                         if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
-                            // TODO: HOW TO GET COMPONENT TYPE FROM KIND? (i.e. enum inner type from kind)
-                            // entity_mut.remove::<component_kind>();
+                            component_kind.remove(&mut entity_mut);
                         } else {
                             debug!("Could not remove component because local entity {:?} was not found", local_entity);
                         }

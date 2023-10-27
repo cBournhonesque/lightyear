@@ -17,7 +17,9 @@ pub trait ComponentProtocol:
     BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour
 {
     type Protocol: Protocol;
-    fn add_replication_send_systems<R: ReplicationSend<Self::Protocol>>(app: &mut App);
+    fn add_per_component_replication_send_systems<R: ReplicationSend<Self::Protocol>>(
+        app: &mut App,
+    );
 }
 
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
@@ -39,6 +41,18 @@ pub trait ComponentProtocolKind:
     + DeserializeOwned
     + Debug
     + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
+    + ComponentKindBehaviour
 {
     type Protocol: Protocol;
+}
+
+/// Trait to delegate a method from the ComponentProtocolKind enum to the inner Component type
+pub trait ComponentKindBehaviour {
+    /// Remove the component for an entity
+    fn remove(self, entity: &mut EntityMut);
+}
+
+/// Trait to convert a component type into the corresponding ComponentProtocolKind
+pub trait IntoKind<K: ComponentProtocolKind> {
+    fn into_kind() -> K;
 }

@@ -133,6 +133,22 @@ impl<P: Protocol> Server<P> {
 
     // MESSAGES
 
+    /// Queues up a message to be sent to all clients
+    pub fn broadcast_send<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        for client_id in self.netcode.connected_client_ids() {
+            self.user_connections
+                .get_mut(&client_id)
+                .context("client not found")?
+                .buffer_message(message.clone().into(), channel)?;
+        }
+        Ok(())
+    }
+
     /// Queues up a message to be sent to a client
     pub fn buffer_send<C: Channel, M: Message>(
         &mut self,
@@ -249,13 +265,16 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         self.apply_replication(replicate, buffer_message)
     }
 
-    fn entity_despawn(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        replicate: &Replicate,
-    ) -> Result<()> {
-        todo!()
+    fn entity_despawn(&mut self, entity: Entity, replicate: &Replicate) -> Result<()> {
+        debug!(?entity, "Sending EntityDespawn");
+        let mut buffer_message = |client_id: ClientId,
+                                  channel: ChannelKind,
+                                  connection: &mut Connection<P>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            connection.buffer_despawn_entity(entity, channel)
+        };
+        self.apply_replication(replicate, buffer_message)
     }
 
     fn component_insert(
@@ -286,7 +305,15 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         component_kind: P::ComponentKinds,
         replicate: &Replicate,
     ) -> Result<()> {
-        todo!()
+        debug!(?entity, ?component_kind, "Sending RemoveComponent");
+        let mut buffer_message = |client_id: ClientId,
+                                  channel: ChannelKind,
+                                  connection: &mut Connection<P>|
+         -> Result<()> {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            connection.buffer_component_remove(entity, component_kind.clone(), channel)
+        };
+        self.apply_replication(replicate, buffer_message)
     }
 
     fn entity_update_single_component(

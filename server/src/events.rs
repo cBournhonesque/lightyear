@@ -63,15 +63,15 @@ impl<P: Protocol> ServerEvents<P> {
     }
 
     pub fn iter_disconnections(&self) -> impl Iterator<Item = ClientId> + '_ {
-        self.events
-            .iter()
-            .filter_map(|(client_id, events)| events.has_connection().then_some(client_id.clone()))
+        self.events.iter().filter_map(|(client_id, events)| {
+            events.has_disconnection().then_some(client_id.clone())
+        })
     }
 
     pub fn has_disconnections(&self) -> bool {
         self.events
             .iter()
-            .any(|(_, connection_events)| connection_events.has_connection())
+            .any(|(_, connection_events)| connection_events.has_disconnection())
     }
 
     // pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {

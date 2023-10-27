@@ -5,9 +5,10 @@ use bevy::prelude::{
     App, IntoSystemConfigs, IntoSystemSetConfig, Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
+use lightyear_shared::plugin::systems::replication::add_replication_send_systems;
 use lightyear_shared::{
     ClientId, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
-    ReplicationSend, ReplicationSet,
+    ReplicationData, ReplicationSend, ReplicationSet,
 };
 
 use crate::config::ServerConfig;
@@ -52,16 +53,25 @@ impl<P: Protocol> PluginType for Plugin<P> {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let server = Server::new(config.server_config, config.protocol);
 
-        P::add_replication_send_systems::<Server<P>>(app);
+        add_replication_send_systems::<P, Server<P>>(app);
+        P::add_per_component_replication_send_systems::<Server<P>>(app);
         P::Message::add_events::<ClientId>(app);
 
         app
             // RESOURCES //
             .insert_resource(server)
+            .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_set(PreUpdate, ServerSet::Receive)
-            .configure_set(PostUpdate, ReplicationSet::Send)
-            .configure_set(PostUpdate, ServerSet::Send.after(ReplicationSet::Send))
+            .configure_set(PostUpdate, ReplicationSet::SendEntityUpdates)
+            .configure_set(
+                PostUpdate,
+                ReplicationSet::SendComponentUpdates.after(ReplicationSet::SendEntityUpdates),
+            )
+            .configure_set(
+                PostUpdate,
+                ServerSet::Send.after(ReplicationSet::SendComponentUpdates),
+            )
             // EVENTS //
             .add_event::<ConnectEvent<ClientId>>()
             .add_event::<DisconnectEvent<ClientId>>()

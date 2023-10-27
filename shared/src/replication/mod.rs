@@ -40,9 +40,15 @@ pub struct Replicate {
     // TODO: distinguish between replicating actions (inserts/etc.) vs updates
     pub channel: ChannelKind,
     pub target: ReplicationTarget,
+    // pub owner:
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates
     //  should we make this configurable?
+}
+
+pub enum Authority {
+    Client,
+    Server,
 }
 
 impl Replicate {
@@ -111,12 +117,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         replicate: &Replicate,
     ) -> Result<()>;
 
-    fn entity_despawn(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        replicate: &Replicate,
-    ) -> Result<()>;
+    fn entity_despawn(&mut self, entity: Entity, replicate: &Replicate) -> Result<()>;
 
     fn component_insert(
         &mut self,

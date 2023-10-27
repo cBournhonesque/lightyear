@@ -4,5 +4,7 @@ use bevy::prelude::SystemSet;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSet {
     /// System Set to gather all the replication updates to send
-    Send,
+    SendEntityUpdates,
+
+    SendComponentUpdates,
 }

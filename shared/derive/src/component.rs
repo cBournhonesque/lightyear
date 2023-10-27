@@ -2,7 +2,7 @@ use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Field, Fields, ItemEnum};
+use syn::{parse_macro_input, Field, Fields, ItemEnum, Variant};
 
 #[derive(Debug, FromMeta)]
 struct MacroAttrs {
@@ -42,13 +42,15 @@ pub fn component_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
-    let add_systems_method = add_replication_send_systems_method(fields, protocol);
+    let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
     // EnumKind methods
     let enum_kind = get_enum_kind(&input, &enum_kind_name);
     let from_method = from_method(&input, &enum_kind_name);
+    let into_kind_method = into_kind_method(&input, &fields, &enum_kind_name);
+    let remove_method = remove_method(&input, &fields, &enum_kind_name);
 
     let gen = quote! {
         mod #module_name {
@@ -58,9 +60,9 @@ pub fn component_protocol_impl(
             use bevy::prelude::{App, IntoSystemConfigs};
             use bevy::ecs::world::EntityMut;
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable,
-                ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, PostUpdate, Protocol,
-                ReplicationSet, ReplicationSend};
-            use #shared_crate_name::plugin::systems::replication::add_replication_send_systems;
+                ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, IntoKind, PostUpdate, Protocol,
+                ComponentKindBehaviour, ReplicationSet, ReplicationSend};
+            use #shared_crate_name::plugin::systems::replication::add_per_component_replication_send_systems;
 
             #[derive(Serialize, Deserialize, Clone)]
             #[enum_delegate::implement(ComponentBehaviour)]
@@ -79,7 +81,13 @@ pub fn component_protocol_impl(
                 type Protocol = #protocol;
             }
 
+            #into_kind_method
+
             #from_method
+
+            impl ComponentKindBehaviour for #enum_kind_name {
+                #remove_method
+            }
             // TODO: we don't need to implement for now because we get it for free from Serialize + Deserialize
             // impl BitSerializable for #enum_name {
             //     #encode_method
@@ -106,17 +114,20 @@ fn get_fields(input: &ItemEnum) -> Vec<&Field> {
     fields
 }
 
-fn add_replication_send_systems_method(fields: Vec<&Field>, protocol_name: &Ident) -> TokenStream {
+fn add_per_component_replication_send_systems_method(
+    fields: &Vec<&Field>,
+    protocol_name: &Ident,
+) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let component_type = &field.ty;
         body = quote! {
             #body
-            add_replication_send_systems::<#component_type, #protocol_name, R>(app);
+            add_per_component_replication_send_systems::<#component_type, #protocol_name, R>(app);
         };
     }
     quote! {
-        fn add_replication_send_systems<R: ReplicationSend<#protocol_name>>(app: &mut App)
+        fn add_per_component_replication_send_systems<R: ReplicationSend<#protocol_name>>(app: &mut App)
         {
             #body
         }
@@ -141,6 +152,7 @@ fn decode_method() -> TokenStream {
 }
 
 fn get_enum_kind(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
+    // we use the original enum's names for the kind enum
     let variants = input.variants.iter().map(|v| v.ident.clone());
     quote! {
         pub enum #enum_kind_name {
@@ -160,7 +172,9 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
             &#enum_name::#ident(..) => #enum_kind_name::#ident,
         }
     }
+
     quote! {
+
         impl<'a> From<&'a #enum_name> for #enum_kind_name {
             fn from(value: &'a #enum_name) -> Self {
                 match value {
@@ -172,6 +186,44 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
             fn from(value: #enum_name) -> Self {
                 #enum_kind_name::from(&value)
             }
+        }
+    }
+}
+
+fn into_kind_method(input: &ItemEnum, fields: &Vec<&Field>, enum_kind_name: &Ident) -> TokenStream {
+    let component_kind_names = input.variants.iter().map(|v| &v.ident);
+    let component_types = fields.iter().map(|field| &field.ty);
+
+    let mut field_body = quote! {};
+    for (component_type, component_kind_name) in component_types.zip(component_kind_names) {
+        field_body = quote! {
+            #field_body
+            impl IntoKind<#enum_kind_name> for #component_type {
+                fn into_kind() -> #enum_kind_name {
+                    #enum_kind_name::#component_kind_name
+                }
+            }
+        };
+    }
+    field_body
+}
+
+fn remove_method(input: &ItemEnum, fields: &Vec<&Field>, enum_kind_name: &Ident) -> TokenStream {
+    let component_kind_names = input.variants.iter().map(|v| &v.ident);
+    let component_types = fields.iter().map(|field| &field.ty);
+
+    let mut field_body = quote! {};
+    for (component_type, component_kind_name) in component_types.zip(component_kind_names) {
+        field_body = quote! {
+            #field_body
+            #enum_kind_name::#component_kind_name => entity.remove::<#component_type>(),
+        };
+    }
+    quote! {
+        fn remove(self, entity: &mut EntityMut) {
+            match self {
+                #field_body
+            };
         }
     }
 }
