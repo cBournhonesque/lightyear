@@ -1,7 +1,9 @@
 use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::MessageContainer;
+use crate::packet::packet::FragmentData;
 
+pub(crate) mod fragment_receiver;
 pub(crate) mod ordered_reliable;
 pub(crate) mod sequenced_reliable;
 pub(crate) mod sequenced_unreliable;
@@ -13,7 +15,8 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelReceive<P> {
     // TODO: need to revisit this API.
-    //  we shouldn't have to specify message/message_id ?
+    //  should we instead accept an Either<MessageContainer, FragmentData> ?
+    fn buffer_recv_fragment(&mut self, fragment_data: FragmentData) -> anyhow::Result<()>;
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer<P>) -> anyhow::Result<()>;

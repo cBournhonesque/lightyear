@@ -1,9 +1,11 @@
 use std::collections::{btree_map, BTreeMap};
 
 use anyhow::anyhow;
+use bytes::Bytes;
 
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::MessageContainer;
+use crate::packet::packet::FragmentData;
 use crate::packet::wrapping_id::MessageId;
 
 /// Ordered Reliable receiver: make sure that all messages are received,
@@ -27,6 +29,10 @@ impl<P> OrderedReliableReceiver<P> {
 }
 
 impl<P> ChannelReceive<P> for OrderedReliableReceiver<P> {
+    fn buffer_recv_fragment(&mut self, fragment: FragmentData) -> anyhow::Result<()> {
+        todo!()
+    }
+
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer<P>) -> anyhow::Result<()> {
         let message_id = message.id.ok_or_else(|| anyhow!("message id not found"))?;

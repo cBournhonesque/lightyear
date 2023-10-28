@@ -147,34 +147,43 @@ impl<M: BitSerializable> BitSerializable for SinglePacket<M> {
 /// because it contains a message that is too big
 #[derive(Clone, Debug)]
 pub struct FragmentedPacket<M: BitSerializable> {
-    // TODO: should we add the channel_id/message id for the message that gets fragmented?
-    fragment_id: u8,
-    num_fragments: u8,
-    /// Bytes data associated with the message that is too big
-    fragment_message_bytes: Bytes,
+    pub(crate) channel_id: NetId,
+    pub(crate) fragment: FragmentData,
+    // TODO: change this as option? only the last fragment might have this
     /// Normal packet data: header + eventual non-fragmented messages included in the packet
-    packet: SinglePacket<M>,
+    pub(crate) packet: SinglePacket<M>,
 }
 
-impl<M: BitSerializable> FragmentedPacket<M> {
-    pub(crate) fn new(fragment_id: u8, num_fragments: u8, bytes: Bytes) -> Self {
-        Self {
-            fragment_id,
-            num_fragments,
-            fragment_message_bytes: bytes,
-            packet: SinglePacket::new(),
-        }
-    }
+#[derive(Clone, Debug)]
+pub struct FragmentData {
+    // we always need a message_id for fragment messages, for re-assembly
+    pub message_id: MessageId,
+    pub fragment_id: u8,
+    pub num_fragments: u8,
+    /// Bytes data associated with the message that is too big
+    pub bytes: Bytes,
+}
 
-    fn is_last_fragment(&self) -> bool {
+impl FragmentData {
+    pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id == self.num_fragments - 1
     }
 
     fn num_fragment_bytes(&self) -> usize {
         if self.is_last_fragment() {
-            self.fragment_message_bytes.len()
+            self.bytes.len()
         } else {
             FRAGMENT_SIZE
+        }
+    }
+}
+
+impl<M: BitSerializable> FragmentedPacket<M> {
+    pub(crate) fn new(channel_id: NetId, fragment: FragmentData) -> Self {
+        Self {
+            channel_id,
+            fragment,
+            packet: SinglePacket::new(),
         }
     }
 }
@@ -183,17 +192,18 @@ impl<M: BitSerializable> BitSerializable for FragmentedPacket<M> {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-        // write header first
-        writer.serialize(&self.fragment_id)?;
-        writer.serialize(&self.num_fragments)?;
+        writer.serialize(&self.channel_id)?;
+
+        writer.serialize(&self.fragment.message_id)?; // TODO: do we need to write this?
+        writer.serialize(&self.fragment.fragment_id)?;
+        writer.serialize(&self.fragment.num_fragments)?;
         // TODO: be able to just concat the bytes to the buffer?
-        if self.is_last_fragment() {
+        if self.fragment.is_last_fragment() {
             /// writing the slice includes writing the length of the slice
-            writer.serialize(&self.fragment_message_bytes.to_vec());
+            writer.serialize(&self.fragment.bytes.to_vec());
             // writer.serialize(&self.fragment_message_bytes.as_ref());
         } else {
-            let bytes_array: [u8; FRAGMENT_SIZE] =
-                self.fragment_message_bytes.as_ref().try_into().unwrap();
+            let bytes_array: [u8; FRAGMENT_SIZE] = self.fragment.bytes.as_ref().try_into().unwrap();
             // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
             writer.encode(&bytes_array);
         }
@@ -204,6 +214,8 @@ impl<M: BitSerializable> BitSerializable for FragmentedPacket<M> {
     where
         Self: Sized,
     {
+        let mut channel_id = reader.deserialize::<NetId>()?;
+        let message_id = reader.deserialize::<MessageId>()?;
         let fragment_id = reader.deserialize::<u8>()?;
         let num_fragments = reader.deserialize::<u8>()?;
         let mut fragment_message_bytes: Bytes;
@@ -218,9 +230,13 @@ impl<M: BitSerializable> BitSerializable for FragmentedPacket<M> {
         }
         let packet = SinglePacket::decode(reader)?;
         Ok(Self {
-            fragment_id,
-            num_fragments,
-            fragment_message_bytes,
+            channel_id,
+            fragment: FragmentData {
+                message_id,
+                fragment_id,
+                num_fragments,
+                bytes: fragment_message_bytes,
+            },
             packet,
         })
     }

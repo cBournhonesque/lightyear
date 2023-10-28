@@ -13,6 +13,9 @@ pub struct UnorderedUnreliableSender<P> {
     messages_to_send: VecDeque<MessageContainer<P>>,
 }
 
+// TODO: should we compute the message size here?
+//  we need to know if the message will be fragmented or not
+//  because fragments need to contain a message id
 impl<P> UnorderedUnreliableSender<P> {
     pub(crate) fn new() -> Self {
         Self {

@@ -179,30 +179,67 @@ impl<M: BitSerializable> MessageManager<M> {
             }
         }
 
-        let packet = match packet.data {
-            PacketData::Single(single_packet) => single_packet,
-            PacketData::Fragmented(_) => unimplemented!(),
-        };
-
-        // Step 4. Put the messages from the packet in the internal buffers for each channel
-        for (channel_net_id, messages) in packet.data {
-            let channel_kind = self
-                .packet_manager
-                .channel_kind_map
-                .kind(channel_net_id)
-                .context(format!(
-                    "Could not recognize net_id {} as a channel",
-                    channel_net_id
-                ))?;
-            let channel = self
-                .channels
-                .get_mut(channel_kind)
-                .ok_or_else(|| anyhow!("Channel not found"))?;
-            for message in messages {
-                channel.receiver.buffer_recv(message)?;
+        match packet.data {
+            PacketData::Single(single_packet) => {
+                // Step 4. Put the messages from the packet in the internal buffers for each channel
+                for (channel_net_id, messages) in single_packet.data {
+                    let channel_kind = self
+                        .packet_manager
+                        .channel_kind_map
+                        .kind(channel_net_id)
+                        .context(format!(
+                            "Could not recognize net_id {} as a channel",
+                            channel_net_id
+                        ))?;
+                    let channel = self
+                        .channels
+                        .get_mut(channel_kind)
+                        .ok_or_else(|| anyhow!("Channel not found"))?;
+                    for message in messages {
+                        channel.receiver.buffer_recv(message)?;
+                    }
+                }
             }
-        }
+            PacketData::Fragmented(fragment_packet) => {
+                // Step 4.a Put the fragment message from the packet in the internal buffers for the channel
+                let channel_kind = self
+                    .packet_manager
+                    .channel_kind_map
+                    .kind(fragment_packet.channel_id)
+                    .context(format!(
+                        "Could not recognize net_id {} as a channel",
+                        fragment_packet.channel_id
+                    ))?;
+                let channel = self
+                    .channels
+                    .get_mut(channel_kind)
+                    .ok_or_else(|| anyhow!("Channel not found"))?;
+                channel
+                    .receiver
+                    .buffer_recv_fragment(fragment_packet.fragment)?;
 
+                // Step 4.b Put the messages from the packet in the internal buffers for each channel
+                if fragment_packet.fragment.is_last_fragment() {
+                    for (channel_net_id, messages) in fragment_packet.packet.data {
+                        let channel_kind = self
+                            .packet_manager
+                            .channel_kind_map
+                            .kind(channel_net_id)
+                            .context(format!(
+                                "Could not recognize net_id {} as a channel",
+                                channel_net_id
+                            ))?;
+                        let channel = self
+                            .channels
+                            .get_mut(channel_kind)
+                            .ok_or_else(|| anyhow!("Channel not found"))?;
+                        for message in messages {
+                            channel.receiver.buffer_recv(message)?;
+                        }
+                    }
+                }
+            }
+        };
         Ok(())
     }
 

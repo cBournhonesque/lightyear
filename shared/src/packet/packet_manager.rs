@@ -9,11 +9,12 @@ use bytes::Bytes;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::{
-    FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
+    FragmentData, FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE,
+    MTU_PAYLOAD_BYTES,
 };
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
-use crate::protocol::registry::TypeMapper;
+use crate::protocol::registry::{NetId, TypeMapper};
 use crate::protocol::{BitSerializable, Protocol};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
@@ -123,9 +124,8 @@ impl<M: BitSerializable> PacketManager<M> {
 
     pub(crate) fn build_new_fragment_packet(
         &mut self,
-        fragment_id: u8,
-        num_fragments: u8,
-        bytes: Bytes,
+        channel_id: NetId,
+        fragment_data: FragmentData,
     ) {
         self.clear_try_write_buffer();
 
@@ -137,7 +137,7 @@ impl<M: BitSerializable> PacketManager<M> {
         let header = self
             .header_manager
             .prepare_send_packet_header(PacketType::DataFragment);
-        let packet = FragmentedPacket::new(fragment_id, num_fragments, bytes);
+        let packet = FragmentedPacket::new(channel_id, fragment_data);
 
         // TODO: how do we know how many bits are necessary to write the fragmented packet + bytes?
         //  - could try to compute it manually, but the length of Bytes is encoded with Gamma
@@ -252,14 +252,22 @@ impl<M: BitSerializable> PacketManager<M> {
         &mut self,
         message: MessageContainer<M>,
         message_num_bits: usize,
-    ) -> Vec<Bytes> {
+    ) -> Vec<FragmentData> {
         let mut writer = WriteWordBuffer::with_capacity(message_num_bits);
         message.encode(&mut writer).unwrap();
         let raw_bytes = writer.finish_write();
-        raw_bytes
-            .chunks(FRAGMENT_SIZE)
+        let chunks = raw_bytes.chunks(FRAGMENT_SIZE);
+        let num_fragments = chunks.len();
+
+        chunks
+            .enumerate()
             // TODO: ideally we don't clone here but we take ownership of the output of writer
-            .map(|chunk| Bytes::copy_from_slice(chunk))
+            .map(|(fragment_index, chunk)| FragmentData {
+                message_id: message.id.expect("Fragments need to have a message id"),
+                fragment_id: fragment_index as u8,
+                num_fragments: num_fragments as u8,
+                bytes: Bytes::copy_from_slice(chunk),
+            })
             .collect::<_>()
     }
 
@@ -342,20 +350,16 @@ impl<M: BitSerializable> PacketManager<M> {
             }
             let (fragment_message, num_bits) = messages_with_size.pop_back().unwrap();
             num_fragmented_messages -= 1;
-            let all_fragment_bytes = self.fragment_message(fragment_message, num_bits);
-            let num_fragments = all_fragment_bytes.len() as u8;
-
-            for (fragment_index, fragment_bytes) in all_fragment_bytes.iter().enumerate() {
-                self.build_new_fragment_packet(
-                    fragment_index as u8,
-                    num_fragments,
-                    fragment_bytes.clone(),
-                );
+            let all_fragment_data = self.fragment_message(fragment_message, num_bits);
+            for fragment_data in all_fragment_data.into_iter() {
+                let fragment_id = fragment_data.fragment_id;
+                let num_fragments = fragment_data.num_fragments;
+                self.build_new_fragment_packet(channel_id, fragment_data);
                 self.can_add_channel(channel).unwrap();
                 let mut packet = self.current_packet.take().unwrap();
 
                 // for the last fragment, add as many single messages as possible
-                if fragment_index as u8 == num_fragments - 1 {
+                if fragment_id as u8 == num_fragments - 1 {
                     // TODO: remove duplicated code!
                     'message: loop {
                         if num_single_messages == 0 {

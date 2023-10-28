@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 /// Id used to serialize IDs over the network efficiently
+// TODO: have different types of net-id (ChannelId, ComponentId, MessageId), and make type-mapper generic over that
 pub(crate) type NetId = u16;
 
 // TODO: read https://willcrichton.net/rust-api-type-patterns/registries.html more in detail
