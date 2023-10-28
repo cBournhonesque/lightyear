@@ -13,6 +13,7 @@ use crate::packet::wrapping_id::PacketId;
 pub(crate) struct PacketHeader {
     /// General id for the protocol used
     // TODO: add CRC check (see https://gafferongames.com/post/serialization_strategies/)
+    // TODO: can remove this because it's handled by the netcode.io protocol
     protocol_id: u16,
     /// Type of the packet sent
     packet_type: PacketType,

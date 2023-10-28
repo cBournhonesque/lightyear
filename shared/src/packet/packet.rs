@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use bitcode::{Decode, Encode};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::packet::header::PacketHeader;
@@ -19,22 +20,22 @@ pub(crate) const MTU_PACKET_BYTES: usize = 1250;
 const HEADER_BYTES: usize = 50;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
 pub(crate) const MTU_PAYLOAD_BYTES: usize = 1200;
+pub(crate) const FRAGMENT_SIZE: usize = 1200;
 
 /// Single individual packet sent over the network
 /// Contains multiple small messages
 #[derive(Clone, Debug)]
-pub(crate) struct SinglePacket<P: BitSerializable, const C: usize = MTU_PACKET_BYTES> {
+pub(crate) struct SinglePacket<M: BitSerializable, const C: usize = MTU_PACKET_BYTES> {
     pub(crate) header: PacketHeader,
-    pub(crate) data: BTreeMap<NetId, Vec<MessageContainer<P>>>,
+    pub(crate) data: BTreeMap<NetId, Vec<MessageContainer<M>>>,
 }
 
-impl<P: BitSerializable> SinglePacket<P> {
-    fn new(packet_manager: &mut PacketManager<P>) -> Self {
+impl<M: BitSerializable> SinglePacket<M> {
+    pub(crate) fn new(packet_manager: &mut PacketManager<M>) -> Self {
         Self {
             header: packet_manager
                 .header_manager
                 .prepare_send_packet_header(0, PacketType::Data),
-            // bytes: [0; MTU_PACKET_BYTES],
             data: Default::default(),
         }
     }
@@ -43,7 +44,7 @@ impl<P: BitSerializable> SinglePacket<P> {
         self.data.entry(channel).or_default();
     }
 
-    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<P>) {
+    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<M>) {
         self.data.entry(channel).or_default().push(message);
     }
 
@@ -65,7 +66,7 @@ impl<P: BitSerializable> SinglePacket<P> {
     }
 }
 
-impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
+impl<M: BitSerializable> BitSerializable for SinglePacket<M> {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
@@ -116,7 +117,7 @@ impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
             let mut continue_read_message = reader.deserialize::<bool>()?;
             // check message continue bit to see if there are more messages
             while continue_read_message {
-                let message = <MessageContainer<P>>::decode(reader)?;
+                let message = <MessageContainer<M>>::decode(reader)?;
                 messages.push(message);
                 continue_read_message = reader.deserialize::<bool>()?;
             }
@@ -130,7 +131,31 @@ impl<P: BitSerializable> BitSerializable for SinglePacket<P> {
 /// A packet that is split into multiple fragments
 /// because it contains a message that is too big
 #[derive(Debug)]
-pub struct FragmentedPacket {}
+pub struct FragmentedPacket<M: BitSerializable> {
+    // TODO: should we add the message id for the message that gets fragmented?
+    fragment_id: u8,
+    num_fragments: u8,
+    /// Bytes data associated with the message that is too big
+    fragment_message_bytes: Bytes,
+    /// Normal packet data: header + eventual non-fragmented messages included in the packet
+    packet: SinglePacket<M>,
+}
+
+impl<M: BitSerializable> FragmentedPacket<M> {
+    pub(crate) fn new(
+        packet_manager: &mut PacketManager<M>,
+        fragment_id: u8,
+        num_fragments: u8,
+        bytes: Bytes,
+    ) -> Self {
+        Self {
+            fragment_id,
+            num_fragments,
+            fragment_message_bytes: bytes,
+            packet: SinglePacket::new(packet_manager),
+        }
+    }
+}
 
 /// Abstraction for data that is sent over the network
 ///
@@ -139,12 +164,23 @@ pub struct FragmentedPacket {}
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) enum Packet<P: BitSerializable> {
     Single(SinglePacket<P>),
-    Fragmented(FragmentedPacket),
+    Fragmented(FragmentedPacket<P>),
 }
 
 impl<P: BitSerializable> Packet<P> {
-    pub(crate) fn new(packet_manager: &mut PacketManager<P>) -> Self {
+    pub(crate) fn new_single(packet_manager: &mut PacketManager<P>) -> Self {
         Packet::Single(SinglePacket::new(packet_manager))
+    }
+
+    pub(crate) fn new_fragment(packet_manager: &mut PacketManager<P>, fragment_id) -> Self {
+        Packet::Single(FragmentedPacket::new(packet_manager))
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            Packet::Single(single_packet) => single_packet.data.is_empty(),
+            Packet::Fragmented(fragmented_packet) => fragmented_packet.packet.data.is_empty(),
+        }
     }
 
     /// Encode a packet into the write buffer
@@ -174,7 +210,9 @@ impl<P: BitSerializable> Packet<P> {
             Packet::Single(single_packet) => {
                 single_packet.add_channel(channel);
             }
-            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(fragmented_packet) => {
+                fragmented_packet.packet.add_channel(channel);
+            }
         }
     }
 
@@ -183,7 +221,9 @@ impl<P: BitSerializable> Packet<P> {
             Packet::Single(single_packet) => {
                 single_packet.add_message(channel, message);
             }
-            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(fragmented_packet) =>  {
+                fragmented_packet.packet.add_message(channel, message);
+            }
         }
     }
 
@@ -192,7 +232,7 @@ impl<P: BitSerializable> Packet<P> {
     pub fn num_messages(&self) -> usize {
         match self {
             Packet::Single(single_packet) => single_packet.num_messages(),
-            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(fragmented_packet) => fragmented_packet.packet.num_messages(),
         }
     }
 
@@ -200,7 +240,7 @@ impl<P: BitSerializable> Packet<P> {
     pub fn message_ids(&self) -> HashMap<NetId, Vec<MessageId>> {
         match self {
             Packet::Single(single_packet) => single_packet.message_ids(),
-            Packet::Fragmented(_fragmented_packet) => unimplemented!(),
+            Packet::Fragmented(fragmented_packet) => fragmented_packet.packet.message_ids(),
         }
     }
 
@@ -259,7 +299,7 @@ mod tests {
     fn test_encode_single_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
         let mut manager = PacketManager::<i32>::new(channel_registry.kind_map());
-        let mut packet = Packet::new(&mut manager);
+        let mut packet = Packet::new_single(&mut manager);
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);
         packet.add_message(0, MessageContainer::new(0));

@@ -235,7 +235,6 @@ impl<P: Protocol> Server<P> {
             self.user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .message_manager
                 .recv_packet(&mut reader)?;
         }
         Ok(())

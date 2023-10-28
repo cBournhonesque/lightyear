@@ -52,8 +52,18 @@ impl<M: BitSerializable> MessageManager<M> {
     /// Prepare buckets from the internal send buffers, and return the bytes to send
     // pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
     pub fn send_packets(&mut self) -> anyhow::Result<Vec<impl WriteBuffer>> {
+        // TODO: all this feels overly complicated.
+        //  ideally the packet manager would get a hashmap<channel, list of messages>
+        //  and return a list of packets (fragmented or not) that we need.
+
+        //  The problem right now is rust ownership, and the fact that packet_manager
+        //  is included in message manager?
+        //  Maybe they should be separated and packet manager is passed as an argument
+
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
+
+        // TODO: iterate through the channels in order of channel priority? (with accumulation)
         for (channel_kind, channel) in self.channels.iter_mut() {
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
