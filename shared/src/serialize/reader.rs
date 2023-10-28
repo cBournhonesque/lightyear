@@ -2,6 +2,7 @@ use std::num::NonZeroUsize;
 
 use anyhow::Result;
 use bitcode::word::Word;
+use bitcode::Decode;
 use serde::de::DeserializeOwned;
 
 pub trait ReadBuffer {
@@ -9,6 +10,7 @@ pub trait ReadBuffer {
 
     /// Deserialize from the buffer into a value
     fn deserialize<T: DeserializeOwned>(&mut self) -> Result<T>;
+    fn decode<T: Decode>(&mut self) -> Result<T>;
 
     /// Copy the bytes into the buffer, so that we can deserialize them
     fn start_read(bytes: &[u8]) -> Self;

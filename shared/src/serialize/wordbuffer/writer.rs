@@ -45,6 +45,10 @@ impl WriteBuffer for WriteWordBuffer {
         Ok(())
     }
 
+    fn encode<T: Encode>(&mut self, t: &T) -> anyhow::Result<()> {
+        t.encode(Fixed, &mut self.writer).context("error encoding")
+    }
+
     fn capacity(&self) -> usize {
         self.buffer.capacity()
     }

@@ -54,6 +54,16 @@ impl ReadBuffer for ReadWordBuffer {
         })
     }
 
+    fn decode<T: Decode>(&mut self) -> anyhow::Result<T> {
+        self.with_dependent_mut(|buffer, reader| {
+            let reader = reader
+                .0
+                .as_mut()
+                .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
+            Ok(T::decode(Fixed, reader).context("error decoding")?)
+        })
+    }
+
     fn start_read(bytes: &[u8]) -> Self {
         ReadWordBuffer::new(WordBuffer::with_capacity(bytes.len()), |mut buffer| {
             // safety: we just created the buffer and nothing else had access to it

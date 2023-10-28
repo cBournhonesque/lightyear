@@ -8,7 +8,7 @@ use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::MessageContainer;
-use crate::packet::packet::Packet;
+use crate::packet::packet::{Packet, PacketData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::Protocol;
@@ -70,7 +70,7 @@ impl<M: BitSerializable> MessageManager<M> {
                 // start a new channel in the current packet.
                 // If there's not enough space, start writing in a new packet
                 if !self.packet_manager.can_add_channel(*channel_kind)? {
-                    self.packet_manager.build_new_packet();
+                    self.packet_manager.build_new_single_packet();
                     // can add channel starts writing a new packet if needed
                     let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
                     debug_assert!(added_new_channel);
@@ -150,10 +150,9 @@ impl<M: BitSerializable> MessageManager<M> {
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
         let packet: Packet<M> = self.packet_manager.decode_packet(reader)?;
-        let packet = match packet {
-            Packet::Single(single_packet) => single_packet,
-            Packet::Fragmented(_) => unimplemented!(),
-        };
+
+        // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
+        //  maybe the channel can handle the fragmentation?
 
         // TODO: an option is to have an async task that is on the receiving side of the
         //  cross-beam channel which tell which packets have been received
@@ -163,7 +162,7 @@ impl<M: BitSerializable> MessageManager<M> {
         let acked_packets = self
             .packet_manager
             .header_manager
-            .process_recv_packet_header(&packet.header);
+            .process_recv_packet_header(packet.header());
 
         // Step 3. Update the list of messages that have been acked
         for acked_packet in acked_packets {
@@ -179,6 +178,11 @@ impl<M: BitSerializable> MessageManager<M> {
                 }
             }
         }
+
+        let packet = match packet.data {
+            PacketData::Single(single_packet) => single_packet,
+            PacketData::Fragmented(_) => unimplemented!(),
+        };
 
         // Step 4. Put the messages from the packet in the internal buffers for each channel
         for (channel_net_id, messages) in packet.data {

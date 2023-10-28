@@ -9,8 +9,9 @@ use bytes::Bytes;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::MessageContainer;
 use crate::packet::packet::{
-    FragmentedPacket, Packet, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
+    FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
 };
+use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::registry::TypeMapper;
 use crate::protocol::{BitSerializable, Protocol};
@@ -22,15 +23,15 @@ use crate::ChannelKind;
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES;
 
 /// Handles the process of sending and receiving packets
-pub(crate) struct PacketManager<P: BitSerializable> {
+pub(crate) struct PacketManager<M: BitSerializable> {
     pub(crate) header_manager: PacketHeaderManager,
     pub(crate) channel_kind_map: TypeMapper<ChannelKind>,
 
     /// Current packets that have been built but must be sent over the network
     /// (excludes current_packet)
-    current_packets: Vec<Packet<P>>,
+    current_packets: Vec<Packet<M>>,
     /// Current packet that is being written
-    pub(crate) current_packet: Option<Packet<P>>,
+    pub(crate) current_packet: Option<Packet<M>>,
     /// Current channel that is being written
     current_channel: Option<ChannelKind>,
     /// Pre-allocated buffer to encode/decode without allocation.
@@ -46,7 +47,7 @@ pub(crate) struct PacketManager<P: BitSerializable> {
 // The MessageContainer just stores Bytes along with the kind of the message.
 // At the very end of the code, we deserialize using the kind of message + the bytes?
 
-impl<P: BitSerializable> PacketManager<P> {
+impl<M: BitSerializable> PacketManager<M> {
     pub fn new(channel_kind_map: TypeMapper<ChannelKind>) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
@@ -76,11 +77,11 @@ impl<P: BitSerializable> PacketManager<P> {
     }
 
     /// Encode a packet into raw bytes
-    pub(crate) fn encode_packet(&mut self, packet: &Packet<P>) -> anyhow::Result<impl WriteBuffer> {
+    pub(crate) fn encode_packet(&mut self, packet: &Packet<M>) -> anyhow::Result<impl WriteBuffer> {
         // TODO: check that we haven't allocated!
         // self.clear_write_buffer();
 
-        let mut write_buffer = WriteWordBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+        let mut write_buffer = WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY);
         write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
         packet.encode(&mut write_buffer)?;
         Ok(write_buffer)
@@ -96,13 +97,13 @@ impl<P: BitSerializable> PacketManager<P> {
     pub(crate) fn decode_packet(
         &mut self,
         reader: &mut impl ReadBuffer,
-    ) -> anyhow::Result<Packet<P>> {
-        Packet::<P>::decode(reader)
+    ) -> anyhow::Result<Packet<M>> {
+        Packet::<M>::decode(reader)
     }
 
     /// Start building new packet, we start with an empty packet
     /// that can write to a given channel
-    pub(crate) fn build_new_packet(&mut self) {
+    pub(crate) fn build_new_single_packet(&mut self) {
         self.clear_try_write_buffer();
 
         // NOTE: we assume that the header size is fixed, so we can just write PAYLOAD_BYTES
@@ -110,7 +111,14 @@ impl<P: BitSerializable> PacketManager<P> {
         // self.try_write_buffer
         //     .serialize(packet.header())
         //     .expect("Failed to serialize header, this should never happen");
-        self.current_packet = Some(Packet::Single(SinglePacket::new(&mut self)));
+        // TODO: need to reserver HEADER_BYTES bits?
+        let header = self
+            .header_manager
+            .prepare_send_packet_header(PacketType::Data);
+        self.current_packet = Some(Packet {
+            header,
+            data: PacketData::Single(SinglePacket::new()),
+        });
     }
 
     pub(crate) fn build_new_fragment_packet(
@@ -126,23 +134,34 @@ impl<P: BitSerializable> PacketManager<P> {
         // self.try_write_buffer
         //     .serialize(packet.header())
         //     .expect("Failed to serialize header, this should never happen");
-        self.current_packet = Some(Packet::Fragmented(FragmentedPacket::new(
-            &mut self,
-            fragment_id,
-            num_fragments,
-            bytes,
-        )));
-        // fragments are 0-indexed, and for the last one we'll need to include the number of bytes as a u16
-        if fragment_id == num_fragments - 1 {
-            self.try_write_buffer.reserve_bits(u16::BITS as usize);
-        }
+        let header = self
+            .header_manager
+            .prepare_send_packet_header(PacketType::DataFragment);
+        let packet = FragmentedPacket::new(fragment_id, num_fragments, bytes);
 
-        // each fragment will be byte-aligned
-        self.try_write_buffer.reserve_bits(bytes.len() * u8::BITS)
+        // TODO: how do we know how many bits are necessary to write the fragmented packet + bytes?
+        //  - could try to compute it manually, but the length of Bytes is encoded with Gamma
+        //  - could serialize the packet somewhere, and check the number of bits written
+        packet.encode(&mut self.try_write_buffer).unwrap();
+        let num_bits_written = self.try_write_buffer.num_bits_written();
+        self.try_write_buffer.reserve_bits(num_bits_written);
+
+        self.current_packet = Some(Packet {
+            header,
+            data: PacketData::Fragmented(packet),
+        });
+
+        // // fragments are 0-indexed, and for the last one we'll need to include the number of bytes as a u16
+        // if fragment_id == num_fragments - 1 {
+        //     self.try_write_buffer.reserve_bits(u16::BITS as usize);
+        // }
+        //
+        // // each fragment will be byte-aligned
+        // self.try_write_buffer.reserve_bits(bytes.len() * u8::BITS)
     }
 
-    pub fn message_num_bits(&mut self, message: &MessageContainer<P>) -> anyhow::Result<usize> {
-        let mut write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+    pub fn message_num_bits(&mut self, message: &MessageContainer<M>) -> anyhow::Result<usize> {
+        let mut write_buffer = WriteWordBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
         let prev_num_bits = write_buffer.num_bits_written();
         message.encode(&mut write_buffer)?;
         Ok(write_buffer.num_bits_written() - prev_num_bits)
@@ -150,25 +169,29 @@ impl<P: BitSerializable> PacketManager<P> {
 
     /// Returns true if there's enough space in the current packet to add a message
     /// The expectation is that we only work on a single packet at a time.
-    pub fn can_add_bits(&mut self, packet: &mut Packet<P>, num_bits: usize) -> bool {
-        match packet {
-            Packet::Single(single_packet) => {
-                // TODO: either
-                //  - get a function on the encoder that computes the amount of bits that the serialization will take
-                //  - or we serialize and check the amount of bits it took
-
-                // // try to serialize in the try buffer
-                // if message_num_bits > MTU_PAYLOAD_BYTES * 8 {
-                //     panic!("Message too big to fit in packet")
-                // }
-
-                // self.try_write_buffer.serialize(message)?;
-                // reserve a MessageContinue bit associated with each Message.
-                self.try_write_buffer.reserve_bits(num_bits + 1);
-                !self.try_write_buffer.overflowed()
-            }
-            _ => unimplemented!(),
-        }
+    pub fn can_add_bits(&mut self, num_bits: usize) -> bool {
+        self.try_write_buffer.reserve_bits(num_bits + 1);
+        !self.try_write_buffer.overflowed()
+        // match packet {
+        //     Packet::Single(single_packet) => {
+        //         // TODO: either
+        //         //  - get a function on the encoder that computes the amount of bits that the serialization will take
+        //         //  - or we serialize and check the amount of bits it took
+        //
+        //         // // try to serialize in the try buffer
+        //         // if message_num_bits > MTU_PAYLOAD_BYTES * 8 {
+        //         //     panic!("Message too big to fit in packet")
+        //         // }
+        //
+        //         // self.try_write_buffer.serialize(message)?;
+        //         // reserve a MessageContinue bit associated with each Message.
+        //         self.try_write_buffer.reserve_bits(num_bits + 1);
+        //         !self.try_write_buffer.overflowed()
+        //     }
+        //     Packet::Fragmented(fragmented) => {
+        //         self.try_write_buffer.reserve_bits(num_bits + )
+        //     },
+        // }
     }
 
     // TODO:
@@ -212,12 +235,12 @@ impl<P: BitSerializable> PacketManager<P> {
         Ok(true)
     }
 
-    pub(crate) fn take_current_packet(&mut self) -> Option<Packet<P>> {
+    pub(crate) fn take_current_packet(&mut self) -> Option<Packet<M>> {
         self.current_packet.take()
     }
 
     /// Get packets to be sent over the network, reset the internal buffer of packets to send
-    pub(crate) fn flush_packets(&mut self) -> Vec<Packet<P>> {
+    pub(crate) fn flush_packets(&mut self) -> Vec<Packet<M>> {
         let mut packets = std::mem::take(&mut self.current_packets);
         if self.current_packet.is_some() {
             packets.push(std::mem::take(&mut self.current_packet).unwrap());
@@ -227,13 +250,17 @@ impl<P: BitSerializable> PacketManager<P> {
 
     pub(crate) fn fragment_message(
         &mut self,
-        message: MessageContainer<P>,
+        message: MessageContainer<M>,
         message_num_bits: usize,
     ) -> Vec<Bytes> {
-        let mut writer = WriteBuffer::with_capacity(message_num_bits);
+        let mut writer = WriteWordBuffer::with_capacity(message_num_bits);
         message.encode(&mut writer).unwrap();
-        let bytes = Bytes::from(writer.finish_write());
-        bytes.chunks(FRAGMENT_SIZE).collect::<_>()
+        let raw_bytes = writer.finish_write();
+        raw_bytes
+            .chunks(FRAGMENT_SIZE)
+            // TODO: ideally we don't clone here but we take ownership of the output of writer
+            .map(|chunk| Bytes::copy_from_slice(chunk))
+            .collect::<_>()
     }
 
     /// Pack messages into packets for the current channel
@@ -241,14 +268,18 @@ impl<P: BitSerializable> PacketManager<P> {
     /// that were sent
     pub fn pack_messages_within_channel(
         &mut self,
-        mut messages_to_send: VecDeque<MessageContainer<P>>,
-    ) -> (VecDeque<MessageContainer<P>>, Vec<MessageId>) {
+        mut messages_to_send: VecDeque<MessageContainer<M>>,
+    ) -> (VecDeque<MessageContainer<M>>, Vec<MessageId>) {
         // TODO: new impl
         //  - loop through messages. Any packets that are bigger than the MTU, we split them into fragments
         //  - we fill the last fragment piece with other messages
         //  - if its too big leave it for the end?
 
-        // sort the values from biggest size to smallest
+        // TODO: where we do check for the available amount of bytes? here or in the channel sender?
+
+        // or should we split the messages into fragment right away?
+
+        // sort the values from smallest size to biggest
         let mut messages_with_size = messages_to_send
             .into_iter()
             .map(|message| {
@@ -256,18 +287,14 @@ impl<P: BitSerializable> PacketManager<P> {
                 (message, num_bits)
             })
             .collect::<VecDeque<_>>();
-        // sort in descending order of message size
-        messages_with_size.sort_by_key(|(_, size)| -size);
-        // messages_with_size.iter().partition()
-        let partition_point = messages_with_size.partition_point(|(_, size)| *size > FRAGMENT_SIZE);
-        // let (fragment_messages, single_messages) = messages_with_size.into_iter().partition(|(_, size)| *size > FRAGMENT_SIZE);
-        let mut num_fragmented_messages = partition_point;
-        let mut num_single_messages = messages_with_size.len() - partition_point;
+        messages_with_size
+            .make_contiguous()
+            .sort_by_key(|(_, size)| *size);
 
-        // // all messages that have to be fragmented
-        // let mut fragment_messages =  &messages_with_size[..partition_point];
-        // // messages that can be sent in a single packet
-        // let mut single_messages = &messages_with_size[partition_point..];
+        // find the point where messages need to be fragmented
+        let partition_point = messages_with_size.partition_point(|(_, size)| *size > FRAGMENT_SIZE);
+        let mut num_single_messages = partition_point;
+        let mut num_fragmented_messages = messages_with_size.len() - partition_point;
 
         // SHOULD WE DO BIN PACKING?
         let mut sent_message_ids = Vec::new();
@@ -278,22 +305,25 @@ impl<P: BitSerializable> PacketManager<P> {
         // if there's a current packet being written, add single messages from smallest to biggest
         // until we can't fit any more
         if self.current_packet.is_some() {
-            let Some(mut packet) = self.current_packet.take();
+            let mut packet = self.current_packet.take().unwrap();
             if !packet.is_empty() {
                 loop {
                     if num_single_messages == 0 {
                         break;
                     }
-                    let (message, num_bits) = messages_with_size.pop_back().unwrap();
                     // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
-                    if self.can_add_bits(&mut packet, num_bits) {
+                    let (_, num_bits) = messages_with_size.front().unwrap();
+                    if self.can_add_bits(*num_bits) {
+                        let (message, _) = messages_with_size.pop_front().unwrap();
+                        num_single_messages -= 1;
                         // add message to packet
                         if let Some(id) = message.id {
                             sent_message_ids.push(id);
                         }
-                        packet.add_message(channel_id, message.clone());
+                        packet.add_message(channel_id, message);
                     } else {
-                        // packet is too big
+                        // finish packet
+                        self.current_packets.push(packet);
                         break;
                     }
                 }
@@ -310,7 +340,8 @@ impl<P: BitSerializable> PacketManager<P> {
             if num_fragmented_messages == 0 {
                 break 'packet;
             }
-            let (fragment_message, num_bits) = messages_with_size.pop_front().unwrap();
+            let (fragment_message, num_bits) = messages_with_size.pop_back().unwrap();
+            num_fragmented_messages -= 1;
             let all_fragment_bytes = self.fragment_message(fragment_message, num_bits);
             let num_fragments = all_fragment_bytes.len() as u8;
 
@@ -324,22 +355,28 @@ impl<P: BitSerializable> PacketManager<P> {
                 let mut packet = self.current_packet.take().unwrap();
 
                 // for the last fragment, add as many single messages as possible
-                if fragment_index == num_fragments - 1 {
+                if fragment_index as u8 == num_fragments - 1 {
                     // TODO: remove duplicated code!
                     'message: loop {
                         if num_single_messages == 0 {
-                            break 'message;
+                            // no more messages to send, keep current packet buffer for future messages from other channels
+                            self.current_packet = Some(packet);
+                            break 'packet;
                         }
-                        let (message, num_bits) = messages_with_size.pop_back().unwrap();
+
                         // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
-                        if self.can_add_bits(&mut packet, num_bits) {
+                        let (_, num_bits) = messages_with_size.front().unwrap();
+                        if self.can_add_bits(*num_bits) {
+                            let (message, _) = messages_with_size.pop_front().unwrap();
+                            num_single_messages -= 1;
                             // add message to packet
                             if let Some(id) = message.id {
                                 sent_message_ids.push(id);
                             }
-                            packet.add_message(channel_id, message.clone());
+                            packet.add_message(channel_id, message);
                         } else {
-                            // packet is too big
+                            // finish packet
+                            self.current_packets.push(packet);
                             break 'message;
                         }
                     }
@@ -348,47 +385,44 @@ impl<P: BitSerializable> PacketManager<P> {
         }
 
         // then write the remaining single messages that are left.
-        // TODO TOMORROW!!!!!!!!
-
         // build new packet
         'packet: loop {
             // if it's a new packet, start by adding the channel
             if self.current_packet.is_none() {
-                self.build_new_packet();
+                self.build_new_single_packet();
                 self.can_add_channel(channel).unwrap();
             }
             let mut packet = self.current_packet.take().unwrap();
 
             // add messages to packet for the given channel
             'message: loop {
-                if messages_to_send.is_empty() {
-                    // TODO: send warning about message being too big?
-                    // no more messages to send, keep current packet buffer for future messages
+                if num_single_messages == 0 {
+                    // no more messages to send, keep current packet buffer for future messages from other channels
                     self.current_packet = Some(packet);
                     break 'packet;
                 }
-
-                // we're either moving the message into the packet, or back into the messages_to_send queue
-                let message = messages_to_send.pop_front().unwrap();
-
-                // TODO: check if message size is too big for a single packet, in which case we fragment!
-                if self.can_add_message(&mut packet, &message).is_ok_and(|b| b) {
+                // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
+                let (_, num_bits) = messages_with_size.front().unwrap();
+                if self.can_add_bits(*num_bits) {
+                    let (message, _) = messages_with_size.pop_front().unwrap();
+                    num_single_messages -= 1;
                     // add message to packet
                     if let Some(id) = message.id {
                         sent_message_ids.push(id);
                     }
                     packet.add_message(channel_id, message);
                 } else {
-                    // TODO: should we order messages by size to fit the smallest messages first?
-                    //  or by size + priority + order?
-
-                    // message was not added to packet, packet is full
-                    messages_to_send.push_front(message);
+                    // finish packet
                     self.current_packets.push(packet);
-                    break 'message;
+                    break;
                 }
             }
         }
+        // remaining messages that were not added to packet
+        let messages_to_send = messages_with_size
+            .into_iter()
+            .map(|(message, _)| message)
+            .collect();
         (messages_to_send, sent_message_ids)
     }
 }

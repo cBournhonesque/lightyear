@@ -1,3 +1,4 @@
+use bitcode::Encode;
 use serde::Serialize;
 
 /// Buffer to facilitate writing bits
@@ -9,6 +10,7 @@ pub trait WriteBuffer {
     /// to the buffer)
 
     fn serialize<T: Serialize + ?Sized>(&mut self, t: &T) -> anyhow::Result<()>;
+    fn encode<T: Encode>(&mut self, t: &T) -> anyhow::Result<()>;
 
     fn capacity(&self) -> usize;
     fn with_capacity(capacity: usize) -> Self;

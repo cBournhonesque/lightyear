@@ -11,10 +11,6 @@ use crate::packet::wrapping_id::PacketId;
 // TODO: use packet_struct for encoding
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub(crate) struct PacketHeader {
-    /// General id for the protocol used
-    // TODO: add CRC check (see https://gafferongames.com/post/serialization_strategies/)
-    // TODO: can remove this because it's handled by the netcode.io protocol
-    protocol_id: u16,
     /// Type of the packet sent
     packet_type: PacketType,
     /// Packet id from the sender's perspective
@@ -44,7 +40,6 @@ impl PacketHeader {
         self.ack_bitfield & (1 << i) != 0
     }
 
-    #[cfg(test)]
     pub fn get_packet_type(&self) -> PacketType {
         self.packet_type
     }
@@ -151,11 +146,7 @@ impl PacketHeaderManager {
     }
 
     /// Prepare the header of the next packet to send
-    pub(crate) fn prepare_send_packet_header(
-        &mut self,
-        protocol_id: u16,
-        packet_type: PacketType,
-    ) -> PacketHeader {
+    pub(crate) fn prepare_send_packet_header(&mut self, packet_type: PacketType) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
         let last_ack_packet_id = match self.recv_buffer.last_recv_packet_id {
@@ -163,7 +154,6 @@ impl PacketHeaderManager {
             None => PacketId(u16::MAX),
         };
         let outgoing_header = PacketHeader {
-            protocol_id,
             packet_type,
             packet_id: self.next_packet_id,
             last_ack_packet_id,

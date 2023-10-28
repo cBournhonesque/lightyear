@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #![allow(unused)]
 
+extern crate core;
+
 // re-exports
 pub use bevy::ecs::world::EntityMut;
 pub use bevy::prelude::{App, Entity, PostUpdate, World};
