@@ -1,32 +1,43 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
 use bitcode::read::Read;
+use bytes::Bytes;
 use tracing::debug;
 
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::MessageContainer;
-use crate::packet::packet::{Packet, PacketData};
-use crate::packet::packet_manager::PacketManager;
+use crate::packet::message::{MessageContainer, SingleData};
+use crate::packet::packet::{FragmentData, Packet, PacketData};
+use crate::packet::packet_manager::{PacketManager, PACKET_BUFFER_CAPACITY};
 use crate::packet::wrapping_id::{MessageId, PacketId};
+use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
-use crate::{BitSerializable, Channel, ChannelKind, ChannelRegistry, WriteBuffer};
+use crate::{
+    BitSerializable, Channel, ChannelKind, ChannelRegistry, ReadWordBuffer, WriteBuffer,
+    WriteWordBuffer,
+};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
+// TODO: put the M here or in the functions?
 pub struct MessageManager<M: BitSerializable> {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketManager<M>,
+    packet_manager: PacketManager,
     // TODO: add ordering of channels per priority
-    channels: HashMap<ChannelKind, ChannelContainer<M>>,
+    channels: HashMap<ChannelKind, ChannelContainer>,
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_id_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageId>>>,
+    writer: WriteWordBuffer,
+
+    // MessageManager works because we only are only sending a single enum type
+    _marker: PhantomData<M>,
 }
 
 impl<M: BitSerializable> MessageManager<M> {
@@ -35,6 +46,8 @@ impl<M: BitSerializable> MessageManager<M> {
             packet_manager: PacketManager::new(channel_registry.kind_map()),
             channels: channel_registry.channels(),
             packet_to_message_id_map: HashMap::new(),
+            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            _marker: Default::default(),
         }
     }
 
@@ -45,7 +58,10 @@ impl<M: BitSerializable> MessageManager<M> {
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
-        channel.sender.buffer_send(MessageContainer::new(message));
+        self.writer.start_write();
+        message.encode(&mut self.writer)?;
+        let message_bytes: Vec<u8> = self.writer.finish_write().into();
+        channel.sender.buffer_send(message_bytes.into());
         Ok(())
     }
 
@@ -64,20 +80,39 @@ impl<M: BitSerializable> MessageManager<M> {
         // for each channel, prepare packets using the buffered messages that are ready to be sent
 
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
+        let mut data_to_send: BTreeMap<ChannelKind, (Vec<SingleData>, Vec<FragmentData>)> =
+            BTreeMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
-                // start a new channel in the current packet.
-                // If there's not enough space, start writing in a new packet
-                if !self.packet_manager.can_add_channel(*channel_kind)? {
-                    self.packet_manager.build_new_single_packet();
-                    // can add channel starts writing a new packet if needed
-                    let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
-                    debug_assert!(added_new_channel);
-                }
-                channel.sender.send_packet(&mut self.packet_manager);
+                data_to_send.insert(*channel_kind, channel.sender.send_packet());
+                // // start a new channel in the current packet.
+                // // If there's not enough space, start writing in a new packet
+                // if !self.packet_manager.can_add_channel(*channel_kind)? {
+                //     self.packet_manager.build_new_single_packet();
+                //     // can add channel starts writing a new packet if needed
+                //     let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
+                //     debug_assert!(added_new_channel);
+                // }
+                // channel.sender.send_packet(&mut self.packet_manager);
             }
         }
+
+        // // TODO: iterate through the channels in order of channel priority? (with accumulation)
+        // for (channel_kind, channel) in self.channels.iter_mut() {
+        //     channel.sender.collect_messages_to_send();
+        //     if channel.sender.has_messages_to_send() {
+        //         // start a new channel in the current packet.
+        //         // If there's not enough space, start writing in a new packet
+        //         if !self.packet_manager.can_add_channel(*channel_kind)? {
+        //             self.packet_manager.build_new_single_packet();
+        //             // can add channel starts writing a new packet if needed
+        //             let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
+        //             debug_assert!(added_new_channel);
+        //         }
+        //         channel.sender.send_packet(&mut self.packet_manager);
+        //     }
+        // }
 
         let packets = self.packet_manager.flush_packets();
 
@@ -149,7 +184,7 @@ impl<M: BitSerializable> MessageManager<M> {
     /// Update the acks, and put the messages from the packets in internal buffers
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
-        let packet: Packet<M> = self.packet_manager.decode_packet(reader)?;
+        let packet: Packet = self.packet_manager.decode_packet(reader)?;
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
         //  maybe the channel can handle the fragmentation?
@@ -179,67 +214,24 @@ impl<M: BitSerializable> MessageManager<M> {
             }
         }
 
-        match packet.data {
-            PacketData::Single(single_packet) => {
-                // Step 4. Put the messages from the packet in the internal buffers for each channel
-                for (channel_net_id, messages) in single_packet.data {
-                    let channel_kind = self
-                        .packet_manager
-                        .channel_kind_map
-                        .kind(channel_net_id)
-                        .context(format!(
-                            "Could not recognize net_id {} as a channel",
-                            channel_net_id
-                        ))?;
-                    let channel = self
-                        .channels
-                        .get_mut(channel_kind)
-                        .ok_or_else(|| anyhow!("Channel not found"))?;
-                    for message in messages {
-                        channel.receiver.buffer_recv(message)?;
-                    }
-                }
+        // Step 4. Put the messages from the packet in the internal buffers for each channel
+        for (channel_net_id, messages) in packet.data.contents() {
+            let channel_kind = self
+                .packet_manager
+                .channel_kind_map
+                .kind(channel_net_id)
+                .context(format!(
+                    "Could not recognize net_id {} as a channel",
+                    channel_net_id
+                ))?;
+            let channel = self
+                .channels
+                .get_mut(channel_kind)
+                .ok_or_else(|| anyhow!("Channel not found"))?;
+            for message in messages {
+                channel.receiver.buffer_recv(message)?;
             }
-            PacketData::Fragmented(fragment_packet) => {
-                // Step 4.a Put the fragment message from the packet in the internal buffers for the channel
-                let channel_kind = self
-                    .packet_manager
-                    .channel_kind_map
-                    .kind(fragment_packet.channel_id)
-                    .context(format!(
-                        "Could not recognize net_id {} as a channel",
-                        fragment_packet.channel_id
-                    ))?;
-                let channel = self
-                    .channels
-                    .get_mut(channel_kind)
-                    .ok_or_else(|| anyhow!("Channel not found"))?;
-                channel
-                    .receiver
-                    .buffer_recv_fragment(fragment_packet.fragment)?;
-
-                // Step 4.b Put the messages from the packet in the internal buffers for each channel
-                if fragment_packet.fragment.is_last_fragment() {
-                    for (channel_net_id, messages) in fragment_packet.packet.data {
-                        let channel_kind = self
-                            .packet_manager
-                            .channel_kind_map
-                            .kind(channel_net_id)
-                            .context(format!(
-                                "Could not recognize net_id {} as a channel",
-                                channel_net_id
-                            ))?;
-                        let channel = self
-                            .channels
-                            .get_mut(channel_kind)
-                            .ok_or_else(|| anyhow!("Channel not found"))?;
-                        for message in messages {
-                            channel.receiver.buffer_recv(message)?;
-                        }
-                    }
-                }
-            }
-        };
+        }
         Ok(())
     }
 
@@ -250,8 +242,12 @@ impl<M: BitSerializable> MessageManager<M> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
-            while let Some(message) = channel.receiver.read_message() {
-                messages.push(message.inner());
+            while let Some(single_data) = channel.receiver.read_message() {
+                let mut reader = ReadWordBuffer::start_read(single_data.bytes.as_ref());
+                let message = M::decode(&mut reader).expect("Could not decode message");
+                // TODO: why do we need finish read?
+                // reader.finish_read()?;
+                messages.push(message);
             }
             if !messages.is_empty() {
                 map.insert(*channel_kind, messages);

@@ -5,7 +5,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::packet::header::PacketHeader;
-use crate::packet::message::MessageContainer;
+use crate::packet::message::{MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
@@ -20,14 +20,24 @@ const HEADER_BYTES: usize = 50;
 pub(crate) const MTU_PAYLOAD_BYTES: usize = 1200;
 pub(crate) const FRAGMENT_SIZE: usize = 1200;
 
+// TODO: we don't need SinglePacket vs FragmentPacket; we can just re-use the same thing
+//  because MessageContainer already has the information about whether it is a fragment or not
+//  we just have an underlying assumption that in a fragment packet, the first message will be a fragment message,
+//  and all others will be normal messages
+//  The reason we do this is we dont want to pay 1 bit on every message to know if it's fragmented or not
+
+// pub(crate) struct Packet<const C: usize = MTU_PACKET_BYTES> {
+//     pub(crate) data: BTreeMap<NetId, Vec<MessageContainer>>
+// }
+
 /// Single individual packet sent over the network
 /// Contains multiple small messages
 #[derive(Clone, Debug)]
-pub(crate) struct SinglePacket<M: BitSerializable, const C: usize = MTU_PACKET_BYTES> {
-    pub(crate) data: BTreeMap<NetId, Vec<MessageContainer<M>>>,
+pub(crate) struct SinglePacket<const C: usize = MTU_PACKET_BYTES> {
+    pub(crate) data: BTreeMap<NetId, Vec<SingleData>>,
 }
 
-impl<M: BitSerializable> SinglePacket<M> {
+impl SinglePacket {
     pub(crate) fn new() -> Self {
         Self {
             data: Default::default(),
@@ -38,7 +48,7 @@ impl<M: BitSerializable> SinglePacket<M> {
         self.data.entry(channel).or_default();
     }
 
-    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<M>) {
+    pub fn add_message(&mut self, channel: NetId, message: SingleData) {
         self.data.entry(channel).or_default().push(message);
     }
 
@@ -58,35 +68,9 @@ impl<M: BitSerializable> SinglePacket<M> {
     pub fn num_messages(&self) -> usize {
         self.data.iter().map(|(_, messages)| messages.len()).sum()
     }
-
-    fn decode_messages(
-        reader: &mut impl ReadBuffer,
-    ) -> anyhow::Result<BTreeMap<NetId, Vec<MessageContainer<M>>>> {
-        let mut data = BTreeMap::new();
-        let mut continue_read_channel = true;
-
-        // check channel continue bit to see if there are more channels
-        while continue_read_channel {
-            let mut channel_id = reader.deserialize::<NetId>()?;
-
-            let mut messages = Vec::new();
-
-            // are there messages for this channel?
-            let mut continue_read_message = reader.deserialize::<bool>()?;
-            // check message continue bit to see if there are more messages
-            while continue_read_message {
-                let message = <MessageContainer<M>>::decode(reader)?;
-                messages.push(message);
-                continue_read_message = reader.deserialize::<bool>()?;
-            }
-            data.insert(channel_id, messages);
-            continue_read_channel = reader.deserialize::<bool>()?;
-        }
-        Ok(data)
-    }
 }
 
-impl<M: BitSerializable> BitSerializable for SinglePacket<M> {
+impl BitSerializable for SinglePacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
@@ -132,7 +116,10 @@ impl<M: BitSerializable> BitSerializable for SinglePacket<M> {
             let mut continue_read_message = reader.deserialize::<bool>()?;
             // check message continue bit to see if there are more messages
             while continue_read_message {
-                let message = <MessageContainer<M>>::decode(reader)?;
+                // TODO: we use decode here because we write Bytes directly (we already serialized from the object to Bytes)
+                //  Could we do a memcpy instead?
+                let message = reader.decode::<SingleData>()?;
+                // let message = <SingleData>::decode(reader)?;
                 messages.push(message);
                 continue_read_message = reader.deserialize::<bool>()?;
             }
@@ -146,12 +133,12 @@ impl<M: BitSerializable> BitSerializable for SinglePacket<M> {
 /// A packet that is split into multiple fragments
 /// because it contains a message that is too big
 #[derive(Clone, Debug)]
-pub struct FragmentedPacket<M: BitSerializable> {
+pub struct FragmentedPacket {
     pub(crate) channel_id: NetId,
     pub(crate) fragment: FragmentData,
     // TODO: change this as option? only the last fragment might have this
     /// Normal packet data: header + eventual non-fragmented messages included in the packet
-    pub(crate) packet: SinglePacket<M>,
+    pub(crate) packet: SinglePacket,
 }
 
 #[derive(Clone, Debug)]
@@ -165,6 +152,51 @@ pub struct FragmentData {
 }
 
 impl FragmentData {
+    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+        let num_bits_before = writer.num_bits_written();
+        writer.serialize(&self.message_id)?;
+        writer.serialize(&self.fragment_id)?;
+        writer.serialize(&self.num_fragments)?;
+        // TODO: be able to just concat the bytes to the buffer?
+        if self.is_last_fragment() {
+            /// writing the slice includes writing the length of the slice
+            writer.serialize(self.bytes.as_ref());
+            // writer.serialize(&self.bytes.to_vec());
+            // writer.serialize(&self.fragment_message_bytes.as_ref());
+        } else {
+            let bytes_array: [u8; FRAGMENT_SIZE] = self.bytes.as_ref().try_into().unwrap();
+            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
+            writer.encode(&bytes_array);
+        }
+        let num_bits_written = writer.num_bits_written() - num_bits_before;
+        Ok(num_bits_written)
+    }
+
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        let message_id = reader.deserialize::<MessageId>()?;
+        let fragment_id = reader.deserialize::<u8>()?;
+        let num_fragments = reader.deserialize::<u8>()?;
+        let mut bytes: Bytes;
+        if fragment_id == num_fragments - 1 {
+            let read_bytes = reader.deserialize::<Vec<u8>>()?;
+            bytes = Bytes::from(read_bytes);
+        } else {
+            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
+            let read_bytes = reader.decode::<[u8; FRAGMENT_SIZE]>()?;
+            let bytes_vec: Vec<u8> = read_bytes.to_vec();
+            bytes = Bytes::from(bytes_vec);
+        }
+        Ok(Self {
+            message_id,
+            fragment_id,
+            num_fragments,
+            bytes,
+        })
+    }
+
     pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id == self.num_fragments - 1
     }
@@ -178,7 +210,7 @@ impl FragmentData {
     }
 }
 
-impl<M: BitSerializable> FragmentedPacket<M> {
+impl FragmentedPacket {
     pub(crate) fn new(channel_id: NetId, fragment: FragmentData) -> Self {
         Self {
             channel_id,
@@ -188,25 +220,12 @@ impl<M: BitSerializable> FragmentedPacket<M> {
     }
 }
 
-impl<M: BitSerializable> BitSerializable for FragmentedPacket<M> {
+impl BitSerializable for FragmentedPacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.serialize(&self.channel_id)?;
-
-        writer.serialize(&self.fragment.message_id)?; // TODO: do we need to write this?
-        writer.serialize(&self.fragment.fragment_id)?;
-        writer.serialize(&self.fragment.num_fragments)?;
-        // TODO: be able to just concat the bytes to the buffer?
-        if self.fragment.is_last_fragment() {
-            /// writing the slice includes writing the length of the slice
-            writer.serialize(&self.fragment.bytes.to_vec());
-            // writer.serialize(&self.fragment_message_bytes.as_ref());
-        } else {
-            let bytes_array: [u8; FRAGMENT_SIZE] = self.fragment.bytes.as_ref().try_into().unwrap();
-            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            writer.encode(&bytes_array);
-        }
+        self.fragment.encode(writer)?;
         self.packet.encode(writer)
     }
 
@@ -215,28 +234,11 @@ impl<M: BitSerializable> BitSerializable for FragmentedPacket<M> {
         Self: Sized,
     {
         let mut channel_id = reader.deserialize::<NetId>()?;
-        let message_id = reader.deserialize::<MessageId>()?;
-        let fragment_id = reader.deserialize::<u8>()?;
-        let num_fragments = reader.deserialize::<u8>()?;
-        let mut fragment_message_bytes: Bytes;
-        if fragment_id == num_fragments - 1 {
-            let bytes = reader.deserialize::<Vec<u8>>()?;
-            fragment_message_bytes = Bytes::from(bytes);
-        } else {
-            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            let bytes = reader.decode::<[u8; FRAGMENT_SIZE]>()?;
-            let bytes_vec: Vec<u8> = bytes.to_vec();
-            fragment_message_bytes = Bytes::from(bytes_vec);
-        }
+        let fragment = FragmentData::decode(reader)?;
         let packet = SinglePacket::decode(reader)?;
         Ok(Self {
             channel_id,
-            fragment: FragmentData {
-                message_id,
-                fragment_id,
-                num_fragments,
-                bytes: fragment_message_bytes,
-            },
+            fragment,
             packet,
         })
     }
@@ -247,17 +249,45 @@ impl<M: BitSerializable> BitSerializable for FragmentedPacket<M> {
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
 #[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) enum PacketData<M: BitSerializable> {
-    Single(SinglePacket<M>),
-    Fragmented(FragmentedPacket<M>),
+pub(crate) enum PacketData {
+    Single(SinglePacket),
+    Fragmented(FragmentedPacket),
 }
 
-pub(crate) struct Packet<M: BitSerializable> {
+impl PacketData {
+    pub(crate) fn contents(self) -> HashMap<NetId, Vec<MessageContainer>> {
+        let mut res = HashMap::new();
+        match self {
+            PacketData::Single(data) => {
+                for (channel_id, messages) in data.data {
+                    res.insert(
+                        channel_id,
+                        messages.into_iter().map(|data| data.into()).collect(),
+                    );
+                }
+            }
+            PacketData::Fragmented(data) => {
+                // add fragment
+                res.insert(data.channel_id, vec![data.fragment.into()]);
+                // add other single messages
+                for (channel_id, messages) in data.packet.data {
+                    res.insert(
+                        channel_id,
+                        messages.into_iter().map(|data| data.into()).collect(),
+                    );
+                }
+            }
+        }
+        res
+    }
+}
+
+pub(crate) struct Packet {
     pub(crate) header: PacketHeader,
-    pub(crate) data: PacketData<M>,
+    pub(crate) data: PacketData,
 }
 
-impl<M: BitSerializable> Packet<M> {
+impl Packet {
     pub(crate) fn is_empty(&self) -> bool {
         match &self.data {
             PacketData::Single(single_packet) => single_packet.data.is_empty(),
@@ -274,19 +304,19 @@ impl<M: BitSerializable> Packet<M> {
     }
 
     /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
-    pub fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Packet<M>> {
+    pub fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
         let header = PacketHeader::decode(reader)?;
         let packet_type = header.get_packet_type();
         match packet_type {
             PacketType::Data => {
-                let single_packet = SinglePacket::<M>::decode(reader)?;
+                let single_packet = SinglePacket::decode(reader)?;
                 Ok(Self {
                     header,
                     data: PacketData::Single(single_packet),
                 })
             }
             PacketType::DataFragment => {
-                let fragmented_packet = FragmentedPacket::<M>::decode(reader)?;
+                let fragmented_packet = FragmentedPacket::decode(reader)?;
                 Ok(Self {
                     header,
                     data: PacketData::Fragmented(fragmented_packet),
@@ -312,11 +342,9 @@ impl<M: BitSerializable> Packet<M> {
         }
     }
 
-    pub fn add_message(&mut self, channel: NetId, message: MessageContainer<M>) {
+    pub fn add_message(&mut self, channel: NetId, message: SingleData) {
         match &mut self.data {
-            PacketData::Single(single_packet) => {
-                single_packet.add_message(channel, message);
-            }
+            PacketData::Single(single_packet) => single_packet.add_message(channel, message),
             PacketData::Fragmented(fragmented_packet) => {
                 fragmented_packet.packet.add_message(channel, message);
             }

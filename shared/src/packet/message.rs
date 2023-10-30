@@ -1,7 +1,10 @@
 use bevy::prelude::Event;
+use bitcode::{Decode, Encode};
+use bytes::Bytes;
 use std::fmt::Debug;
 
 use crate::connection::events::EventContext;
+use crate::packet::packet::{FragmentData, FragmentedPacket};
 use serde::Serialize;
 
 use crate::packet::wrapping_id::MessageId;
@@ -88,44 +91,107 @@ use crate::serialize::writer::WriteBuffer;
 //     }
 // }
 
-#[derive(Clone, PartialEq, Debug)]
-pub struct MessageContainer<P> {
-    pub(crate) id: Option<MessageId>,
-    message: P,
+// TODO: we could just store Bytes in MessageContainer to serialize very early
+//  important thing is to re-use the Writer to allocate only once?
+//  pros: we might not require messages/components to be clone anymore if we serialize them very early!
+//  also we know the size of the message early, which is useful for fragmentation
+// #[derive(Clone, PartialEq, Debug)]
+// pub struct MessageContainer<P> {
+//     pub(crate) id: Option<MessageId>,
+//     message: P,
+// }
+
+pub enum MessageContainer {
+    Single(SingleData),
+    Fragment(FragmentData),
 }
 
-impl<P: BitSerializable> MessageContainer<P> {
-    /// Serialize the message into a bytes buffer
-    /// Returns the number of bits written
+impl From<FragmentData> for MessageContainer {
+    fn from(value: FragmentData) -> Self {
+        Self::Fragment(value)
+    }
+}
+
+impl From<SingleData> for MessageContainer {
+    fn from(value: SingleData) -> Self {
+        Self::Single(value)
+    }
+}
+
+#[derive(Encode, Decode, Clone, Debug)]
+pub struct SingleData {
+    pub id: Option<MessageId>,
+    pub bytes: Bytes,
+}
+
+impl SingleData {
+    pub fn new(id: Option<MessageId>, bytes: Bytes) -> Self {
+        Self { id, bytes }
+    }
+
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.serialize(&self.id)?;
-        self.message.encode(writer)?;
+        writer.serialize(self.bytes.as_ref())?;
         let num_bits_written = writer.num_bits_written() - num_bits_before;
         Ok(num_bits_written)
     }
+}
+
+impl MessageContainer {
+    pub(crate) fn id(&self) -> Option<MessageId> {
+        match &self {
+            MessageContainer::Single(data) => data.id,
+            MessageContainer::Fragment(data) => Some(data.message_id),
+        }
+    }
+
+    pub(crate) fn is_fragment(&self) -> bool {
+        match &self {
+            MessageContainer::Single(_) => false,
+            MessageContainer::Fragment(_) => true,
+        }
+    }
+
+    /// Serialize the message into a bytes buffer
+    /// Returns the number of bits written
+    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+        match &self {
+            MessageContainer::Single(data) => data.encode(writer),
+            MessageContainer::Fragment(data) => data.encode(writer),
+        }
+    }
+
+    // TODO: here we could do decode<M: BitSerializable> to return a MessageContainer<M>
+    // TODO: add decode_single and decode_slice (packet manager knows which type to decode)
 
     /// Deserialize from the bytes buffer into a Message
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
-        let id = reader.deserialize::<Option<MessageId>>()?;
-        let message = P::decode(reader)?;
-        Ok(Self { id, message })
-    }
+    // pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
+    //     let id = reader.deserialize::<Option<MessageId>>()?;
+    //     let message = P::decode(reader)?;
+    //     Ok(Self { id, message })
+    // }
     // fn kind(&self) -> MessageKind {
     //     unimplemented!()
     // }
 
-    pub fn new(message: P) -> Self {
-        MessageContainer { id: None, message }
-    }
+    // pub fn new(message: P) -> Self {
+    //     MessageContainer { id: None, message }
+    // }
 
     pub fn set_id(&mut self, id: MessageId) {
-        self.id = Some(id);
+        match &mut self {
+            MessageContainer::Single(data) => data.id = Some(id),
+            MessageContainer::Fragment(data) => data.message_id = id,
+        };
     }
 
-    pub fn inner(self) -> P {
-        // TODO: have a way to do this without any copy?
-        self.message
+    /// Get access to the underlying bytes (clone is a cheap operation for `Bytes`)
+    pub fn bytes(&self) -> Bytes {
+        match &self {
+            MessageContainer::Single(data) => data.bytes.clone(),
+            MessageContainer::Fragment(data) => data.bytes.clone(),
+        }
     }
 }
 

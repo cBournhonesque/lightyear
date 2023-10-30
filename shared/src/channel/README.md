@@ -14,3 +14,13 @@ Receivers:
 - unreliable:
   - sequenced: just receive the messages, but ignore ones that are older than the most recent message
   - unordered: just receive the messages
+
+
+
+Fragmentation:
+- let's only store raw bytes in MessageContainer, and read_messages<M> will return a M
+- channels are aware of the message size limit, and they will include a message-id if the message will be fragmented
+  - this indicates that the channels are responsible for fragmentation?
+  - at least they could choose to fragment a message into fragments
+  - MessageContainer would then be an enum (fragmented or not fragmented)
+- packet manager can then choose all message containers and just add them to packets easily, using bin packing algorithm?

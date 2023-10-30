@@ -11,10 +11,10 @@ use crate::protocol::BitSerializable;
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel
-pub struct ChannelContainer<P: BitSerializable> {
+pub struct ChannelContainer {
     pub setting: ChannelSettings,
-    pub(crate) receiver: ChannelReceiver<P>,
-    pub(crate) sender: ChannelSender<P>,
+    pub(crate) receiver: ChannelReceiver,
+    pub(crate) sender: ChannelSender,
 }
 
 pub trait Channel: 'static {
@@ -29,7 +29,7 @@ pub struct ChannelBuilder {
 }
 
 impl ChannelBuilder {
-    pub fn build<P: BitSerializable>(&self) -> ChannelContainer<P> {
+    pub fn build(&self) -> ChannelContainer {
         ChannelContainer::new(self.settings.clone())
     }
 }
@@ -41,10 +41,10 @@ impl ChannelBuilder {
 //     // TODO: add fragmentation data
 // }
 
-impl<P: BitSerializable> ChannelContainer<P> {
+impl ChannelContainer {
     pub fn new(settings: ChannelSettings) -> Self {
-        let receiver: ChannelReceiver<P>;
-        let sender: ChannelSender<P>;
+        let receiver: ChannelReceiver;
+        let sender: ChannelSender;
         let settings_clone = settings.clone();
         match settings.mode {
             ChannelMode::UnorderedUnreliable => {

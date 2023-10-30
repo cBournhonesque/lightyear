@@ -63,6 +63,7 @@ impl WriteBuffer for WriteWordBuffer {
         }
     }
 
+    /// Reset the buffer to be empty (without any allocation)
     fn start_write(&mut self) {
         self.writer = self.buffer.start_write();
     }

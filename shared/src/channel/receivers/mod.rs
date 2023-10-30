@@ -1,7 +1,9 @@
+use crate::BitSerializable;
 use enum_dispatch::enum_dispatch;
 
-use crate::packet::message::MessageContainer;
+use crate::packet::message::{MessageContainer, SingleData};
 use crate::packet::packet::FragmentData;
+use crate::packet::wrapping_id::MessageId;
 
 pub(crate) mod fragment_receiver;
 pub(crate) mod ordered_reliable;
@@ -13,24 +15,20 @@ pub(crate) mod unordered_unreliable;
 /// A trait for sending messages to a channel.
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
-pub trait ChannelReceive<P> {
-    // TODO: need to revisit this API.
-    //  should we instead accept an Either<MessageContainer, FragmentData> ?
-    fn buffer_recv_fragment(&mut self, fragment_data: FragmentData) -> anyhow::Result<()>;
-
+pub trait ChannelReceive {
     /// Queues a received message in an internal buffer
-    fn buffer_recv(&mut self, message: MessageContainer<P>) -> anyhow::Result<()>;
+    fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()>;
 
     /// Reads a message from the internal buffer to get its content
-    fn read_message(&mut self) -> Option<MessageContainer<P>>;
+    fn read_message(&mut self) -> Option<SingleData>;
 }
 
 /// Enum dispatch lets us derive ChannelReceive on each enum variant
-#[enum_dispatch(ChannelReceive<P>)]
-pub enum ChannelReceiver<P> {
-    UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableReceiver<P>),
-    SequencedUnreliable(sequenced_unreliable::SequencedUnreliableReceiver<P>),
-    OrderedReliable(ordered_reliable::OrderedReliableReceiver<P>),
-    SequencedReliable(sequenced_reliable::SequencedReliableReceiver<P>),
-    UnorderedReliable(unordered_reliable::UnorderedReliableReceiver<P>),
+#[enum_dispatch(ChannelReceive)]
+pub enum ChannelReceiver {
+    UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableReceiver),
+    SequencedUnreliable(sequenced_unreliable::SequencedUnreliableReceiver),
+    OrderedReliable(ordered_reliable::OrderedReliableReceiver),
+    SequencedReliable(sequenced_reliable::SequencedReliableReceiver),
+    UnorderedReliable(unordered_reliable::UnorderedReliableReceiver),
 }

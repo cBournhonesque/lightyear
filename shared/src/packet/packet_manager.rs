@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use anyhow::Context;
 use bitcode::buffer::BufferTrait;
@@ -7,7 +7,7 @@ use bitcode::write::Write;
 use bytes::Bytes;
 
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::MessageContainer;
+use crate::packet::message::{MessageContainer, SingleData};
 use crate::packet::packet::{
     FragmentData, FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE,
     MTU_PAYLOAD_BYTES,
@@ -24,18 +24,19 @@ use crate::ChannelKind;
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES;
 
 /// Handles the process of sending and receiving packets
-pub(crate) struct PacketManager<M: BitSerializable> {
+pub(crate) struct PacketManager {
     pub(crate) header_manager: PacketHeaderManager,
     pub(crate) channel_kind_map: TypeMapper<ChannelKind>,
 
     /// Current packets that have been built but must be sent over the network
     /// (excludes current_packet)
-    current_packets: Vec<Packet<M>>,
+    current_packets: Vec<Packet>,
     /// Current packet that is being written
-    pub(crate) current_packet: Option<Packet<M>>,
+    pub(crate) current_packet: Option<Packet>,
     /// Current channel that is being written
     current_channel: Option<ChannelKind>,
     /// Pre-allocated buffer to encode/decode without allocation.
+    // TODO: should this be associated
     try_write_buffer: WriteWordBuffer,
     write_buffer: WriteWordBuffer,
 }
@@ -48,7 +49,7 @@ pub(crate) struct PacketManager<M: BitSerializable> {
 // The MessageContainer just stores Bytes along with the kind of the message.
 // At the very end of the code, we deserialize using the kind of message + the bytes?
 
-impl<M: BitSerializable> PacketManager<M> {
+impl PacketManager {
     pub fn new(channel_kind_map: TypeMapper<ChannelKind>) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
@@ -65,7 +66,8 @@ impl<M: BitSerializable> PacketManager<M> {
 
     /// Reset the buffers used to encode packets
     pub fn clear_try_write_buffer(&mut self) {
-        self.try_write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+        self.try_write_buffer.start_write();
+        // self.try_write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
         self.try_write_buffer
             .set_reserved_bits(PACKET_BUFFER_CAPACITY);
     }
@@ -73,12 +75,13 @@ impl<M: BitSerializable> PacketManager<M> {
     //
     /// Reset the buffers used to encode packets
     pub fn clear_write_buffer(&mut self) {
-        self.write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
+        self.write_buffer.start_write();
+        // self.write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
         self.write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
     }
 
     /// Encode a packet into raw bytes
-    pub(crate) fn encode_packet(&mut self, packet: &Packet<M>) -> anyhow::Result<impl WriteBuffer> {
+    pub(crate) fn encode_packet(&mut self, packet: &Packet) -> anyhow::Result<impl WriteBuffer> {
         // TODO: check that we haven't allocated!
         // self.clear_write_buffer();
 
@@ -95,16 +98,13 @@ impl<M: BitSerializable> PacketManager<M> {
     /// Decode a packet from raw bytes
     // TODO: the reader buffer will be created from the io (we copy the io bytes into a buffer)
     // Should we decode the packet and get ChannelKinds directly?
-    pub(crate) fn decode_packet(
-        &mut self,
-        reader: &mut impl ReadBuffer,
-    ) -> anyhow::Result<Packet<M>> {
-        Packet::<M>::decode(reader)
+    pub(crate) fn decode_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
+        Packet::decode(reader)
     }
 
     /// Start building new packet, we start with an empty packet
     /// that can write to a given channel
-    pub(crate) fn build_new_single_packet(&mut self) {
+    pub(crate) fn build_new_single_packet(&mut self) -> Packet {
         self.clear_try_write_buffer();
 
         // NOTE: we assume that the header size is fixed, so we can just write PAYLOAD_BYTES
@@ -116,17 +116,17 @@ impl<M: BitSerializable> PacketManager<M> {
         let header = self
             .header_manager
             .prepare_send_packet_header(PacketType::Data);
-        self.current_packet = Some(Packet {
+        Packet {
             header,
             data: PacketData::Single(SinglePacket::new()),
-        });
+        }
     }
 
     pub(crate) fn build_new_fragment_packet(
         &mut self,
         channel_id: NetId,
         fragment_data: FragmentData,
-    ) {
+    ) -> Packet {
         self.clear_try_write_buffer();
 
         // NOTE: we assume that the header size is fixed, so we can just write PAYLOAD_BYTES
@@ -142,14 +142,16 @@ impl<M: BitSerializable> PacketManager<M> {
         // TODO: how do we know how many bits are necessary to write the fragmented packet + bytes?
         //  - could try to compute it manually, but the length of Bytes is encoded with Gamma
         //  - could serialize the packet somewhere, and check the number of bits written
-        packet.encode(&mut self.try_write_buffer).unwrap();
-        let num_bits_written = self.try_write_buffer.num_bits_written();
-        self.try_write_buffer.reserve_bits(num_bits_written);
+        if fragment_data.is_last_fragment() {
+            packet.encode(&mut self.try_write_buffer).unwrap();
+            let num_bits_written = self.try_write_buffer.num_bits_written();
+            self.try_write_buffer.reserve_bits(num_bits_written);
+        }
 
-        self.current_packet = Some(Packet {
+        Packet {
             header,
             data: PacketData::Fragmented(packet),
-        });
+        }
 
         // // fragments are 0-indexed, and for the last one we'll need to include the number of bytes as a u16
         // if fragment_id == num_fragments - 1 {
@@ -160,7 +162,7 @@ impl<M: BitSerializable> PacketManager<M> {
         // self.try_write_buffer.reserve_bits(bytes.len() * u8::BITS)
     }
 
-    pub fn message_num_bits(&mut self, message: &MessageContainer<M>) -> anyhow::Result<usize> {
+    pub fn message_num_bits(&mut self, message: &MessageContainer) -> anyhow::Result<usize> {
         let mut write_buffer = WriteWordBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
         let prev_num_bits = write_buffer.num_bits_written();
         message.encode(&mut write_buffer)?;
@@ -201,26 +203,22 @@ impl<M: BitSerializable> PacketManager<M> {
     // - therefore, when a channel wants to pack messages, it ONLY WORKS IF CHANNELS ARE ITERATED IN ORDER
     // (i.e. we don't send channel 1, then channel 2, then channel 1)
 
-    /// Try to start writing for a new channel in the current packet
-    /// Reserving the correct amount of bits in the try buffer
-    /// Returns false if there is not enough space left
-    pub fn can_add_channel(&mut self, channel_kind: ChannelKind) -> anyhow::Result<bool> {
-        // start building a new packet if necessary
-        if self.current_packet.is_none() {
-            return Ok(false);
-        }
-
-        // Check if we have enough space to add the channel information
-        self.current_channel = Some(channel_kind);
-        // TODO: we could pass the channel registry as static to the buffers
+    /// Try adding a channel to the current packet
+    /// Returns false if there is not enough space left.
+    /// If there is, we reserve the space for the channel in the try buffer.
+    pub fn can_add_channel_to_packet(
+        &mut self,
+        channel_kind: ChannelKind,
+        packet: &mut Packet,
+    ) -> anyhow::Result<bool> {
         let net_id = self
             .channel_kind_map
             .net_id(&channel_kind)
             .context("Channel not found in registry")?;
-        self.try_write_buffer.serialize(net_id)?;
 
         // Reserve ChannelContinue bit, that indicates that whether or not there will be more
         // channels written in this packet
+        self.try_write_buffer.serialize(net_id)?;
         self.try_write_buffer.reserve_bits(1);
         if self.try_write_buffer.overflowed() {
             return Ok(false);
@@ -228,19 +226,50 @@ impl<M: BitSerializable> PacketManager<M> {
 
         // Add a channel in the list of channels contained in the packet
         // (whether or not it will contain messages)
-        self.current_packet
-            .as_mut()
-            .expect("No current packet being built")
-            .add_channel(*net_id);
+        packet.add_channel(*net_id);
         Ok(true)
     }
 
-    pub(crate) fn take_current_packet(&mut self) -> Option<Packet<M>> {
+    // /// Try to start writing for a new channel in the current packet
+    // /// Reserving the correct amount of bits in the try buffer
+    // /// Returns false if there is not enough space left
+    // pub fn can_add_channel(&mut self, channel_kind: ChannelKind) -> anyhow::Result<bool> {
+    //     // start building a new packet if necessary
+    //     if self.current_packet.is_none() {
+    //         return Ok(false);
+    //     }
+    //
+    //     // Check if we have enough space to add the channel information
+    //     self.current_channel = Some(channel_kind);
+    //     // TODO: we could pass the channel registry as static to the buffers
+    //     let net_id = self
+    //         .channel_kind_map
+    //         .net_id(&channel_kind)
+    //         .context("Channel not found in registry")?;
+    //     self.try_write_buffer.serialize(net_id)?;
+    //
+    //     // Reserve ChannelContinue bit, that indicates that whether or not there will be more
+    //     // channels written in this packet
+    //     self.try_write_buffer.reserve_bits(1);
+    //     if self.try_write_buffer.overflowed() {
+    //         return Ok(false);
+    //     }
+    //
+    //     // Add a channel in the list of channels contained in the packet
+    //     // (whether or not it will contain messages)
+    //     self.current_packet
+    //         .as_mut()
+    //         .expect("No current packet being built")
+    //         .add_channel(*net_id);
+    //     Ok(true)
+    // }
+
+    pub(crate) fn take_current_packet(&mut self) -> Option<Packet> {
         self.current_packet.take()
     }
 
     /// Get packets to be sent over the network, reset the internal buffer of packets to send
-    pub(crate) fn flush_packets(&mut self) -> Vec<Packet<M>> {
+    pub(crate) fn flush_packets(&mut self) -> Vec<Packet> {
         let mut packets = std::mem::take(&mut self.current_packets);
         if self.current_packet.is_some() {
             packets.push(std::mem::take(&mut self.current_packet).unwrap());
@@ -250,7 +279,7 @@ impl<M: BitSerializable> PacketManager<M> {
 
     pub(crate) fn fragment_message(
         &mut self,
-        message: MessageContainer<M>,
+        message: MessageContainer,
         message_num_bits: usize,
     ) -> Vec<FragmentData> {
         let mut writer = WriteWordBuffer::with_capacity(message_num_bits);
@@ -263,7 +292,7 @@ impl<M: BitSerializable> PacketManager<M> {
             .enumerate()
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
-                message_id: message.id.expect("Fragments need to have a message id"),
+                message_id: message.id().expect("Fragments need to have a message id"),
                 fragment_id: fragment_index as u8,
                 num_fragments: num_fragments as u8,
                 bytes: Bytes::copy_from_slice(chunk),
@@ -271,164 +300,274 @@ impl<M: BitSerializable> PacketManager<M> {
             .collect::<_>()
     }
 
-    /// Pack messages into packets for the current channel
-    /// Also return the remaining list of messages to send, as well the message ids of the messages
-    /// that were sent
-    pub fn pack_messages_within_channel(
+    pub fn build_packets(
         &mut self,
-        mut messages_to_send: VecDeque<MessageContainer<M>>,
-    ) -> (VecDeque<MessageContainer<M>>, Vec<MessageId>) {
-        // TODO: new impl
-        //  - loop through messages. Any packets that are bigger than the MTU, we split them into fragments
-        //  - we fill the last fragment piece with other messages
-        //  - if its too big leave it for the end?
+        data: BTreeMap<ChannelKind, (VecDeque<SingleData>, VecDeque<FragmentData>)>,
+    ) -> Vec<Packet> {
+        let mut packets: Vec<Packet> = vec![];
+        let mut single_packet: Option<Packet> = None;
 
-        // TODO: where we do check for the available amount of bytes? here or in the channel sender?
+        for (kind, (mut single_messages, fragment_messages)) in data.into_iter() {
+            // sort from smallest to largest
+            single_messages
+                .make_contiguous()
+                .sort_by_key(|message| message.bytes.len());
 
-        // or should we split the messages into fragment right away?
+            let channel_id = self.channel_kind_map.net_id(&kind).unwrap();
 
-        // sort the values from smallest size to biggest
-        let mut messages_with_size = messages_to_send
-            .into_iter()
-            .map(|message| {
-                let num_bits = self.message_num_bits(&message).unwrap();
-                (message, num_bits)
-            })
-            .collect::<VecDeque<_>>();
-        messages_with_size
-            .make_contiguous()
-            .sort_by_key(|(_, size)| *size);
-
-        // find the point where messages need to be fragmented
-        let partition_point = messages_with_size.partition_point(|(_, size)| *size > FRAGMENT_SIZE);
-        let mut num_single_messages = partition_point;
-        let mut num_fragmented_messages = messages_with_size.len() - partition_point;
-
-        // SHOULD WE DO BIN PACKING?
-        let mut sent_message_ids = Vec::new();
-        // safety: we always start a new channel before we start building packets
-        let channel = self.current_channel.unwrap();
-        let channel_id = *self.channel_kind_map.net_id(&channel).unwrap();
-
-        // if there's a current packet being written, add single messages from smallest to biggest
-        // until we can't fit any more
-        if self.current_packet.is_some() {
-            let mut packet = self.current_packet.take().unwrap();
-            if !packet.is_empty() {
-                loop {
-                    if num_single_messages == 0 {
-                        break;
-                    }
-                    // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
-                    let (_, num_bits) = messages_with_size.front().unwrap();
-                    if self.can_add_bits(*num_bits) {
-                        let (message, _) = messages_with_size.pop_front().unwrap();
-                        num_single_messages -= 1;
-                        // add message to packet
-                        if let Some(id) = message.id {
-                            sent_message_ids.push(id);
-                        }
-                        packet.add_message(channel_id, message);
-                    } else {
-                        // finish packet
-                        self.current_packets.push(packet);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // then start writing the fragmented packets, from biggest to smallest
-        'packet: loop {
-            // if self.current_packet.is_none() {
-            //     self.build_new_packet();
-            //     self.can_add_channel(channel).unwrap();
-            // }
-            // split the message into fragments
-            if num_fragmented_messages == 0 {
-                break 'packet;
-            }
-            let (fragment_message, num_bits) = messages_with_size.pop_back().unwrap();
-            num_fragmented_messages -= 1;
-            let all_fragment_data = self.fragment_message(fragment_message, num_bits);
-            for fragment_data in all_fragment_data.into_iter() {
-                let fragment_id = fragment_data.fragment_id;
-                let num_fragments = fragment_data.num_fragments;
-                self.build_new_fragment_packet(channel_id, fragment_data);
-                self.can_add_channel(channel).unwrap();
-                let mut packet = self.current_packet.take().unwrap();
-
-                // for the last fragment, add as many single messages as possible
-                if fragment_id as u8 == num_fragments - 1 {
-                    // TODO: remove duplicated code!
-                    'message: loop {
-                        if num_single_messages == 0 {
-                            // no more messages to send, keep current packet buffer for future messages from other channels
-                            self.current_packet = Some(packet);
-                            break 'packet;
+            // Start by writing all fragmented packets
+            for fragment_data in fragment_messages.into_iter() {
+                let is_last_fragment = fragment_data.is_last_fragment();
+                let mut packet = self.build_new_fragment_packet(*channel_id, fragment_data);
+                if is_last_fragment {
+                    loop {
+                        // try to add single messages into the last fragment
+                        if single_messages.is_empty() {
+                            break;
                         }
 
-                        // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
-                        let (_, num_bits) = messages_with_size.front().unwrap();
-                        if self.can_add_bits(*num_bits) {
-                            let (message, _) = messages_with_size.pop_front().unwrap();
-                            num_single_messages -= 1;
+                        // TODO: bin packing, add the biggest message that could fit
+                        //  use a free list of Option<SingleData> to keep track of which messages have been added?
+                        let num_bits =
+                            single_messages.front().unwrap().bytes.len() * (u8::BITS as usize);
+                        if self.can_add_bits(num_bits) {
+                            let message = single_messages.pop_front().unwrap();
                             // add message to packet
-                            if let Some(id) = message.id {
-                                sent_message_ids.push(id);
-                            }
-                            packet.add_message(channel_id, message);
+                            packet.add_message(*channel_id, message);
                         } else {
                             // finish packet
                             self.current_packets.push(packet);
-                            break 'message;
+                            break;
                         }
                     }
-                }
-            }
-        }
-
-        // then write the remaining single messages that are left.
-        // build new packet
-        'packet: loop {
-            // if it's a new packet, start by adding the channel
-            if self.current_packet.is_none() {
-                self.build_new_single_packet();
-                self.can_add_channel(channel).unwrap();
-            }
-            let mut packet = self.current_packet.take().unwrap();
-
-            // add messages to packet for the given channel
-            'message: loop {
-                if num_single_messages == 0 {
-                    // no more messages to send, keep current packet buffer for future messages from other channels
-                    self.current_packet = Some(packet);
-                    break 'packet;
-                }
-                // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
-                let (_, num_bits) = messages_with_size.front().unwrap();
-                if self.can_add_bits(*num_bits) {
-                    let (message, _) = messages_with_size.pop_front().unwrap();
-                    num_single_messages -= 1;
-                    // add message to packet
-                    if let Some(id) = message.id {
-                        sent_message_ids.push(id);
-                    }
-                    packet.add_message(channel_id, message);
                 } else {
-                    // finish packet
-                    self.current_packets.push(packet);
-                    break;
+                    packets.push(packet);
+                }
+            }
+
+            // Write any remaining single packets
+
+            'packet: loop {
+                // Can we write the channel id? If not, start a new packet (and add the channel id)
+                if single_packet.is_none()
+                    || single_packet
+                        .is_some_and(|mut p| self.can_add_channel_to_packet(kind, &mut p).unwrap())
+                {
+                    let mut packet = self.build_new_single_packet();
+                    // single_packet = Some(self.build_new_single_packet());
+                    // add the channel to the new packet
+                    self.can_add_channel_to_packet(kind, &mut packet).unwrap();
+                    single_packet = Some(packet);
+                }
+
+                let mut packet = single_packet.take().unwrap();
+                // add messages to packet for the given channel
+                'message: loop {
+                    // no more messages to send, keep current packet for future messages from other channels
+                    if single_messages.is_empty() {
+                        break 'packet;
+                    }
+
+                    // TODO: bin packing, add the biggest message that could fit
+                    //  use a free list of Option<SingleData> to keep track of which messages have been added?
+                    let num_bits =
+                        single_messages.front().unwrap().bytes.len() * (u8::BITS as usize);
+                    if self.can_add_bits(num_bits) {
+                        let message = single_messages.pop_front().unwrap();
+                        // add message to packet
+                        packet.add_message(*channel_id, message);
+                    } else {
+                        // can't add any more messages (since we sorted messages from smallest to largest)
+                        // finish packet
+                        packets.push(packet);
+                        break 'packet;
+                    }
                 }
             }
         }
-        // remaining messages that were not added to packet
-        let messages_to_send = messages_with_size
-            .into_iter()
-            .map(|(message, _)| message)
-            .collect();
-        (messages_to_send, sent_message_ids)
+        packets
     }
+
+    // /// Pack messages into packets for the current channel
+    // /// Also return the remaining list of messages to send, as well the message ids of the messages
+    // /// that were sent
+    // ///
+    // /// Uses First-fit-decreasing bin packing to store the messages in packets
+    // /// https://en.wikipedia.org/wiki/First-fit-decreasing_bin_packing
+    // /// (i.e. put the biggest message that fits in the packet)
+    // pub fn pack_messages_within_channel(
+    //     &mut self,
+    //     mut single_messages_to_send: VecDeque<SingleData>,
+    // ) -> (VecDeque<MessageContainer>, Vec<MessageId>) {
+    //     // TODO: new impl
+    //     //  - loop through messages. Any packets that are bigger than the MTU, we split them into fragments
+    //     //  - we fill the last fragment piece with other messages
+    //     //  - if its too big leave it for the end?
+    //
+    //     // TODO: where we do check for the available amount of bytes? here or in the channel sender?
+    //
+    //     // or should we split the messages into fragment right away?
+    //
+    //     // sort the values from smallest size to biggest
+    //     // let mut messages_with_size = messages_to_send
+    //     //     .into_iter()
+    //     //     .map(|message| {
+    //     //         let num_bits = self.message_num_bits(&message).unwrap();
+    //     //         (message, num_bits)
+    //     //     })
+    //     //     .collect::<VecDeque<_>>();
+    //     let mut messages = messages_to_send
+    //         .into_iter()
+    //         .map(|message| (Some(message), message.bytes().len(), message.is_fragment()))
+    //         .collect::<VecDeque<_>>();
+    //     // sort from largest to smallest
+    //     messages
+    //         .make_contiguous()
+    //         .sort_by_key(|(_, size, _)| std::cmp::Reverse(*size));
+    //
+    //     // find the point where messages need to be fragmented
+    //     // let partition_point = messages.partition_point(|(_, size)| *size > FRAGMENT_SIZE);
+    //     let mut num_fragments = messages
+    //         .iter()
+    //         .filter(|(_, _, is_fragment)| *is_fragment)
+    //         .count();
+    //     let mut num_single_messages = messages_to_send.len() - num_fragments;
+    //
+    //     let mut sent_message_ids = Vec::new();
+    //     // safety: we always start a new channel before we start building packets
+    //     let channel = self.current_channel.unwrap();
+    //     let channel_id = *self.channel_kind_map.net_id(&channel).unwrap();
+    //
+    //     // if there's a current packet being written, add single messages (from largest to smallest)
+    //     // until we can't fit any more
+    //     if self.current_packet.is_some() {
+    //         let mut packet = self.current_packet.take().unwrap();
+    //         if !packet.is_empty() {
+    //             loop {
+    //                 if num_single_messages == 0 {
+    //                     break;
+    //                 }
+    //                 // find the next smallest
+    //                 for i in (0..num_single_messages).rev() {}
+    //                 let (message, size, is_fragment) = messages.back().unwrap();
+    //                 // TODO: we might go multiple times over a fragment, optimize!!
+    //                 if !*is_fragment {
+    //                     break;
+    //                 }
+    //                 // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
+    //                 // TODO: make bin packing an option! if there are not many messages, or if we see right away
+    //                 //  that they would all fit...
+    //                 // messages_with_size.partition_point(|(_, size)| *size > FRAGMENT_SIZE);
+    //
+    //                 let (_, num_bits) = messages_with_size.front().unwrap();
+    //                 if self.can_add_bits(*num_bits) {
+    //                     let (message, _) = messages_with_size.pop_front().unwrap();
+    //                     num_single_messages -= 1;
+    //                     // add message to packet
+    //                     if let Some(id) = message.id {
+    //                         sent_message_ids.push(id);
+    //                     }
+    //                     packet.add_message(channel_id, message);
+    //                 } else {
+    //                     // finish packet
+    //                     self.current_packets.push(packet);
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     }
+    //
+    //     // then start writing the fragmented packets, from biggest to smallest
+    //     'packet: loop {
+    //         // if self.current_packet.is_none() {
+    //         //     self.build_new_packet();
+    //         //     self.can_add_channel(channel).unwrap();
+    //         // }
+    //         // split the message into fragments
+    //         if num_fragmented_messages == 0 {
+    //             break 'packet;
+    //         }
+    //         let (fragment_message, num_bits) = messages_with_size.pop_back().unwrap();
+    //         num_fragmented_messages -= 1;
+    //         let all_fragment_data = self.fragment_message(fragment_message, num_bits);
+    //         for fragment_data in all_fragment_data.into_iter() {
+    //             let fragment_id = fragment_data.fragment_id;
+    //             let num_fragments = fragment_data.num_fragments;
+    //             self.build_new_fragment_packet(channel_id, fragment_data);
+    //             self.can_add_channel(channel).unwrap();
+    //             let mut packet = self.current_packet.take().unwrap();
+    //
+    //             // for the last fragment, add as many single messages as possible
+    //             if fragment_id as u8 == num_fragments - 1 {
+    //                 // TODO: remove duplicated code!
+    //                 'message: loop {
+    //                     if num_single_messages == 0 {
+    //                         // no more messages to send, keep current packet buffer for future messages from other channels
+    //                         self.current_packet = Some(packet);
+    //                         break 'packet;
+    //                     }
+    //
+    //                     // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
+    //                     let (_, num_bits) = messages_with_size.front().unwrap();
+    //                     if self.can_add_bits(*num_bits) {
+    //                         let (message, _) = messages_with_size.pop_front().unwrap();
+    //                         num_single_messages -= 1;
+    //                         // add message to packet
+    //                         if let Some(id) = message.id {
+    //                             sent_message_ids.push(id);
+    //                         }
+    //                         packet.add_message(channel_id, message);
+    //                     } else {
+    //                         // finish packet
+    //                         self.current_packets.push(packet);
+    //                         break 'message;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    //
+    //     // then write the remaining single messages that are left.
+    //     // build new packet
+    //     'packet: loop {
+    //         // if it's a new packet, start by adding the channel
+    //         if self.current_packet.is_none() {
+    //             self.build_new_single_packet();
+    //             self.can_add_channel(channel).unwrap();
+    //         }
+    //         let mut packet = self.current_packet.take().unwrap();
+    //
+    //         // add messages to packet for the given channel
+    //         'message: loop {
+    //             if num_single_messages == 0 {
+    //                 // no more messages to send, keep current packet buffer for future messages from other channels
+    //                 self.current_packet = Some(packet);
+    //                 break 'packet;
+    //             }
+    //             // TODO: use a better bin packing algorithm, putting the smallest message is not optimal
+    //             let (_, num_bits) = messages_with_size.front().unwrap();
+    //             if self.can_add_bits(*num_bits) {
+    //                 let (message, _) = messages_with_size.pop_front().unwrap();
+    //                 num_single_messages -= 1;
+    //                 // add message to packet
+    //                 if let Some(id) = message.id {
+    //                     sent_message_ids.push(id);
+    //                 }
+    //                 packet.add_message(channel_id, message);
+    //             } else {
+    //                 // finish packet
+    //                 self.current_packets.push(packet);
+    //                 break;
+    //             }
+    //         }
+    //     }
+    //     // remaining messages that were not added to packet
+    //     let messages_to_send = messages_with_size
+    //         .into_iter()
+    //         .map(|(message, _)| message)
+    //         .collect();
+    //     (messages_to_send, sent_message_ids)
+    // }
 }
 
 #[cfg(test)]

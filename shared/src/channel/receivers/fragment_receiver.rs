@@ -1,3 +1,4 @@
+use crate::packet::message::SingleData;
 use crate::packet::packet::{FragmentData, FRAGMENT_SIZE};
 use crate::packet::wrapping_id::MessageId;
 use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
@@ -6,6 +7,7 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use tracing::trace;
 
+/// `FragmentReceiver` is used to reconstruct fragmented messages
 pub struct FragmentReceiver {
     fragment_messages: HashMap<MessageId, FragmentConstructor>,
 }
@@ -17,28 +19,18 @@ impl FragmentReceiver {
         }
     }
 
-    pub fn receive_fragment<M: BitSerializable>(
-        &mut self,
-        message_id: MessageId,
-        fragment_data: FragmentData,
-    ) -> Result<Option<MessageContainer<M>>> {
+    pub fn receive_fragment(&mut self, fragment: FragmentData) -> Result<Option<SingleData>> {
         let fragment_message = self
             .fragment_messages
-            .entry(message_id)
-            .or_insert_with(|| FragmentConstructor::new(fragment_data.num_fragments));
+            .entry(fragment.message_id)
+            .or_insert_with(|| FragmentConstructor::new(fragment.num_fragments as usize));
 
         // completed the fragmented message!
         if let Some(payload) = fragment_message
-            .receive_fragment(fragment_data.fragment_id, fragment_data.bytes.as_ref())?
+            .receive_fragment(fragment.fragment_id as usize, fragment.bytes.as_ref())?
         {
-            self.fragment_messages.remove(&message_id);
-
-            let mut reader = ReadWordBuffer::start_read(&payload);
-            let message = reader.deserialize::<M>()?;
-            let mut message_container = MessageContainer::new(message);
-            message_container.set_id(message_id);
-            // reader.finish_read()
-            return Ok(Some(message_container));
+            self.fragment_messages.remove(&fragment.message_id);
+            return Ok(Some(SingleData::new(Some(fragment.message_id), payload)));
         }
 
         Ok(None)
@@ -46,32 +38,38 @@ impl FragmentReceiver {
 }
 
 #[derive(Debug, Clone)]
-/// Data structure to reconstruct a single fragment from individual parts
+/// Data structure to reconstruct a single fragmented message from individual fragments
 pub struct FragmentConstructor {
-    num_fragments: u8,
-    num_received_fragments: u8,
+    num_fragments: usize,
+    num_received_fragments: usize,
     received: Vec<bool>,
     bytes: Vec<u8>,
 }
 
 impl FragmentConstructor {
-    pub fn new(num_fragments: u8) -> Self {
+    pub fn new(num_fragments: usize) -> Self {
         Self {
             num_fragments,
             num_received_fragments: 0,
-            received: vec![false; num_fragments as usize],
-            bytes: vec![0; num_fragments as usize * FRAGMENT_SIZE],
+            received: vec![false; num_fragments],
+            bytes: vec![0; num_fragments * FRAGMENT_SIZE],
         }
     }
 
-    pub fn receive_fragment(&mut self, fragment_index: u8, bytes: &[u8]) -> Result<Option<Bytes>> {
+    pub fn receive_fragment(
+        &mut self,
+        fragment_index: usize,
+        bytes: &[u8],
+    ) -> Result<Option<Bytes>> {
         let is_last_fragment = fragment_index == self.num_fragments - 1;
-        if !self.received[fragment_index] {
+        // TODO: check sizes?
+
+        if !self.received[fragment_index as usize] {
             self.received[fragment_index] = true;
             self.num_received_fragments += 1;
 
             if is_last_fragment {
-                let len = (self.num_fragments as usize - 1) * FRAGMENT_SIZE + bytes.len();
+                let len = (self.num_fragments - 1) * FRAGMENT_SIZE + bytes.len();
                 self.bytes.resize(len, 0);
             }
 

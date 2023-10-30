@@ -41,7 +41,7 @@ impl ChannelRegistry {
     }
 
     /// Build all the channels in the registry
-    pub fn channels<M: BitSerializable>(&self) -> HashMap<ChannelKind, ChannelContainer<M>> {
+    pub fn channels(&self) -> HashMap<ChannelKind, ChannelContainer> {
         let mut channels = HashMap::new();
         for (type_id, builder) in self.builder_map.iter() {
             channels.insert(*type_id, builder.build());
