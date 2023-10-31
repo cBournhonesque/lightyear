@@ -1,8 +1,8 @@
 use crate::BitSerializable;
 use enum_dispatch::enum_dispatch;
 
+use crate::packet::message::FragmentData;
 use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::FragmentData;
 use crate::packet::wrapping_id::MessageId;
 
 pub(crate) mod fragment_receiver;

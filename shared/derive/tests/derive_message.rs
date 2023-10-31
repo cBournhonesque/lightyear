@@ -1,15 +1,14 @@
 pub mod some_message {
+    use bevy::prelude::Component;
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};
-    use lightyear_shared::protocolize;
+    use lightyear_shared::{protocolize, Message};
 
-    // #[derive(Message)]
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
 
-    // #[derive(Message)]
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message2(pub u32);
 
     // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -21,8 +20,13 @@ pub mod some_message {
         Message2(Message2),
     }
 
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    pub struct Component1(pub u8);
+
     #[component_protocol(protocol = "MyProtocol")]
-    pub enum MyComponentProtocol {}
+    pub enum MyComponentProtocol {
+        Component1(Component1),
+    }
 
     protocolize!(MyProtocol, MyMessageProtocol, MyComponentProtocol);
 }

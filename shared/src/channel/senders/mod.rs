@@ -1,13 +1,13 @@
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
+use std::collections::VecDeque;
 
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::FragmentData;
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 
-mod fragment_sender;
+pub(crate) mod fragment_sender;
 pub(crate) mod reliable;
 pub(crate) mod unreliable;
 
@@ -20,7 +20,7 @@ pub trait ChannelSend {
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel
-    fn send_packet(&mut self) -> (Vec<SingleData>, Vec<FragmentData>);
+    fn send_packet(&mut self) -> (VecDeque<SingleData>, VecDeque<FragmentData>);
 
     /// Collect the list of messages that need to be sent
     /// Either because they have never been sent, or because they need to be resent (for reliability)

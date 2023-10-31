@@ -1,16 +1,17 @@
 use std::num::NonZeroUsize;
 
 use anyhow::Result;
+use bitcode::encoding::{Encoding, Fixed};
 use bitcode::word::Word;
 use bitcode::Decode;
 use serde::de::DeserializeOwned;
 
-pub trait ReadBuffer {
+pub trait ReadBuffer: BitRead {
     fn capacity(&self) -> usize;
 
     /// Deserialize from the buffer into a value
     fn deserialize<T: DeserializeOwned>(&mut self) -> Result<T>;
-    fn decode<T: Decode>(&mut self) -> Result<T>;
+    fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> Result<T>;
 
     /// Copy the bytes into the buffer, so that we can deserialize them
     fn start_read(bytes: &[u8]) -> Self;

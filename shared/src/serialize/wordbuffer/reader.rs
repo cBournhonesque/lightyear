@@ -1,12 +1,15 @@
 use anyhow::Context;
 use bitcode::buffer::BufferTrait;
-use bitcode::encoding::Fixed;
+use bitcode::encoding::{Encoding, Fixed};
+use bitcode::read::Read;
+use bitcode::word::Word;
 use bitcode::word_buffer::{WordBuffer, WordContext, WordReader};
 use bitcode::Decode;
 use self_cell::self_cell;
 use serde::de::DeserializeOwned;
+use std::num::NonZeroUsize;
 
-use crate::serialize::reader::ReadBuffer;
+use crate::serialize::reader::{BitRead, ReadBuffer};
 
 #[derive(Default)]
 pub struct Reader<'a>(Option<(WordReader<'a>, WordContext)>);
@@ -54,13 +57,13 @@ impl ReadBuffer for ReadWordBuffer {
         })
     }
 
-    fn decode<T: Decode>(&mut self) -> anyhow::Result<T> {
+    fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> anyhow::Result<T> {
         self.with_dependent_mut(|buffer, reader| {
             let reader = reader
                 .0
                 .as_mut()
                 .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
-            Ok(T::decode(Fixed, reader).context("error decoding")?)
+            Ok(T::decode(encoding, reader).context("error decoding")?)
         })
     }
 
@@ -84,5 +87,37 @@ impl ReadBuffer for ReadWordBuffer {
             let (reader, context) = std::mem::take(reader).0.context("no reader")?;
             WordBuffer::finish_read(reader, context).context("error finishing read")
         })
+    }
+}
+
+impl BitRead for ReadWordBuffer {
+    fn advance(&mut self, bits: usize) {
+        todo!()
+    }
+
+    fn peek_bits(&mut self) -> anyhow::Result<Word> {
+        todo!()
+    }
+
+    fn read_bit(&mut self) -> anyhow::Result<bool> {
+        todo!()
+    }
+
+    fn read_bits(&mut self, bits: usize) -> anyhow::Result<Word> {
+        todo!()
+    }
+
+    fn read_bytes(&mut self, len: NonZeroUsize) -> anyhow::Result<&[u8]> {
+        self.with_dependent_mut(|buffer, reader| {
+            let reader = reader
+                .0
+                .as_mut()
+                .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
+            reader.read_bytes(len).context("error reading bytes")
+        })
+    }
+
+    fn reserve_bits(&self, bits: usize) -> anyhow::Result<()> {
+        todo!()
     }
 }

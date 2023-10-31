@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::{FragmentData, FRAGMENT_SIZE};
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
+use crate::packet::packet::FRAGMENT_SIZE;
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
@@ -72,7 +72,7 @@ impl ChannelSend for UnorderedUnreliableSender {
     fn notify_message_delivered(&mut self, message_id: &MessageId) {}
 
     fn has_messages_to_send(&self) -> bool {
-        !self.single_messages_to_send.is_empty() && !self.fragmented_messages_to_send.is_empty()
+        !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
     }
 }
 

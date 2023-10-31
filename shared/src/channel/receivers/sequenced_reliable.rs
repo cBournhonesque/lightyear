@@ -4,8 +4,7 @@ use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::FragmentData;
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::wrapping_id::MessageId;
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
@@ -35,7 +34,7 @@ impl ChannelReceive for SequencedReliableReceiver {
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message
-            .id()
+            .message_id()
             .ok_or_else(|| anyhow!("message id not found"))?;
 
         // if the message is too old, ignore it
@@ -52,9 +51,11 @@ impl ChannelReceive for SequencedReliableReceiver {
         // add the message to the buffer
         if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             match message {
-                MessageContainer::Single(data) => entry.insert(data),
+                MessageContainer::Single(data) => {
+                    entry.insert(data);
+                }
                 MessageContainer::Fragment(data) => {
-                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data) {
+                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data)? {
                         entry.insert(single_data);
                     }
                 }

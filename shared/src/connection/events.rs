@@ -313,7 +313,7 @@ mod tests {
         events.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
 
         // check that we have the correct messages
-        let messages: Vec<Message1> = events.into_iter_messages().collect();
+        let messages: Vec<Message1> = events.into_iter_messages().map(|(m, _)| m).collect();
         assert!(messages.contains(&message1_a));
         assert!(messages.contains(&message1_b));
 

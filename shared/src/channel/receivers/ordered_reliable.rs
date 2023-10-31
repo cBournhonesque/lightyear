@@ -6,8 +6,7 @@ use bytes::Bytes;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::FragmentData;
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::wrapping_id::MessageId;
 
 /// Ordered Reliable receiver: make sure that all messages are received,
@@ -36,7 +35,7 @@ impl ChannelReceive for OrderedReliableReceiver {
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message
-            .id()
+            .message_id()
             .ok_or_else(|| anyhow!("message id not found"))?;
 
         // if the message is too old, ignore it
@@ -47,9 +46,11 @@ impl ChannelReceive for OrderedReliableReceiver {
         // add the message to the buffer
         if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             match message {
-                MessageContainer::Single(data) => entry.insert(data),
+                MessageContainer::Single(data) => {
+                    entry.insert(data);
+                }
                 MessageContainer::Fragment(data) => {
-                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data) {
+                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data)? {
                         entry.insert(single_data);
                     }
                 }
@@ -82,24 +83,26 @@ impl ChannelReceive for OrderedReliableReceiver {
 mod tests {
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use crate::channel::receivers::ChannelReceive;
+    use crate::packet::message::SingleData;
     use crate::packet::wrapping_id::MessageId;
     use crate::MessageContainer;
+    use bytes::Bytes;
 
     #[test]
     fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {
-        let mut receiver = OrderedReliableReceiver::<i32>::new();
+        let mut receiver = OrderedReliableReceiver::new();
 
-        let mut message1 = MessageContainer::new(0);
-        let mut message2 = MessageContainer::new(1);
+        let mut single1 = SingleData::new(None, Bytes::from("hello"));
+        let mut single2 = SingleData::new(None, Bytes::from("world"));
 
         // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
-        message2.id = Some(MessageId(60000));
-        receiver.buffer_recv(message2.clone())?;
+        single2.id = Some(MessageId(60000));
+        receiver.buffer_recv(single2.clone().into())?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
         // receive message in the wrong order
-        message2.id = Some(MessageId(1));
-        receiver.buffer_recv(message2.clone())?;
+        single2.id = Some(MessageId(1));
+        receiver.buffer_recv(single2.clone().into())?;
 
         // the message has been buffered, but we are not processing it yet
         // until we have received message 0
@@ -109,14 +112,14 @@ mod tests {
         assert_eq!(receiver.pending_recv_message_id, MessageId(0));
 
         // receive message 0
-        message1.id = Some(MessageId(0));
-        receiver.buffer_recv(message1.clone())?;
+        single1.id = Some(MessageId(0));
+        receiver.buffer_recv(single1.clone().into())?;
         assert_eq!(receiver.recv_message_buffer.len(), 2);
 
         // now we can read the messages in order
-        assert_eq!(receiver.read_message(), Some(message1.clone()));
+        assert_eq!(receiver.read_message(), Some(single1.clone()));
         assert_eq!(receiver.pending_recv_message_id, MessageId(1));
-        assert_eq!(receiver.read_message(), Some(message2.clone()));
+        assert_eq!(receiver.read_message(), Some(single2.clone()));
         Ok(())
     }
 }

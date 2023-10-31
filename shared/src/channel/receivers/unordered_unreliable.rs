@@ -3,8 +3,7 @@ use std::collections::VecDeque;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::FragmentData;
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::wrapping_id::MessageId;
 
 pub struct UnorderedUnreliableReceiver {

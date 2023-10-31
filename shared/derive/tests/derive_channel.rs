@@ -20,7 +20,7 @@ mod tests {
             direction: ChannelDirection::Bidirectional,
         };
         let builder = SomeChannel::get_builder(settings);
-        let channel_container: ChannelContainer<u8> = builder.build();
+        let channel_container: ChannelContainer = builder.build();
         assert_eq!(
             channel_container.setting.mode,
             ChannelMode::UnorderedUnreliable

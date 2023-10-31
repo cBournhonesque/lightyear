@@ -106,7 +106,7 @@ mod tests {
         assert_eq!(registry.len(), 1);
 
         let mut builder = registry.get_builder_from_net_id(0).unwrap();
-        let channel_container: ChannelContainer<u32> = builder.build();
+        let channel_container: ChannelContainer = builder.build();
         assert_eq!(
             channel_container.setting.mode,
             ChannelMode::UnorderedUnreliable

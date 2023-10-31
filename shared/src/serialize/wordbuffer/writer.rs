@@ -1,6 +1,6 @@
 use anyhow::Context;
 use bitcode::buffer::BufferTrait;
-use bitcode::encoding::Fixed;
+use bitcode::encoding::{Encoding, Fixed};
 use bitcode::word_buffer::{WordBuffer, WordWriter};
 use bitcode::write::Write;
 use bitcode::Encode;
@@ -45,8 +45,9 @@ impl WriteBuffer for WriteWordBuffer {
         Ok(())
     }
 
-    fn encode<T: Encode>(&mut self, t: &T) -> anyhow::Result<()> {
-        t.encode(Fixed, &mut self.writer).context("error encoding")
+    fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()> {
+        t.encode(encoding, &mut self.writer)
+            .context("error encoding")
     }
 
     fn capacity(&self) -> usize {
@@ -80,7 +81,7 @@ impl WriteBuffer for WriteWordBuffer {
     }
 
     fn reserve_bits(&mut self, num_bits: usize) {
-        self.max_bits -= num_bits;
+        self.max_bits = self.max_bits.saturating_sub(num_bits);
     }
 
     fn release_bits(&mut self, num_bits: usize) {
@@ -89,6 +90,20 @@ impl WriteBuffer for WriteWordBuffer {
 
     fn set_reserved_bits(&mut self, num_bits: usize) {
         self.max_bits = num_bits;
+    }
+}
+
+impl BitWrite for WriteWordBuffer {
+    fn write_bit(&mut self, bit: bool) {
+        self.writer.write_bit(bit)
+    }
+
+    fn write_bits(&mut self, bits: u32) {
+        todo!()
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        self.writer.write_bytes(bytes)
     }
 }
 

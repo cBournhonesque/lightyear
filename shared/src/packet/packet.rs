@@ -1,17 +1,20 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
+use bitcode::__private::Gamma;
+use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{MessageContainer, SingleData};
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
-use crate::serialize::reader::ReadBuffer;
+use crate::serialize::reader::{BitRead, ReadBuffer};
 use crate::serialize::writer::WriteBuffer;
 
 pub(crate) const MTU_PACKET_BYTES: usize = 1250;
@@ -35,17 +38,33 @@ pub(crate) const FRAGMENT_SIZE: usize = 1200;
 #[derive(Clone, Debug)]
 pub(crate) struct SinglePacket<const C: usize = MTU_PACKET_BYTES> {
     pub(crate) data: BTreeMap<NetId, Vec<SingleData>>,
+    // num_bits: usize,
 }
 
 impl SinglePacket {
     pub(crate) fn new() -> Self {
         Self {
             data: Default::default(),
+            // TODO: maybe this should include the header? maybe the header size depends on packet type, so that
+            //  normal packets use only 1 bit for the packet type, as an optimization like naia
+            // num_bits: 0,
         }
     }
 
     pub fn add_channel(&mut self, channel: NetId) {
         self.data.entry(channel).or_default();
+        // match self.data.entry(channel) {
+        //     Entry::Vacant(_) => {}
+        //     Entry::Occupied(entry) => {
+        //         entry.insert(Vec::new());
+        //         // how many bits does the channel id take?
+        //         // u16::encode()
+        //
+        //         // is this approach possible? we need to know what we align.
+        //         // do we byte-align every SingleData, it is easier? so that we can copy Bytes more easily?
+        //         // self.num_bits += 1;
+        //     }
+        // }
     }
 
     pub fn add_message(&mut self, channel: NetId, message: SingleData) {
@@ -118,7 +137,8 @@ impl BitSerializable for SinglePacket {
             while continue_read_message {
                 // TODO: we use decode here because we write Bytes directly (we already serialized from the object to Bytes)
                 //  Could we do a memcpy instead?
-                let message = reader.decode::<SingleData>()?;
+                let message = SingleData::decode(reader)?;
+                // let message = reader.decode::<SingleData>(Fixed)?;
                 // let message = <SingleData>::decode(reader)?;
                 messages.push(message);
                 continue_read_message = reader.deserialize::<bool>()?;
@@ -139,75 +159,6 @@ pub struct FragmentedPacket {
     // TODO: change this as option? only the last fragment might have this
     /// Normal packet data: header + eventual non-fragmented messages included in the packet
     pub(crate) packet: SinglePacket,
-}
-
-#[derive(Clone, Debug)]
-pub struct FragmentData {
-    // we always need a message_id for fragment messages, for re-assembly
-    pub message_id: MessageId,
-    pub fragment_id: u8,
-    pub num_fragments: u8,
-    /// Bytes data associated with the message that is too big
-    pub bytes: Bytes,
-}
-
-impl FragmentData {
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
-        let num_bits_before = writer.num_bits_written();
-        writer.serialize(&self.message_id)?;
-        writer.serialize(&self.fragment_id)?;
-        writer.serialize(&self.num_fragments)?;
-        // TODO: be able to just concat the bytes to the buffer?
-        if self.is_last_fragment() {
-            /// writing the slice includes writing the length of the slice
-            writer.serialize(self.bytes.as_ref());
-            // writer.serialize(&self.bytes.to_vec());
-            // writer.serialize(&self.fragment_message_bytes.as_ref());
-        } else {
-            let bytes_array: [u8; FRAGMENT_SIZE] = self.bytes.as_ref().try_into().unwrap();
-            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            writer.encode(&bytes_array);
-        }
-        let num_bits_written = writer.num_bits_written() - num_bits_before;
-        Ok(num_bits_written)
-    }
-
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
-        let message_id = reader.deserialize::<MessageId>()?;
-        let fragment_id = reader.deserialize::<u8>()?;
-        let num_fragments = reader.deserialize::<u8>()?;
-        let mut bytes: Bytes;
-        if fragment_id == num_fragments - 1 {
-            let read_bytes = reader.deserialize::<Vec<u8>>()?;
-            bytes = Bytes::from(read_bytes);
-        } else {
-            // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            let read_bytes = reader.decode::<[u8; FRAGMENT_SIZE]>()?;
-            let bytes_vec: Vec<u8> = read_bytes.to_vec();
-            bytes = Bytes::from(bytes_vec);
-        }
-        Ok(Self {
-            message_id,
-            fragment_id,
-            num_fragments,
-            bytes,
-        })
-    }
-
-    pub(crate) fn is_last_fragment(&self) -> bool {
-        self.fragment_id == self.num_fragments - 1
-    }
-
-    fn num_fragment_bytes(&self) -> usize {
-        if self.is_last_fragment() {
-            self.bytes.len()
-        } else {
-            FRAGMENT_SIZE
-        }
-    }
 }
 
 impl FragmentedPacket {
@@ -248,7 +199,7 @@ impl BitSerializable for FragmentedPacket {
 ///
 /// Every packet knows how to serialize itself into a list of Single Packets that can
 /// directly be sent through a Socket
-#[cfg_attr(feature = "debug", derive(Debug))]
+#[derive(Debug)]
 pub(crate) enum PacketData {
     Single(SinglePacket),
     Fragmented(FragmentedPacket),
@@ -269,12 +220,20 @@ impl PacketData {
             PacketData::Fragmented(data) => {
                 // add fragment
                 res.insert(data.channel_id, vec![data.fragment.into()]);
-                // add other single messages
+                // add other single messages (if there are any)
                 for (channel_id, messages) in data.packet.data {
-                    res.insert(
-                        channel_id,
-                        messages.into_iter().map(|data| data.into()).collect(),
-                    );
+                    let message_containers = messages.into_iter().map(|data| data.into()).collect();
+                    if channel_id == data.channel_id {
+                        res.get_mut(&channel_id).unwrap().extend(message_containers);
+                    } else {
+                        res.insert(channel_id, message_containers);
+                    }
+
+                    // TODO: cannot do this because we don't have non-lexical lifetimes
+                    // let message_containers = messages.into_iter().map(|data| data.into()).collect();
+                    // res.entry(channel_id)
+                    //     .and_modify(|e| e.extend(message_containers))
+                    //     .or_insert(message_containers);
                 }
             }
         }
@@ -282,6 +241,7 @@ impl PacketData {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) header: PacketHeader,
     pub(crate) data: PacketData,
@@ -371,8 +331,10 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
     use lightyear_derive::ChannelInternal;
 
+    use crate::packet::message::SingleData;
     use crate::packet::packet::{PacketData, SinglePacket};
     use crate::packet::packet_manager::PacketManager;
     use crate::packet::packet_type::PacketType;
@@ -401,12 +363,12 @@ mod tests {
     #[test]
     fn test_single_packet_add_messages() {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::<i32>::new(channel_registry.kind_map());
-        let mut packet = SinglePacket::new(&mut manager);
+        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut packet = SinglePacket::new();
 
-        packet.add_message(0, MessageContainer::new(0));
-        packet.add_message(0, MessageContainer::new(1));
-        packet.add_message(1, MessageContainer::new(2));
+        packet.add_message(0, SingleData::new(None, Bytes::from("hello")));
+        packet.add_message(0, SingleData::new(None, Bytes::from("world")));
+        packet.add_message(1, SingleData::new(None, Bytes::from("!")));
 
         assert_eq!(packet.num_messages(), 3);
     }
@@ -414,13 +376,17 @@ mod tests {
     #[test]
     fn test_encode_single_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::<i32>::new(channel_registry.kind_map());
-        let mut packet = PacketData::new_single(&mut manager);
+        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut packet = SinglePacket::new();
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);
-        packet.add_message(0, MessageContainer::new(0));
-        packet.add_message(0, MessageContainer::new(1));
-        packet.add_message(1, MessageContainer::new(2));
+        let message1 = SingleData::new(None, Bytes::from("hello"));
+        let message2 = SingleData::new(None, Bytes::from("world"));
+        let message3 = SingleData::new(None, Bytes::from("!"));
+
+        packet.add_message(0, message1.clone().into());
+        packet.add_message(0, message2.clone().into());
+        packet.add_message(1, message3.clone().into());
         // add a channel with no messages
         packet.add_channel(2);
 
@@ -429,14 +395,13 @@ mod tests {
 
         // Encode manually
         let mut expected_write_buffer = WriteWordBuffer::with_capacity(50);
-        expected_write_buffer.serialize(packet.header())?;
         // channel id
         expected_write_buffer.serialize(&0u16)?;
         // messages, with continuation bit
         expected_write_buffer.serialize(&true)?;
-        MessageContainer::new(0).encode(&mut expected_write_buffer)?;
+        message1.encode(&mut expected_write_buffer)?;
         expected_write_buffer.serialize(&true)?;
-        MessageContainer::new(1).encode(&mut expected_write_buffer)?;
+        message2.encode(&mut expected_write_buffer)?;
         expected_write_buffer.serialize(&false)?;
         // channel continue bit
         expected_write_buffer.serialize(&true)?;
@@ -444,7 +409,7 @@ mod tests {
         expected_write_buffer.serialize(&1u16)?;
         // messages with continuation bit
         expected_write_buffer.serialize(&true)?;
-        MessageContainer::new(2).encode(&mut expected_write_buffer)?;
+        message3.encode(&mut expected_write_buffer)?;
         expected_write_buffer.serialize(&false)?;
         // channel continue bit
         expected_write_buffer.serialize(&true)?;
@@ -460,9 +425,8 @@ mod tests {
         assert_eq!(packet_bytes, expected_packet_bytes);
 
         let mut reader = ReadWordBuffer::start_read(packet_bytes);
-        let packet = SinglePacket::<i32>::decode(&mut reader)?;
+        let packet = SinglePacket::decode(&mut reader)?;
 
-        assert_eq!(packet.header.get_packet_type(), PacketType::Data);
         assert_eq!(packet.num_messages(), 3);
         Ok(())
     }

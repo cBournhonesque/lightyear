@@ -10,8 +10,7 @@ use mock_instant::Instant;
 use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::FragmentData;
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
@@ -49,11 +48,13 @@ pub struct ReliableSender {
     fragmented_messages_to_send: VecDeque<FragmentData>,
 
     /// Set of message ids that we want to send (to prevent sending the same message twice)
-    message_ids_to_send: HashSet<MessageId>,
+    /// (includes Option<u8> for fragment index)
+    message_ids_to_send: HashSet<(MessageId, Option<u8>)>,
 
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
 
+    // TODO: only need pub for test
     current_rtt_millis: f32,
     current_time: Instant,
 }
@@ -124,10 +125,17 @@ impl ChannelSend for ReliableSender {
     /// to be sent
     /// The messages to be sent need to have been collected prior to this point.
     fn send_packet(&mut self) -> (VecDeque<SingleData>, VecDeque<FragmentData>) {
+        // right now, we send everything; so we can reset
+        self.message_ids_to_send.clear();
+
         (
             std::mem::take(&mut self.single_messages_to_send),
             std::mem::take(&mut self.fragmented_messages_to_send),
         )
+
+        // TODO: handle if we couldn't send all messages?
+        // TODO: update message_ids_to_send?
+        // TODO: get back the list of messages we could not send?
 
         // // build the packets from those messages
         // let single_messages_to_send = std::mem::take(&mut self.single_messages_to_send);
@@ -167,12 +175,12 @@ impl ChannelSend for ReliableSender {
                     if should_send(last_sent) {
                         // TODO: this is a vecdeque, so if we call this function multiple times
                         //  we would send the same message multiple times.  Use HashSet<MessageId> to prevent this?
-                        // if !self.message_ids_to_send.contains(message_id) {
-                        let message = SingleData::new(Some(*message_id), bytes.clone()).into();
-                        self.single_messages_to_send.push_back(message);
-                        // self.message_ids_to_send.insert(*message_id);
-                        last_sent = Some(self.current_time);
-                        // }
+                        if !self.message_ids_to_send.contains(&(*message_id, None)) {
+                            let message = SingleData::new(Some(*message_id), bytes.clone()).into();
+                            self.single_messages_to_send.push_back(message);
+                            self.message_ids_to_send.insert((*message_id, None));
+                            last_sent = Some(self.current_time);
+                        }
                     }
                 }
                 UnackedMessage::Fragmented(fragment_acks) => {
@@ -182,9 +190,16 @@ impl ChannelSend for ReliableSender {
                         .filter(|f| !f.acked && should_send(f.last_sent))
                         .for_each(|f| {
                             // TODO: need a mechanism like message_ids_to_send? (message/fragmnet_id) to send?
-                            let message = f.data.clone().into();
-                            self.fragmented_messages_to_send.push_back(message);
-                            f.last_sent = Some(self.current_time);
+                            if !self
+                                .message_ids_to_send
+                                .contains(&(*message_id, Some(f.data.fragment_id)))
+                            {
+                                let message = f.data.clone().into();
+                                self.fragmented_messages_to_send.push_back(message);
+                                self.message_ids_to_send
+                                    .insert((*message_id, Some(f.data.fragment_id)));
+                                f.last_sent = Some(self.current_time);
+                            }
                         })
                 }
             }
@@ -197,17 +212,19 @@ impl ChannelSend for ReliableSender {
     }
 
     fn has_messages_to_send(&self) -> bool {
-        !self.messages_to_send.is_empty()
+        !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
     use std::time::Duration;
 
     use mock_instant::MockClock;
 
     use crate::channel::channel::ReliableSettings;
+    use crate::packet::message::SingleData;
 
     use super::ChannelSend;
     use super::Instant;
@@ -216,40 +233,36 @@ mod tests {
 
     #[test]
     fn test_reliable_sender_internals() {
-        let mut sender = ReliableSender {
-            reliable_settings: ReliableSettings {
-                rtt_resend_factor: 1.5,
-            },
-            unacked_messages: Default::default(),
-            next_send_message_id: MessageId(0),
-            messages_to_send: Default::default(),
-            message_ids_to_send: Default::default(),
-            current_rtt_millis: 100.0,
-            current_time: Instant::now(),
-        };
+        let mut sender = ReliableSender::new(ReliableSettings {
+            rtt_resend_factor: 1.5,
+        });
+        sender.current_rtt_millis = 100.0;
+        sender.current_time = Instant::now();
 
         // Buffer a new message
-        let mut message = MessageContainer::new(1);
-        sender.buffer_send(message.clone());
+        let mut message1 = Bytes::from("hello");
+        sender.buffer_send(message1.clone().into());
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent
         sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 1);
+        assert_eq!(sender.single_messages_to_send.len(), 1);
 
         // Advance by a time that is below the resend threshold
         MockClock::advance(Duration::from_millis(100));
         sender.current_time = Instant::now();
         sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 1);
+        assert_eq!(sender.single_messages_to_send.len(), 1);
 
         // Advance by a time that is above the resend threshold
         MockClock::advance(Duration::from_millis(200));
         sender.current_time = Instant::now();
         sender.collect_messages_to_send();
-        assert_eq!(sender.messages_to_send.len(), 1);
-        message.id = Some(MessageId(0));
-        assert_eq!(sender.messages_to_send.get(0).unwrap(), &message.clone());
+        assert_eq!(sender.single_messages_to_send.len(), 1);
+        assert_eq!(
+            sender.single_messages_to_send.get(0).unwrap(),
+            &SingleData::new(Some(MessageId(0)), message1.clone())
+        );
 
         // Ack the first message
         sender.process_message_ack(MessageId(0));
@@ -259,6 +272,6 @@ mod tests {
         MockClock::advance(Duration::from_millis(200));
         sender.current_time = Instant::now();
         // this time there are no new messages to send
-        assert_eq!(sender.messages_to_send.len(), 1);
+        assert_eq!(sender.single_messages_to_send.len(), 1);
     }
 }

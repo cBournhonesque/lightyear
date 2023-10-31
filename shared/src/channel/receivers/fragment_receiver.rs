@@ -1,9 +1,9 @@
-use crate::packet::message::SingleData;
-use crate::packet::packet::{FragmentData, FRAGMENT_SIZE};
+use crate::packet::message::{FragmentData, SingleData};
+use crate::packet::packet::FRAGMENT_SIZE;
 use crate::packet::wrapping_id::MessageId;
 use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
 use anyhow::Result;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use std::collections::HashMap;
 use tracing::trace;
 
@@ -43,6 +43,7 @@ pub struct FragmentConstructor {
     num_fragments: usize,
     num_received_fragments: usize,
     received: Vec<bool>,
+    // bytes: Bytes,
     bytes: Vec<u8>,
 }
 
@@ -64,7 +65,7 @@ impl FragmentConstructor {
         let is_last_fragment = fragment_index == self.num_fragments - 1;
         // TODO: check sizes?
 
-        if !self.received[fragment_index as usize] {
+        if !self.received[fragment_index] {
             self.received[fragment_index] = true;
             self.num_received_fragments += 1;
 

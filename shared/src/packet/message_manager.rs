@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
@@ -9,8 +9,8 @@ use tracing::debug;
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::packet::{FragmentData, Packet, PacketData};
+use crate::packet::message::{FragmentData, MessageContainer, SingleData};
+use crate::packet::packet::{Packet, PacketData};
 use crate::packet::packet_manager::{PacketManager, PACKET_BUFFER_CAPACITY};
 use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::registry::NetId;
@@ -80,12 +80,17 @@ impl<M: BitSerializable> MessageManager<M> {
         // for each channel, prepare packets using the buffered messages that are ready to be sent
 
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
-        let mut data_to_send: BTreeMap<ChannelKind, (Vec<SingleData>, Vec<FragmentData>)> =
+        let mut data_to_send: BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
             BTreeMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
+            let channel_id = self
+                .packet_manager
+                .channel_kind_map
+                .net_id(channel_kind)
+                .context("cannot find channel id")?;
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
-                data_to_send.insert(*channel_kind, channel.sender.send_packet());
+                data_to_send.insert(*channel_id, channel.sender.send_packet());
                 // // start a new channel in the current packet.
                 // // If there's not enough space, start writing in a new packet
                 // if !self.packet_manager.can_add_channel(*channel_kind)? {
@@ -114,7 +119,7 @@ impl<M: BitSerializable> MessageManager<M> {
         //     }
         // }
 
-        let packets = self.packet_manager.flush_packets();
+        let packets = self.packet_manager.build_packets(data_to_send);
 
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
@@ -125,6 +130,7 @@ impl<M: BitSerializable> MessageManager<M> {
             bytes.push(payload);
             // io.send(payload, &self.remote_addr)?;
 
+            // TODO: should we update this to include fragment info as well?
             // Step 3. Update the packet_to_message_id_map (only for reliable channels)
             packet
                 .message_ids()
@@ -185,6 +191,7 @@ impl<M: BitSerializable> MessageManager<M> {
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
         let packet: Packet = self.packet_manager.decode_packet(reader)?;
+        dbg!(&packet);
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
         //  maybe the channel can handle the fragmentation?
@@ -229,6 +236,7 @@ impl<M: BitSerializable> MessageManager<M> {
                 .get_mut(channel_kind)
                 .ok_or_else(|| anyhow!("Channel not found"))?;
             for message in messages {
+                dbg!(&message);
                 channel.receiver.buffer_recv(message)?;
             }
         }
@@ -298,7 +306,7 @@ mod tests {
 
     #[test]
     /// We want to test that we can send/receive messages over a connection
-    fn test_connection() -> Result<(), anyhow::Error> {
+    fn test_message_manager() -> Result<(), anyhow::Error> {
         let mut channel_registry = ChannelRegistry::new();
         channel_registry.add::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
@@ -310,18 +318,20 @@ mod tests {
         });
 
         // Create connections
-        let mut client_connection = MessageManager::<MyMessageProtocol>::new(&channel_registry);
-        let mut server_connection = MessageManager::<MyMessageProtocol>::new(&channel_registry);
+        let mut client_message_manager =
+            MessageManager::<MyMessageProtocol>::new(&channel_registry);
+        let mut server_message_manager =
+            MessageManager::<MyMessageProtocol>::new(&channel_registry);
 
         // client: buffer send messages, and then send
         let mut message = MyMessageProtocol::Message1(Message1(1));
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
-        client_connection.buffer_send(message.clone(), channel_kind_1)?;
-        client_connection.buffer_send(message.clone(), channel_kind_2)?;
-        let mut packet_bytes = client_connection.send_packets()?;
+        client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
+        client_message_manager.buffer_send(message.clone(), channel_kind_2)?;
+        let mut packet_bytes = client_message_manager.send_packets()?;
         assert_eq!(
-            client_connection.packet_to_message_id_map,
+            client_message_manager.packet_to_message_id_map,
             HashMap::from([(
                 PacketId(0),
                 HashMap::from([(channel_kind_1.clone(), vec![MessageId(0)])])
@@ -330,43 +340,43 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {
-            server_connection
+            server_message_manager
                 .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.finish_write()))?;
         }
-        let mut data = server_connection.read_messages();
+        let mut data = server_message_manager.read_messages();
         assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
         assert_eq!(data.get(&channel_kind_2).unwrap(), &vec![message.clone()]);
 
         // Confirm what happens if we try to receive but there is nothing on the io
-        data = server_connection.read_messages();
+        data = server_message_manager.read_messages();
         assert!(data.is_empty());
 
         // Check the state of the packet headers
         assert_eq!(
-            client_connection
+            client_message_manager
                 .packet_manager
                 .header_manager
                 .next_packet_id(),
             PacketId(1)
         );
-        assert!(client_connection
+        assert!(client_message_manager
             .packet_manager
             .header_manager
             .sent_packets_not_acked()
             .contains(&PacketId(0)));
 
         // Server sends back a message
-        server_connection.buffer_send(message.clone(), channel_kind_1)?;
-        let mut packet_bytes = server_connection.send_packets()?;
+        server_message_manager.buffer_send(message.clone(), channel_kind_1)?;
+        let mut packet_bytes = server_message_manager.send_packets()?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {
-            client_connection
+            client_message_manager
                 .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.finish_write()))?;
         }
 
         // Check that reliability works correctly
-        assert_eq!(client_connection.packet_to_message_id_map.len(), 0);
+        assert_eq!(client_message_manager.packet_to_message_id_map.len(), 0);
         // TODO: check that client_channel_1's sender's unacked messages is empty
         // let client_channel_1 = client_connection.channels.get(&channel_kind_1).unwrap();
         // assert_eq!(client_channel_1.sender.)
