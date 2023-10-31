@@ -9,7 +9,7 @@ use crate::packet::wrapping_id::PacketId;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone)]
 pub(crate) struct PacketHeader {
     /// Type of the packet sent
     packet_type: PacketType,
@@ -21,13 +21,6 @@ pub(crate) struct PacketHeader {
     /// (this means that in total we send acks for 33 packet-ids)
     /// See more information at: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
     ack_bitfield: u32,
-    // /// Extra data to be included in the header (channel id, maybe fragmented id, tick?)
-    // extra_header: Box<dyn PacketHeaderData>,
-}
-
-pub trait PacketHeaderData {
-    fn encode(&self) -> Vec<u8>;
-    fn decode(&mut self, data: &[u8]);
 }
 
 impl PacketHeader {

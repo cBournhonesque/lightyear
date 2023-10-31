@@ -4,14 +4,14 @@ use std::marker::PhantomData;
 use anyhow::{anyhow, Context};
 use bitcode::read::Read;
 use bytes::Bytes;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet::{Packet, PacketData};
-use crate::packet::packet_manager::{PacketManager, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
 use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
@@ -67,7 +67,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
     // pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
-    pub fn send_packets(&mut self) -> anyhow::Result<Vec<impl WriteBuffer>> {
+    pub fn send_packets(&mut self) -> anyhow::Result<Vec<Payload>> {
         // TODO: all this feels overly complicated.
         //  ideally the packet manager would get a hashmap<channel, list of messages>
         //  and return a list of packets (fragmented or not) that we need.
@@ -120,6 +120,7 @@ impl<M: BitSerializable> MessageManager<M> {
         // }
 
         let packets = self.packet_manager.build_packets(data_to_send);
+        trace!(?packets, "Sending packets");
 
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
@@ -191,7 +192,7 @@ impl<M: BitSerializable> MessageManager<M> {
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
         // Step 1. Parse the packet
         let packet: Packet = self.packet_manager.decode_packet(reader)?;
-        dbg!(&packet);
+        trace!(?packet, "Received packet");
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
         //  maybe the channel can handle the fragmentation?
@@ -236,7 +237,6 @@ impl<M: BitSerializable> MessageManager<M> {
                 .get_mut(channel_kind)
                 .ok_or_else(|| anyhow!("Channel not found"))?;
             for message in messages {
-                dbg!(&message);
                 channel.receiver.buffer_recv(message)?;
             }
         }
@@ -283,6 +283,7 @@ mod tests {
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
         MessageManager, Protocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
     };
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     // Messages
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -307,6 +308,11 @@ mod tests {
     #[test]
     /// We want to test that we can send/receive messages over a connection
     fn test_message_manager() -> Result<(), anyhow::Error> {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_span_events(FmtSpan::ENTER)
+        //     .with_max_level(tracing::Level::TRACE)
+        //     .init();
+
         let mut channel_registry = ChannelRegistry::new();
         channel_registry.add::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
@@ -317,7 +323,7 @@ mod tests {
             direction: ChannelDirection::Bidirectional,
         });
 
-        // Create connections
+        // Create message managers
         let mut client_message_manager =
             MessageManager::<MyMessageProtocol>::new(&channel_registry);
         let mut server_message_manager =
@@ -341,7 +347,7 @@ mod tests {
         // server: receive bytes from the sent messages, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {
             server_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.finish_write()))?;
+                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
@@ -372,7 +378,7 @@ mod tests {
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {
             client_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.finish_write()))?;
+                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
         }
 
         // Check that reliability works correctly

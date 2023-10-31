@@ -35,7 +35,7 @@ pub(crate) const FRAGMENT_SIZE: usize = 1200;
 
 /// Single individual packet sent over the network
 /// Contains multiple small messages
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SinglePacket<const C: usize = MTU_PACKET_BYTES> {
     pub(crate) data: BTreeMap<NetId, Vec<SingleData>>,
     // num_bits: usize,
@@ -152,7 +152,7 @@ impl BitSerializable for SinglePacket {
 
 /// A packet that is split into multiple fragments
 /// because it contains a message that is too big
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FragmentedPacket {
     pub(crate) channel_id: NetId,
     pub(crate) fragment: FragmentData,
@@ -175,7 +175,7 @@ impl BitSerializable for FragmentedPacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-        writer.serialize(&self.channel_id)?;
+        writer.encode(&self.channel_id, Gamma)?;
         self.fragment.encode(writer)?;
         self.packet.encode(writer)
     }
@@ -184,7 +184,7 @@ impl BitSerializable for FragmentedPacket {
     where
         Self: Sized,
     {
-        let mut channel_id = reader.deserialize::<NetId>()?;
+        let mut channel_id = reader.decode::<NetId>(Gamma)?;
         let fragment = FragmentData::decode(reader)?;
         let packet = SinglePacket::decode(reader)?;
         Ok(Self {
@@ -257,6 +257,10 @@ impl Packet {
 
     /// Encode a packet into the write buffer
     pub fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+        // use encode to force Fixed encoding
+        // should still use gamma for packet type
+        // TODO: add test
+        writer.encode(&self.header, Fixed)?;
         match &self.data {
             PacketData::Single(single_packet) => single_packet.encode(writer),
             PacketData::Fragmented(fragmented_packet) => fragmented_packet.encode(writer),
@@ -265,7 +269,7 @@ impl Packet {
 
     /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
     pub fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
-        let header = PacketHeader::decode(reader)?;
+        let header = reader.decode::<PacketHeader>(Fixed)?;
         let packet_type = header.get_packet_type();
         match packet_type {
             PacketType::Data => {
@@ -334,13 +338,15 @@ mod tests {
     use bytes::Bytes;
     use lightyear_derive::ChannelInternal;
 
-    use crate::packet::message::SingleData;
-    use crate::packet::packet::{PacketData, SinglePacket};
+    use crate::packet::message::{FragmentData, SingleData};
+    use crate::packet::packet::{FragmentedPacket, PacketData, SinglePacket};
     use crate::packet::packet_manager::PacketManager;
     use crate::packet::packet_type::PacketType;
+    use crate::packet::wrapping_id::MessageId;
     use crate::{
-        BitSerializable, ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings,
-        MessageContainer, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
+        BitSerializable, ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry,
+        ChannelSettings, MessageContainer, ReadBuffer, ReadWordBuffer, WriteBuffer,
+        WriteWordBuffer,
     };
 
     #[derive(ChannelInternal)]
@@ -425,9 +431,47 @@ mod tests {
         assert_eq!(packet_bytes, expected_packet_bytes);
 
         let mut reader = ReadWordBuffer::start_read(packet_bytes);
-        let packet = SinglePacket::decode(&mut reader)?;
+        let decoded_packet = SinglePacket::decode(&mut reader)?;
 
-        assert_eq!(packet.num_messages(), 3);
+        assert_eq!(decoded_packet.num_messages(), 3);
+        assert_eq!(packet, decoded_packet);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_fragmented_packet() -> anyhow::Result<()> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let bytes = Bytes::from(vec![0; 10]);
+        let fragment = FragmentData {
+            message_id: MessageId(0),
+            fragment_id: 2,
+            num_fragments: 3,
+            bytes: bytes.clone(),
+        };
+        let mut packet = FragmentedPacket::new(*channel_id, fragment.clone());
+
+        let mut write_buffer = WriteWordBuffer::with_capacity(100);
+        let message1 = SingleData::new(None, Bytes::from("hello"));
+        let message2 = SingleData::new(None, Bytes::from("world"));
+        let message3 = SingleData::new(None, Bytes::from("!"));
+
+        packet.packet.add_message(0, message1.clone().into());
+        packet.packet.add_message(0, message2.clone().into());
+        packet.packet.add_message(1, message3.clone().into());
+        // add a channel with no messages
+        packet.packet.add_channel(2);
+
+        packet.encode(&mut write_buffer);
+        let packet_bytes = write_buffer.finish_write();
+
+        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let decoded_packet = FragmentedPacket::decode(&mut reader)?;
+
+        assert_eq!(decoded_packet.packet.num_messages(), 3);
+        assert_eq!(packet, decoded_packet);
         Ok(())
     }
 }

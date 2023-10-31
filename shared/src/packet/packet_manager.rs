@@ -24,6 +24,8 @@ use crate::ChannelKind;
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
 
+pub type Payload = Vec<u8>;
+
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager {
     pub(crate) header_manager: PacketHeaderManager,
@@ -82,14 +84,17 @@ impl PacketManager {
     }
 
     /// Encode a packet into raw bytes
-    pub(crate) fn encode_packet(&mut self, packet: &Packet) -> anyhow::Result<impl WriteBuffer> {
+    pub(crate) fn encode_packet(&mut self, packet: &Packet) -> anyhow::Result<Payload> {
         // TODO: check that we haven't allocated!
         // self.clear_write_buffer();
 
         let mut write_buffer = WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY);
         write_buffer.set_reserved_bits(PACKET_BUFFER_CAPACITY);
         packet.encode(&mut write_buffer)?;
-        Ok(write_buffer)
+        // TODO: we should actually call finish write to byte align!
+        // TODO: CAREFUL, THIS COULD ALLOCATE A BIT MORE TO BYTE ALIGN?
+        let payload = Payload::from(write_buffer.finish_write());
+        Ok(payload)
 
         // packet.encode(&mut self.write_buffer)?;
         // let bytes = self.write_buffer.finish_write();

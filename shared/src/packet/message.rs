@@ -203,8 +203,8 @@ impl FragmentData {
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.serialize(&self.message_id)?;
-        writer.serialize(&self.fragment_id)?;
-        writer.serialize(&self.num_fragments)?;
+        writer.encode(&self.fragment_id, Gamma)?;
+        writer.encode(&self.num_fragments, Gamma)?;
         // TODO: be able to just concat the bytes to the buffer?
         if self.is_last_fragment() {
             /// writing the slice includes writing the length of the slice
@@ -225,8 +225,8 @@ impl FragmentData {
         Self: Sized,
     {
         let message_id = reader.deserialize::<MessageId>()?;
-        let fragment_id = reader.deserialize::<u8>()?;
-        let num_fragments = reader.deserialize::<u8>()?;
+        let fragment_id = reader.decode::<u8>(Gamma)?;
+        let num_fragments = reader.decode::<u8>(Gamma)?;
         let mut bytes: Bytes;
         if fragment_id == num_fragments - 1 {
             // let num_bytes = reader.decode::<usize>(Gamma)?;
@@ -365,6 +365,33 @@ mod tests {
 
         let mut reader = ReadWordBuffer::start_read(bytes.as_ref());
         let decoded = SingleData::decode(&mut reader).unwrap();
+
+        // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
+        dbg!(&bytes);
+        // dbg!(&writer.num_bits_written());
+        // dbg!(&decoded.id);
+        // dbg!(&decoded.bytes.as_ref());
+        assert_eq!(decoded, data);
+        dbg!(&writer.num_bits_written());
+        // assert_eq!(writer.num_bits_written(), 5 * u8::BITS as usize);
+    }
+
+    #[test]
+    fn test_serde_fragment_data() {
+        let bytes = Bytes::from(vec![0; 10]);
+        let data = FragmentData {
+            message_id: MessageId(0),
+            fragment_id: 2,
+            num_fragments: 3,
+            bytes: bytes.clone(),
+        };
+        let mut writer = WriteWordBuffer::with_capacity(10);
+        let a = data.encode(&mut writer).unwrap();
+        // dbg!(a);
+        let bytes = writer.finish_write();
+
+        let mut reader = ReadWordBuffer::start_read(bytes.as_ref());
+        let decoded = FragmentData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
         dbg!(&bytes);

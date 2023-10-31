@@ -112,8 +112,7 @@ impl<P: Protocol> Client<P> {
     pub fn send_packets(&mut self) -> Result<()> {
         let packet_bytes = self.connection.send_packets()?;
         for mut packet_byte in packet_bytes {
-            self.netcode
-                .send(packet_byte.finish_write(), &mut self.io)?;
+            self.netcode.send(packet_byte.as_slice(), &mut self.io)?;
         }
         Ok(())
     }

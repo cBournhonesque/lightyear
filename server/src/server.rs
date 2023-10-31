@@ -222,7 +222,7 @@ impl<P: Protocol> Server<P> {
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
             for mut packet_byte in connection.send_packets()? {
                 self.netcode
-                    .send(packet_byte.finish_write(), *client_idx, &mut self.io)?;
+                    .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
             }
         }
         Ok(())

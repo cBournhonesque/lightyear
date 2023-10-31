@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum PacketType {
     // A packet containing actual data
+    #[bitcode_hint(frequency = 100)]
     Data,
     // A packet sent to maintain the connection by preventing a timeout
     KeepAlive,
@@ -37,5 +38,6 @@ pub enum PacketType {
     // messages
     Pong,
     // A packet containing actual data, but which is fragmented into multiple parts
+    #[bitcode_hint(frequency = 5)]
     DataFragment,
 }
