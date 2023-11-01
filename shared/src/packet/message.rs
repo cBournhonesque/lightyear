@@ -19,7 +19,14 @@ use crate::serialize::writer::WriteBuffer;
 //   in the serialized message, include the net_id (for decoding)
 //   no bit padding
 
-// -
+pub type FragmentIndex = u8;
+
+/// Struct to keep track of which messages/slices have been received by the remote
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub(crate) struct MessageAck {
+    pub(crate) message_id: MessageId,
+    pub(crate) fragment_id: Option<FragmentIndex>,
+}
 
 /// A Message is a logical unit of data that should be transmitted over a network
 ///
@@ -193,8 +200,8 @@ impl SingleData {
 pub struct FragmentData {
     // we always need a message_id for fragment messages, for re-assembly
     pub message_id: MessageId,
-    pub fragment_id: u8,
-    pub num_fragments: u8,
+    pub fragment_id: FragmentIndex,
+    pub num_fragments: FragmentIndex,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
 }
@@ -225,8 +232,8 @@ impl FragmentData {
         Self: Sized,
     {
         let message_id = reader.deserialize::<MessageId>()?;
-        let fragment_id = reader.decode::<u8>(Gamma)?;
-        let num_fragments = reader.decode::<u8>(Gamma)?;
+        let fragment_id = reader.decode::<FragmentIndex>(Gamma)?;
+        let num_fragments = reader.decode::<FragmentIndex>(Gamma)?;
         let mut bytes: Bytes;
         if fragment_id == num_fragments - 1 {
             // let num_bytes = reader.decode::<usize>(Gamma)?;

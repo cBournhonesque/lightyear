@@ -9,7 +9,7 @@ use tracing::{debug, trace};
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet::{Packet, PacketData};
 use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
 use crate::packet::wrapping_id::{MessageId, PacketId};
@@ -33,7 +33,7 @@ pub struct MessageManager<M: BitSerializable> {
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
-    packet_to_message_id_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageId>>>,
+    packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
     writer: WriteWordBuffer,
 
     // MessageManager works because we only are only sending a single enum type
@@ -45,7 +45,7 @@ impl<M: BitSerializable> MessageManager<M> {
         Self {
             packet_manager: PacketManager::new(channel_registry.kind_map()),
             channels: channel_registry.channels(),
-            packet_to_message_id_map: HashMap::new(),
+            packet_to_message_ack_map: HashMap::new(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             _marker: Default::default(),
         }
@@ -68,17 +68,8 @@ impl<M: BitSerializable> MessageManager<M> {
     /// Prepare buckets from the internal send buffers, and return the bytes to send
     // pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
     pub fn send_packets(&mut self) -> anyhow::Result<Vec<Payload>> {
-        // TODO: all this feels overly complicated.
-        //  ideally the packet manager would get a hashmap<channel, list of messages>
-        //  and return a list of packets (fragmented or not) that we need.
-
-        //  The problem right now is rust ownership, and the fact that packet_manager
-        //  is included in message manager?
-        //  Maybe they should be separated and packet manager is passed as an argument
-
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
-
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
         let mut data_to_send: BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
             BTreeMap::new();
@@ -91,33 +82,8 @@ impl<M: BitSerializable> MessageManager<M> {
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
                 data_to_send.insert(*channel_id, channel.sender.send_packet());
-                // // start a new channel in the current packet.
-                // // If there's not enough space, start writing in a new packet
-                // if !self.packet_manager.can_add_channel(*channel_kind)? {
-                //     self.packet_manager.build_new_single_packet();
-                //     // can add channel starts writing a new packet if needed
-                //     let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
-                //     debug_assert!(added_new_channel);
-                // }
-                // channel.sender.send_packet(&mut self.packet_manager);
             }
         }
-
-        // // TODO: iterate through the channels in order of channel priority? (with accumulation)
-        // for (channel_kind, channel) in self.channels.iter_mut() {
-        //     channel.sender.collect_messages_to_send();
-        //     if channel.sender.has_messages_to_send() {
-        //         // start a new channel in the current packet.
-        //         // If there's not enough space, start writing in a new packet
-        //         if !self.packet_manager.can_add_channel(*channel_kind)? {
-        //             self.packet_manager.build_new_single_packet();
-        //             // can add channel starts writing a new packet if needed
-        //             let added_new_channel = self.packet_manager.can_add_channel(*channel_kind)?;
-        //             debug_assert!(added_new_channel);
-        //         }
-        //         channel.sender.send_packet(&mut self.packet_manager);
-        //     }
-        // }
 
         let packets = self.packet_manager.build_packets(data_to_send);
         trace!(?packets, "Sending packets");
@@ -125,8 +91,7 @@ impl<M: BitSerializable> MessageManager<M> {
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
         for packet in packets {
-            // debug!(?packet, "Sending packet");
-            // Step 2. Send the packets over the network
+            // Step 2. Get the packets to send over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
             bytes.push(payload);
             // io.send(payload, &self.remote_addr)?;
@@ -134,9 +99,9 @@ impl<M: BitSerializable> MessageManager<M> {
             // TODO: should we update this to include fragment info as well?
             // Step 3. Update the packet_to_message_id_map (only for reliable channels)
             packet
-                .message_ids()
+                .message_acks()
                 .iter()
-                .try_for_each(|(channel_id, message_ids)| {
+                .try_for_each(|(channel_id, message_ack)| {
                     let channel_kind = self
                         .packet_manager
                         .channel_kind_map
@@ -148,12 +113,12 @@ impl<M: BitSerializable> MessageManager<M> {
                         .context("Channel not found")?;
                     let packet_id = packet.header().packet_id;
                     if channel.setting.mode.is_reliable() {
-                        self.packet_to_message_id_map
+                        self.packet_to_message_ack_map
                             .entry(packet_id)
                             .or_default()
                             .entry(*channel_kind)
                             .or_default()
-                            .append(&mut message_ids.clone());
+                            .extend_from_slice(message_ack);
                     }
                     Ok::<(), anyhow::Error>(())
                 })?;
@@ -209,14 +174,14 @@ impl<M: BitSerializable> MessageManager<M> {
 
         // Step 3. Update the list of messages that have been acked
         for acked_packet in acked_packets {
-            if let Some(message_map) = self.packet_to_message_id_map.remove(&acked_packet) {
-                for (channel_kind, message_ids) in message_map {
+            if let Some(message_map) = self.packet_to_message_ack_map.remove(&acked_packet) {
+                for (channel_kind, message_acks) in message_map {
                     let channel = self
                         .channels
                         .get_mut(&channel_kind)
                         .context("Channel not found")?;
-                    for message_id in message_ids {
-                        channel.sender.notify_message_delivered(&message_id);
+                    for message_ack in message_acks {
+                        channel.sender.notify_message_delivered(&message_ack);
                     }
                 }
             }
@@ -253,7 +218,7 @@ impl<M: BitSerializable> MessageManager<M> {
             while let Some(single_data) = channel.receiver.read_message() {
                 let mut reader = ReadWordBuffer::start_read(single_data.bytes.as_ref());
                 let message = M::decode(&mut reader).expect("Could not decode message");
-                // TODO: why do we need finish read?
+                // TODO: why do we need finish read? to check for errors?
                 // reader.finish_read()?;
                 messages.push(message);
             }
@@ -277,6 +242,7 @@ mod tests {
     use lightyear_derive::ChannelInternal;
 
     use crate::channel::channel::ReliableSettings;
+    use crate::packet::message::MessageAck;
     use crate::packet::wrapping_id::{MessageId, PacketId};
     use crate::transport::Transport;
     use crate::{
@@ -290,7 +256,7 @@ mod tests {
     pub struct Message1(pub u8);
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Message2(pub u32);
+    pub struct Message2(pub Vec<u8>);
 
     #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     pub enum MyMessageProtocol {
@@ -337,10 +303,16 @@ mod tests {
         client_message_manager.buffer_send(message.clone(), channel_kind_2)?;
         let mut packet_bytes = client_message_manager.send_packets()?;
         assert_eq!(
-            client_message_manager.packet_to_message_id_map,
+            client_message_manager.packet_to_message_ack_map,
             HashMap::from([(
                 PacketId(0),
-                HashMap::from([(channel_kind_1.clone(), vec![MessageId(0)])])
+                HashMap::from([(
+                    channel_kind_1.clone(),
+                    vec![MessageAck {
+                        message_id: MessageId(0),
+                        fragment_id: None
+                    }]
+                )])
             )])
         );
 
@@ -382,7 +354,7 @@ mod tests {
         }
 
         // Check that reliability works correctly
-        assert_eq!(client_message_manager.packet_to_message_id_map.len(), 0);
+        assert_eq!(client_message_manager.packet_to_message_ack_map.len(), 0);
         // TODO: check that client_channel_1's sender's unacked messages is empty
         // let client_channel_1 = client_connection.channels.get(&channel_kind_1).unwrap();
         // assert_eq!(client_channel_1.sender.)

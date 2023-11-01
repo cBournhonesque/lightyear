@@ -10,7 +10,7 @@ use mock_instant::Instant;
 use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
@@ -49,7 +49,7 @@ pub struct ReliableSender {
 
     /// Set of message ids that we want to send (to prevent sending the same message twice)
     /// (includes Option<u8> for fragment index)
-    message_ids_to_send: HashSet<(MessageId, Option<u8>)>,
+    message_ids_to_send: HashSet<MessageAck>,
 
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
@@ -175,10 +175,14 @@ impl ChannelSend for ReliableSender {
                     if should_send(last_sent) {
                         // TODO: this is a vecdeque, so if we call this function multiple times
                         //  we would send the same message multiple times.  Use HashSet<MessageId> to prevent this?
-                        if !self.message_ids_to_send.contains(&(*message_id, None)) {
+                        let message_info = MessageAck {
+                            message_id: *message_id,
+                            fragment_id: None,
+                        };
+                        if !self.message_ids_to_send.contains(&message_info) {
                             let message = SingleData::new(Some(*message_id), bytes.clone()).into();
                             self.single_messages_to_send.push_back(message);
-                            self.message_ids_to_send.insert((*message_id, None));
+                            self.message_ids_to_send.insert(message_info);
                             last_sent = Some(self.current_time);
                         }
                     }
@@ -190,14 +194,14 @@ impl ChannelSend for ReliableSender {
                         .filter(|f| !f.acked && should_send(f.last_sent))
                         .for_each(|f| {
                             // TODO: need a mechanism like message_ids_to_send? (message/fragmnet_id) to send?
-                            if !self
-                                .message_ids_to_send
-                                .contains(&(*message_id, Some(f.data.fragment_id)))
-                            {
+                            let message_info = MessageAck {
+                                message_id: *message_id,
+                                fragment_id: Some(f.data.fragment_id),
+                            };
+                            if !self.message_ids_to_send.contains(&message_info) {
                                 let message = f.data.clone().into();
                                 self.fragmented_messages_to_send.push_back(message);
-                                self.message_ids_to_send
-                                    .insert((*message_id, Some(f.data.fragment_id)));
+                                self.message_ids_to_send.insert(message_info);
                                 f.last_sent = Some(self.current_time);
                             }
                         })
@@ -206,9 +210,32 @@ impl ChannelSend for ReliableSender {
         }
     }
 
-    // TODO: need message_delivered to contain possibly fragment information!!!
-    fn notify_message_delivered(&mut self, message_id: &MessageId) {
-        self.unacked_messages.remove(message_id);
+    fn notify_message_delivered(&mut self, message_ack: &MessageAck) {
+        if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
+            match unacked_message {
+                UnackedMessage::Single { .. } => {
+                    if message_ack.fragment_id.is_some() {
+                        panic!(
+                            "Received a message ack for a fragment but message is a single message"
+                        )
+                    }
+                    self.unacked_messages.remove(&message_ack.message_id);
+                }
+                UnackedMessage::Fragmented(fragment_acks) => {
+                    let Some(fragment_id) = message_ack.fragment_id else {
+                        panic!("Received a message ack for a single message but message is a fragmented message")
+                    };
+                    if !fragment_acks[fragment_id as usize].acked {
+                        fragment_acks[fragment_id as usize].acked = true;
+                        // TODO: use a variable to keep track of this?
+                        // all fragments were acked
+                        if fragment_acks.iter().all(|f| f.acked) {
+                            self.unacked_messages.remove(&message_ack.message_id);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn has_messages_to_send(&self) -> bool {

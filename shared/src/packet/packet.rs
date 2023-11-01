@@ -8,10 +8,11 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::packet_type::PacketType;
 use crate::packet::wrapping_id::MessageId;
+use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::{BitRead, ReadBuffer};
@@ -72,13 +73,19 @@ impl SinglePacket {
     }
 
     /// Return the list of message ids in the packet
-    pub fn message_ids(&self) -> HashMap<NetId, Vec<MessageId>> {
+    pub fn message_acks(&self) -> HashMap<NetId, Vec<MessageAck>> {
         self.data
             .iter()
             .map(|(&net_id, messages)| {
-                let message_ids: Vec<MessageId> =
-                    messages.iter().filter_map(|message| message.id).collect();
-                (net_id, message_ids)
+                let message_acks: Vec<MessageAck> = messages
+                    .iter()
+                    .filter(|message| message.id.is_some())
+                    .map(|message| MessageAck {
+                        message_id: message.id.unwrap(),
+                        fragment_id: None,
+                    })
+                    .collect();
+                (net_id, message_acks)
             })
             .collect()
     }
@@ -154,7 +161,7 @@ impl BitSerializable for SinglePacket {
 /// because it contains a message that is too big
 #[derive(Clone, Debug, PartialEq)]
 pub struct FragmentedPacket {
-    pub(crate) channel_id: NetId,
+    pub(crate) channel_id: ChannelId,
     pub(crate) fragment: FragmentData,
     // TODO: change this as option? only the last fragment might have this
     /// Normal packet data: header + eventual non-fragmented messages included in the packet
@@ -162,12 +169,37 @@ pub struct FragmentedPacket {
 }
 
 impl FragmentedPacket {
-    pub(crate) fn new(channel_id: NetId, fragment: FragmentData) -> Self {
+    pub(crate) fn new(channel_id: ChannelId, fragment: FragmentData) -> Self {
         Self {
             channel_id,
             fragment,
             packet: SinglePacket::new(),
         }
+    }
+
+    /// Return the list of message ids in the packet
+    pub fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
+        let mut data: HashMap<_, _> = self
+            .packet
+            .data
+            .iter()
+            .map(|(&net_id, messages)| {
+                let message_acks: Vec<MessageAck> = messages
+                    .iter()
+                    .filter(|message| message.id.is_some())
+                    .map(|message| MessageAck {
+                        message_id: message.id.unwrap(),
+                        fragment_id: None,
+                    })
+                    .collect();
+                (net_id, message_acks)
+            })
+            .collect();
+        data.entry(self.channel_id).or_default().push(MessageAck {
+            message_id: self.fragment.message_id,
+            fragment_id: Some(self.fragment.fragment_id),
+        });
+        data
     }
 }
 
@@ -222,18 +254,11 @@ impl PacketData {
                 res.insert(data.channel_id, vec![data.fragment.into()]);
                 // add other single messages (if there are any)
                 for (channel_id, messages) in data.packet.data {
-                    let message_containers = messages.into_iter().map(|data| data.into()).collect();
-                    if channel_id == data.channel_id {
-                        res.get_mut(&channel_id).unwrap().extend(message_containers);
-                    } else {
-                        res.insert(channel_id, message_containers);
-                    }
-
-                    // TODO: cannot do this because we don't have non-lexical lifetimes
-                    // let message_containers = messages.into_iter().map(|data| data.into()).collect();
-                    // res.entry(channel_id)
-                    //     .and_modify(|e| e.extend(message_containers))
-                    //     .or_insert(message_containers);
+                    let message_containers: Vec<MessageContainer> =
+                        messages.into_iter().map(|data| data.into()).collect();
+                    res.entry(channel_id)
+                        .or_default()
+                        .extend(message_containers);
                 }
             }
         }
@@ -324,11 +349,10 @@ impl Packet {
         }
     }
 
-    /// Return the list of messages in the packet
-    pub fn message_ids(&self) -> HashMap<NetId, Vec<MessageId>> {
+    pub fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
         match &self.data {
-            PacketData::Single(single_packet) => single_packet.message_ids(),
-            PacketData::Fragmented(fragmented_packet) => fragmented_packet.packet.message_ids(),
+            PacketData::Single(single_packet) => single_packet.message_acks(),
+            PacketData::Fragmented(fragmented_packet) => fragmented_packet.message_acks(),
         }
     }
 }

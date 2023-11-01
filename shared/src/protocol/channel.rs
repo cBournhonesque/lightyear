@@ -10,6 +10,8 @@ use crate::ChannelContainer;
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct ChannelKind(TypeId);
 
+pub type ChannelId = NetId;
+
 impl ChannelKind {
     pub fn of<C: Channel>() -> Self {
         Self(TypeId::of::<C>())
@@ -64,16 +66,16 @@ impl ChannelRegistry {
         self.builder_map.get(channel_kind)
     }
 
-    pub fn get_kind_from_net_id(&self, net_id: NetId) -> Option<&ChannelKind> {
-        self.kind_map.kind(net_id)
+    pub fn get_kind_from_net_id(&self, channel_id: ChannelId) -> Option<&ChannelKind> {
+        self.kind_map.kind(channel_id)
     }
 
     pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&NetId> {
         self.kind_map.net_id(kind)
     }
 
-    pub fn get_builder_from_net_id(&self, net_id: NetId) -> Option<&ChannelBuilder> {
-        let channel_kind = self.get_kind_from_net_id(net_id)?;
+    pub fn get_builder_from_net_id(&self, channel_id: ChannelId) -> Option<&ChannelBuilder> {
+        let channel_kind = self.get_kind_from_net_id(channel_id)?;
         self.get_builder_from_kind(channel_kind)
     }
 

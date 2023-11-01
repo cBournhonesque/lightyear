@@ -7,10 +7,31 @@
 
 # TODO:
 
-- how to send acks frequently to the sender?
-  - include acks in every keep-alive packet?
-  - send back messages about entity-actions having been received? (we get this for free with reliable channels, but we need to notify the replication manager)
-- add packet fragmentation similar to reliable.io or renet, so that we know how send packets will work
+- Replication:
+  - POSSIBLE TODO: send back messages about entity-actions having been received? (we get this for free with reliable channels, but we need to notify the replication manager)
+
+- Message Manager
+  - DONE: add packet fragmentation similar to reliable.io or renet, so that we know how send packets will work
+  - DONE: send acks correctly about which messages have been received?
+
+
+- Packet Manager:
+  - TODO: Send Keepalive as part of Payload instead of KeepAlive
+    - so that we can receive ack bitfields frequently (ack bitfields needed for reliable channels not to resend)
+    - DISABLE NETCODE KEEP-ALIVE AND ROLL-OUT MY OWN WITH KEEPALIVE DATA TYPE! (this works because any packet received counts as keep alive)
+    - actually, don't need to disable netcode keep-alive, just send payload keep alive more frequently!
+  - TODO: Pick correct constant values for MTUs, etc.
+  - TODO: construct the final Packet from Bytes without using WriteBuffer and ReadBuffer, just concat Bytes to avoid having too many copies
+
+- Channels:
+  - TODO: add a tick buffer so that inputs from client arrive on the same corresponding tick in the server.
+    - in general the tick buffer can be used to associate an event with a tick, and make sure it is received on the same corresponding tick in remote
+
+- UI:
+  - TODO: UI that lets us see which packets are sent at every system update?
+
+- Time:
+  - TODO: run the systems on a FixedSchedule? so that we can control the frequency
 
 
 

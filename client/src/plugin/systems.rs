@@ -13,6 +13,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     world.resource_scope(|world, mut client: Mut<Client<P>>| {
         let time = world.get_resource::<Time>().unwrap();
 
+        // TODO: here we can control time elapsed from the client's perspective?
+
         // update client state, send keep-alives, receive packets from io
         client.update(time.elapsed().as_secs_f64()).unwrap();
         // buffer packets into message managers
