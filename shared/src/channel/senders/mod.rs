@@ -9,7 +9,8 @@ use crate::protocol::BitSerializable;
 
 pub(crate) mod fragment_sender;
 pub(crate) mod reliable;
-pub(crate) mod unreliable;
+pub(crate) mod sequenced_unreliable;
+pub(crate) mod unordered_unreliable;
 
 /// A trait for sending messages to a channel.
 /// A channel is a buffer over packets to be able to add ordering/reliability
@@ -37,7 +38,7 @@ pub trait ChannelSend {
 /// Enum dispatch lets us derive ChannelSend on each enum variant
 #[enum_dispatch(ChannelSend)]
 pub enum ChannelSender {
-    UnorderedUnreliable(unreliable::UnorderedUnreliableSender),
-    SequencedUnreliable(unreliable::SequencedUnreliableSender),
+    UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableSender),
+    SequencedUnreliable(sequenced_unreliable::SequencedUnreliableSender),
     Reliable(reliable::ReliableSender),
 }

@@ -88,3 +88,27 @@ impl FragmentConstructor {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::senders::fragment_sender::FragmentSender;
+
+    #[test]
+    fn test_receiver() -> Result<()> {
+        let mut receiver = FragmentReceiver::new();
+        let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
+        let message_bytes = Bytes::from(vec![1 as u8; num_bytes]);
+        let fragments = FragmentSender::new().build_fragments(MessageId(0), message_bytes.clone());
+
+        assert_eq!(receiver.receive_fragment(fragments[0].clone())?, None);
+        assert_eq!(
+            receiver.receive_fragment(fragments[1].clone())?,
+            Some(SingleData {
+                id: Some(MessageId(0)),
+                bytes: message_bytes.clone()
+            })
+        );
+        Ok(())
+    }
+}

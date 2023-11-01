@@ -37,3 +37,46 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
         self.recv_message_buffer.pop_front()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::receivers::ChannelReceive;
+    use crate::packet::message::SingleData;
+    use crate::packet::wrapping_id::MessageId;
+    use crate::MessageContainer;
+    use bytes::Bytes;
+
+    #[test]
+    fn test_unordered_unreliable_receiver_internals() -> anyhow::Result<()> {
+        let mut receiver = UnorderedUnreliableReceiver::new();
+
+        let mut single1 = SingleData::new(None, Bytes::from("hello"));
+        let mut single2 = SingleData::new(None, Bytes::from("world"));
+
+        // receive an old message
+        single2.id = Some(MessageId(60000));
+        receiver.buffer_recv(single2.clone().into())?;
+
+        // it still gets read
+        assert_eq!(receiver.recv_message_buffer.len(), 1);
+        assert_eq!(receiver.read_message(), Some(single2.clone()));
+
+        // receive message in the wrong order
+        single2.id = Some(MessageId(1));
+        receiver.buffer_recv(single2.clone().into())?;
+
+        // we process the message
+        assert_eq!(receiver.recv_message_buffer.len(), 1);
+        assert_eq!(receiver.read_message(), Some(single2.clone()));
+
+        // receive message 0
+        single1.id = Some(MessageId(0));
+        receiver.buffer_recv(single1.clone().into())?;
+
+        // we process the message
+        assert_eq!(receiver.recv_message_buffer.len(), 1);
+        assert_eq!(receiver.read_message(), Some(single1.clone()));
+        Ok(())
+    }
+}

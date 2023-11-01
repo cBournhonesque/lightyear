@@ -5,7 +5,8 @@ use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
 use crate::channel::receivers::ChannelReceiver;
 use crate::channel::senders::reliable::ReliableSender;
-use crate::channel::senders::unreliable::{SequencedUnreliableSender, UnorderedUnreliableSender};
+use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
+use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
 use crate::protocol::BitSerializable;
 

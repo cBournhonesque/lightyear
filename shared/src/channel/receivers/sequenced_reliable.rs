@@ -29,7 +29,6 @@ impl SequencedReliableReceiver {
     }
 }
 
-// TODO: THE SEQUENCED RELIABLE LOGIC SEEMS WRONG!
 impl ChannelReceive for SequencedReliableReceiver {
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
@@ -47,7 +46,6 @@ impl ChannelReceive for SequencedReliableReceiver {
             self.most_recent_message_id = message_id;
         }
 
-        // add the message to the buffer
         // add the message to the buffer
         if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             match message {
@@ -73,5 +71,48 @@ impl ChannelReceive for SequencedReliableReceiver {
                 return Some(message);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::receivers::ChannelReceive;
+    use crate::packet::message::SingleData;
+    use crate::packet::wrapping_id::MessageId;
+    use crate::MessageContainer;
+    use bytes::Bytes;
+
+    #[test]
+    fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {
+        let mut receiver = SequencedReliableReceiver::new();
+
+        let mut single1 = SingleData::new(None, Bytes::from("hello"));
+        let mut single2 = SingleData::new(None, Bytes::from("world"));
+
+        // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
+        single2.id = Some(MessageId(60000));
+        receiver.buffer_recv(single2.clone().into())?;
+        assert_eq!(receiver.recv_message_buffer.len(), 0);
+
+        // receive message in the wrong order
+        single2.id = Some(MessageId(1));
+        receiver.buffer_recv(single2.clone().into())?;
+
+        // we process the message
+
+        assert_eq!(receiver.recv_message_buffer.len(), 1);
+        assert!(receiver.recv_message_buffer.get(&MessageId(1)).is_some());
+        assert_eq!(receiver.read_message(), Some(single2.clone()));
+        assert_eq!(receiver.most_recent_message_id, MessageId(1));
+
+        // receive message 0:
+        // we don't care about receiving message 0 anymore, since we already have received a more recent message
+        // gets discarded
+        single1.id = Some(MessageId(0));
+        receiver.buffer_recv(single1.clone().into())?;
+        assert_eq!(receiver.recv_message_buffer.len(), 0);
+        assert_eq!(receiver.read_message(), None);
+        Ok(())
     }
 }
