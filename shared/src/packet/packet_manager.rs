@@ -155,6 +155,9 @@ impl PacketManager {
         debug_assert!(packet.fragment.bytes.len() <= FRAGMENT_SIZE);
         if is_last_fragment {
             packet.encode(&mut self.try_write_buffer).unwrap();
+            // reserve one extra bit for the continuation bit between fragment/single packet data
+            self.try_write_buffer.reserve_bits(1);
+
             // let num_bits_written = self.try_write_buffer.num_bits_written();
             // no need to reserve bits, since we already just wrote in the try buffer!
             // self.try_write_buffer.reserve_bits(num_bits_written);

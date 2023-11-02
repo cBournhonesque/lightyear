@@ -24,8 +24,11 @@ impl FragmentSender {
         fragment_message_id: MessageId,
         fragment_bytes: Bytes,
     ) -> Vec<FragmentData> {
-        if fragment_bytes.len() < FRAGMENT_SIZE {
-            panic!("Fragment size must be at least {}", FRAGMENT_SIZE);
+        if fragment_bytes.len() <= FRAGMENT_SIZE {
+            panic!(
+                "Message size must be at least {} to need to be fragmented",
+                FRAGMENT_SIZE
+            );
         }
         let chunks = fragment_bytes.chunks(self.fragment_size);
         let num_fragments = chunks.len();

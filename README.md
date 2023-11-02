@@ -13,6 +13,9 @@
 - Message Manager
   - DONE: add packet fragmentation similar to reliable.io or renet, so that we know how send packets will work
   - DONE: send acks correctly about which messages have been received?
+  - DONE: basic soak test is working
+  - TODO: unreliable receiver needs to drop fragmented messages that are too old!
+  - TODO: run more extensive soak test
 
 
 - Packet Manager:
@@ -20,6 +23,7 @@
     - so that we can receive ack bitfields frequently (ack bitfields needed for reliable channels not to resend)
     - DISABLE NETCODE KEEP-ALIVE AND ROLL-OUT MY OWN WITH KEEPALIVE DATA TYPE! (this works because any packet received counts as keep alive)
     - actually, don't need to disable netcode keep-alive, just send payload keep alive more frequently!
+    - or just prepare an ACK response whenever we receive anything from a reliable sender? (so the reliable sender gets a quick ack bitfield)
   - TODO: Pick correct constant values for MTUs, etc.
   - TODO: construct the final Packet from Bytes without using WriteBuffer and ReadBuffer, just concat Bytes to avoid having too many copies
 

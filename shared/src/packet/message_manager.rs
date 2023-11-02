@@ -66,7 +66,6 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
-    // pub fn send_packets(&mut self, io: &mut impl PacketSender) -> anyhow::Result<()> {
     pub fn send_packets(&mut self) -> anyhow::Result<Vec<Payload>> {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
@@ -126,31 +125,6 @@ impl<M: BitSerializable> MessageManager<M> {
 
         Ok(bytes)
     }
-
-    // /// Listen for packets on the transport and buffer them
-    // ///
-    // /// Return when there are no more packets to receive on the transport
-    // pub fn recv_packets<T: ReadBuffer>(
-    //     &mut self,
-    //     io: &mut impl PacketReader,
-    // ) -> anyhow::Result<()> {
-    //     loop {
-    //         match io.read::<T>()? {
-    //             None => break,
-    //             Some((mut reader, addr)) => {
-    //                 // this copies the data into the buffer, so we can read efficiently from it
-    //                 // we can now re-use the transport's buffer.
-    //                 // maybe it would be safer to provide a buffer for the transport to use?
-    //                 if addr != self.remote_addr {
-    //                     bail!("received packet from unknown address");
-    //                 }
-    //                 self.recv_packet(&mut reader)?;
-    //                 continue;
-    //             }
-    //         }
-    //     }
-    //     Ok(())
-    // }
 
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
@@ -243,6 +217,7 @@ mod tests {
 
     use crate::channel::channel::ReliableSettings;
     use crate::packet::message::MessageAck;
+    use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::wrapping_id::{MessageId, PacketId};
     use crate::transport::Transport;
     use crate::{
@@ -273,7 +248,7 @@ mod tests {
 
     #[test]
     /// We want to test that we can send/receive messages over a connection
-    fn test_message_manager() -> Result<(), anyhow::Error> {
+    fn test_message_manager_single_message() -> Result<(), anyhow::Error> {
         // tracing_subscriber::FmtSubscriber::builder()
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
@@ -345,6 +320,116 @@ mod tests {
 
         // Server sends back a message
         server_message_manager.buffer_send(message.clone(), channel_kind_1)?;
+        let mut packet_bytes = server_message_manager.send_packets()?;
+
+        // On client side: keep looping to receive bytes on the network, then process them into messages
+        for mut packet_byte in packet_bytes.iter_mut() {
+            client_message_manager
+                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
+        }
+
+        // Check that reliability works correctly
+        assert_eq!(client_message_manager.packet_to_message_ack_map.len(), 0);
+        // TODO: check that client_channel_1's sender's unacked messages is empty
+        // let client_channel_1 = client_connection.channels.get(&channel_kind_1).unwrap();
+        // assert_eq!(client_channel_1.sender.)
+        Ok(())
+    }
+
+    #[test]
+    /// We want to test that we can send/receive messages over a connection
+    fn test_message_manager_fragment_message() -> Result<(), anyhow::Error> {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_span_events(FmtSpan::ENTER)
+        //     .with_max_level(tracing::Level::TRACE)
+        //     .init();
+
+        let mut channel_registry = ChannelRegistry::new();
+        channel_registry.add::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            direction: ChannelDirection::Bidirectional,
+        });
+        channel_registry.add::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+        });
+
+        // Create message managers
+        let mut client_message_manager =
+            MessageManager::<MyMessageProtocol>::new(&channel_registry);
+        let mut server_message_manager =
+            MessageManager::<MyMessageProtocol>::new(&channel_registry);
+
+        // client: buffer send messages, and then send
+        let message_size = (1.5 * FRAGMENT_SIZE as f32) as usize;
+        let mut message = MyMessageProtocol::Message2(Message2(vec![1; message_size]));
+        let channel_kind_1 = ChannelKind::of::<Channel1>();
+        let channel_kind_2 = ChannelKind::of::<Channel2>();
+        client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
+        client_message_manager.buffer_send(message.clone(), channel_kind_2)?;
+        let mut packet_bytes = client_message_manager.send_packets()?;
+        assert_eq!(packet_bytes.len(), 4);
+        assert_eq!(
+            client_message_manager.packet_to_message_ack_map,
+            HashMap::from([
+                (
+                    PacketId(0),
+                    HashMap::from([(
+                        channel_kind_1.clone(),
+                        vec![MessageAck {
+                            message_id: MessageId(0),
+                            fragment_id: Some(0),
+                        },]
+                    )])
+                ),
+                (
+                    PacketId(1),
+                    HashMap::from([(
+                        channel_kind_1.clone(),
+                        vec![MessageAck {
+                            message_id: MessageId(0),
+                            fragment_id: Some(1),
+                        }]
+                    )])
+                ),
+            ])
+        );
+
+        // server: receive bytes from the sent messages, then process them into messages
+        for mut packet_byte in packet_bytes.iter_mut() {
+            server_message_manager
+                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
+        }
+        let mut data = server_message_manager.read_messages();
+        assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
+        assert_eq!(data.get(&channel_kind_2).unwrap(), &vec![message.clone()]);
+
+        // Confirm what happens if we try to receive but there is nothing on the io
+        data = server_message_manager.read_messages();
+        assert!(data.is_empty());
+
+        // Check the state of the packet headers
+        assert_eq!(
+            client_message_manager
+                .packet_manager
+                .header_manager
+                .next_packet_id(),
+            PacketId(4)
+        );
+        assert!(client_message_manager
+            .packet_manager
+            .header_manager
+            .sent_packets_not_acked()
+            .contains(&PacketId(0)));
+        assert!(client_message_manager
+            .packet_manager
+            .header_manager
+            .sent_packets_not_acked()
+            .contains(&PacketId(1)));
+
+        // Server sends back a message
+        server_message_manager
+            .buffer_send(MyMessageProtocol::Message1(Message1(0)), channel_kind_1)?;
         let mut packet_bytes = server_message_manager.send_packets()?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages

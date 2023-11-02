@@ -29,9 +29,9 @@ fn test_connection_soak() -> anyhow::Result<()> {
         .with_key(private_key);
     let io_config = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
         LinkConditionerConfig {
-            incoming_latency: 0,
-            incoming_jitter: 0,
-            incoming_loss: 0.0,
+            incoming_latency: 20,
+            incoming_jitter: 10,
+            incoming_loss: 0.90,
             // incoming_latency: 20,
             // incoming_jitter: 10,
             // incoming_loss: 0.1,
@@ -85,7 +85,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
                 // TODO: use geometric distribution? use multiple of FRAGMENT_SIZE?
 
                 // TODO: there is a problem with fragments, issues only appear with fragments
-                let message_length = rng.gen_range(0..20);
+                let message_length = rng.gen_range(0..1300);
                 let s: String = (&mut rng)
                     .sample_iter(rand::distributions::Alphanumeric)
                     .take(message_length)

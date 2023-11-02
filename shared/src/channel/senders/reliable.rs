@@ -99,7 +99,6 @@ impl ChannelSend for ReliableSender {
             let fragments = self
                 .fragment_sender
                 .build_fragments(self.next_send_message_id, message);
-
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()

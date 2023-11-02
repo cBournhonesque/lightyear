@@ -209,13 +209,13 @@ pub struct FragmentData {
 impl FragmentData {
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
-        writer.serialize(&self.message_id)?;
+        writer.encode(&self.message_id, Fixed)?;
         writer.encode(&self.fragment_id, Gamma)?;
         writer.encode(&self.num_fragments, Gamma)?;
         // TODO: be able to just concat the bytes to the buffer?
         if self.is_last_fragment() {
             /// writing the slice includes writing the length of the slice
-            writer.serialize(self.bytes.as_ref());
+            writer.encode(self.bytes.as_ref(), Fixed);
             // writer.serialize(&self.bytes.to_vec());
             // writer.serialize(&self.fragment_message_bytes.as_ref());
         } else {
@@ -231,7 +231,7 @@ impl FragmentData {
     where
         Self: Sized,
     {
-        let message_id = reader.deserialize::<MessageId>()?;
+        let message_id = reader.decode::<MessageId>(Fixed)?;
         let fragment_id = reader.decode::<FragmentIndex>(Gamma)?;
         let num_fragments = reader.decode::<FragmentIndex>(Gamma)?;
         let mut bytes: Bytes;
@@ -244,7 +244,7 @@ impl FragmentData {
             // let read_bytes = reader.decode::<&[u8]>()?;
             // TODO: avoid the extra copy
             //  - maybe have the encoding of bytes be
-            let read_bytes = reader.deserialize::<Vec<u8>>()?;
+            let read_bytes = reader.decode::<Vec<u8>>(Fixed)?;
             bytes = Bytes::from(read_bytes);
         } else {
             // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)

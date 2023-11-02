@@ -15,7 +15,7 @@ use crate::serialize::reader::{BitRead, ReadBuffer};
 pub struct Reader<'a>(Option<(WordReader<'a>, WordContext)>);
 
 #[derive(Decode)]
-#[bitcode_hint(gamma)]
+// #[bitcode_hint(gamma)]
 struct OnlyGammaDecode<T: DeserializeOwned>(#[bitcode(with_serde)] T);
 
 // We use self_cell because the reader contains a reference to the WordBuffer

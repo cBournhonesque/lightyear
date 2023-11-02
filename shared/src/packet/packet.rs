@@ -1,6 +1,7 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
+use crate::netcode::MAX_PACKET_SIZE;
 use bitcode::__private::Gamma;
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
@@ -19,13 +20,20 @@ use crate::protocol::BitSerializable;
 use crate::serialize::reader::{BitRead, ReadBuffer};
 use crate::serialize::writer::WriteBuffer;
 
-const HEADER_BYTES: usize = 50;
+/// Maximum number of bytes to write the header
+/// PacketType: 2 bits
+/// Rest: 64 bits (8 bytes)
+const HEADER_BYTES: usize = 9;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
-pub(crate) const MTU_PAYLOAD_BYTES: usize = 1150;
-// pub(crate) const FRAGMENT_SIZE: usize = 1140;
+/// remove 1 byte for byte alignment at the end
+pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
 
 // TODO: THERE IS SOMETHING WRONG WITH EITHER LAST FRAGMENT OR ALL FRAGMENTS!
-pub(crate) const FRAGMENT_SIZE: usize = 500;
+/// The maximum number of bytes for a message before it is fragmented
+/// The final size of the fragmented packet (channel_id: 2, fragment_id: 1, message_id: 2, num_fragments: 1, number of bytes in fragment: 2)
+/// must be lower than MTU_PAYLOAD_BYTES
+pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 8;
+// pub(crate) const FRAGMENT_SIZE: usize = 500;
 
 // TODO: we don't need SinglePacket vs FragmentPacket; we can just re-use the same thing
 //  because MessageContainer already has the information about whether it is a fragment or not
@@ -108,7 +116,6 @@ impl BitSerializable for SinglePacket {
             .enumerate()
             .map(|(i, v)| (i == self.data.len() - 1, v))
             .try_for_each(|(is_last_channel, (channel_id, messages))| {
-                info!(?channel_id, "ENCODING CHANNEL ID");
                 writer.encode(channel_id, Gamma)?;
 
                 // initial continue bit for messages (are there messages for this channel or not?)
@@ -139,8 +146,6 @@ impl BitSerializable for SinglePacket {
         // check channel continue bit to see if there are more channels
         while continue_read_channel {
             let mut channel_id = reader.decode::<NetId>(Gamma)?;
-            info!(?channel_id, "DECODED CHANNEL ID");
-
             let mut messages = Vec::new();
 
             // are there messages for this channel?
@@ -214,6 +219,8 @@ impl BitSerializable for FragmentedPacket {
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.encode(&self.channel_id, Gamma)?;
         self.fragment.encode(writer)?;
+        // continuation bit: is there single packet data?
+        writer.encode(&!self.packet.data.is_empty(), Fixed)?;
         self.packet.encode(writer)
     }
 
@@ -223,7 +230,12 @@ impl BitSerializable for FragmentedPacket {
     {
         let mut channel_id = reader.decode::<NetId>(Gamma)?;
         let fragment = FragmentData::decode(reader)?;
-        let packet = SinglePacket::decode(reader)?;
+        let is_single_packet = reader.decode::<bool>(Fixed)?;
+        let packet = if is_single_packet {
+            SinglePacket::decode(reader)?
+        } else {
+            SinglePacket::new()
+        };
         Ok(Self {
             channel_id,
             fragment,
@@ -364,6 +376,7 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
+    use bitcode::encoding::Gamma;
     use bytes::Bytes;
     use lightyear_derive::ChannelInternal;
 
@@ -431,7 +444,7 @@ mod tests {
         // Encode manually
         let mut expected_write_buffer = WriteWordBuffer::with_capacity(50);
         // channel id
-        expected_write_buffer.serialize(&0u16)?;
+        expected_write_buffer.encode(&0u16, Gamma)?;
         // messages, with continuation bit
         expected_write_buffer.serialize(&true)?;
         message1.encode(&mut expected_write_buffer)?;
@@ -441,7 +454,7 @@ mod tests {
         // channel continue bit
         expected_write_buffer.serialize(&true)?;
         // channel id
-        expected_write_buffer.serialize(&1u16)?;
+        expected_write_buffer.encode(&1u16, Gamma)?;
         // messages with continuation bit
         expected_write_buffer.serialize(&true)?;
         message3.encode(&mut expected_write_buffer)?;
@@ -449,7 +462,7 @@ mod tests {
         // channel continue bit
         expected_write_buffer.serialize(&true)?;
         // channel id
-        expected_write_buffer.serialize(&2u16)?;
+        expected_write_buffer.encode(&2u16, Gamma)?;
         // messages with continuation bit
         expected_write_buffer.serialize(&false)?;
         // channel continue bit
@@ -500,6 +513,34 @@ mod tests {
         let decoded_packet = FragmentedPacket::decode(&mut reader)?;
 
         assert_eq!(decoded_packet.packet.num_messages(), 3);
+        assert_eq!(packet, decoded_packet);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_fragmented_packet_no_single_data() -> anyhow::Result<()> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let bytes = Bytes::from(vec![0; 10]);
+        let fragment = FragmentData {
+            message_id: MessageId(0),
+            fragment_id: 2,
+            num_fragments: 3,
+            bytes: bytes.clone(),
+        };
+        let mut packet = FragmentedPacket::new(*channel_id, fragment.clone());
+
+        let mut write_buffer = WriteWordBuffer::with_capacity(100);
+
+        packet.encode(&mut write_buffer);
+        let packet_bytes = write_buffer.finish_write();
+
+        let mut reader = ReadWordBuffer::start_read(packet_bytes);
+        let decoded_packet = FragmentedPacket::decode(&mut reader)?;
+
+        assert_eq!(decoded_packet.packet.num_messages(), 0);
         assert_eq!(packet, decoded_packet);
         Ok(())
     }
