@@ -4,7 +4,7 @@ use std::str::FromStr;
 use bevy::app::App;
 
 use lightyear_client::{Authentication, ClientConfig, Plugin, PluginConfig};
-use lightyear_shared::{IoConfig, SharedConfig};
+use lightyear_shared::{IoConfig, SharedConfig, TransportConfig};
 
 use crate::protocol::{protocol, MyProtocol};
 
@@ -13,7 +13,7 @@ pub fn setup(auth: Authentication) -> anyhow::Result<lightyear_client::Client<My
     let config = ClientConfig {
         shared: SharedConfig::default(),
         netcode: Default::default(),
-        io: IoConfig::UdpSocket(addr),
+        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
     };
 
     // create lightyear client
@@ -26,7 +26,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
     let config = ClientConfig {
         shared: SharedConfig::default(),
         netcode: Default::default(),
-        io: IoConfig::UdpSocket(addr),
+        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);
     let plugin = Plugin::new(plugin_config);

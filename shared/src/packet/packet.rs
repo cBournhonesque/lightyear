@@ -6,6 +6,7 @@ use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
@@ -18,11 +19,13 @@ use crate::protocol::BitSerializable;
 use crate::serialize::reader::{BitRead, ReadBuffer};
 use crate::serialize::writer::WriteBuffer;
 
-pub(crate) const MTU_PACKET_BYTES: usize = 1250;
 const HEADER_BYTES: usize = 50;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
-pub(crate) const MTU_PAYLOAD_BYTES: usize = 1200;
-pub(crate) const FRAGMENT_SIZE: usize = 1200;
+pub(crate) const MTU_PAYLOAD_BYTES: usize = 1150;
+// pub(crate) const FRAGMENT_SIZE: usize = 1140;
+
+// TODO: THERE IS SOMETHING WRONG WITH EITHER LAST FRAGMENT OR ALL FRAGMENTS!
+pub(crate) const FRAGMENT_SIZE: usize = 500;
 
 // TODO: we don't need SinglePacket vs FragmentPacket; we can just re-use the same thing
 //  because MessageContainer already has the information about whether it is a fragment or not
@@ -37,7 +40,7 @@ pub(crate) const FRAGMENT_SIZE: usize = 1200;
 /// Single individual packet sent over the network
 /// Contains multiple small messages
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SinglePacket<const C: usize = MTU_PACKET_BYTES> {
+pub(crate) struct SinglePacket {
     pub(crate) data: BTreeMap<NetId, Vec<SingleData>>,
     // num_bits: usize,
 }
@@ -105,7 +108,8 @@ impl BitSerializable for SinglePacket {
             .enumerate()
             .map(|(i, v)| (i == self.data.len() - 1, v))
             .try_for_each(|(is_last_channel, (channel_id, messages))| {
-                writer.serialize(channel_id)?;
+                info!(?channel_id, "ENCODING CHANNEL ID");
+                writer.encode(channel_id, Gamma)?;
 
                 // initial continue bit for messages (are there messages for this channel or not?)
                 writer.serialize(&!messages.is_empty())?;
@@ -134,7 +138,8 @@ impl BitSerializable for SinglePacket {
 
         // check channel continue bit to see if there are more channels
         while continue_read_channel {
-            let mut channel_id = reader.deserialize::<NetId>()?;
+            let mut channel_id = reader.decode::<NetId>(Gamma)?;
+            info!(?channel_id, "DECODED CHANNEL ID");
 
             let mut messages = Vec::new();
 
@@ -178,7 +183,7 @@ impl FragmentedPacket {
     }
 
     /// Return the list of message ids in the packet
-    pub fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
+    pub(crate) fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
         let mut data: HashMap<_, _> = self
             .packet
             .data

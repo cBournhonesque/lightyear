@@ -35,11 +35,12 @@ pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
 pub use serialize::writer::WriteBuffer;
-pub use transport::io::{Io, IoConfig};
+pub use transport::conditioner::LinkConditionerConfig;
+pub use transport::io::{Io, IoConfig, TransportConfig};
 pub use transport::udp::UdpSocket;
 
 pub mod channel;
-mod config;
+pub mod config;
 pub mod connection;
 pub mod netcode;
 pub mod packet;

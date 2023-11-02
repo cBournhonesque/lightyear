@@ -21,7 +21,7 @@ use lightyear_shared::replication::Replicate;
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
     ChannelSettings, ConnectEvent, ConnectionEvents, DisconnectEvent, EntitySpawnEvent, IoConfig,
-    Message, Protocol, SharedConfig,
+    Message, Protocol, SharedConfig, TransportConfig, UdpSocket,
 };
 
 fn main() {
@@ -92,7 +92,7 @@ fn setup(app: &mut App, cli: Cli) {
                 .with_key(KEY);
             let config = ServerConfig {
                 netcode: netcode_config,
-                io: IoConfig::UdpSocket(server_addr),
+                io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
             };
             let plugin_config = lightyear_server::PluginConfig::new(config, protocol());
             app.add_plugins(lightyear_server::Plugin::new(plugin_config));
@@ -122,7 +122,7 @@ fn setup(app: &mut App, cli: Cli) {
             let config = ClientConfig {
                 shared: SharedConfig::default(),
                 netcode: Default::default(),
-                io: IoConfig::UdpSocket(addr),
+                io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
             };
             let plugin_config = lightyear_client::PluginConfig::new(config, protocol(), auth);
             app.add_plugins(lightyear_client::Plugin::new(plugin_config));

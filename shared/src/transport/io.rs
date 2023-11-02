@@ -5,6 +5,7 @@ use std::io::Result;
 use std::net::SocketAddr;
 
 use crate::serialize::reader::ReadBuffer;
+use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
 use crate::UdpSocket;
 
@@ -16,8 +17,28 @@ pub struct Io {
     // read_buffer: ReadBuffer<'_>,
 }
 
-pub enum IoConfig {
+#[derive(Clone)]
+pub enum TransportConfig {
     UdpSocket(SocketAddr),
+}
+
+#[derive(Clone)]
+pub struct IoConfig {
+    pub transport: TransportConfig,
+    pub conditioner: Option<LinkConditionerConfig>,
+}
+
+impl IoConfig {
+    pub fn from_transport(transport: TransportConfig) -> Self {
+        Self {
+            transport,
+            conditioner: None,
+        }
+    }
+    pub fn with_conditioner(mut self, conditioner_config: LinkConditionerConfig) -> Self {
+        self.conditioner = Some(conditioner_config);
+        self
+    }
 }
 
 impl Io {
@@ -29,12 +50,18 @@ impl Io {
     // }
 
     pub fn from_config(config: IoConfig) -> Result<Self> {
-        match config {
-            IoConfig::UdpSocket(addr) => {
+        match config.transport {
+            TransportConfig::UdpSocket(addr) => {
                 let socket = UdpSocket::new(&addr)?;
                 let local_addr = socket.local_addr();
                 let sender = Box::new(socket.clone());
-                let receiver = Box::new(socket);
+
+                let receiver: Box<dyn PacketReceiver + Send + Sync>;
+                if let Some(conditioner) = config.conditioner {
+                    receiver = Box::new(ConditionedPacketReceiver::new(socket, &conditioner));
+                } else {
+                    receiver = Box::new(socket);
+                }
                 Ok(Self::new(local_addr, sender, receiver))
             }
         }

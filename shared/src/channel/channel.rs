@@ -23,7 +23,7 @@ pub trait Channel: 'static {
 }
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChannelBuilder {
     // TODO: this has been made public just for testing integartion tests
     pub settings: ChannelSettings,
@@ -77,7 +77,7 @@ impl ChannelContainer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChannelSettings {
     // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
     pub mode: ChannelMode,
@@ -114,7 +114,7 @@ impl ChannelMode {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ChannelDirection {
     ClientToServer,
     ServerToClient,

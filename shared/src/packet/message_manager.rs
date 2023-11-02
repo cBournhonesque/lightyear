@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use anyhow::{anyhow, Context};
 use bitcode::read::Read;
 use bytes::Bytes;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -86,11 +86,11 @@ impl<M: BitSerializable> MessageManager<M> {
         }
 
         let packets = self.packet_manager.build_packets(data_to_send);
-        trace!(?packets, "Sending packets");
 
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
         for packet in packets {
+            trace!(?packet, "Sending packet");
             // Step 2. Get the packets to send over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
             bytes.push(payload);

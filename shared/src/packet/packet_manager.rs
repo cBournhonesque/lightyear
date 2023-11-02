@@ -22,7 +22,8 @@ use crate::serialize::writer::WriteBuffer;
 use crate::ChannelKind;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
-pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
+// pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
+pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize);
 
 pub type Payload = Vec<u8>;
 
@@ -70,6 +71,7 @@ impl PacketManager {
     /// Reset the buffers used to encode packets
     pub fn clear_try_write_buffer(&mut self) {
         self.try_write_buffer.start_write();
+        debug_assert_eq!(self.try_write_buffer.num_bits_written(), 0);
         // self.try_write_buffer = WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY);
         self.try_write_buffer
             .set_reserved_bits(PACKET_BUFFER_CAPACITY);
@@ -149,10 +151,14 @@ impl PacketManager {
         // TODO: how do we know how many bits are necessary to write the fragmented packet + bytes?
         //  - could try to compute it manually, but the length of Bytes is encoded with Gamma
         //  - could serialize the packet somewhere, and check the number of bits written
+
+        debug_assert!(packet.fragment.bytes.len() <= FRAGMENT_SIZE);
         if is_last_fragment {
             packet.encode(&mut self.try_write_buffer).unwrap();
-            let num_bits_written = self.try_write_buffer.num_bits_written();
-            self.try_write_buffer.reserve_bits(num_bits_written);
+            // let num_bits_written = self.try_write_buffer.num_bits_written();
+            // no need to reserve bits, since we already just wrote in the try buffer!
+            // self.try_write_buffer.reserve_bits(num_bits_written);
+            debug_assert!(!self.try_write_buffer.overflowed())
         }
 
         Packet {
@@ -330,6 +336,8 @@ impl PacketManager {
 
                     // TODO: bin packing, add the biggest message that could fit
                     //  use a free list of Option<SingleData> to keep track of which messages have been added?
+
+                    // TODO: rename to can add message?
                     let num_bits =
                         single_messages.front().unwrap().bytes.len() * (u8::BITS as usize);
                     if self.can_add_bits(num_bits) {
@@ -348,6 +356,7 @@ impl PacketManager {
             // Start by writing all fragmented packets
             for fragment_data in fragment_messages.into_iter() {
                 let is_last_fragment = fragment_data.is_last_fragment();
+                debug_assert!(fragment_data.bytes.len() <= FRAGMENT_SIZE);
                 let mut packet = self.build_new_fragment_packet(channel_id, fragment_data);
                 if is_last_fragment {
                     loop {

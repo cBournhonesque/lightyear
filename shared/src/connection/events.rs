@@ -8,6 +8,7 @@ use crate::protocol::message::MessageKind;
 use crate::{Channel, ChannelKind, Message, MessageBehaviour, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
+#[derive(Debug)]
 pub struct ConnectionEvents<P: Protocol> {
     // netcode
     pub connection: bool,

@@ -41,7 +41,7 @@ macro_rules! protocolize {
                 Protocol, ReplicationSend, ReliableSettings, ChannelDirection, ChannelMode,
             };
 
-            #[derive(Clone)]
+            #[derive(Debug, Clone)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }

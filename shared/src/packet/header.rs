@@ -9,7 +9,7 @@ use crate::packet::wrapping_id::PacketId;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding
-#[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone)]
+#[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub(crate) struct PacketHeader {
     /// Type of the packet sent
     packet_type: PacketType,
@@ -245,8 +245,9 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    use super::PacketId;
-    use super::ReceiveBuffer;
+    use super::*;
+    use crate::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+    use bitcode::encoding::Fixed;
 
     #[test]
     fn test_recv_buffer() {
@@ -297,5 +298,24 @@ mod tests {
         recv_buffer.recv_packet(PacketId(49));
         assert_eq!(recv_buffer.last_recv_packet_id, Some(PacketId(82)));
         assert_eq!(recv_buffer.get_bitfield(), 1 << 32 - 1);
+    }
+
+    #[test]
+    fn test_serde_header() -> anyhow::Result<()> {
+        let header = PacketHeader {
+            packet_type: PacketType::Data,
+            packet_id: PacketId(27),
+            last_ack_packet_id: PacketId(13),
+            ack_bitfield: 3,
+        };
+        let mut writer = WriteWordBuffer::with_capacity(50);
+        writer.encode(&header, Fixed)?;
+        let data = writer.finish_write();
+
+        let mut reader = ReadWordBuffer::start_read(data);
+        let read_header = reader.decode::<PacketHeader>(Fixed)?;
+
+        assert_eq!(header, read_header);
+        Ok(())
     }
 }

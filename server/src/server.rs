@@ -27,7 +27,7 @@ pub struct Server<P: Protocol> {
     // Clients
     user_connections: HashMap<ClientId, Connection<P>>,
     // Protocol
-    protocol: P,
+    pub protocol: P,
     // Events
     events: ServerEvents<P>,
 }
@@ -159,6 +159,7 @@ impl<P: Protocol> Server<P> {
         P::Message: From<M>,
     {
         let channel = ChannelKind::of::<C>();
+        // TODO: if client not connected; buffer in advance?
         self.user_connections
             .get_mut(&client_id)
             .context("client not found")?

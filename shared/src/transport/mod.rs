@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use crate::ReadBuffer;
 
-mod conditioner;
+pub(crate) mod conditioner;
 pub(crate) mod io;
 pub(crate) mod udp;
 
