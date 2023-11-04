@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
-use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 
 pub(crate) mod fragment_sender;

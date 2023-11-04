@@ -8,16 +8,20 @@ use crate::connection::events::EventContext;
 use crate::packet::packet::{FragmentedPacket, FRAGMENT_SIZE};
 use serde::Serialize;
 
-use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::utils::named::Named;
+use crate::utils::wrapping_id;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
 //   be able to take a reference to a M and serialize it into bytes (so we can cheaply clone)
 //   in the serialized message, include the net_id (for decoding)
 //   no bit padding
+
+/// Internal id that we assign to each message sent over the network
+wrapping_id!(MessageId);
 
 pub type FragmentIndex = u8;
 
@@ -342,7 +346,7 @@ impl MessageContainer {
 // }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext {
+pub trait Message: EventContext + Named {
     // /// Get the MessageKind for the message
     // fn kind(&self) -> MessageKind;
 

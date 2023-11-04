@@ -38,6 +38,7 @@ pub use serialize::writer::WriteBuffer;
 pub use transport::conditioner::LinkConditionerConfig;
 pub use transport::io::{Io, IoConfig, TransportConfig};
 pub use transport::udp::UdpSocket;
+pub use utils::named::{Named, TypeNamed};
 
 pub mod channel;
 pub mod config;
@@ -48,4 +49,6 @@ pub mod plugin;
 pub mod protocol;
 pub mod replication;
 pub mod serialize;
+pub mod tick;
 pub mod transport;
+pub mod utils;

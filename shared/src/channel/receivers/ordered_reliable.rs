@@ -6,8 +6,7 @@ use bytes::Bytes;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
-use crate::packet::wrapping_id::MessageId;
+use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 
 /// Ordered Reliable receiver: make sure that all messages are received,
 /// and return them in order
@@ -83,8 +82,7 @@ impl ChannelReceive for OrderedReliableReceiver {
 mod tests {
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::SingleData;
-    use crate::packet::wrapping_id::MessageId;
+    use crate::packet::message::{MessageId, SingleData};
     use crate::MessageContainer;
     use bytes::Bytes;
 

@@ -4,8 +4,7 @@ use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
-use crate::packet::wrapping_id::MessageId;
+use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 
 /// Unordered Reliable receiver: make sure that all messages are received,
 /// and return them in any order
@@ -103,7 +102,6 @@ mod tests {
     use super::*;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::SingleData;
-    use crate::packet::wrapping_id::MessageId;
     use crate::MessageContainer;
     use bytes::Bytes;
 

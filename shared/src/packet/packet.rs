@@ -13,17 +13,21 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::packet::packet_type::PacketType;
-use crate::packet::wrapping_id::MessageId;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::{BitRead, ReadBuffer};
 use crate::serialize::writer::WriteBuffer;
+use crate::utils::wrapping_id;
+
+/// Internal id that we assign to each packet sent over the network
+wrapping_id!(PacketId);
 
 /// Maximum number of bytes to write the header
 /// PacketType: 2 bits
 /// Rest: 64 bits (8 bytes)
-const HEADER_BYTES: usize = 9;
+// const HEADER_BYTES: usize = 9;
+const HEADER_BYTES: usize = 30;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
 /// remove 1 byte for byte alignment at the end
 pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
@@ -380,11 +384,10 @@ mod tests {
     use bytes::Bytes;
     use lightyear_derive::ChannelInternal;
 
-    use crate::packet::message::{FragmentData, SingleData};
+    use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, PacketData, SinglePacket};
     use crate::packet::packet_manager::PacketManager;
     use crate::packet::packet_type::PacketType;
-    use crate::packet::wrapping_id::MessageId;
     use crate::{
         BitSerializable, ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry,
         ChannelSettings, MessageContainer, ReadBuffer, ReadWordBuffer, WriteBuffer,
@@ -411,7 +414,7 @@ mod tests {
     #[test]
     fn test_single_packet_add_messages() {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let mut packet = SinglePacket::new();
 
         packet.add_message(0, SingleData::new(None, Bytes::from("hello")));
@@ -424,7 +427,7 @@ mod tests {
     #[test]
     fn test_encode_single_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let mut packet = SinglePacket::new();
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);
@@ -483,7 +486,7 @@ mod tests {
     #[test]
     fn test_encode_fragmented_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let bytes = Bytes::from(vec![0; 10]);
@@ -520,7 +523,7 @@ mod tests {
     #[test]
     fn test_encode_fragmented_packet_no_single_data() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let bytes = Bytes::from(vec![0; 10]);

@@ -3,7 +3,6 @@ use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::FragmentData;
 use crate::packet::message::{MessageContainer, SingleData};
-use crate::packet::wrapping_id::MessageId;
 
 pub(crate) mod fragment_receiver;
 pub(crate) mod ordered_reliable;

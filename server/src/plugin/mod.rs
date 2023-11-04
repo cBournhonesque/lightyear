@@ -8,7 +8,7 @@ use bevy::prelude::{
 use lightyear_shared::plugin::systems::replication::add_replication_send_systems;
 use lightyear_shared::{
     ClientId, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
-    ReplicationData, ReplicationSend, ReplicationSet,
+    ReplicationData, ReplicationSend, ReplicationSet, SharedPlugin,
 };
 
 use crate::config::ServerConfig;
@@ -58,6 +58,8 @@ impl<P: Protocol> PluginType for Plugin<P> {
         P::Message::add_events::<ClientId>(app);
 
         app
+            // PLUGINS
+            .add_plugins(SharedPlugin)
             // RESOURCES //
             .insert_resource(server)
             .init_resource::<ReplicationData>()

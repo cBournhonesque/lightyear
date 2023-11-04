@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 debug = []
+metrics = ["dep:metrics", "metrics-util", "metrics-tracing-context", "metrics-exporter-prometheus", "tokio"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,6 +28,14 @@ bevy = { version = "0.11", default-features = false }
 paste = "1.0"
 enum_delegate = "0.2"
 enum-as-inner = "0.6.0"
+tracing-subscriber = "0.3.17"
+cfg-if = "1.0"
+
+metrics = { version = "0.21", optional = true }
+metrics-util = { version = "0.15", optional = true }
+metrics-tracing-context = { version = "0.14", optional = true }
+metrics-exporter-prometheus = { version = "0.12.1", optional = true, default-features = false, features = ["http-listener"] }
+tokio = { version = "1.33", features = ["rt", "net", "time"], optional = true}
 
 tracing = "0.1"
 

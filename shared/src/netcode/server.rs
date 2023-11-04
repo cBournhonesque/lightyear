@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::{debug, error, trace};
 
-use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::{Io, ReadBuffer, ReadWordBuffer};
 
 use super::{

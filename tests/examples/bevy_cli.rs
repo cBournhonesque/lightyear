@@ -1,9 +1,11 @@
-//! Simple demo where the user can use the cli to spawn a client or a server process
 //! Run with
 //! - `cargo run --example bevy_cli server`
 //! - `cargo run --example bevy_cli client`
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
+
+#[cfg(feature = "metrics")]
+use metrics_exporter_prometheus;
 
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
@@ -20,17 +22,22 @@ use lightyear_shared::plugin::events::MessageEvent;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
-    ChannelSettings, ConnectEvent, ConnectionEvents, DisconnectEvent, EntitySpawnEvent, IoConfig,
-    Message, Protocol, SharedConfig, TransportConfig, UdpSocket,
+    ChannelSettings, ConnectEvent, DisconnectEvent, EntitySpawnEvent, IoConfig, Message, Protocol,
+    SharedConfig, TransportConfig,
 };
 
 fn main() {
+    // Prepare tracing
+    // let subscriber
+    // #[cfg(feature = "metrics")]
+    // Run a Prometheus scrape endpoint on 127.0.0.1:9000.
+    // let _ = metrics_exporter_prometheus::PrometheusBuilder::new()
+    //     .install()
+    //     .expect("failed to install prometheus exporter");
+
     let cli = Cli::parse();
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(LogPlugin {
-        level: Level::DEBUG,
-        filter: "wgpu=error,bevy_render=warn,naga=error,bevy_app=info".to_string(),
-    }));
+    app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     setup(&mut app, cli);
 
     app.run();

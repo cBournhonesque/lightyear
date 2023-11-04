@@ -25,7 +25,3 @@ pub trait PacketReceiver {
     /// Returns Ok(None) if no data is available
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>>;
 }
-
-pub trait PacketReader {
-    fn read<T: ReadBuffer>(&mut self) -> Result<Option<(T, SocketAddr)>>;
-}

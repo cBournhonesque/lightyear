@@ -1,6 +1,5 @@
-use crate::packet::message::{FragmentData, SingleData};
+use crate::packet::message::{FragmentData, MessageId, SingleData};
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::packet::wrapping_id::MessageId;
 use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};

@@ -5,6 +5,7 @@ use bevy::prelude::{App, IntoSystemConfigs, Plugin as PluginType, PostUpdate, Pr
 
 use lightyear_shared::{
     ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol, ReplicationData,
+    SharedPlugin,
 };
 
 use crate::client::Authentication;
@@ -60,6 +61,8 @@ impl<P: Protocol> PluginType for Plugin<P> {
         P::Message::add_events::<()>(app);
 
         app
+            // PLUGINS //
+            .add_plugins(SharedPlugin)
             // RESOURCES //
             .insert_resource(client)
             .init_resource::<ReplicationData>()

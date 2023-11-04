@@ -2,7 +2,7 @@ use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput, Field, Fields, ItemEnum};
+use syn::{parse_macro_input, DeriveInput, Field, Fields, ItemEnum, LitStr};
 
 #[derive(Debug, FromMeta)]
 struct MacroAttrs {
@@ -18,10 +18,28 @@ pub fn message_impl(
     // Helper Properties
     // Names
     let struct_name = input.ident;
+    let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
+    let lowercase_struct_name = Ident::new(
+        struct_name.to_string().to_lowercase().as_str(),
+        Span::call_site(),
+    );
+    let module_name = format_ident!("defne_{}", lowercase_struct_name);
 
     // Methods
     let gen = quote! {
-        impl Message for #struct_name {}
+        mod #module_name {
+            use super::#struct_name;
+            use #shared_crate_name::{Message, Named};
+            impl Message for #struct_name {}
+
+            // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
+            impl Named for #struct_name {
+                fn name(&self) -> String {
+                    return #struct_name_str.to_string();
+                }
+            }
+        }
+        // use #module_name;
     };
 
     proc_macro::TokenStream::from(gen)
@@ -61,6 +79,7 @@ pub fn message_protocol_impl(
     // Methods
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
+    let name_method = name_method(&input);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -71,7 +90,7 @@ pub fn message_protocol_impl(
             use bevy::prelude::{App, World};
             use #shared_crate_name::{enum_delegate, EnumAsInner};
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable, MessageBehaviour,
-                MessageProtocol, MessageKind};
+                MessageProtocol, MessageKind, Named};
             use #shared_crate_name::connection::events::{EventContext, IterMessageEvent};
             use #shared_crate_name::plugin::systems::events::push_message_events;
             use #shared_crate_name::plugin::events::MessageEvent;
@@ -88,6 +107,8 @@ pub fn message_protocol_impl(
                 #push_message_events_method
 
             }
+
+            #name_method
             // impl BitSerializable for #enum_name {
             //     #encode_method
             //     #decode_method
@@ -133,6 +154,29 @@ fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
         fn add_events<Ctx: EventContext>(app: &mut App)
         {
             #body
+        }
+    }
+}
+
+fn name_method(input: &ItemEnum) -> TokenStream {
+    let enum_name = &input.ident;
+    let variants = input.variants.iter().map(|v| v.ident.clone());
+    let mut body = quote! {};
+    for variant in input.variants.iter() {
+        let ident = &variant.ident;
+        body = quote! {
+            #body
+            &#enum_name::#ident(ref x) => x.name(),
+        }
+    }
+
+    quote! {
+        impl Named for #enum_name {
+            fn name(&self) -> String {
+                match self {
+                    #body
+                }
+            }
         }
     }
 }

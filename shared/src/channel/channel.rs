@@ -9,6 +9,7 @@ use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
 use crate::protocol::BitSerializable;
+use crate::TypeNamed;
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel
@@ -18,14 +19,14 @@ pub struct ChannelContainer {
     pub(crate) sender: ChannelSender,
 }
 
-pub trait Channel: 'static {
+pub trait Channel: 'static + TypeNamed {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
 }
 
 #[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct ChannelBuilder {
-    // TODO: this has been made public just for testing integartion tests
+    // TODO: this has been made public just for testing integration tests
     pub settings: ChannelSettings,
 }
 

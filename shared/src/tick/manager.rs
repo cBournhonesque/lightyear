@@ -1,0 +1,2 @@
+// Manages
+pub struct TickManager {}

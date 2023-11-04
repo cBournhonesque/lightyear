@@ -9,7 +9,9 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
-use crate::{ChannelKind, ChannelRegistry, Protocol, ReadBuffer, WriteBuffer};
+use crate::{
+    ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, WriteBuffer,
+};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
@@ -30,6 +32,11 @@ impl<P: Protocol> ProtocolMessage<P> {
     fn push_to_events(self, channel_kind: ChannelKind, events: &mut ConnectionEvents<P>) {
         match self {
             ProtocolMessage::Message(message) => {
+                #[cfg(feature = "metrics")]
+                {
+                    let message_name = message.name();
+                    metrics::increment_counter!(format!("receive_message.{}", message_name));
+                }
                 events.push_message(channel_kind, message);
             }
             ProtocolMessage::Replication(replication) => match replication {
@@ -59,6 +66,18 @@ impl<P: Protocol> Connection<P> {
 
 impl<P: Protocol> Connection<P> {
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
+        #[cfg(feature = "metrics")]
+        {
+            let channel_name = self
+                .message_manager
+                .channel_registry
+                .name(&channel)
+                .unwrap_or("unknown");
+            let message_name = message.name();
+            metrics::increment_counter!(format!("send_message.{}.{}", channel_name, message_name));
+            metrics::increment_counter!("send_message");
+        }
+        // debug!("Buffering message to channel");
         let message = ProtocolMessage::Message(message);
         self.message_manager.buffer_send(message, channel)
     }
@@ -115,6 +134,19 @@ impl<P: Protocol> Connection<P> {
         component: P::Components,
         channel: ChannelKind,
     ) -> Result<()> {
+        #[cfg(feature = "metrics")]
+        {
+            let channel_name = self
+                .message_manager
+                .channel_registry
+                .name(&channel)
+                .unwrap_or("unknown");
+            let component_kind: P::ComponentKinds = (&component).into();
+            metrics::increment_counter!(format!(
+                "single_component_update.{}.{:?}",
+                channel_name, component_kind
+            ));
+        }
         self.replication_manager
             .send_entity_update_single_component(entity, component, channel);
         Ok(())
@@ -148,6 +180,12 @@ impl<P: Protocol> Connection<P> {
     pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
+            let channel_name = self
+                .message_manager
+                .channel_registry
+                .name(&channel_kind)
+                .unwrap_or("unknown");
+            trace_span!("channel", channel = channel_name).entered();
             debug!(?channel_kind, "Received messages");
             for message in messages {
                 // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!

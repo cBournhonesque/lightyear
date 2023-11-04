@@ -13,7 +13,6 @@ use crate::packet::packet::{
     FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
 };
 use crate::packet::packet_type::PacketType;
-use crate::packet::wrapping_id::MessageId;
 use crate::protocol::registry::{NetId, TypeMapper};
 use crate::protocol::{BitSerializable, Protocol};
 use crate::serialize::reader::ReadBuffer;
@@ -30,7 +29,6 @@ pub type Payload = Vec<u8>;
 /// Handles the process of sending and receiving packets
 pub(crate) struct PacketManager {
     pub(crate) header_manager: PacketHeaderManager,
-    pub(crate) channel_kind_map: TypeMapper<ChannelKind>,
 
     // /// Current packets that have been built but must be sent over the network
     // /// (excludes current_packet)
@@ -54,10 +52,9 @@ pub(crate) struct PacketManager {
 // At the very end of the code, we deserialize using the kind of message + the bytes?
 
 impl PacketManager {
-    pub fn new(channel_kind_map: TypeMapper<ChannelKind>) -> Self {
+    pub fn new() -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
-            channel_kind_map,
             // current_packets: Vec::new(),
             // current_packet: None,
             // current_channel: None,
@@ -635,10 +632,9 @@ mod tests {
     use lightyear_derive::ChannelInternal;
 
     use crate::channel::senders::fragment_sender::FragmentSender;
-    use crate::packet::message::{FragmentData, SingleData};
+    use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::MTU_PAYLOAD_BYTES;
     use crate::packet::packet_manager::PacketManager;
-    use crate::packet::wrapping_id::MessageId;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
         MessageContainer, WriteBuffer,
@@ -668,7 +664,7 @@ mod tests {
     #[test]
     fn test_write_small_message() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
@@ -704,7 +700,7 @@ mod tests {
     #[test]
     fn test_write_big_message() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
@@ -726,7 +722,7 @@ mod tests {
     #[test]
     fn test_pack_big_message() {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let channel_kind1 = ChannelKind::of::<Channel1>();
         let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
         let channel_kind2 = ChannelKind::of::<Channel2>();
@@ -801,7 +797,7 @@ mod tests {
     #[test]
     fn test_cannot_write_channel() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new(channel_registry.kind_map());
+        let mut manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let mut packet = manager.build_new_single_packet();

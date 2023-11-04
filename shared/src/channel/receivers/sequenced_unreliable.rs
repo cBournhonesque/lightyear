@@ -4,8 +4,7 @@ use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
-use crate::packet::wrapping_id::MessageId;
+use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 
 /// Sequenced Unreliable receiver:
 /// do not return messages in order, but ignore the messages that are older than the most recent one received
@@ -65,8 +64,7 @@ impl ChannelReceive for SequencedUnreliableReceiver {
 mod tests {
     use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
     use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::SingleData;
-    use crate::packet::wrapping_id::MessageId;
+    use crate::packet::message::{MessageId, SingleData};
     use crate::MessageContainer;
     use bytes::Bytes;
 

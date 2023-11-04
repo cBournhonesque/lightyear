@@ -10,13 +10,12 @@ use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
-use crate::packet::packet::{Packet, PacketData};
+use crate::packet::packet::{Packet, PacketData, PacketId};
 use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
-use crate::packet::wrapping_id::{MessageId, PacketId};
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
-use crate::transport::{PacketReader, PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::{
     BitSerializable, Channel, ChannelKind, ChannelRegistry, ReadWordBuffer, WriteBuffer,
     WriteWordBuffer,
@@ -30,6 +29,7 @@ pub struct MessageManager<M: BitSerializable> {
     packet_manager: PacketManager,
     // TODO: add ordering of channels per priority
     channels: HashMap<ChannelKind, ChannelContainer>,
+    pub(crate) channel_registry: ChannelRegistry,
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
@@ -43,8 +43,9 @@ pub struct MessageManager<M: BitSerializable> {
 impl<M: BitSerializable> MessageManager<M> {
     pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
-            packet_manager: PacketManager::new(channel_registry.kind_map()),
+            packet_manager: PacketManager::new(),
             channels: channel_registry.channels(),
+            channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             _marker: Default::default(),
@@ -53,7 +54,6 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(&mut self, message: M, channel_kind: ChannelKind) -> anyhow::Result<()> {
-        // debug!("Buffering message to channel");
         let mut channel = self
             .channels
             .get_mut(&channel_kind)
@@ -74,9 +74,8 @@ impl<M: BitSerializable> MessageManager<M> {
             BTreeMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let channel_id = self
-                .packet_manager
-                .channel_kind_map
-                .net_id(channel_kind)
+                .channel_registry
+                .get_net_from_kind(channel_kind)
                 .context("cannot find channel id")?;
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
@@ -102,9 +101,8 @@ impl<M: BitSerializable> MessageManager<M> {
                 .iter()
                 .try_for_each(|(channel_id, message_ack)| {
                     let channel_kind = self
-                        .packet_manager
-                        .channel_kind_map
-                        .kind(*channel_id)
+                        .channel_registry
+                        .get_kind_from_net_id(*channel_id)
                         .context("cannot find channel kind")?;
                     let channel = self
                         .channels
@@ -164,9 +162,8 @@ impl<M: BitSerializable> MessageManager<M> {
         // Step 4. Put the messages from the packet in the internal buffers for each channel
         for (channel_net_id, messages) in packet.data.contents() {
             let channel_kind = self
-                .packet_manager
-                .channel_kind_map
-                .kind(channel_net_id)
+                .channel_registry
+                .get_kind_from_net_id(channel_net_id)
                 .context(format!(
                     "Could not recognize net_id {} as a channel",
                     channel_net_id
@@ -216,9 +213,8 @@ mod tests {
     use lightyear_derive::ChannelInternal;
 
     use crate::channel::channel::ReliableSettings;
-    use crate::packet::message::MessageAck;
-    use crate::packet::packet::FRAGMENT_SIZE;
-    use crate::packet::wrapping_id::{MessageId, PacketId};
+    use crate::packet::message::{MessageAck, MessageId};
+    use crate::packet::packet::{PacketId, FRAGMENT_SIZE};
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,

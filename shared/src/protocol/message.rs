@@ -7,14 +7,14 @@ use serde::Serialize;
 use crate::connection::events::{EventContext, IterMessageEvent};
 use crate::protocol::registry::{TypeKind, TypeMapper};
 use crate::serialize::writer::WriteBuffer;
-use crate::{BitSerializable, Message, Protocol};
+use crate::{BitSerializable, Message, Named, Protocol};
 
 // client writes an Enum containing all their message type
 // each message must derive message
 
 // that big enum will implement MessageProtocol via a proc macro
 pub trait MessageProtocol:
-    BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour
+    BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour + Named
 {
     type Protocol: Protocol;
 

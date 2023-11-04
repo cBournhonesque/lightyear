@@ -10,9 +10,8 @@ use mock_instant::Instant;
 use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
 use crate::packet::packet_manager::PacketManager;
-use crate::packet::wrapping_id::MessageId;
 use crate::protocol::BitSerializable;
 
 pub struct FragmentAck {

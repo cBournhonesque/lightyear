@@ -158,6 +158,7 @@ impl<P: Protocol> Server<P> {
     where
         P::Message: From<M>,
     {
+        trace_span!("buffer_send", client_id = ?client_id).entered();
         let channel = ChannelKind::of::<C>();
         // TODO: if client not connected; buffer in advance?
         self.user_connections
@@ -194,6 +195,7 @@ impl<P: Protocol> Server<P> {
 
     pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
+            trace_span!("receive", client_id = ?client_id).entered();
             let connection_events = connection.receive(world);
             if !connection_events.is_empty() {
                 self.events.push_events(*client_id, connection_events);

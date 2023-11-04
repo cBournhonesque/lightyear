@@ -9,9 +9,8 @@ use mock_instant::Instant;
 use rand;
 use rand::{thread_rng, Rng};
 
-use implementation::TimeMinHeap;
-
 use crate::transport::PacketReceiver;
+use crate::utils::ReadyBuffer;
 
 /// Contains configuration required to initialize a LinkConditioner
 #[derive(Clone)]
@@ -31,7 +30,7 @@ pub struct LinkConditionerConfig {
 pub struct ConditionedPacketReceiver<T: PacketReceiver, P: Eq> {
     packet_receiver: T,
     config: LinkConditionerConfig,
-    pub time_queue: TimeMinHeap<P>,
+    pub time_queue: ReadyBuffer<Instant, P>,
     last_packet: Option<P>,
 }
 
@@ -40,7 +39,7 @@ impl<T: PacketReceiver, P: Eq> ConditionedPacketReceiver<T, P> {
         ConditionedPacketReceiver {
             packet_receiver,
             config: link_conditioner_config.clone(),
-            time_queue: TimeMinHeap::new(),
+            time_queue: ReadyBuffer::new(),
             last_packet: None,
         }
     }
@@ -49,7 +48,7 @@ impl<T: PacketReceiver, P: Eq> ConditionedPacketReceiver<T, P> {
 // Condition a packet by potentially adding latency/jitter/loss to it
 fn condition_packet<P: Eq>(
     config: &LinkConditionerConfig,
-    time_queue: &mut TimeMinHeap<P>,
+    time_queue: &mut ReadyBuffer<Instant, P>,
     packet: P,
 ) {
     let mut rng = thread_rng();
@@ -88,8 +87,8 @@ impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketA
             }
         }
         // only return a packet if it is ready to be returned
-        match self.time_queue.pop_item() {
-            Some((addr, data)) => {
+        match self.time_queue.pop_item(&Instant::now()) {
+            Some((_, (addr, data))) => {
                 // we use `last_packet` to get ownership of the data
                 self.last_packet = Some((addr, data));
                 Ok(Some((self.last_packet.as_mut().unwrap().1.as_mut(), addr)))
@@ -136,120 +135,6 @@ impl LinkConditionerConfig {
             incoming_latency: 300,
             incoming_jitter: 84,
             incoming_loss: 0.04,
-        }
-    }
-}
-
-pub(crate) mod implementation {
-    use std::{cmp::Ordering, collections::BinaryHeap};
-
-    use super::Instant;
-
-    /// A heap that contains items associated with an instant.
-    ///
-    /// The instant represents the time at which the item becomes "visible"
-    /// Before that time, it's as if the item does not exist
-    #[derive(Clone)]
-    pub(crate) struct TimeMinHeap<T: Eq + PartialEq> {
-        heap: BinaryHeap<ItemWithTime<T>>,
-    }
-
-    impl<T: Eq + PartialEq> TimeMinHeap<T> {
-        pub fn new() -> Self {
-            Self {
-                heap: BinaryHeap::default(),
-            }
-        }
-    }
-
-    impl<T: Eq + PartialEq> TimeMinHeap<T> {
-        /// Adds an item to the heap marked by time
-        pub fn add_item(&mut self, instant: Instant, item: T) {
-            self.heap.push(ItemWithTime { instant, item });
-        }
-
-        /// Returns whether or not there is an item that is ready to be returned
-        /// (i.e. we are beyond the instant associated with the item)
-        pub fn has_item(&self) -> bool {
-            if self.heap.is_empty() {
-                return false;
-            }
-            if let Some(item) = self.heap.peek() {
-                return item.instant <= Instant::now();
-            }
-            false
-        }
-
-        /// Pops the most recent item from the queue if sufficient time has elapsed
-        /// (i.e. we are beyond the instant associated with the item)
-        pub fn pop_item(&mut self) -> Option<T> {
-            if self.has_item() {
-                if let Some(container) = self.heap.pop() {
-                    return Some(container.item);
-                }
-            }
-            None
-        }
-
-        /// Returns the length of the underlying queue
-        pub fn len(&self) -> usize {
-            self.heap.len()
-        }
-
-        /// Checks if the underlying queue is empty
-        pub fn is_empty(&self) -> bool {
-            self.heap.is_empty()
-        }
-    }
-
-    #[derive(Clone, Eq, PartialEq)]
-    struct ItemWithTime<T> {
-        pub instant: Instant,
-        pub item: T,
-    }
-
-    /// BinaryHeap is a max-heap, so we must reverse the ordering of the Instants
-    /// to get a min-heap
-    impl<T: Eq + PartialEq> Ord for ItemWithTime<T> {
-        fn cmp(&self, other: &ItemWithTime<T>) -> Ordering {
-            other.instant.cmp(&self.instant)
-        }
-    }
-
-    impl<T: Eq + PartialEq> PartialOrd for ItemWithTime<T> {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use std::time::Duration;
-
-        use mock_instant::MockClock;
-
-        use super::Instant;
-        use super::TimeMinHeap;
-
-        #[test]
-        fn test_time_heap() {
-            let mut heap = TimeMinHeap::<u64>::new();
-            let now = Instant::now();
-
-            // can insert items in any order of time
-            heap.add_item(now + Duration::from_secs(2), 2);
-            heap.add_item(now + Duration::from_secs(1), 1);
-            heap.add_item(now + Duration::from_secs(3), 3);
-
-            // no items are visible
-            assert_eq!(heap.has_item(), false);
-
-            // we move the clock to 2, 2 items should be visible, in order of insertion
-            MockClock::advance(Duration::from_secs(2));
-            assert_eq!(heap.pop_item(), Some(1));
-            assert_eq!(heap.pop_item(), Some(2));
-            assert_eq!(heap.pop_item(), None);
-            assert_eq!(heap.len(), 1);
         }
     }
 }

@@ -3,7 +3,7 @@ pub mod some_message {
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};
-    use lightyear_shared::{protocolize, Message};
+    use lightyear_shared::{protocolize, Message, Named};
 
     #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
@@ -34,7 +34,7 @@ pub mod some_message {
 #[cfg(test)]
 mod tests {
     use lightyear_shared::BitSerializable;
-    use lightyear_shared::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+    use lightyear_shared::{Named, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
 
     use crate::some_message::MyMessageProtocol;
 
@@ -43,6 +43,7 @@ mod tests {
     #[test]
     fn test_message_derive() -> anyhow::Result<()> {
         let message1: MyMessageProtocol = MyMessageProtocol::Message1(Message1(1));
+        assert_eq!(message1.name(), "Message1");
         let mut writer = WriteWordBuffer::with_capacity(10);
         message1.encode(&mut writer)?;
         let bytes = writer.finish_write();

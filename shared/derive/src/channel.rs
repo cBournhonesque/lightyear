@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, DeriveInput, LitStr};
 
 use super::shared::{get_struct_type, StructType};
 
@@ -21,6 +21,7 @@ pub fn channel_impl(
 
     // Names
     let struct_name = input.ident;
+    let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
     let lowercase_struct_name = Ident::new(
         struct_name.to_string().to_lowercase().as_str(),
         Span::call_site(),
@@ -32,7 +33,7 @@ pub fn channel_impl(
 
     let gen = quote! {
         mod #module_name {
-            pub use #shared_crate_name::{Channel, ChannelBuilder, ChannelContainer, ChannelSettings};
+            pub use #shared_crate_name::{Channel, ChannelBuilder, ChannelContainer, ChannelSettings, TypeNamed};
             use super::*;
 
             impl Channel for #struct_name {
@@ -46,6 +47,11 @@ pub fn channel_impl(
             impl Clone for #struct_name {
                 fn clone(&self) -> Self {
                     Self
+                }
+            }
+            impl TypeNamed for #struct_name {
+                fn name() -> String {
+                    return #struct_name_str.to_string();
                 }
             }
         }

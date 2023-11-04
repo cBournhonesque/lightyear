@@ -5,7 +5,6 @@ use tracing::info;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
-use crate::packet::wrapping_id::MessageId;
 
 pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<SingleData>,
@@ -43,8 +42,7 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
 mod tests {
     use super::*;
     use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::SingleData;
-    use crate::packet::wrapping_id::MessageId;
+    use crate::packet::message::{MessageId, SingleData};
     use crate::MessageContainer;
     use bytes::Bytes;
 
