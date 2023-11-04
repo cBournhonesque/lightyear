@@ -26,11 +26,12 @@ wrapping_id!(PacketId);
 /// Maximum number of bytes to write the header
 /// PacketType: 2 bits
 /// Rest: 64 bits (8 bytes)
-// const HEADER_BYTES: usize = 9;
-const HEADER_BYTES: usize = 30;
+const HEADER_BYTES: usize = 9;
+// const HEADER_BYTES: usize = 30;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
 /// remove 1 byte for byte alignment at the end
 pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
+// pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 50;
 
 // TODO: THERE IS SOMETHING WRONG WITH EITHER LAST FRAGMENT OR ALL FRAGMENTS!
 /// The maximum number of bytes for a message before it is fragmented

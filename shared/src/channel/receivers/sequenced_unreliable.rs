@@ -1,10 +1,13 @@
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
+
+const DISCARD_AFTER: Duration = Duration::from_secs(3);
 
 /// Sequenced Unreliable receiver:
 /// do not return messages in order, but ignore the messages that are older than the most recent one received
@@ -14,6 +17,7 @@ pub struct SequencedUnreliableReceiver {
     /// Highest message id received so far
     most_recent_message_id: MessageId,
     fragment_receiver: FragmentReceiver,
+    current_time: Instant,
 }
 
 impl SequencedUnreliableReceiver {
@@ -22,11 +26,18 @@ impl SequencedUnreliableReceiver {
             recv_message_buffer: VecDeque::new(),
             most_recent_message_id: MessageId(0),
             fragment_receiver: FragmentReceiver::new(),
+            current_time: Instant::now(),
         }
     }
 }
 
 impl ChannelReceive for SequencedUnreliableReceiver {
+    fn update(&mut self, elapsed: f64) {
+        self.current_time += Duration::from_secs_f64(elapsed);
+        self.fragment_receiver
+            .cleanup(self.current_time - DISCARD_AFTER);
+    }
+
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message
@@ -47,7 +58,10 @@ impl ChannelReceive for SequencedUnreliableReceiver {
         match message {
             MessageContainer::Single(data) => self.recv_message_buffer.push_back(data),
             MessageContainer::Fragment(data) => {
-                if let Some(single_data) = self.fragment_receiver.receive_fragment(data)? {
+                if let Some(single_data) = self
+                    .fragment_receiver
+                    .receive_fragment(data, Some(self.current_time))?
+                {
                     self.recv_message_buffer.push_back(single_data);
                 }
             }

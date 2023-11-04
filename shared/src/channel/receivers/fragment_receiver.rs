@@ -4,6 +4,7 @@ use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use std::collections::HashMap;
+use std::time::Instant;
 use tracing::trace;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
@@ -18,16 +19,34 @@ impl FragmentReceiver {
         }
     }
 
-    pub fn receive_fragment(&mut self, fragment: FragmentData) -> Result<Option<SingleData>> {
+    /// Discard all messages for which the latest fragment was received before the cleanup time
+    /// (i.e. the message is too old)
+    ///
+    /// If we don't keep track of the last received time, we will never clean up the messages.
+    pub fn cleanup(&mut self, cleanup_time: Instant) {
+        self.fragment_messages.retain(|_, c| {
+            c.last_received
+                .map(|t| t > cleanup_time)
+                .unwrap_or_else(|| true)
+        })
+    }
+
+    pub fn receive_fragment(
+        &mut self,
+        fragment: FragmentData,
+        current_time: Option<Instant>,
+    ) -> Result<Option<SingleData>> {
         let fragment_message = self
             .fragment_messages
             .entry(fragment.message_id)
             .or_insert_with(|| FragmentConstructor::new(fragment.num_fragments as usize));
 
         // completed the fragmented message!
-        if let Some(payload) = fragment_message
-            .receive_fragment(fragment.fragment_id as usize, fragment.bytes.as_ref())?
-        {
+        if let Some(payload) = fragment_message.receive_fragment(
+            fragment.fragment_id as usize,
+            fragment.bytes.as_ref(),
+            current_time,
+        )? {
             self.fragment_messages.remove(&fragment.message_id);
             return Ok(Some(SingleData::new(Some(fragment.message_id), payload)));
         }
@@ -44,6 +63,8 @@ pub struct FragmentConstructor {
     received: Vec<bool>,
     // bytes: Bytes,
     bytes: Vec<u8>,
+
+    last_received: Option<Instant>,
 }
 
 impl FragmentConstructor {
@@ -53,6 +74,7 @@ impl FragmentConstructor {
             num_received_fragments: 0,
             received: vec![false; num_fragments],
             bytes: vec![0; num_fragments * FRAGMENT_SIZE],
+            last_received: None,
         }
     }
 
@@ -60,7 +82,10 @@ impl FragmentConstructor {
         &mut self,
         fragment_index: usize,
         bytes: &[u8],
+        received_time: Option<Instant>,
     ) -> Result<Option<Bytes>> {
+        self.last_received = received_time;
+
         let is_last_fragment = fragment_index == self.num_fragments - 1;
         // TODO: check sizes?
 
@@ -100,9 +125,9 @@ mod tests {
         let message_bytes = Bytes::from(vec![1 as u8; num_bytes]);
         let fragments = FragmentSender::new().build_fragments(MessageId(0), message_bytes.clone());
 
-        assert_eq!(receiver.receive_fragment(fragments[0].clone())?, None);
+        assert_eq!(receiver.receive_fragment(fragments[0].clone(), None)?, None);
         assert_eq!(
-            receiver.receive_fragment(fragments[1].clone())?,
+            receiver.receive_fragment(fragments[1].clone(), None)?,
             Some(SingleData {
                 id: Some(MessageId(0)),
                 bytes: message_bytes.clone()

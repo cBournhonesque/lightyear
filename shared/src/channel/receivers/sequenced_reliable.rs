@@ -29,6 +29,8 @@ impl SequencedReliableReceiver {
 }
 
 impl ChannelReceive for SequencedReliableReceiver {
+    fn update(&mut self, elapsed: f64) {}
+
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message
@@ -52,7 +54,9 @@ impl ChannelReceive for SequencedReliableReceiver {
                     entry.insert(data);
                 }
                 MessageContainer::Fragment(data) => {
-                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data)? {
+                    if let Some(single_data) =
+                        self.fragment_receiver.receive_fragment(data, None)?
+                    {
                         entry.insert(single_data);
                     }
                 }
@@ -80,6 +84,8 @@ mod tests {
     use crate::packet::message::SingleData;
     use crate::MessageContainer;
     use bytes::Bytes;
+
+    // TODO: check that the fragment receiver correctly removes items from the buffer, so they dont accumulate!
 
     #[test]
     fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {

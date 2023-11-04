@@ -88,9 +88,10 @@ impl<P: Protocol> Client<P> {
 
     /// Maintain connection with server, queues up any packet received from the server
     pub fn update(&mut self, time: f64) -> Result<()> {
-        self.netcode
-            .try_update(time, &mut self.io)
-            .context("Error updating netcode client")
+        self.netcode.try_update(time, &mut self.io)?;
+
+        self.connection.update(time);
+        Ok(())
     }
 
     /// Send a message to the server

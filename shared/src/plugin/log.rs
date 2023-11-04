@@ -104,7 +104,11 @@ impl Plugin for LogPlugin {
             #[cfg(feature = "tracing-tracy")]
             let tracy_layer = tracing_tracy::TracyLayer::new();
 
-            let fmt_layer = tracing_subscriber::fmt::Layer::default().with_writer(std::io::stderr);
+            let fmt_layer = tracing_subscriber::fmt::Layer::default()
+                // log span enters
+                .with_span_events(tracing_subscriber::fmt::format::FmtSpan::ENTER)
+                // .with_max_level(tracing::Level::TRACE)
+                .with_writer(std::io::stderr);
 
             // bevy_render::renderer logs a `tracy.frame_mark` event every frame
             // at Level::INFO. Formatted logs should omit it.
@@ -122,11 +126,9 @@ impl Plugin for LogPlugin {
             let subscriber = subscriber.with(tracy_layer);
 
             // // add metrics_tracing_context support
-            // #[cfg(feature = "metrics")]
             cfg_if::cfg_if! {
                 if #[cfg(feature = "metrics")] {
                     let subscriber = subscriber.with(MetricsLayer::new());
-                    dbg!("MINE OWN");
                     // create a prometheus exporter with tracing context support
                     let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
                     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -137,16 +139,18 @@ impl Plugin for LogPlugin {
                         let _g = runtime.enter();
                         builder.build().unwrap()
                     };
-                    Stack::new(recorder)
-                    .push(TracingContextLayer::all())
-                    .install();
-                    runtime.spawn(exporter);
+                    // add extra metrics layers
+                    // Stack::new(recorder)
+                    // .push(TracingContextLayer::all())
+                    // .install();
+                    // runtime.spawn(exporter);
+
                     // Add in tracing
-                    // let traced_recorder = TracingContextLayer::all().layer(recorder);
-                    // thread::Builder::new()
-                    //     .spawn(move || runtime.block_on(exporter))
-                    //     .unwrap();
-                    // metrics::set_boxed_recorder(Box::new(traced_recorder));
+                    let traced_recorder = TracingContextLayer::all().layer(recorder);
+                    thread::Builder::new()
+                        .spawn(move || runtime.block_on(exporter))
+                        .unwrap();
+                    metrics::set_boxed_recorder(Box::new(traced_recorder));
                 } else {
                 }
             }

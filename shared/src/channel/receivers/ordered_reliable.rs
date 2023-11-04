@@ -31,6 +31,8 @@ impl OrderedReliableReceiver {
 }
 
 impl ChannelReceive for OrderedReliableReceiver {
+    fn update(&mut self, elapsed: f64) {}
+
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message
@@ -49,7 +51,9 @@ impl ChannelReceive for OrderedReliableReceiver {
                     entry.insert(data);
                 }
                 MessageContainer::Fragment(data) => {
-                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data)? {
+                    if let Some(single_data) =
+                        self.fragment_receiver.receive_fragment(data, None)?
+                    {
                         entry.insert(single_data);
                     }
                 }

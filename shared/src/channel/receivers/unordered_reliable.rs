@@ -33,6 +33,10 @@ impl UnorderedReliableReceiver {
 }
 
 impl ChannelReceive for UnorderedReliableReceiver {
+    fn update(&mut self, elapsed: f64) {
+        todo!()
+    }
+
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         let message_id = message
@@ -58,7 +62,9 @@ impl ChannelReceive for UnorderedReliableReceiver {
                     }
                 }
                 MessageContainer::Fragment(data) => {
-                    if let Some(single_data) = self.fragment_receiver.receive_fragment(data)? {
+                    if let Some(single_data) =
+                        self.fragment_receiver.receive_fragment(data, None)?
+                    {
                         if let Some(message_id) = single_data.id {
                             // receive the message if we haven't received it already
                             if !self.received_message_ids.contains(&message_id) {

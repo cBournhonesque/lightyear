@@ -148,6 +148,12 @@ impl SingleData {
         Self { id, bytes }
     }
 
+    // pub(crate) fn num_bits(&self) -> usize {
+    //     let bytes_bits = self.bytes.len() * (u8::BITS as usize);
+    //     let id_bits = self.id.map_or(1, |_| (u16::BITS as usize) + 1);
+    //     bytes_bits + id_bits
+    // }
+
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.id, Fixed)?;
@@ -365,6 +371,15 @@ mod tests {
     use super::*;
     use crate::{ReadWordBuffer, WriteWordBuffer};
     use bitvec::prelude::AsBits;
+
+    // #[test]
+    // fn test_single_data_num_bits() {
+    //     let bytes = Bytes::from(vec![5; 10]);
+    //     let data = SingleData::new(None, bytes.clone());
+    //     let mut writer = WriteWordBuffer::with_capacity(10);
+    //     let num_bits = data.encode(&mut writer).unwrap();
+    //     assert_eq!(num_bits, data.num_bits());
+    // }
 
     #[test]
     fn test_serde_single_data() {

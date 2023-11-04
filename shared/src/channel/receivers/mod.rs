@@ -15,6 +15,10 @@ pub(crate) mod unordered_unreliable;
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
 pub trait ChannelReceive {
+    /// Bookkeeping on the channel
+    // TODO: switch to Instant/Duration
+    fn update(&mut self, elapsed: f64);
+
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()>;
 

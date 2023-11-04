@@ -91,6 +91,11 @@ impl ReliableSender {
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
 impl ChannelSend for ReliableSender {
+    fn update(&mut self, elapsed: f64) {
+        self.current_time += Duration::from_secs_f64(elapsed);
+        // TODO: update current_rtt
+    }
+
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: Bytes) {

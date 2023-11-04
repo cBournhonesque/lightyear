@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
@@ -15,6 +16,10 @@ pub(crate) mod unordered_unreliable;
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
 pub trait ChannelSend {
+    /// Bookkeeping for the channel
+    // TODO: switch to Instant/Duration
+    fn update(&mut self, elapsed: f64);
+
     /// Queues a message to be transmitted
     fn buffer_send(&mut self, message: Bytes);
 

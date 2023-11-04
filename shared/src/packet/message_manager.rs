@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use bitcode::read::Read;
@@ -36,6 +37,9 @@ pub struct MessageManager<M: BitSerializable> {
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
     writer: WriteWordBuffer,
 
+    // TODO: do we need this? since we can just pass the alspsd to the underlying functions?
+    //  or should we pass current_time
+    current_time: Instant,
     // MessageManager works because we only are only sending a single enum type
     _marker: PhantomData<M>,
 }
@@ -48,7 +52,17 @@ impl<M: BitSerializable> MessageManager<M> {
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            current_time: Instant::now(),
             _marker: Default::default(),
+        }
+    }
+
+    /// Update book-keeping
+    pub fn update(&mut self, elapsed: f64) {
+        self.current_time += Duration::from_secs_f64(elapsed);
+        for channel in self.channels.values_mut() {
+            channel.sender.update(elapsed);
+            channel.receiver.update(elapsed);
         }
     }
 

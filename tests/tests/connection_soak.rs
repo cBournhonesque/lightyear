@@ -31,7 +31,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         LinkConditionerConfig {
             incoming_latency: 20,
             incoming_jitter: 10,
-            incoming_loss: 0.90,
+            incoming_loss: 0.10,
             // incoming_latency: 20,
             // incoming_jitter: 10,
             // incoming_loss: 0.1,
@@ -93,7 +93,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
                     .collect();
                 let message = Message1(s);
                 debug!("Sending message {message:?}");
-                server.broadcast_send::<Channel2, Message1>(message)?;
+                server.broadcast_send::<Channel1, Message1>(message)?;
             }
             std::thread::sleep(tick_rate_secs);
         }

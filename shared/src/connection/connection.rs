@@ -65,17 +65,23 @@ impl<P: Protocol> Connection<P> {
 }
 
 impl<P: Protocol> Connection<P> {
+    pub fn update(&mut self, elapsed: f64) {
+        self.message_manager.update(elapsed);
+    }
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
         #[cfg(feature = "metrics")]
         {
+            // TODO: i know channel names never change so i should be able to get them as static
+            // TODO: just have a channel registry enum as well?
             let channel_name = self
                 .message_manager
                 .channel_registry
                 .name(&channel)
-                .unwrap_or("unknown");
+                .unwrap_or("unknown")
+                .to_string();
             let message_name = message.name();
-            metrics::increment_counter!(format!("send_message.{}.{}", channel_name, message_name));
-            metrics::increment_counter!("send_message");
+            // metrics::increment_counter!(format!("send_message.{}.{}", channel_name, message_name));
+            metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
         }
         // debug!("Buffering message to channel");
         let message = ProtocolMessage::Message(message);

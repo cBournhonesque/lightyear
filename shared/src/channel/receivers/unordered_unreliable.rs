@@ -1,14 +1,18 @@
 use crate::BitSerializable;
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 use tracing::info;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 
+const DISCARD_AFTER: Duration = Duration::from_secs(3);
+
 pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<SingleData>,
     fragment_receiver: FragmentReceiver,
+    current_time: Instant,
 }
 
 impl UnorderedUnreliableReceiver {
@@ -16,16 +20,26 @@ impl UnorderedUnreliableReceiver {
         Self {
             recv_message_buffer: VecDeque::new(),
             fragment_receiver: FragmentReceiver::new(),
+            current_time: Instant::now(),
         }
     }
 }
 
 impl ChannelReceive for UnorderedUnreliableReceiver {
+    fn update(&mut self, elapsed: f64) {
+        self.current_time += Duration::from_secs_f64(elapsed);
+        self.fragment_receiver
+            .cleanup(self.current_time - DISCARD_AFTER);
+    }
+
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {
         match message {
             MessageContainer::Single(data) => self.recv_message_buffer.push_back(data),
             MessageContainer::Fragment(fragment) => {
-                if let Some(data) = self.fragment_receiver.receive_fragment(fragment)? {
+                if let Some(data) = self
+                    .fragment_receiver
+                    .receive_fragment(fragment, Some(self.current_time))?
+                {
                     self.recv_message_buffer.push_back(data);
                 }
             }

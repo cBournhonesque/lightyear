@@ -7,6 +7,7 @@ use bitcode::read::Read;
 use bitcode::write::Write;
 use bytes::Bytes;
 
+use crate::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet::{
@@ -93,6 +94,7 @@ impl PacketManager {
         // TODO: we should actually call finish write to byte align!
         // TODO: CAREFUL, THIS COULD ALLOCATE A BIT MORE TO BYTE ALIGN?
         let payload = Payload::from(write_buffer.finish_write());
+        assert!(payload.len() <= MAX_PACKET_SIZE, "packet = {:?}", packet);
         Ok(payload)
 
         // packet.encode(&mut self.write_buffer)?;
@@ -180,6 +182,16 @@ impl PacketManager {
         let prev_num_bits = write_buffer.num_bits_written();
         message.encode(&mut write_buffer)?;
         Ok(write_buffer.num_bits_written() - prev_num_bits)
+    }
+
+    pub fn can_add_message(&mut self, message: &SingleData) -> anyhow::Result<bool> {
+        message.encode(&mut self.try_write_buffer)?;
+        // reserve one extra bit for the MessageContinue bit
+        self.try_write_buffer.reserve_bits(1);
+        // TODO: we should release the bits if we don't end up writing the message;
+        //  but it's not needed because if we can't write a message we start a new packet
+        //  still it's dangerous
+        Ok(!self.try_write_buffer.overflowed())
     }
 
     /// Returns true if there's enough space in the current packet to add a message
@@ -338,9 +350,10 @@ impl PacketManager {
                     //  use a free list of Option<SingleData> to keep track of which messages have been added?
 
                     // TODO: rename to can add message?
-                    let num_bits =
-                        single_messages.front().unwrap().bytes.len() * (u8::BITS as usize);
-                    if self.can_add_bits(num_bits) {
+                    if self
+                        .can_add_message(single_messages.front().unwrap())
+                        .unwrap()
+                    {
                         let message = single_messages.pop_front().unwrap();
                         // add message to packet
                         packet.add_message(channel_id, message);
@@ -374,9 +387,10 @@ impl PacketManager {
 
                         // TODO: bin packing, add the biggest message that could fit
                         //  use a free list of Option<SingleData> to keep track of which messages have been added?
-                        let num_bits =
-                            single_messages.front().unwrap().bytes.len() * (u8::BITS as usize);
-                        if self.can_add_bits(num_bits) {
+                        if self
+                            .can_add_message(single_messages.front().unwrap())
+                            .unwrap()
+                        {
                             let message = single_messages.pop_front().unwrap();
                             // add message to packet
                             packet.add_message(channel_id, message);
@@ -418,9 +432,10 @@ impl PacketManager {
 
                     // TODO: bin packing, add the biggest message that could fit
                     //  use a free list of Option<SingleData> to keep track of which messages have been added?
-                    let num_bits =
-                        single_messages.front().unwrap().bytes.len() * (u8::BITS as usize);
-                    if self.can_add_bits(num_bits) {
+                    if self
+                        .can_add_message(single_messages.front().unwrap())
+                        .unwrap()
+                    {
                         let message = single_messages.pop_front().unwrap();
                         // add message to packet
                         packet.add_message(channel_id, message);

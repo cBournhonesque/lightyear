@@ -1,9 +1,11 @@
 use std::{cmp::Ordering, collections::BinaryHeap};
 
-/// A buffer that contains items associated with a value (a Tick, Instant, etc.)
+/// A buffer that contains items associated with a key (a Tick, Instant, etc.)
 ///
-/// Elements in the buffer are popped only when they are 'ready'
-/// The most recent item (by associated value) is returned first
+/// Elements in the buffer are popped only when they are 'ready', i.e.
+/// when the key associated with the item is less than or equal to the current key
+///
+/// The most recent item (by associated key) is returned first
 #[derive(Clone)]
 pub struct ReadyBuffer<K: Ord, T: Eq + PartialEq> {
     heap: BinaryHeap<ItemWithReadyKey<K, T>>,

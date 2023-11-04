@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use bevy::prelude::{Resource, World};
-use tracing::{debug, trace_span};
+use tracing::{debug, debug_span, trace_span};
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
@@ -139,6 +139,15 @@ impl<P: Protocol> Server<P> {
         M: Clone,
         P::Message: From<M>,
     {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("send_message_server_before_span");
+        }
+        debug_span!("broadcast", user = "a").entered();
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("send_message_server_after_span");
+        }
         let channel = ChannelKind::of::<C>();
         for client_id in self.netcode.connected_client_ids() {
             self.user_connections
@@ -158,7 +167,7 @@ impl<P: Protocol> Server<P> {
     where
         P::Message: From<M>,
     {
-        trace_span!("buffer_send", client_id = ?client_id).entered();
+        debug_span!("buffer_send", client_id = ?client_id).entered();
         let channel = ChannelKind::of::<C>();
         // TODO: if client not connected; buffer in advance?
         self.user_connections
@@ -175,17 +184,28 @@ impl<P: Protocol> Server<P> {
             .try_update(time, &mut self.io)
             .context("Error updating netcode server")?;
 
+        // update connections
+        for (_, connection) in &mut self.user_connections {
+            connection.update(time);
+        }
+
         // handle connections
         for client_id in self.context.connections.try_iter() {
+            #[cfg(feature = "metrics")]
+            metrics::increment_gauge!("connected_clients", 1.0);
+
             let client_addr = self.netcode.client_addr(client_id).unwrap();
+            debug!("New connection from {} (id: {})", client_addr, client_id);
             let mut connection = Connection::new(self.protocol.channel_registry());
             connection.events.push_connection();
-            debug!("New connection from {} (id: {})", client_addr, client_id);
             self.user_connections.insert(client_id, connection);
         }
 
         // handle disconnections
         for client_id in self.context.disconnections.try_iter() {
+            #[cfg(feature = "metrics")]
+            metrics::decrement_gauge!("connected_clients", 1.0);
+
             debug!("Client {} got disconnected", client_id);
             self.events.push_disconnects(client_id);
             self.user_connections.remove(&client_id);
@@ -204,18 +224,6 @@ impl<P: Protocol> Server<P> {
         // return all received messages and reset the buffer
         std::mem::replace(&mut self.events, ServerEvents::new())
     }
-
-    // /// Receive messages from the server
-    // pub fn read_messages(
-    //     &mut self,
-    //     client_id: ClientId,
-    // ) -> HashMap<ChannelKind, Vec<MessageContainer<P::Message>>> {
-    //     if let Some(connection) = self.user_connections.get_mut(&client_id) {
-    //         connection.message_manager.read_messages()
-    //     } else {
-    //         HashMap::new()
-    //     }
-    // }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
