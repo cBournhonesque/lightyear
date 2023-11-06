@@ -58,11 +58,11 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Update book-keeping
-    pub fn update(&mut self, elapsed: f64) {
-        self.current_time += Duration::from_secs_f64(elapsed);
+    pub fn update(&mut self, delta: Duration) {
+        self.current_time += delta;
         for channel in self.channels.values_mut() {
-            channel.sender.update(elapsed);
-            channel.receiver.update(elapsed);
+            channel.sender.update(delta);
+            channel.receiver.update(delta);
         }
     }
 

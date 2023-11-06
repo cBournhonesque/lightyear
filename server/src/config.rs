@@ -1,5 +1,5 @@
 use lightyear_shared::netcode::Key;
-use lightyear_shared::IoConfig;
+use lightyear_shared::{IoConfig, TickConfig};
 
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
@@ -33,4 +33,5 @@ impl NetcodeConfig {
 pub struct ServerConfig {
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
+    pub tick: TickConfig,
 }

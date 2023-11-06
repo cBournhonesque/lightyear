@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bevy::prelude::{Resource, World};
+use bevy::prelude::{Resource, Time, World};
 use tracing::{debug, debug_span, trace_span};
 
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
@@ -13,6 +14,7 @@ use lightyear_shared::{Connection, WriteBuffer};
 
 use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
+use crate::time::TimeManager;
 use crate::ServerConfig;
 
 #[derive(Resource)]
@@ -30,6 +32,8 @@ pub struct Server<P: Protocol> {
     pub protocol: P,
     // Events
     events: ServerEvents<P>,
+    // Time
+    time_manager: TimeManager,
 }
 
 impl<P: Protocol> Server<P> {
@@ -70,6 +74,7 @@ impl<P: Protocol> Server<P> {
             user_connections: HashMap::new(),
             protocol,
             events: ServerEvents::new(),
+            time_manager: TimeManager::new(config.tick),
         }
     }
 
@@ -178,15 +183,19 @@ impl<P: Protocol> Server<P> {
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients
     /// Sends keep-alive packets + any non-payload packet needed for netcode
-    pub fn update(&mut self, time: f64) -> Result<()> {
+    // TODO: change the argument to delta?
+    pub fn update(&mut self, delta: Duration) -> Result<()> {
+        // update time manager
+        self.time_manager.update(delta);
+
         // update netcode server
         self.netcode
-            .try_update(time, &mut self.io)
+            .try_update(delta.as_secs_f64() * 1000.0, &mut self.io)
             .context("Error updating netcode server")?;
 
         // update connections
         for (_, connection) in &mut self.user_connections {
-            connection.update(time);
+            connection.update(delta);
         }
 
         // handle connections

@@ -1,4 +1,5 @@
 use std::collections::{btree_map, BTreeMap};
+use std::time::Duration;
 
 use anyhow::anyhow;
 
@@ -29,7 +30,7 @@ impl SequencedReliableReceiver {
 }
 
 impl ChannelReceive for SequencedReliableReceiver {
-    fn update(&mut self, elapsed: f64) {}
+    fn update(&mut self, delta: Duration) {}
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {

@@ -221,6 +221,7 @@ impl<P: Protocol> ReplicationManager<P> {
                 }
             },
             ProtocolMessage::Message(_) => {}
+            _ => {}
         }
     }
 

@@ -16,7 +16,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         // TODO: here we can control time elapsed from the client's perspective?
 
         // update client state, send keep-alives, receive packets from io
-        client.update(time.elapsed().as_secs_f64()).unwrap();
+        client.update(time.delta()).unwrap();
         // buffer packets into message managers
         client.recv_packets().unwrap();
         // receive packets from message managers

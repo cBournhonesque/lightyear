@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
-use bevy::ecs::world::EntityMut;
-use bevy::prelude::{App, Component};
+use bevy::prelude::{App, Component, EntityWorldMut};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -26,11 +25,11 @@ pub trait ComponentProtocol:
 #[enum_delegate::register]
 pub trait ComponentBehaviour {
     /// Insert the component for an entity
-    fn insert(self, entity: &mut EntityMut);
+    fn insert(self, entity: &mut EntityWorldMut);
 }
 
 impl<T: Component> ComponentBehaviour for T {
-    fn insert(self, entity: &mut EntityMut) {
+    fn insert(self, entity: &mut EntityWorldMut) {
         entity.insert(self);
     }
 }
@@ -49,7 +48,7 @@ pub trait ComponentProtocolKind:
 /// Trait to delegate a method from the ComponentProtocolKind enum to the inner Component type
 pub trait ComponentKindBehaviour {
     /// Remove the component for an entity
-    fn remove(self, entity: &mut EntityMut);
+    fn remove(self, entity: &mut EntityWorldMut);
 }
 
 /// Trait to convert a component type into the corresponding ComponentProtocolKind

@@ -12,6 +12,7 @@ const DISCARD_AFTER: Duration = Duration::from_secs(3);
 pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<SingleData>,
     fragment_receiver: FragmentReceiver,
+    // TODO: maybe use WrappedTime
     current_time: Instant,
 }
 
@@ -26,8 +27,8 @@ impl UnorderedUnreliableReceiver {
 }
 
 impl ChannelReceive for UnorderedUnreliableReceiver {
-    fn update(&mut self, elapsed: f64) {
-        self.current_time += Duration::from_secs_f64(elapsed);
+    fn update(&mut self, delta: Duration) {
+        self.current_time += delta;
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
     }

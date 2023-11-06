@@ -1,3 +1,17 @@
+pub trait WrappedId {
+    // return self % total
+    // used for sequence buffers
+    fn rem(&self, total: usize) -> usize;
+}
+
+// macro_rules! wrapping_id {
+//     ($struct_name:ident) => {
+//         wrapping_id_impl!($struct_name, u16, i16, i32);
+//     }; // ($struct_name:ident, u32) => {
+//        //     wrapping_id_impl!($struct_name, u32, i32, i64);
+//        // };
+// }
+//
 /// Index that wraps around 65536
 // TODO: we don't want serialize this with gamma!
 macro_rules! wrapping_id {
@@ -9,6 +23,7 @@ macro_rules! wrapping_id {
             use serde::{Deserialize, Serialize};
             use std::ops::{Add, AddAssign, Deref, Sub};
             use std::cmp::Ordering;
+            use crate::utils::WrappedId;
             use crate::utils::wrapping_diff;
 
             // define the struct
@@ -16,6 +31,42 @@ macro_rules! wrapping_id {
                 Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default,
             )]
             pub struct $struct_name(pub u16);
+
+            // impl $struct_name {
+            //     pub fn wrapping_diff(a: u16, b: u16) -> i16 {
+            //         const MAX: i32 = i16::MAX as i32;
+            //         const MIN: i32 = i16::MIN as i32;
+            //         const ADJUST: i32 = (u16::MAX as i32) + 1;
+            //
+            //         let a: i32 = i32::from(a);
+            //         let b: i32 = i32::from(b);
+            //
+            //         let mut result = b - a;
+            //         if (MIN..=MAX).contains(&result) {
+            //             result as i16
+            //         } else if b > a {
+            //             result = b - (a + ADJUST);
+            //             if (MIN..=MAX).contains(&result) {
+            //                 result as i16
+            //             } else {
+            //                 panic!("integer overflow, this shouldn't happen")
+            //             }
+            //         } else {
+            //             result = (b + ADJUST) - a;
+            //             if (MIN..=MAX).contains(&result) {
+            //                 result as i16
+            //             } else {
+            //                 panic!("integer overflow, this shouldn't happen")
+            //             }
+            //         }
+            //     }
+            // }
+
+            impl WrappedId for $struct_name {
+                 fn rem(&self, total: usize) -> usize {
+                     (self.0 as usize) % total
+                 }
+            }
 
             /// Derive deref so that we don't have to write packet_id.0 in most cases
             impl Deref for $struct_name {

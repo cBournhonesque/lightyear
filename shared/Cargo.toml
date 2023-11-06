@@ -24,7 +24,7 @@ enum_dispatch = "0.3"
 rand = "0.8"
 ringbuffer = "0.15"
 serde = { version = "1.0.188", features = ["derive"] }
-bevy = { version = "0.11", default-features = false }
+bevy = { version = "0.12", default-features = false }
 paste = "1.0"
 enum_delegate = "0.2"
 enum-as-inner = "0.6.0"

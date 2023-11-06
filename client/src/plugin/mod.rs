@@ -67,8 +67,8 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .insert_resource(client)
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
-            .configure_set(PreUpdate, ClientSet::Receive)
-            .configure_set(PostUpdate, ClientSet::Send)
+            .configure_sets(PreUpdate, ClientSet::Receive)
+            .configure_sets(PostUpdate, ClientSet::Send)
             // EVENTS //
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()

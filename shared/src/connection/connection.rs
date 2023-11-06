@@ -2,6 +2,7 @@ use anyhow::Result;
 use bevy::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
+use std::time::Duration;
 use tracing::{debug, trace_span};
 
 use crate::connection::events::ConnectionEvents;
@@ -9,9 +10,15 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
+use crate::tick::message::{PingMessage, SyncMessage};
 use crate::{
     ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, WriteBuffer,
 };
+
+// NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
+// because prior to calling message_manager.recv() we don't know if the packet is a message or a replication event
+// Also it would be inefficient because we would send separate packets for messages or replications, even though
+// we can put them in the same packet
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
@@ -19,6 +26,8 @@ pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager<ProtocolMessage<P>>,
     pub replication_manager: ReplicationManager<P>,
     pub events: ConnectionEvents<P>,
+    // TODO: replace with a SyncManager?
+    synced: bool,
 }
 
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -26,6 +35,7 @@ pub struct Connection<P: Protocol> {
 pub enum ProtocolMessage<P: Protocol> {
     Message(P::Message),
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
+    Sync(SyncMessage),
 }
 
 impl<P: Protocol> ProtocolMessage<P> {
@@ -50,6 +60,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                     // todo!()
                 }
             },
+            _ => {}
         }
     }
 }
@@ -60,13 +71,14 @@ impl<P: Protocol> Connection<P> {
             message_manager: MessageManager::new(channel_registry),
             replication_manager: ReplicationManager::default(),
             events: ConnectionEvents::new(),
+            synced: false,
         }
     }
 }
 
 impl<P: Protocol> Connection<P> {
-    pub fn update(&mut self, elapsed: f64) {
-        self.message_manager.update(elapsed);
+    pub fn update(&mut self, delta: Duration) {
+        self.message_manager.update(delta);
     }
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
         #[cfg(feature = "metrics")]
@@ -192,13 +204,16 @@ impl<P: Protocol> Connection<P> {
                 .name(&channel_kind)
                 .unwrap_or("unknown");
             trace_span!("channel", channel = channel_name).entered();
-            debug!(?channel_kind, "Received messages");
-            for message in messages {
-                // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
-                // apply replication messages to the world
-                self.replication_manager.apply_world(world, message.clone());
-                // update events
-                message.push_to_events(channel_kind, &mut self.events);
+
+            if !messages.is_empty() {
+                debug!(?channel_kind, "Received messages");
+                for message in messages {
+                    // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
+                    // apply replication messages to the world
+                    self.replication_manager.apply_world(world, message.clone());
+                    // update events
+                    message.push_to_events(channel_kind, &mut self.events);
+                }
             }
         }
 

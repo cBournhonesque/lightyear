@@ -10,6 +10,7 @@ use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
 use crate::protocol::BitSerializable;
 use crate::TypeNamed;
+use lightyear_derive::ChannelInternal;
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel
@@ -135,3 +136,11 @@ impl ReliableSettings {
         }
     }
 }
+
+/// Default channel to replicate entity updates reliably
+/// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
+#[derive(ChannelInternal)]
+pub struct DefaultReliableChannel;
+
+#[derive(ChannelInternal)]
+pub struct DefaultUnreliableChannel;

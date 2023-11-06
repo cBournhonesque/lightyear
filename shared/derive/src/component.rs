@@ -57,8 +57,7 @@ pub fn component_protocol_impl(
             use super::*;
             use serde::{Serialize, Deserialize};
             use #shared_crate_name::{enum_delegate};
-            use bevy::prelude::{App, IntoSystemConfigs};
-            use bevy::ecs::world::EntityMut;
+            use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut};
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable,
                 ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, IntoKind, PostUpdate, Protocol,
                 ComponentKindBehaviour, ReplicationSet, ReplicationSend};
@@ -220,7 +219,7 @@ fn remove_method(input: &ItemEnum, fields: &Vec<&Field>, enum_kind_name: &Ident)
         };
     }
     quote! {
-        fn remove(self, entity: &mut EntityMut) {
+        fn remove(self, entity: &mut EntityWorldMut) {
             match self {
                 #field_body
             };

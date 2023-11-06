@@ -190,8 +190,8 @@ impl ConnectionCache {
     fn find_by_id(&self, client_id: ClientId) -> Option<Connection> {
         self.clients.get(&client_id).cloned()
     }
-    fn update(&mut self, time: f64) {
-        self.time = time;
+    fn update(&mut self, delta_ms: f64) {
+        self.time += delta_ms;
     }
 }
 pub type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'static>;
@@ -734,16 +734,16 @@ impl<Ctx> Server<Ctx> {
     /// # Panics
     /// Panics if the server can't send or receive packets.
     /// For a non-panicking version, use [`try_update`](Server::try_update).
-    pub fn update(&mut self, time: f64, io: &mut Io) {
-        self.try_update(time, io)
+    pub fn update(&mut self, delta_ms: f64, io: &mut Io) {
+        self.try_update(delta_ms, io)
             .expect("send/recv error while updating server")
     }
     /// The fallible version of [`update`](Server::update).
     ///
     /// Returns an error if the server can't send or receive packets.
-    pub fn try_update(&mut self, time: f64, io: &mut Io) -> Result<()> {
-        self.time = time;
-        self.conn_cache.update(self.time);
+    pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<()> {
+        self.time += delta_ms;
+        self.conn_cache.update(delta_ms);
         let (sender, receiver) = io.split();
         self.recv_packets(sender, receiver)?;
         self.send_packets(io)?;

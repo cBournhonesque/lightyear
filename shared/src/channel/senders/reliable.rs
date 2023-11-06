@@ -91,8 +91,8 @@ impl ReliableSender {
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
 impl ChannelSend for ReliableSender {
-    fn update(&mut self, elapsed: f64) {
-        self.current_time += Duration::from_secs_f64(elapsed);
+    fn update(&mut self, delta: Duration) {
+        self.current_time += delta;
         // TODO: update current_rtt
     }
 

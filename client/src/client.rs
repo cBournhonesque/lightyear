@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -8,7 +9,9 @@ use tracing::trace;
 use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Connection, ConnectionEvents, Message, WriteBuffer};
+use lightyear_shared::{
+    Channel, ChannelKind, Connection, ConnectionEvents, Message, PingMessage, WriteBuffer,
+};
 use lightyear_shared::{Io, Protocol};
 
 use crate::config::ClientConfig;
@@ -25,6 +28,8 @@ pub struct Client<P: Protocol> {
     protocol: P,
     // events
     events: ConnectionEvents<P>,
+    // syncing
+    synced: bool,
 }
 
 pub enum Authentication {
@@ -68,6 +73,7 @@ impl<P: Protocol> Client<P> {
             netcode,
             connection,
             events: ConnectionEvents::new(),
+            synced: false,
         }
     }
 
@@ -87,10 +93,20 @@ impl<P: Protocol> Client<P> {
     // REPLICATION
 
     /// Maintain connection with server, queues up any packet received from the server
-    pub fn update(&mut self, time: f64) -> Result<()> {
-        self.netcode.try_update(time, &mut self.io)?;
+    pub fn update(&mut self, delta: Duration) -> Result<()> {
+        self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 
-        self.connection.update(time);
+        // TODO: if is_connected but not time-synced, do a time-sync.
+        //  exchange pings to compute RTT and match the ticks
+
+        self.connection.update(delta);
+
+        // TODO: run this only on client
+        // complete tick syncing (only on client)?
+        if !self.synced {
+            // let ping = PingMessage::new()
+            // self.buffer_message()
+        }
         Ok(())
     }
 

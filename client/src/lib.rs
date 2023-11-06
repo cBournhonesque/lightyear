@@ -9,3 +9,5 @@ pub(crate) mod client;
 mod config;
 mod events;
 mod plugin;
+mod sync;
+mod time;

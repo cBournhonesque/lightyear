@@ -518,16 +518,16 @@ impl<Ctx> Client<Ctx> {
     /// # Panics
     /// Panics if the client can't send or receive packets.
     /// For a non-panicking version, use [`try_update`](Client::try_update).
-    pub fn update(&mut self, time: f64, io: &mut Io) {
-        self.try_update(time, io)
+    pub fn update(&mut self, delta_ms: f64, io: &mut Io) {
+        self.try_update(delta_ms, io)
             .expect("send/recv error while updating client")
     }
 
     /// The fallible version of [`update`](Client::update).
     ///
     /// Returns an error if the client can't send or receive packets.
-    pub fn try_update(&mut self, time: f64, io: &mut Io) -> Result<()> {
-        self.time = time;
+    pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<()> {
+        self.time += delta_ms;
         self.recv_packets(io)?;
         self.send_packets(io)?;
         self.update_state();

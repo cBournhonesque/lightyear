@@ -17,6 +17,7 @@ pub struct SequencedUnreliableReceiver {
     /// Highest message id received so far
     most_recent_message_id: MessageId,
     fragment_receiver: FragmentReceiver,
+    // TODO: maybe use wrapped time?
     current_time: Instant,
 }
 
@@ -32,8 +33,8 @@ impl SequencedUnreliableReceiver {
 }
 
 impl ChannelReceive for SequencedUnreliableReceiver {
-    fn update(&mut self, elapsed: f64) {
-        self.current_time += Duration::from_secs_f64(elapsed);
+    fn update(&mut self, delta: Duration) {
+        self.current_time += delta;
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
     }

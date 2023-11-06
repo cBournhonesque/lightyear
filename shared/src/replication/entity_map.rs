@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use bevy::ecs::world::EntityMut;
-use bevy::prelude::{Entity, World};
+use bevy::prelude::{Entity, EntityWorldMut, World};
 
 use crate::replication::Replicate;
 
@@ -32,7 +32,7 @@ impl EntityMap {
         &mut self,
         world: &'a mut World,
         remote_entity: Entity,
-    ) -> EntityMut<'a> {
+    ) -> EntityWorldMut<'a> {
         match self.remote_to_local.entry(remote_entity) {
             Entry::Occupied(entry) => world.entity_mut(*entry.get()),
             Entry::Vacant(entry) => {

@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    App, IntoSystemConfigs, IntoSystemSetConfig, Plugin as PluginType, PostUpdate, PreUpdate,
+    App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
 use lightyear_shared::plugin::systems::replication::add_replication_send_systems;
@@ -17,6 +17,7 @@ use crate::plugin::systems::{receive, send};
 use crate::Server;
 
 mod events;
+mod schedules;
 mod sets;
 mod systems;
 
@@ -64,15 +65,14 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .insert_resource(server)
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
-            .configure_set(PreUpdate, ServerSet::Receive)
-            .configure_set(PostUpdate, ReplicationSet::SendEntityUpdates)
-            .configure_set(
+            .configure_sets(PreUpdate, ServerSet::Receive)
+            .configure_sets(
                 PostUpdate,
-                ReplicationSet::SendComponentUpdates.after(ReplicationSet::SendEntityUpdates),
-            )
-            .configure_set(
-                PostUpdate,
-                ServerSet::Send.after(ReplicationSet::SendComponentUpdates),
+                (
+                    ReplicationSet::SendEntityUpdates,
+                    ReplicationSet::SendComponentUpdates.after(ReplicationSet::SendEntityUpdates),
+                    ServerSet::Send.after(ReplicationSet::SendComponentUpdates),
+                ),
             )
             // EVENTS //
             .add_event::<ConnectEvent<ClientId>>()

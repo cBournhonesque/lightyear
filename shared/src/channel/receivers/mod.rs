@@ -1,5 +1,6 @@
 use crate::BitSerializable;
 use enum_dispatch::enum_dispatch;
+use std::time::Duration;
 
 use crate::packet::message::FragmentData;
 use crate::packet::message::{MessageContainer, SingleData};
@@ -16,8 +17,7 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelReceive {
     /// Bookkeeping on the channel
-    // TODO: switch to Instant/Duration
-    fn update(&mut self, elapsed: f64);
+    fn update(&mut self, delta: Duration);
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()>;

@@ -1,4 +1,5 @@
 use std::collections::{btree_map, BTreeMap, HashSet};
+use std::time::Duration;
 
 use anyhow::anyhow;
 
@@ -33,9 +34,7 @@ impl UnorderedReliableReceiver {
 }
 
 impl ChannelReceive for UnorderedReliableReceiver {
-    fn update(&mut self, elapsed: f64) {
-        todo!()
-    }
+    fn update(&mut self, delta: Duration) {}
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {

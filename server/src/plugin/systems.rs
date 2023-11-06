@@ -17,7 +17,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         let time = world.get_resource::<Time>().unwrap();
 
         // update client state, send keep-alives, receive packets from io
-        server.update(time.elapsed().as_secs_f64()).unwrap();
+        server.update(time.delta()).unwrap();
         // buffer packets into message managers
         server.recv_packets().unwrap();
 

@@ -38,7 +38,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     mut despawn_removed: RemovedComponents<DespawnTracker>,
     mut sender: ResMut<R>,
 ) {
-    for entity in despawn_removed.iter() {
+    for entity in despawn_removed.read() {
         if let Some(replicate) = replication.owned_entities.remove(&entity) {
             sender.entity_despawn(entity, &replicate).unwrap();
         }
@@ -57,7 +57,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     mut sender: ResMut<R>,
 ) {
     // We might want to replicate all entities on connect
-    for event in connect_events.iter() {
+    for event in connect_events.read() {
         let client_id = event.context();
         query.iter().for_each(|(entity, replicate)| {
             if replicate.target.should_replicate_to(client_id.clone()) {
@@ -90,7 +90,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
     <P as Protocol>::Components: From<C>,
 {
     // We might want to replicate the component on connect
-    for event in connect_events.iter() {
+    for event in connect_events.read() {
         let client_id = event.context();
         query.iter().for_each(|(entity, component, replicate)| {
             if replicate.target.should_replicate_to(client_id.clone()) {
@@ -127,7 +127,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
 ) where
     C: IntoKind<<P as Protocol>::ComponentKinds>,
 {
-    removed.iter().for_each(|entity| {
+    removed.read().for_each(|entity| {
         if let Ok(replicate) = query.get(entity) {
             sender
                 .component_remove(entity, C::into_kind(), replicate)

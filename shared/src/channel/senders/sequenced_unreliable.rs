@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
@@ -34,7 +35,7 @@ impl SequencedUnreliableSender {
 }
 
 impl ChannelSend for SequencedUnreliableSender {
-    fn update(&mut self, elapsed: f64) {}
+    fn update(&mut self, delta: Duration) {}
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message

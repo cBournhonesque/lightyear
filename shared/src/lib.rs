@@ -13,7 +13,7 @@ pub use paste::paste;
 
 pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-    ReliableSettings,
+    DefaultReliableChannel, DefaultUnreliableChannel, ReliableSettings,
 };
 pub use config::SharedConfig;
 pub use connection::{Connection, ConnectionEvents};
@@ -29,12 +29,15 @@ pub use protocol::component::{
 };
 pub use protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
 pub use protocol::{BitSerializable, Protocol};
-pub use replication::DefaultReliableChannel;
 pub use replication::ReplicationSend;
 pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
 pub use serialize::writer::WriteBuffer;
+pub use tick::manager::{TickConfig, TickManager};
+pub use tick::message::{PingMessage, PongMessage, SyncMessage};
+pub use tick::ping_store::{PingId, PingStore};
+pub use tick::time::WrappedTime;
 pub use transport::conditioner::LinkConditionerConfig;
 pub use transport::io::{Io, IoConfig, TransportConfig};
 pub use transport::udp::UdpSocket;

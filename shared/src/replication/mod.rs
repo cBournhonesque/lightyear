@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use lightyear_derive::ChannelInternal;
 
+use crate::channel::channel::DefaultReliableChannel;
 use crate::netcode::ClientId;
 use crate::{
     BitSerializable, Channel, ChannelKind, ComponentProtocol, ComponentProtocolKind, Protocol,
@@ -19,11 +20,6 @@ use crate::{
 
 mod entity_map;
 pub mod manager;
-
-/// Default channel to replicate entity updates reliably
-/// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
-#[derive(ChannelInternal)]
-pub struct DefaultReliableChannel;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
