@@ -2,7 +2,7 @@ use crate::tick::ping_store::PingId;
 use crate::tick::Tick;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PingMessage {
     pub id: PingId,
     // tick of the host
@@ -15,7 +15,7 @@ impl PingMessage {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PongMessage {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
@@ -26,7 +26,7 @@ pub struct PongMessage {
     pub offset_sec: f64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum SyncMessage {
     Ping(PingMessage),
     Pong(PongMessage),

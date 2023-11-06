@@ -52,16 +52,16 @@ impl Io {
     //     }
     // }
 
-    pub fn from_config(config: IoConfig) -> Result<Self> {
+    pub fn from_config(config: &IoConfig) -> Result<Self> {
         match config.transport {
-            TransportConfig::UdpSocket(addr) => {
-                let socket = UdpSocket::new(&addr)?;
+            TransportConfig::UdpSocket(ref addr) => {
+                let socket = UdpSocket::new(addr)?;
                 let local_addr = socket.local_addr();
                 let sender = Box::new(socket.clone());
 
                 let receiver: Box<dyn PacketReceiver + Send + Sync>;
-                if let Some(conditioner) = config.conditioner {
-                    receiver = Box::new(ConditionedPacketReceiver::new(socket, &conditioner));
+                if let Some(conditioner) = &config.conditioner {
+                    receiver = Box::new(ConditionedPacketReceiver::new(socket, conditioner));
                 } else {
                     receiver = Box::new(socket);
                 }

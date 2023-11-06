@@ -23,10 +23,21 @@ pub struct PingConfig {
     pub rtt_smoothing_factor: f32,
 }
 
+impl Default for PingConfig {
+    fn default() -> Self {
+        Self {
+            ping_interval_ms: Duration::from_millis(100),
+            rtt_ms_initial_estimate: Duration::from_millis(10),
+            jitter_ms_initial_estimate: Default::default(),
+            rtt_smoothing_factor: 0.0,
+        }
+    }
+}
+
+// TODO: this should be associated with a connection? maybe we need Server/Client connection and BaseConnection
 // 2 objectives:
 // - handle sending regular pings to clients to estimate rtt/jitter/loss
 // - handle receiving pings from clients and sending back pongs
-//
 pub struct PingManager {
     pub rtt_ms_average: f32,
     pub jitter_ms_average: f32,
@@ -36,7 +47,7 @@ pub struct PingManager {
 }
 
 impl PingManager {
-    pub fn new(ping_config: PingConfig) -> Self {
+    pub fn new(ping_config: &PingConfig) -> Self {
         let rtt_ms_average = ping_config.rtt_ms_initial_estimate.as_secs_f32() * 1000.0;
         let jitter_ms_average = ping_config.jitter_ms_initial_estimate.as_secs_f32() * 1000.0;
 
@@ -85,8 +96,8 @@ impl PingManager {
 
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_gauge!("rtt_ms_average", self.rtt_ms_average as i64);
-                metrics::increment_gauge!("jitter_ms_average", self.jitter_ms_average as i64);
+                metrics::increment_gauge!("rtt_ms_average", self.rtt_ms_average as f64);
+                metrics::increment_gauge!("jitter_ms_average", self.jitter_ms_average as f64);
             }
         }
     }
@@ -105,7 +116,7 @@ mod tests {
             jitter_ms_initial_estimate: Default::default(),
             rtt_smoothing_factor: 0.0,
         };
-        let mut ping_manager = PingManager::new(ping_config);
+        let mut ping_manager = PingManager::new(&ping_config);
         let tick_config = TickConfig::new(Duration::from_millis(16));
         let mut time_manager = TimeManager::new(tick_config);
 

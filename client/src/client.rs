@@ -64,7 +64,7 @@ impl<P: Protocol> Client<P> {
         let token_bytes = token.try_into_bytes().unwrap();
         let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
             .expect("could not create netcode client");
-        let io = Io::from_config(config.io).expect("could not build io");
+        let io = Io::from_config(&config.io).expect("could not build io");
 
         let connection = Connection::new(protocol.channel_registry());
         Self {

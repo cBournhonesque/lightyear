@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use lightyear_server::PluginConfig;
 use lightyear_server::{NetcodeConfig, Plugin};
+use lightyear_server::{PingConfig, PluginConfig};
 use lightyear_server::{Server, ServerConfig};
 use lightyear_shared::netcode::Key;
 use lightyear_shared::{IoConfig, TickConfig, TransportConfig};
@@ -23,6 +23,7 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         tick: TickConfig::new(Duration::from_millis(16)),
+        ping: PingConfig::default(),
     };
 
     // create lightyear server
@@ -38,6 +39,7 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         tick: TickConfig::new(Duration::from_millis(16)),
+        ping: PingConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol());
     let plugin = Plugin::new(plugin_config);

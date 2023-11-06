@@ -3,6 +3,7 @@
 //! - `cargo run --example bevy_cli client`
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
+use std::time::Duration;
 
 #[cfg(feature = "metrics")]
 use metrics_exporter_prometheus;
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use lightyear_client::{Authentication, Client, ClientConfig};
-use lightyear_server::{NetcodeConfig, Server, ServerConfig};
+use lightyear_server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::channel::channel::ReliableSettings;
 use lightyear_shared::netcode::{ClientId, Key};
 use lightyear_shared::plugin::events::MessageEvent;
@@ -23,7 +24,7 @@ use lightyear_shared::replication::Replicate;
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
     ChannelSettings, ConnectEvent, DisconnectEvent, EntitySpawnEvent, IoConfig, Message, Protocol,
-    SharedConfig, TransportConfig,
+    SharedConfig, TickConfig, TransportConfig,
 };
 
 fn main() {
@@ -100,6 +101,8 @@ fn setup(app: &mut App, cli: Cli) {
             let config = ServerConfig {
                 netcode: netcode_config,
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
+                tick: TickConfig::new(Duration::from_millis(16)),
+                ping: PingConfig::default(),
             };
             let plugin_config = lightyear_server::PluginConfig::new(config, protocol());
             app.add_plugins(lightyear_server::Plugin::new(plugin_config));

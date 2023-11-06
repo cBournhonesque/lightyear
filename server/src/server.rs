@@ -6,11 +6,12 @@ use anyhow::{Context, Result};
 use bevy::prelude::{Resource, Time, World};
 use tracing::{debug, debug_span, trace_span};
 
+use crate::connection::Connection;
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
+use lightyear_shared::WriteBuffer;
 use lightyear_shared::{Channel, ChannelKind, Entity, Io, Message, Protocol};
-use lightyear_shared::{Connection, WriteBuffer};
 
 use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
@@ -20,7 +21,7 @@ use crate::ServerConfig;
 #[derive(Resource)]
 pub struct Server<P: Protocol> {
     // Config
-
+    config: ServerConfig,
     // Io
     io: Io,
     // Netcode
@@ -62,12 +63,13 @@ impl<P: Protocol> Server<P> {
             cfg,
         )
         .expect("Could not create server netcode");
-        let io = Io::from_config(config.io).expect("Could not create io");
+        let io = Io::from_config(&config.io).expect("Could not create io");
         let context = ServerContext {
             connections: connections_rx,
             disconnections: disconnections_rx,
         };
         Self {
+            config: config.clone(),
             io,
             netcode,
             context,
@@ -158,6 +160,7 @@ impl<P: Protocol> Server<P> {
             self.user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
+                .base
                 .buffer_message(message.clone().into(), channel)?;
         }
         Ok(())
@@ -178,6 +181,7 @@ impl<P: Protocol> Server<P> {
         self.user_connections
             .get_mut(&client_id)
             .context("client not found")?
+            .base
             .buffer_message(message.into(), channel)
     }
 
@@ -190,12 +194,15 @@ impl<P: Protocol> Server<P> {
 
         // update netcode server
         self.netcode
-            .try_update(delta.as_secs_f64() * 1000.0, &mut self.io)
+            .try_update(delta.as_secs_f64(), &mut self.io)
             .context("Error updating netcode server")?;
 
         // update connections
         for (_, connection) in &mut self.user_connections {
             connection.update(delta);
+
+            // maybe send pings?
+            connection.buffer_ping(&self.time_manager)?;
         }
 
         // handle connections
@@ -205,8 +212,9 @@ impl<P: Protocol> Server<P> {
 
             let client_addr = self.netcode.client_addr(client_id).unwrap();
             debug!("New connection from {} (id: {})", client_addr, client_id);
-            let mut connection = Connection::new(self.protocol.channel_registry());
-            connection.events.push_connection();
+            let mut connection =
+                Connection::new(self.protocol.channel_registry(), &self.config.ping);
+            connection.base.events.push_connection();
             self.user_connections.insert(client_id, connection);
         }
 
@@ -225,7 +233,7 @@ impl<P: Protocol> Server<P> {
     pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             trace_span!("receive", client_id = ?client_id).entered();
-            let connection_events = connection.receive(world);
+            let connection_events = connection.base.receive(world);
             if !connection_events.is_empty() {
                 self.events.push_events(*client_id, connection_events);
             }
@@ -240,7 +248,7 @@ impl<P: Protocol> Server<P> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for mut packet_byte in connection.send_packets()? {
+            for mut packet_byte in connection.base.send_packets()? {
                 self.netcode
                     .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
             }
@@ -255,6 +263,7 @@ impl<P: Protocol> Server<P> {
             self.user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
+                .base
                 .recv_packet(&mut reader)?;
         }
         Ok(())
@@ -279,7 +288,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_spawn_entity(entity, components.clone(), channel)
+            connection
+                .base
+                .buffer_spawn_entity(entity, components.clone(), channel)
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -291,7 +302,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_despawn_entity(entity, channel)
+            connection.base.buffer_despawn_entity(entity, channel)
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -313,7 +324,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_update_entity_single_component(entity, component.clone(), channel)
+            connection.base.buffer_update_entity_single_component(
+                entity,
+                component.clone(),
+                channel,
+            )
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -330,7 +345,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_component_remove(entity, component_kind.clone(), channel)
+            connection
+                .base
+                .buffer_component_remove(entity, component_kind.clone(), channel)
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -352,7 +369,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_update_entity_single_component(entity, component.clone(), channel)
+            connection.base.buffer_update_entity_single_component(
+                entity,
+                component.clone(),
+                channel,
+            )
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -369,7 +390,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.buffer_update_entity(entity, components.clone(), channel)
+            connection
+                .base
+                .buffer_update_entity(entity, components.clone(), channel)
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -382,7 +405,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .user_connections
                 .get_mut(&client_id)
                 .expect("client not found");
-            connection.prepare_replication_send();
+            connection.base.prepare_replication_send();
         }
     }
 }

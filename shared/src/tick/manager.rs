@@ -6,6 +6,7 @@ use std::time::Duration;
 // the client knows its current tick Tc and can compare Ts-Tc and know if it needs to slow down/up etc.
 // and it knows the tick difference between them as well as the rtt?
 
+#[derive(Clone)]
 pub struct TickConfig {
     pub(crate) tick_duration: Duration,
 }
