@@ -149,7 +149,7 @@ impl<P: Protocol> Server<P> {
         {
             metrics::increment_counter!("send_message_server_before_span");
         }
-        debug_span!("broadcast", user = "a").entered();
+        let _span = debug_span!("broadcast", user = "a").entered();
         #[cfg(feature = "metrics")]
         {
             metrics::increment_counter!("send_message_server_after_span");
@@ -174,7 +174,7 @@ impl<P: Protocol> Server<P> {
     where
         P::Message: From<M>,
     {
-        debug_span!("buffer_send", client_id = ?client_id).entered();
+        let _span = debug_span!("buffer_send", client_id = ?client_id).entered();
         let channel = ChannelKind::of::<C>();
         // TODO: if client not connected; buffer in advance?
         self.user_connections
