@@ -1,7 +1,8 @@
 use bitcode::{Decode, Encode};
+use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::ops::{AddAssign, Sub};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
 
 pub const WRAPPING_TIME_MS: u32 = 4194304; // 2^22
@@ -29,8 +30,13 @@ impl TimeManager {
     }
 
     /// Current time since server start, wrapped around 1 hour
-    pub fn current_time(&self) -> WrappedTime {
-        self.wrapped_time
+    pub fn current_time(&self) -> &WrappedTime {
+        &self.wrapped_time
+    }
+
+    /// Current time since server start, wrapped around 1 hour
+    pub fn mut_current_time(&mut self) -> &mut WrappedTime {
+        &mut self.wrapped_time
     }
 }
 
@@ -113,12 +119,50 @@ impl PartialOrd for WrappedTime {
 
 /// Returns the absolute duration between two times (no matter which one is ahead of which)!
 impl Sub for WrappedTime {
-    // TODO: use chrono::Duration for negative durations?
-    type Output = Duration;
+    type Output = ChronoDuration;
 
     fn sub(self, rhs: Self) -> Self::Output {
         let diff_ms = Self::wrapping_diff(&rhs, &self);
-        Duration::from_millis(diff_ms.wrapping_abs() as u64)
+        ChronoDuration::milliseconds(diff_ms as i64)
+    }
+}
+
+/// Returns the absolute duration between two times (no matter which one is ahead of which)!
+impl SubAssign<ChronoDuration> for WrappedTime {
+    fn sub_assign(&mut self, rhs: ChronoDuration) {
+        let rhs_millis = rhs.num_milliseconds();
+        if rhs_millis > 0 {
+            let rhs_millis = rhs_millis as u32;
+            self.elapsed_ms_wrapped =
+                (self.elapsed_ms_wrapped + WRAPPING_TIME_MS - rhs_millis) % WRAPPING_TIME_MS;
+        } else {
+            self.elapsed_ms_wrapped += rhs_millis.abs() as u32;
+            self.elapsed_ms_wrapped %= WRAPPING_TIME_MS;
+        }
+    }
+}
+
+impl Add<ChronoDuration> for WrappedTime {
+    type Output = Self;
+
+    fn add(self, rhs: ChronoDuration) -> Self::Output {
+        let mut result = self;
+        result += rhs;
+        result
+    }
+}
+
+impl AddAssign<ChronoDuration> for WrappedTime {
+    fn add_assign(&mut self, rhs: ChronoDuration) {
+        let rhs_millis = rhs.num_milliseconds();
+        if rhs_millis > 0 {
+            self.elapsed_ms_wrapped += rhs_millis as u32;
+            self.elapsed_ms_wrapped %= WRAPPING_TIME_MS;
+        } else {
+            let rhs_millis = rhs_millis.abs() as u32;
+            self.elapsed_ms_wrapped =
+                (self.elapsed_ms_wrapped + WRAPPING_TIME_MS - rhs_millis) % WRAPPING_TIME_MS;
+        }
     }
 }
 

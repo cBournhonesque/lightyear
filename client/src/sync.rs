@@ -1,5 +1,7 @@
 use lightyear_shared::{PingId, PingStore, PongMessage, TimeManager, TimeSyncPongMessage};
 use std::time::Duration;
+use chrono::Duration as ChronoDuration;
+use tracing::info;
 
 /// In charge of syncing the client's tick/time with the server's tick/time
 /// right after the connection is established
@@ -18,8 +20,8 @@ pub struct HandshakeTimeManager {
 /// NTP algorithm stats
 pub struct SyncStats {
     // clock offset: a positive value means that the client clock is faster than server clock
-    offset_ms: f32,
-    round_trip_delay_ms: f32,
+    pub(crate) offset_ms: f32,
+    pub(crate) round_trip_delay_ms: f32,
 }
 
 impl HandshakeTimeManager {
@@ -141,17 +143,14 @@ impl HandshakeTimeManager {
         pruned_offset_mean /= pruned_sample_count;
         pruned_rtt_mean /= pruned_sample_count;
 
-        // Update internal time using offset
-        // TODO: RECHECK THIS!
-        // client time is slower than server time
-        if pruned_offset_mean < 0.0 {
-            let offset_ms = (pruned_offset_mean * -1.0) as u32;
-            time_manager.subtract_millis(offset_ms)
-        } else {
-            // client time is faster than server time,
-            let offset_ms = pruned_offset_mean as u32;
-            time_manager.update(Duration::from_millis(offset_ms as u64));
-        }
+        // Update internal time using offset so that times are synced.
+        // TODO: should we sync client/server time, or should we set client time to server_time + tick_delta?
+        // TODO: does this algorithm work when client time is slowed/sped-up?
+
+        // negative offset: client time (11am) is ahead of server time (10am)
+        // positive offset: server time (11am) is ahead of client time (10am)
+        info!("Apply offset to client time: {}ms", pruned_offset_mean);
+        time_manager.mut_current_time() += ChronoDuration::milliseconds(pruned_offset_mean as i64);
 
         // Clear out outstanding pings
         self.ping_store.clear();

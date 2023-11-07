@@ -15,6 +15,13 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
         // TODO: here we can control time elapsed from the client's perspective?
 
+        // TODO: THE CLIENT COULD DO PHYSICS UPDATES INSIDE FIXED-UPDATE SYSTEMS
+        //  WE SHOULD BE CALLING UPDATE INSIDE THOSE AS WELL SO THAT WE CAN SEND UPDATES
+        //  IN THE MIDDLE OF THE FIXED UPDATE LOOPS
+        //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
+        //  FIXED-UPDATE.expend() updates the clock by the fixed update interval
+        //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
+
         // update client state, send keep-alives, receive packets from io
         client.update(time.delta()).unwrap();
         // buffer packets into message managers
