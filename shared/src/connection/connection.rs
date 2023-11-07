@@ -60,7 +60,14 @@ impl<P: Protocol> ProtocolMessage<P> {
                     // todo!()
                 }
             },
-            _ => {}
+            ProtocolMessage::Sync(sync) => match sync {
+                SyncMessage::Ping(ping) => {
+                    events.push_ping(ping);
+                }
+                SyncMessage::Pong(pong) => {
+                    events.push_pong(pong);
+                }
+            },
         }
     }
 }

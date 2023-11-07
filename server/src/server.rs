@@ -4,18 +4,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bevy::prelude::{Resource, Time, World};
-use tracing::{debug, debug_span, trace_span};
+use tracing::{debug, debug_span, info, trace_span};
 
 use crate::connection::Connection;
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
 use lightyear_shared::transport::{PacketSender, Transport};
-use lightyear_shared::WriteBuffer;
 use lightyear_shared::{Channel, ChannelKind, Entity, Io, Message, Protocol};
+use lightyear_shared::{TimeManager, WriteBuffer};
 
 use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
-use crate::time::TimeManager;
 use crate::ServerConfig;
 
 #[derive(Resource)]
@@ -76,7 +75,7 @@ impl<P: Protocol> Server<P> {
             user_connections: HashMap::new(),
             protocol,
             events: ServerEvents::new(),
-            time_manager: TimeManager::new(config.tick),
+            time_manager: TimeManager::new(),
         }
     }
 
@@ -233,11 +232,24 @@ impl<P: Protocol> Server<P> {
     pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             trace_span!("receive", client_id = ?client_id).entered();
-            let connection_events = connection.base.receive(world);
+            let mut connection_events = connection.base.receive(world);
+            // handle pings
+            for ping in connection_events.into_iter_pings() {
+                connection.buffer_pong(&self.time_manager, ping).unwrap();
+            }
+            // handle pongs
+            for pong in connection_events.into_iter_pongs() {
+                // update rtt/jitter estimation + update ping store
+                info!("Process pong {:?}", pong);
+                connection
+                    .ping_manager
+                    .process_pong(pong, &self.time_manager);
+            }
             if !connection_events.is_empty() {
                 self.events.push_events(*client_id, connection_events);
             }
         }
+
         // return all received messages and reset the buffer
         std::mem::replace(&mut self.events, ServerEvents::new())
     }

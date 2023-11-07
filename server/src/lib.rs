@@ -13,4 +13,4 @@ pub(crate) mod io;
 mod ping_manager;
 mod plugin;
 mod server;
-pub(crate) mod time;
+mod tick_manager;

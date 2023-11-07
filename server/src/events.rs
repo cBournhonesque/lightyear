@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use lightyear_shared::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
 use lightyear_shared::netcode::ClientId;
-use lightyear_shared::{ConnectionEvents, Entity, Message, Protocol};
+use lightyear_shared::{ConnectionEvents, Entity, Message, PingMessage, PongMessage, Protocol};
 
 pub struct ServerEvents<P: Protocol> {
     // TODO: cannot include connection/disconnection directly into ConnectionEvents, because we remove
@@ -72,6 +72,34 @@ impl<P: Protocol> ServerEvents<P> {
         self.events
             .iter()
             .any(|(_, connection_events)| connection_events.has_disconnection())
+    }
+
+    pub fn iter_pings(&mut self) -> impl Iterator<Item = (PingMessage, ClientId)> + '_ {
+        self.events.iter_mut().flat_map(|(client_id, events)| {
+            let pings = events.into_iter_pings();
+            let client_ids = std::iter::once(client_id.clone()).cycle();
+            return pings.zip(client_ids);
+        })
+    }
+
+    pub fn has_pings(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_pings())
+    }
+
+    pub fn iter_pongs(&mut self) -> impl Iterator<Item = (PongMessage, ClientId)> + '_ {
+        self.events.iter_mut().flat_map(|(client_id, events)| {
+            let pongs = events.into_iter_pongs();
+            let client_ids = std::iter::once(client_id.clone()).cycle();
+            return pongs.zip(client_ids);
+        })
+    }
+
+    pub fn has_pongs(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_pongs())
     }
 
     // pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {

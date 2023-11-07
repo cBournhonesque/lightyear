@@ -133,6 +133,7 @@ fn setup(app: &mut App, cli: Cli) {
                 shared: SharedConfig::default(),
                 netcode: Default::default(),
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
+                ping: lightyear_client::PingConfig::default(),
             };
             let plugin_config = lightyear_client::PluginConfig::new(config, protocol(), auth);
             app.add_plugins(lightyear_client::Plugin::new(plugin_config));

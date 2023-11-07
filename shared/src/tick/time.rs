@@ -1,13 +1,42 @@
 use bitcode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::ops::{AddAssign, Sub};
 use std::time::Duration;
 
 pub const WRAPPING_TIME_MS: u32 = 4194304; // 2^22
 
+pub struct TimeManager {
+    wrapped_time: WrappedTime,
+}
+
+impl TimeManager {
+    pub fn new() -> Self {
+        Self {
+            wrapped_time: WrappedTime::new(0),
+        }
+    }
+
+    /// Update the time by matching the virtual time from bevy
+    /// (time from server start, wrapped around the hour)
+    pub fn update(&mut self, delta: Duration) {
+        self.wrapped_time += delta;
+    }
+
+    pub fn subtract_millis(&mut self, offset_ms: u32) {
+        let add_millis = WRAPPING_TIME_MS - offset_ms;
+        self.wrapped_time.elapsed_ms_wrapped += add_millis;
+    }
+
+    /// Current time since server start, wrapped around 1 hour
+    pub fn current_time(&self) -> WrappedTime {
+        self.wrapped_time
+    }
+}
+
 /// Time since start of server, in milliseconds
 /// Serializes in a compact manner
-#[derive(Encode, Decode, Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WrappedTime {
     // Amount of time elapsed since the start of the server, in milliseconds
     // wraps around 1 hour
@@ -84,6 +113,7 @@ impl PartialOrd for WrappedTime {
 
 /// Returns the absolute duration between two times (no matter which one is ahead of which)!
 impl Sub for WrappedTime {
+    // TODO: use chrono::Duration for negative durations?
     type Output = Duration;
 
     fn sub(self, rhs: Self) -> Self::Output {

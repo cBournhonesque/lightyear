@@ -1,3 +1,4 @@
+use crate::ping_manager::PingConfig;
 use lightyear_shared::{IoConfig, SharedConfig};
 
 pub struct NetcodeConfig {
@@ -21,9 +22,9 @@ impl NetcodeConfig {
             .packet_send_rate(self.packet_send_rate)
     }
 }
-
 pub struct ClientConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
+    pub ping: PingConfig,
 }

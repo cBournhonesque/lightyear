@@ -5,7 +5,7 @@ use crate::netcode::ClientId;
 use bevy::prelude::{Component, Entity, Event};
 
 use crate::protocol::message::MessageKind;
-use crate::{Channel, ChannelKind, Message, MessageBehaviour, Protocol};
+use crate::{Channel, ChannelKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug)]
@@ -14,6 +14,9 @@ pub struct ConnectionEvents<P: Protocol> {
     pub connection: bool,
     pub disconnection: bool,
 
+    // sync
+    pub pings: Vec<PingMessage>,
+    pub pongs: Vec<PongMessage>,
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
@@ -38,6 +41,9 @@ impl<P: Protocol> ConnectionEvents<P> {
             // netcode
             connection: false,
             disconnection: false,
+            // sync
+            pings: Vec::new(),
+            pongs: Vec::new(),
             // messages
             messages: HashMap::new(),
             // replication
@@ -68,6 +74,32 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn push_disconnection(&mut self) {
         self.disconnection = true;
         self.empty = false;
+    }
+
+    pub fn has_pings(&self) -> bool {
+        !self.pings.is_empty()
+    }
+
+    pub fn push_ping(&mut self, ping: PingMessage) {
+        self.pings.push(ping);
+        self.empty = false;
+    }
+
+    pub fn into_iter_pings(&mut self) -> impl Iterator<Item = PingMessage> + '_ {
+        std::mem::take(&mut self.pings).into_iter()
+    }
+
+    pub fn has_pongs(&self) -> bool {
+        !self.pongs.is_empty()
+    }
+
+    pub fn push_pong(&mut self, pong: PongMessage) {
+        self.pongs.push(pong);
+        self.empty = false;
+    }
+
+    pub fn into_iter_pongs(&mut self) -> impl Iterator<Item = PongMessage> + '_ {
+        std::mem::take(&mut self.pongs).into_iter()
     }
 
     // TODO: add channel_kind in the output? add channel as a generic parameter?

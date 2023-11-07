@@ -8,7 +8,7 @@ use std::time::Duration;
 
 #[derive(Clone)]
 pub struct TickConfig {
-    pub(crate) tick_duration: Duration,
+    pub tick_duration: Duration,
 }
 
 impl TickConfig {

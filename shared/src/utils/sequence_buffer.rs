@@ -38,6 +38,12 @@ impl<K: WrappedId, T, const N: usize> SequenceBuffer<K, T, N> {
         self.buffer[index].take()
     }
 
+    pub fn clear(&mut self) {
+        for i in 0..N {
+            self.buffer[i] = None;
+        }
+    }
+
     fn index(&self, key: &K) -> usize {
         key.rem(N)
     }

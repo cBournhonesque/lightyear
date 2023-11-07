@@ -26,3 +26,19 @@ Requirements:
   - receive side:
     - we add the messages in a ReadyBuffer<Tick, Message> and only pop them when the tick is reached
     - then we want to read it on the exact same corresponding tick as when it was emitted (for example for client inputs)
+
+
+- TimeManager: shared
+  - handles updating global time
+  - GLOBAL
+- TickManager: separate implementation in server/client
+  - server: just deduce tick from time
+  - client: deduce tick from sync process (receiving ping/pong messages with server)
+  - GLOBAL?
+- PingManager: shared
+  - maybe separate implementation client/server
+  - how to send ping/pong with remote.
+  - track timer to send ping
+  - ONE PER CONNECTION
+- SyncManager: client only
+  - 

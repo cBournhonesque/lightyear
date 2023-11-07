@@ -35,9 +35,11 @@ pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
 pub use serialize::writer::WriteBuffer;
 pub use tick::manager::{TickConfig, TickManager};
-pub use tick::message::{PingMessage, PongMessage, SyncMessage};
+pub use tick::message::{
+    PingMessage, PongMessage, SyncMessage, TimeSyncPingMessage, TimeSyncPongMessage,
+};
 pub use tick::ping_store::{PingId, PingStore};
-pub use tick::time::WrappedTime;
+pub use tick::time::{TimeManager, WrappedTime};
 pub use transport::conditioner::LinkConditionerConfig;
 pub use transport::io::{Io, IoConfig, TransportConfig};
 pub use transport::udp::UdpSocket;

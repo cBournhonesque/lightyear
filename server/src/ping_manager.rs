@@ -1,9 +1,9 @@
-use crate::time::TimeManager;
 use bevy::prelude::{Timer, TimerMode};
 use lightyear_shared::connection::ProtocolMessage;
+use lightyear_shared::tick::Tick;
 use lightyear_shared::{
     ChannelKind, Connection, DefaultUnreliableChannel, MessageManager, PingMessage, PingStore,
-    PongMessage, Protocol, SyncMessage,
+    PongMessage, Protocol, SyncMessage, TimeManager,
 };
 use std::time::Duration;
 
@@ -78,7 +78,25 @@ impl PingManager {
         let ping_id = self.sent_pings.push_new(time_manager.current_time());
 
         // TODO: for rtt purposes, we could just send a ping that has no tick info
-        PingMessage::new(ping_id, time_manager.current_tick())
+        // PingMessage::new(ping_id, time_manager.current_tick())
+        PingMessage::new(ping_id, Tick(0))
+
+        // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
+        // let channel = ChannelKind::of::<DefaultUnreliableChannel>();
+        // connection.message_manager.buffer_send(message, channel)
+    }
+
+    /// Buffer a pong message (in response to a ping)
+    // TODO: issues here: we would like to send the ping message immediately, otherwise the recorded current time is incorrect
+    //   - can give infinity priority to this channel?
+    //   - can write directly to io otherwise?
+    pub fn prepare_pong(&mut self, time_manager: &TimeManager, ping: PingMessage) -> PongMessage {
+        // TODO: for rtt purposes, we could just send a ping that has no tick info
+        PongMessage {
+            ping_id: ping.id,
+            tick: Default::default(),
+            offset_sec: 0.0,
+        }
         // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
         // let channel = ChannelKind::of::<DefaultUnreliableChannel>();
         // connection.message_manager.buffer_send(message, channel)
@@ -117,8 +135,8 @@ mod tests {
             rtt_smoothing_factor: 0.0,
         };
         let mut ping_manager = PingManager::new(&ping_config);
-        let tick_config = TickConfig::new(Duration::from_millis(16));
-        let mut time_manager = TimeManager::new(tick_config);
+        // let tick_config = TickConfig::new(Duration::from_millis(16));
+        let mut time_manager = TimeManager::new();
 
         assert!(!ping_manager.should_send_ping());
         let delta = Duration::from_millis(100);

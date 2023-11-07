@@ -1,9 +1,9 @@
 use crate::ping_manager::{PingConfig, PingManager};
-use crate::time::TimeManager;
 use anyhow::Result;
 use lightyear_shared::connection::ProtocolMessage;
 use lightyear_shared::{
-    ChannelKind, ChannelRegistry, DefaultUnreliableChannel, Protocol, SyncMessage,
+    ChannelKind, ChannelRegistry, DefaultUnreliableChannel, PingMessage, Protocol, SyncMessage,
+    TimeManager,
 };
 use std::time::Duration;
 use tracing::{debug, info, trace};
@@ -13,7 +13,8 @@ use tracing::{debug, info, trace};
 pub struct Connection<P: Protocol> {
     pub(crate) base: lightyear_shared::Connection<P>,
 
-    ping_manager: PingManager,
+    pub(crate) ping_manager: PingManager,
+    pub synced: bool,
 }
 
 impl<P: Protocol> Connection<P> {
@@ -21,6 +22,7 @@ impl<P: Protocol> Connection<P> {
         Self {
             base: lightyear_shared::Connection::new(channel_registry),
             ping_manager: PingManager::new(ping_config),
+            synced: false,
         }
     }
 
@@ -40,6 +42,19 @@ impl<P: Protocol> Connection<P> {
         trace!("Sending ping {:?}", ping_message);
 
         let message = ProtocolMessage::Sync(SyncMessage::Ping(ping_message));
+        let channel = ChannelKind::of::<DefaultUnreliableChannel>();
+        self.base.message_manager.buffer_send(message, channel)
+    }
+
+    // TODO: eventually call handle_ping and handle_pong directly from the connection
+    //  withotu having to send to events
+
+    pub fn buffer_pong(&mut self, time_manager: &TimeManager, ping: PingMessage) -> Result<()> {
+        let pong_message = self.ping_manager.prepare_pong(time_manager, ping);
+
+        // info!("Sending ping {:?}", ping_message);
+        trace!("Sending pong {:?}", pong_message);
+        let message = ProtocolMessage::Sync(SyncMessage::Pong(pong_message));
         let channel = ChannelKind::of::<DefaultUnreliableChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
