@@ -42,20 +42,19 @@ pub struct TimeSyncPingMessage {
 pub struct TimeSyncPongMessage {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
+    // TODO: these two fields should not be here, because they will be in header
     /// time where the server switched to the current tick
-    pub last_tick_time: WrappedTime,
+    pub server_tick_instant: WrappedTime,
     /// current server tick
-    pub current_tick: Tick,
+    pub server_tick: Tick,
     /// time where the server received the ping
     pub ping_received_time: WrappedTime,
     /// time when the server sent the pong
     pub pong_sent_time: WrappedTime,
 
-    // TODO: tick duration avg
-    // TODO: tick speedup potential
-    // if positive, the remote (client) is ahead of the host (server)
-    // else it's behind the server
-    pub offset_sec: f64,
+    // #[bitcode_hint(expected_range = "0.0..1.0")]
+    pub tick_duration_ms_avg: f32,
+    pub tick_speedup_potential: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

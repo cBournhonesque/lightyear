@@ -42,3 +42,35 @@ Requirements:
   - ONE PER CONNECTION
 - SyncManager: client only
   - 
+
+TODO:
+- run the network update/receive/send function INSIDE each event of fixed update, in case the tick boundary is between some fixed update action
+
+
+Do I even need to keep track of which server/client tick I am at?
+Let's say I run the server and physics at 64fixed-update.
+The only reason I would like ticks is for client prediction:
+- client sent inputs at ticks C200, C202. It is simulating at tick C205. RTT ~ 10 ticks. Latest server update it received was for tick C195. 
+- Server is currently at tick S199. At tick S200, it receives the client input from C200. It reconciles with other stuff and sends back the result for tick 200
+- When client reaches tick C210 (server is at S205), it receives the update for tick C200
+- It has to recompute the simulation from tick C200 to C210, starting from the new state sent by server, but re-applying his input at ticks 202.
+
+Ticks give us:
+- all actions done during one tick are viewed as simultaneous.
+
+Client prediction:
+- client needs to a copy of the inputs it sent to server between latest server update and current time. Can put them in an ordered buffer.
+  The updates for a given system run will be the same
+- server needs to know that the input from client at 'tick' 200 was really sent at tick 200, and starts processing at tick 200 (stores in a buffer beforehand)
+- we could:
+  - increment tick/counter by 1 at every fixed-update run
+
+Snapshot Interpolation:
+- For non-predicted entities, we keep a buffer so that we can keep always have at least 2 snapshots received from the server
+- and then we interpolate between them
+
+
+There will be time where we run multiple times physics+server, physics+server:
+- pros: lets us send updates of the physics in the middle of fixed-updates updates
+- cons: can send many packets very quickly.
+

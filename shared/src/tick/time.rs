@@ -142,6 +142,13 @@ impl SubAssign<ChronoDuration> for WrappedTime {
     }
 }
 
+impl Add<Duration> for WrappedTime {
+    type Output = Self;
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self::Output((self.elapsed_ms_wrapped + rhs.as_millis() as u32) % WRAPPING_TIME_MS)
+    }
+}
+
 impl Add<ChronoDuration> for WrappedTime {
     type Output = Self;
 

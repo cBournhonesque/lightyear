@@ -100,6 +100,14 @@ macro_rules! wrapping_id {
                 }
             }
 
+            impl Sub<u16> for $struct_name {
+                type Output = Self;
+
+                fn sub(self, rhs: u16) -> Self::Output {
+                    Self(self.0.wrapping_sub(rhs))
+                }
+            }
+
             impl Add for $struct_name {
                 type Output = Self;
 
@@ -111,6 +119,14 @@ macro_rules! wrapping_id {
             impl AddAssign<u16> for $struct_name {
                 fn add_assign(&mut self, rhs: u16) {
                     self.0 = self.0.wrapping_add(rhs);
+                }
+            }
+
+            impl Add<i16> for $struct_name {
+                type Output = Self;
+
+                fn add(self, rhs: i16) -> Self::Output {
+                    Self(self.0.wrapping_add_signed(rhs))
                 }
             }
         }
