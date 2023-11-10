@@ -13,3 +13,4 @@ mod events;
 mod ping_manager;
 mod plugin;
 mod sync;
+mod tick_manager;

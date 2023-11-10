@@ -74,3 +74,8 @@ There will be time where we run multiple times physics+server, physics+server:
 - pros: lets us send updates of the physics in the middle of fixed-updates updates
 - cons: can send many packets very quickly.
 
+
+
+TICK
+- the tick will be incremented by 1 at every fixed-update run
+- 

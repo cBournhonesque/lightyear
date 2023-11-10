@@ -17,3 +17,4 @@ chrono = "0.4.31"
 
 [dev-dependencies]
 mock_instant = "0.3"
+serde = { version = "1.0.188", features = ["derive"] }

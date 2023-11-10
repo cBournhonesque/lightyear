@@ -67,6 +67,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                 SyncMessage::Pong(pong) => {
                     events.push_pong(pong);
                 }
+                _ => {}
             },
         }
     }

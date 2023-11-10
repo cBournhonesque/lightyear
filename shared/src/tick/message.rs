@@ -51,10 +51,9 @@ pub struct TimeSyncPongMessage {
     pub ping_received_time: WrappedTime,
     /// time when the server sent the pong
     pub pong_sent_time: WrappedTime,
-
     // #[bitcode_hint(expected_range = "0.0..1.0")]
-    pub tick_duration_ms_avg: f32,
-    pub tick_speedup_potential: f32,
+    // pub tick_duration_ms_avg: f32,
+    // pub tick_speedup_potential: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

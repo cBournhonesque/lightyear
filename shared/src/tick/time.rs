@@ -30,14 +30,18 @@ impl TimeManager {
     }
 
     /// Current time since server start, wrapped around 1 hour
-    pub fn current_time(&self) -> &WrappedTime {
-        &self.wrapped_time
+    pub fn current_time(&self) -> WrappedTime {
+        self.wrapped_time
     }
 
-    /// Current time since server start, wrapped around 1 hour
-    pub fn mut_current_time(&mut self) -> &mut WrappedTime {
-        &mut self.wrapped_time
+    pub fn set_current_time(&mut self, time: WrappedTime) {
+        self.wrapped_time = time;
     }
+
+    // /// Current time since server start, wrapped around 1 hour
+    // pub fn mut_current_time(&mut self) -> WrappedTime {
+    //     mut self.wrapped_time
+    // }
 }
 
 /// Time since start of server, in milliseconds
@@ -145,7 +149,10 @@ impl SubAssign<ChronoDuration> for WrappedTime {
 impl Add<Duration> for WrappedTime {
     type Output = Self;
     fn add(self, rhs: Duration) -> Self::Output {
-        Self::Output((self.elapsed_ms_wrapped + rhs.as_millis() as u32) % WRAPPING_TIME_MS)
+        Self {
+            elapsed_ms_wrapped: (self.elapsed_ms_wrapped + rhs.as_millis() as u32)
+                % WRAPPING_TIME_MS,
+        }
     }
 }
 

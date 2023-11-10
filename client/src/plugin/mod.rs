@@ -1,7 +1,9 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use bevy::prelude::{App, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate};
+use bevy::prelude::{
+    App, Fixed, FixedUpdate, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate, Time,
+};
 
 use lightyear_shared::{
     ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol, ReplicationData,
@@ -11,7 +13,7 @@ use lightyear_shared::{
 use crate::client::Authentication;
 use crate::config::ClientConfig;
 use crate::plugin::sets::ClientSet;
-use crate::plugin::systems::{receive, send};
+use crate::plugin::systems::{increment_tick, receive, send};
 use crate::Client;
 
 mod events;
@@ -65,6 +67,10 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_plugins(SharedPlugin)
             // RESOURCES //
             .insert_resource(client)
+            // NOTE: this tick duration must be the same as any previous existing fixed timesteps
+            .insert_resource(Time::<Fixed>::from_seconds(
+                config.client_config.tick.tick_duration.as_secs_f64(),
+            ))
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, ClientSet::Receive)
@@ -75,6 +81,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_event::<EntitySpawnEvent>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ClientSet::Receive))
+            .add_systems(FixedUpdate, increment_tick::<P>)
             .add_systems(PostUpdate, send::<P>.in_set(ClientSet::Send));
     }
 }

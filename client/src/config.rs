@@ -1,5 +1,5 @@
 use crate::ping_manager::PingConfig;
-use lightyear_shared::{IoConfig, SharedConfig};
+use lightyear_shared::{IoConfig, SharedConfig, TickConfig};
 
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
@@ -26,5 +26,6 @@ pub struct ClientConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
+    pub tick: TickConfig,
     pub ping: PingConfig,
 }

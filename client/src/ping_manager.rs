@@ -372,7 +372,7 @@ fn instant_to_tick(
     server_tick_duration_avg: f32,
     instant: &WrappedTime,
 ) -> Tick {
-    let offset_ms = (instant - server_tick_instant).num_milliseconds();
+    let offset_ms = (*instant - *server_tick_instant).num_milliseconds();
     let offset_ticks_f32 = (offset_ms as f32) / server_tick_duration_avg;
     return server_tick + (offset_ticks_f32 as i16);
 }

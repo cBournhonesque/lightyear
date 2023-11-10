@@ -1,10 +1,11 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 
 use bevy::app::App;
 
 use lightyear_client::{Authentication, ClientConfig, PingConfig, Plugin, PluginConfig};
-use lightyear_shared::{IoConfig, SharedConfig, TransportConfig};
+use lightyear_shared::{IoConfig, SharedConfig, TickConfig, TransportConfig};
 
 use crate::protocol::{protocol, MyProtocol};
 
@@ -14,6 +15,7 @@ pub fn setup(auth: Authentication) -> anyhow::Result<lightyear_client::Client<My
         shared: SharedConfig::default(),
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
+        tick: TickConfig::new(Duration::from_millis(10)),
         ping: PingConfig::default(),
     };
 
@@ -28,6 +30,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         shared: SharedConfig::default(),
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
+        tick: TickConfig::new(Duration::from_millis(10)),
         ping: PingConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);

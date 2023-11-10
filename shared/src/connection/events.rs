@@ -5,7 +5,10 @@ use crate::netcode::ClientId;
 use bevy::prelude::{Component, Entity, Event};
 
 use crate::protocol::message::MessageKind;
-use crate::{Channel, ChannelKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol};
+use crate::{
+    Channel, ChannelKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol,
+    SyncMessage,
+};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug)]
@@ -17,6 +20,7 @@ pub struct ConnectionEvents<P: Protocol> {
     // sync
     pub pings: Vec<PingMessage>,
     pub pongs: Vec<PongMessage>,
+    pub syncs: Vec<SyncMessage>,
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
@@ -44,6 +48,7 @@ impl<P: Protocol> ConnectionEvents<P> {
             // sync
             pings: Vec::new(),
             pongs: Vec::new(),
+            syncs: Vec::new(),
             // messages
             messages: HashMap::new(),
             // replication
@@ -74,6 +79,19 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn push_disconnection(&mut self) {
         self.disconnection = true;
         self.empty = false;
+    }
+
+    pub fn has_syncs(&self) -> bool {
+        !self.syncs.is_empty()
+    }
+
+    pub fn push_sync(&mut self, sync: SyncMessage) {
+        self.syncs.push(sync);
+        self.empty = false;
+    }
+
+    pub fn into_iter_syncs(&mut self) -> impl Iterator<Item = SyncMessage> + '_ {
+        std::mem::take(&mut self.syncs).into_iter()
     }
 
     pub fn has_pings(&self) -> bool {

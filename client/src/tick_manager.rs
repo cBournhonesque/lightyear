@@ -3,7 +3,7 @@ use lightyear_shared::{TickConfig, TimeManager, WrappedTime};
 use tracing::trace;
 
 pub struct TickManager {
-    config: TickConfig,
+    pub(crate) config: TickConfig,
     /// current tick (counter of fixed-update schedule runs)
     tick: Tick,
     /// time when we switched to the current tick
@@ -25,18 +25,22 @@ impl TickManager {
         trace!(new_tick = ?self.tick, "incremented tick")
     }
 
-    /// Update the status of the TickManager after time advances by `elapsed`
-    /// Returns true if we changed ticks
-    pub fn update(&mut self, time_manager: &TimeManager) -> bool {
-        let time_offset = time_manager.current_time() - self.last_tick_wrapped_time;
-        if time_offset > self.config.tick_duration {
-            // TODO: compute the actual tick duration
-            self.tick += 1;
-            self.last_tick_wrapped_time = time_manager.current_time();
-            return true;
-        }
-        return false;
+    pub fn increment_tick_by(&mut self, increment: u16) {
+        self.tick += increment;
     }
+
+    // /// Update the status of the TickManager after time advances by `elapsed`
+    // /// Returns true if we changed ticks
+    // pub fn update(&mut self, time_manager: &TimeManager) -> bool {
+    //     let time_offset = time_manager.current_time() - self.last_tick_wrapped_time;
+    //     if time_offset > self.config.tick_duration {
+    //         // TODO: compute the actual tick duration
+    //         self.tick += 1;
+    //         self.last_tick_wrapped_time = time_manager.current_time();
+    //         return true;
+    //     }
+    //     return false;
+    // }
 
     pub fn current_tick(&self) -> Tick {
         self.tick

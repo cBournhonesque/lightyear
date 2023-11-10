@@ -15,6 +15,7 @@ use lightyear_shared::{TimeManager, WriteBuffer};
 
 use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
+use crate::tick_manager::TickManager;
 use crate::ServerConfig;
 
 #[derive(Resource)]
@@ -34,6 +35,7 @@ pub struct Server<P: Protocol> {
     events: ServerEvents<P>,
     // Time
     time_manager: TimeManager,
+    tick_manager: TickManager,
 }
 
 impl<P: Protocol> Server<P> {
@@ -76,6 +78,7 @@ impl<P: Protocol> Server<P> {
             protocol,
             events: ServerEvents::new(),
             time_manager: TimeManager::new(),
+            tick_manager: TickManager::from_config(config.tick),
         }
     }
 
@@ -94,6 +97,12 @@ impl<P: Protocol> Server<P> {
 
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.netcode.client_ids()
+    }
+
+    // TICK
+
+    pub(crate) fn increment_tick(&mut self) {
+        self.tick_manager.increment_tick()
     }
 
     // REPLICATION

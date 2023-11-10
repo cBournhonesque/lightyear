@@ -10,12 +10,14 @@ use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::{
-    Channel, ChannelKind, ConnectionEvents, Message, PingMessage, TimeManager, WriteBuffer,
+    Channel, ChannelKind, ConnectionEvents, Message, PingMessage, SyncMessage, TimeManager,
+    WriteBuffer,
 };
 use lightyear_shared::{Io, Protocol};
 
 use crate::config::ClientConfig;
 use crate::connection::Connection;
+use crate::tick_manager::TickManager;
 
 #[derive(Resource)]
 pub struct Client<P: Protocol> {
@@ -32,6 +34,7 @@ pub struct Client<P: Protocol> {
     // syncing
     synced: bool,
     time_manager: TimeManager,
+    tick_manager: TickManager,
 }
 
 pub enum Authentication {
@@ -77,6 +80,7 @@ impl<P: Protocol> Client<P> {
             events: ConnectionEvents::new(),
             synced: false,
             time_manager: TimeManager::new(),
+            tick_manager: TickManager::from_config(config.tick),
         }
     }
 
@@ -93,6 +97,12 @@ impl<P: Protocol> Client<P> {
         self.netcode.is_connected()
     }
 
+    // TICK
+
+    pub(crate) fn increment_tick(&mut self) {
+        self.tick_manager.increment_tick();
+    }
+
     // REPLICATION
 
     /// Maintain connection with server, queues up any packet received from the server
@@ -102,7 +112,8 @@ impl<P: Protocol> Client<P> {
         // TODO: if is_connected but not time-synced, do a time-sync.
         //  exchange pings to compute RTT and match the ticks
 
-        self.connection.update(delta);
+        self.connection
+            .update(delta, &self.time_manager, &self.tick_manager);
 
         // TODO: run this only on client
         // complete tick syncing (only on client)?
@@ -127,18 +138,24 @@ impl<P: Protocol> Client<P> {
         trace!("Receive server packets");
         let mut events = self.connection.base.receive(world);
 
-        // handle pings
-        for ping in events.into_iter_pings() {
-            self.connection.buffer_pong(&self.time_manager, ping);
-        }
-        // handle pongs
-        for pong in events.into_iter_pongs() {
-            // process pong to compute rtt/jitter and update ping store
-            self.connection
-                .ping_manager
-                .process_pong(&pong, &self.time_manager);
-
-            // process pong to update sync?
+        // handle any sync messages
+        for sync in events.into_iter_syncs() {
+            match sync {
+                SyncMessage::Ping(ping) => {
+                    self.connection.buffer_pong(&self.time_manager, ping);
+                }
+                SyncMessage::Pong(_) => {}
+                SyncMessage::TimeSyncPing(_) => {
+                    panic!("only client sends time sync messages to server")
+                }
+                SyncMessage::TimeSyncPong(pong) => {
+                    self.connection.sync_manager.process_pong(
+                        &pong,
+                        &mut self.time_manager,
+                        &mut self.tick_manager,
+                    );
+                }
+            }
         }
 
         events
