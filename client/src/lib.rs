@@ -3,7 +3,7 @@
 
 pub use client::{Authentication, Client};
 pub use config::ClientConfig;
-pub use ping_manager::{PingConfig, PingManager};
+pub use ping_manager::PingConfig;
 pub use plugin::{Plugin, PluginConfig};
 
 pub(crate) mod client;

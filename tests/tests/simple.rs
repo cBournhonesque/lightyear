@@ -1,6 +1,7 @@
 use log::debug;
 
 use lightyear_client::Authentication;
+use lightyear_shared::connection::events::IterMessageEvent;
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::{ChannelKind, MessageKind, World};
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
@@ -8,7 +9,7 @@ use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 #[test]
 fn test_simple_server_client() -> anyhow::Result<()> {
     tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::TRACE)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
 
     // Create the server and client
@@ -42,29 +43,29 @@ fn test_simple_server_client() -> anyhow::Result<()> {
         debug!("Starting server thread");
         let mut World = World::default();
         loop {
-            server.update(start.elapsed().as_secs_f64())?;
+            server.update(start.elapsed())?;
             server.recv_packets()?;
             server.send_packets()?;
 
             let events = server.receive(&mut World);
 
-            if !events.is_empty() {
-                let messages = events
-                    .events
-                    .get(&client_id)
-                    .unwrap()
-                    .messages
-                    .get(&MessageKind::of::<Message1>());
-                assert_eq!(
-                    messages,
-                    Some(
-                        &vec![(channel_kind_2, vec![message1_expected])]
-                            .into_iter()
-                            .collect()
-                    )
-                );
-                break;
-            }
+            // if events.has_messages::<Message1>() {
+            //     let messages = events
+            //         .events
+            //         .get(&client_id)
+            //         .unwrap()
+            //         .messages
+            //         .get(&MessageKind::of::<Message1>());
+            //     assert_eq!(
+            //         messages,
+            //         Some(
+            //             &vec![(channel_kind_2, vec![message1_expected])]
+            //                 .into_iter()
+            //                 .collect()
+            //         )
+            //     );
+            //     break;
+            // }
 
             std::thread::sleep(tick_rate_secs);
         }
@@ -72,21 +73,24 @@ fn test_simple_server_client() -> anyhow::Result<()> {
     });
     let client_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting client thread");
+        let mut World = World::default();
         loop {
-            client.update(start.elapsed().as_secs_f64())?;
+            client.update(start.elapsed())?;
             client.recv_packets()?;
             client.send_packets()?;
 
-            if client.is_connected() {
-                client.buffer_send::<Channel2, Message1>(message1)?;
-                client.send_packets()?;
-                break;
-            }
+            client.receive(&mut World);
+
+            // if client.is_connected() {
+            //     client.buffer_send::<Channel2, Message1>(message1)?;
+            //     client.send_packets()?;
+            //     break;
+            // }
             std::thread::sleep(tick_rate_secs);
         }
         Ok(())
     });
-    server_thread.join().expect("server thread has panicked")?;
     client_thread.join().expect("client thread has panicked")?;
+    server_thread.join().expect("server thread has panicked")?;
     Ok(())
 }

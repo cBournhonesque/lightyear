@@ -30,11 +30,13 @@ pub struct PongMessage {
 }
 
 // ping sent from client to server to establish time sync
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TimeSyncPingMessage {
     pub id: PingId,
     // tick of the host
     pub tick: Tick,
+    // time when the server received the ping
+    pub ping_received_time: Option<WrappedTime>,
 }
 
 /// pong sent from server to client to establish time sync
@@ -43,10 +45,14 @@ pub struct TimeSyncPongMessage {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
     // TODO: these two fields should not be here, because they will be in header
+
+    // RELATED TO TICKS
     /// time where the server switched to the current tick
     pub server_tick_instant: WrappedTime,
     /// current server tick
     pub server_tick: Tick,
+
+    // COMPUTE RTT/OFFSET
     /// time where the server received the ping
     pub ping_received_time: WrappedTime,
     /// time when the server sent the pong

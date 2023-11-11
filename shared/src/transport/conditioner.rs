@@ -56,6 +56,7 @@ fn condition_packet<P: Eq>(
         return;
     }
     let mut latency: i32 = config.incoming_latency.into();
+    // TODO: how can i use the virtual time here?
     let mut packet_timestamp = Instant::now();
     if config.incoming_jitter > 0 {
         let jitter: i32 = config.incoming_jitter.into();

@@ -50,6 +50,10 @@ impl SyncManager {
         }
     }
 
+    pub(crate) fn update(&mut self, delta: Duration) {
+        self.ping_timer.tick(delta);
+    }
+
     pub(crate) fn is_synced(&self) -> bool {
         self.synced
     }
@@ -60,7 +64,7 @@ impl SyncManager {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Option<TimeSyncPingMessage> {
-        if self.current_handshake < self.handshake_pings && self.ping_timer.finished() {
+        if !self.synced && (self.ping_timer.finished() || self.current_handshake == 0) {
             self.current_handshake += 1;
             self.ping_timer.reset();
 
@@ -70,10 +74,11 @@ impl SyncManager {
 
             // TODO: for rtt purposes, we could just send a ping that has no tick info
             // PingMessage::new(ping_id, time_manager.current_tick())
-            Some(TimeSyncPingMessage {
+            return Some(TimeSyncPingMessage {
                 id: ping_id,
                 tick: tick_manager.current_tick(),
-            })
+                ping_received_time: None,
+            });
 
             // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
             // let channel = ChannelKind::of::<DefaultUnreliableChannel>();
@@ -92,10 +97,12 @@ impl SyncManager {
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
     ) {
+        info!("Received time sync pong: {:?}", pong);
         let client_received_time = time_manager.current_time();
 
         let Some(ping_sent_time) = self.ping_store.remove(pong.ping_id) else {
-            panic!("unknown ping id");
+            // received a ping that we were not supposed to get
+            return;
         };
 
         // only update values for the most recent pongs received
@@ -126,6 +133,7 @@ impl SyncManager {
 
             // finalize if we have enough pongs
             if self.pong_stats.len() >= self.handshake_pings as usize {
+                info!("received enough pongs to finalize handshake");
                 self.synced = true;
                 self.finalize(time_manager, tick_manager);
             }
@@ -134,7 +142,7 @@ impl SyncManager {
 
     // This happens when a necessary # of handshake pongs have been recorded
     // Compute the final RTT/offset and set the client tick accordingly
-    pub fn finalize(mut self, time_manager: &mut TimeManager, tick_manager: &mut TickManager) {
+    pub fn finalize(&mut self, time_manager: &mut TimeManager, tick_manager: &mut TickManager) {
         let sample_count = self.pong_stats.len() as f32;
 
         let stats = std::mem::take(&mut self.pong_stats);
@@ -214,6 +222,90 @@ impl SyncManager {
         let delta_tick = delta_ms as u16 / tick_manager.config.tick_duration.as_millis() as u16;
         // Update client ticks
         info!("Apply tick delta: {} ticks", delta_tick);
+        info!("Finished syncing!");
         tick_manager.increment_tick_by(delta_tick)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_shared::tick::Tick;
+    use lightyear_shared::{TickConfig, WrappedTime};
+
+    #[test]
+    fn test_sync() {
+        let mut sync_manager = SyncManager::new(3, Duration::from_millis(100));
+        let mut time_manager = TimeManager::new();
+        let mut tick_manager = TickManager::from_config(TickConfig {
+            tick_duration: Duration::from_millis(50),
+        });
+
+        assert!(!sync_manager.is_synced());
+
+        // send pings
+        assert_eq!(
+            sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
+            Some(TimeSyncPingMessage {
+                id: PingId(0),
+                tick: Tick(0),
+                ping_received_time: None,
+            })
+        );
+        let delta = Duration::from_millis(60);
+        sync_manager.update(delta);
+        time_manager.update(delta);
+
+        // ping timer hasn't gone off yet, send nothing
+        assert_eq!(
+            sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
+            None
+        );
+        sync_manager.update(delta);
+        time_manager.update(delta);
+        tick_manager.increment_tick_by(2);
+        assert_eq!(
+            sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
+            Some(TimeSyncPingMessage {
+                id: PingId(1),
+                tick: Tick(2),
+                ping_received_time: None,
+            })
+        );
+
+        let delta = Duration::from_millis(100);
+        sync_manager.update(delta);
+        time_manager.update(delta);
+        assert_eq!(
+            sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
+            Some(TimeSyncPingMessage {
+                id: PingId(2),
+                tick: Tick(2),
+                ping_received_time: None,
+            })
+        );
+
+        // we sent all the pings we need
+        assert_eq!(
+            sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
+            None
+        );
+
+        // check ping store
+        assert_eq!(
+            sync_manager.ping_store.remove(PingId(0)),
+            Some(WrappedTime::new(0))
+        );
+        assert_eq!(
+            sync_manager.ping_store.remove(PingId(1)),
+            Some(WrappedTime::new(120))
+        );
+        assert_eq!(
+            sync_manager.ping_store.remove(PingId(2)),
+            Some(WrappedTime::new(220))
+        );
+
+        // receive pongs
+        // TODO
     }
 }

@@ -22,7 +22,7 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
     let config = ServerConfig {
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        tick: TickConfig::new(Duration::from_millis(16)),
+        tick: TickConfig::new(Duration::from_millis(10)),
         ping: PingConfig::default(),
     };
 
@@ -38,7 +38,7 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
     let config = ServerConfig {
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        tick: TickConfig::new(Duration::from_millis(16)),
+        tick: TickConfig::new(Duration::from_millis(10)),
         ping: PingConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol());

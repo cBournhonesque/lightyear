@@ -3,7 +3,7 @@ use bevy::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
 use std::time::Duration;
-use tracing::{debug, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message_manager::MessageManager;
@@ -12,7 +12,8 @@ use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
 use crate::tick::message::{PingMessage, SyncMessage};
 use crate::{
-    ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, WriteBuffer,
+    ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, TimeManager,
+    WriteBuffer,
 };
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
@@ -35,11 +36,18 @@ pub struct Connection<P: Protocol> {
 pub enum ProtocolMessage<P: Protocol> {
     Message(P::Message),
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
+    // the reason why we include sync here instead of doing another MessageManager is so that
+    // the sync messages can be added to packets that have other messages
     Sync(SyncMessage),
 }
 
 impl<P: Protocol> ProtocolMessage<P> {
-    fn push_to_events(self, channel_kind: ChannelKind, events: &mut ConnectionEvents<P>) {
+    fn push_to_events(
+        self,
+        channel_kind: ChannelKind,
+        events: &mut ConnectionEvents<P>,
+        time_manager: &TimeManager,
+    ) {
         match self {
             ProtocolMessage::Message(message) => {
                 #[cfg(feature = "metrics")]
@@ -60,15 +68,16 @@ impl<P: Protocol> ProtocolMessage<P> {
                     // todo!()
                 }
             },
-            ProtocolMessage::Sync(sync) => match sync {
-                SyncMessage::Ping(ping) => {
-                    events.push_ping(ping);
-                }
-                SyncMessage::Pong(pong) => {
-                    events.push_pong(pong);
-                }
-                _ => {}
-            },
+            ProtocolMessage::Sync(mut sync) => {
+                match sync {
+                    SyncMessage::TimeSyncPing(ref mut ping) => {
+                        ping.ping_received_time = Some(time_manager.current_time());
+                    }
+                    _ => {}
+                };
+                info!("pushing sync message to events: {:?}", sync);
+                events.push_sync(sync);
+            }
         }
     }
 }
@@ -203,7 +212,11 @@ impl<P: Protocol> Connection<P> {
 
     // TODO: make world optional? or separate receiving into messages and applying into world?
     /// Read messages received from buffer (either messages or replication events) and push them to events
-    pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
+    pub fn receive(
+        &mut self,
+        world: &mut World,
+        time_manager: &TimeManager,
+    ) -> ConnectionEvents<P> {
         trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
@@ -214,13 +227,13 @@ impl<P: Protocol> Connection<P> {
             trace_span!("channel", channel = channel_name).entered();
 
             if !messages.is_empty() {
-                debug!(?channel_kind, "Received messages");
+                trace!(?channel_name, "Received messages");
                 for message in messages {
                     // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
                     // apply replication messages to the world
                     self.replication_manager.apply_world(world, message.clone());
                     // update events
-                    message.push_to_events(channel_kind, &mut self.events);
+                    message.push_to_events(channel_kind, &mut self.events, time_manager);
                 }
             }
         }

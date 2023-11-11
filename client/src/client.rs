@@ -4,10 +4,11 @@ use std::time::Duration;
 use anyhow::Context;
 use anyhow::Result;
 use bevy::prelude::{Resource, World};
-use tracing::trace;
+use tracing::{info, trace};
 
 use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
+use lightyear_shared::tick::Tick;
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::{
     Channel, ChannelKind, ConnectionEvents, Message, PingMessage, SyncMessage, TimeManager,
@@ -99,6 +100,10 @@ impl<P: Protocol> Client<P> {
 
     // TICK
 
+    pub fn tick(&self) -> Tick {
+        self.tick_manager.current_tick()
+    }
+
     pub(crate) fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
     }
@@ -107,20 +112,13 @@ impl<P: Protocol> Client<P> {
 
     /// Maintain connection with server, queues up any packet received from the server
     pub fn update(&mut self, delta: Duration) -> Result<()> {
+        self.time_manager.update(delta);
+        // self.tick_manager.update(delta);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
-
-        // TODO: if is_connected but not time-synced, do a time-sync.
-        //  exchange pings to compute RTT and match the ticks
 
         self.connection
             .update(delta, &self.time_manager, &self.tick_manager);
 
-        // TODO: run this only on client
-        // complete tick syncing (only on client)?
-        if !self.synced {
-            // let ping = PingMessage::new()
-            // self.buffer_message()
-        }
         Ok(())
     }
 
@@ -136,13 +134,14 @@ impl<P: Protocol> Client<P> {
     /// Receive messages from the server
     pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
-        let mut events = self.connection.base.receive(world);
+        // TODO: time_manager is actually not needed by the client... code smell
+        let mut events = self.connection.base.receive(world, &self.time_manager);
 
         // handle any sync messages
         for sync in events.into_iter_syncs() {
             match sync {
                 SyncMessage::Ping(ping) => {
-                    self.connection.buffer_pong(&self.time_manager, ping);
+                    // self.connection.buffer_pong(&self.time_manager, ping);
                 }
                 SyncMessage::Pong(_) => {}
                 SyncMessage::TimeSyncPing(_) => {

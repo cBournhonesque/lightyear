@@ -53,7 +53,8 @@ impl<P: Protocol> Plugin<P> {
 impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let client = Client::new(config.client_config, config.auth, config.protocol);
+        let client = Client::new(config.client_config.clone(), config.auth, config.protocol);
+        let fixed_timestep = config.client_config.tick.tick_duration.clone();
 
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that
@@ -68,9 +69,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
             // RESOURCES //
             .insert_resource(client)
             // NOTE: this tick duration must be the same as any previous existing fixed timesteps
-            .insert_resource(Time::<Fixed>::from_seconds(
-                config.client_config.tick.tick_duration.as_secs_f64(),
-            ))
+            .insert_resource(Time::<Fixed>::from_seconds(fixed_timestep.as_secs_f64()))
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, ClientSet::Receive)

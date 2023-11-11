@@ -47,7 +47,7 @@ pub struct LogPlugin {
 impl Default for LogPlugin {
     fn default() -> Self {
         Self {
-            filter: "wgpu=error,naga=warn".to_string(),
+            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info".to_string(),
             level: Level::INFO,
         }
     }
@@ -67,6 +67,7 @@ impl Plugin for LogPlugin {
 
         let finished_subscriber;
         let default_filter = { format!("{},{}", self.level, self.filter) };
+        dbg!(&default_filter);
         let filter_layer = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(&default_filter))
             .unwrap();
@@ -107,7 +108,7 @@ impl Plugin for LogPlugin {
             let fmt_layer = tracing_subscriber::fmt::Layer::default()
                 // log span enters
                 .with_span_events(tracing_subscriber::fmt::format::FmtSpan::ENTER)
-                // .with_max_level(tracing::Level::TRACE)
+                // .with_max_level(self.level)
                 .with_writer(std::io::stderr);
 
             // bevy_render::renderer logs a `tracy.frame_mark` event every frame

@@ -1,4 +1,4 @@
-use crate::ping_manager::{PingConfig, PingManager};
+use crate::ping_manager::PingConfig;
 use crate::sync::SyncManager;
 use crate::tick_manager::TickManager;
 use anyhow::Result;
@@ -25,7 +25,10 @@ impl<P: Protocol> Connection<P> {
         Self {
             base: lightyear_shared::Connection::new(channel_registry),
             // ping_manager: PingManager::new(ping_config),
-            sync_manager: SyncManager::new(10, Duration::from_millis(50)),
+            sync_manager: SyncManager::new(
+                ping_config.sync_num_pings,
+                ping_config.sync_ping_interval_ms,
+            ),
         }
     }
 
@@ -36,6 +39,7 @@ impl<P: Protocol> Connection<P> {
         tick_manager: &TickManager,
     ) {
         self.base.update(delta);
+        self.sync_manager.update(delta);
         // TODO: maybe prepare ping?
         // self.ping_manager.update(delta);
 
@@ -47,7 +51,10 @@ impl<P: Protocol> Connection<P> {
             {
                 let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPing(sync_ping));
                 let channel = ChannelKind::of::<DefaultUnreliableChannel>();
-                self.base.message_manager.buffer_send(message, channel)
+                self.base
+                    .message_manager
+                    .buffer_send(message, channel)
+                    .unwrap();
             }
         }
     }

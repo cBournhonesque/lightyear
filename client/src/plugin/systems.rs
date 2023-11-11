@@ -29,7 +29,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         // receive packets from message managers
         let mut events = client.receive(world);
         if !events.is_empty() {
-            dbg!(&events.spawns);
             // panic!();
 
             if events.has_connection() {

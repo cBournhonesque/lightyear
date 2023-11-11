@@ -1,9 +1,11 @@
+use crate::tick_manager::TickManager;
 use bevy::prelude::{Timer, TimerMode};
 use lightyear_shared::connection::ProtocolMessage;
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
     ChannelKind, Connection, DefaultUnreliableChannel, MessageManager, PingMessage, PingStore,
-    PongMessage, Protocol, SyncMessage, TimeManager,
+    PongMessage, Protocol, SyncMessage, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
+    WrappedTime,
 };
 use std::time::Duration;
 
@@ -102,11 +104,36 @@ impl PingManager {
         // connection.message_manager.buffer_send(message, channel)
     }
 
+    /// Prepare a time sync pong message (in response to a ping)
+    // TODO: issues here: we would like to send the ping message immediately, otherwise the recorded current time is incorrect
+    //   - can give infinity priority to this channel?
+    //   - can write directly to io otherwise?
+    pub fn prepare_sync_pong(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+        ping: TimeSyncPingMessage,
+    ) -> TimeSyncPongMessage {
+        // TODO: for rtt purposes, we could just send a ping that has no tick info
+        TimeSyncPongMessage {
+            ping_id: ping.id,
+            server_tick_instant: WrappedTime::new(0),
+            server_tick: tick_manager.current_tick(),
+            ping_received_time: ping.ping_received_time.unwrap(),
+            // TODO: can we get a more precise time?
+            pong_sent_time: time_manager.current_time(),
+        }
+        // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
+        // let channel = ChannelKind::of::<DefaultUnreliableChannel>();
+        // connection.message_manager.buffer_send(message, channel)
+    }
+
     /// Process an incoming pong payload
     pub fn process_pong(&mut self, pong: PongMessage, time_manager: &TimeManager) {
         if let Some(ping_sent_time) = self.sent_pings.remove(pong.ping_id) {
             assert!(time_manager.current_time() > ping_sent_time);
-            let rtt_millis = (time_manager.current_time() - ping_sent_time).as_secs_f32() * 1000.0;
+            let rtt_millis =
+                (time_manager.current_time() - ping_sent_time).num_milliseconds() as f32;
             let new_jitter = ((rtt_millis - self.rtt_ms_average) / 2.0).abs();
             // TODO: use rtt_smoothing_factor?
             self.rtt_ms_average = (0.9 * self.rtt_ms_average) + (0.1 * rtt_millis);

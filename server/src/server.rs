@@ -9,8 +9,9 @@ use tracing::{debug, debug_span, info, trace_span};
 use crate::connection::Connection;
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
+use lightyear_shared::tick::Tick;
 use lightyear_shared::transport::{PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Entity, Io, Message, Protocol};
+use lightyear_shared::{Channel, ChannelKind, Entity, Io, Message, Protocol, SyncMessage};
 use lightyear_shared::{TimeManager, WriteBuffer};
 
 use crate::events::ServerEvents;
@@ -101,6 +102,9 @@ impl<P: Protocol> Server<P> {
 
     // TICK
 
+    pub fn tick(&self) -> Tick {
+        self.tick_manager.current_tick()
+    }
     pub(crate) fn increment_tick(&mut self) {
         self.tick_manager.increment_tick()
     }
@@ -199,6 +203,7 @@ impl<P: Protocol> Server<P> {
     pub fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
         self.time_manager.update(delta);
+        // self.tick_manager.update(delta);
 
         // update netcode server
         self.netcode
@@ -207,10 +212,7 @@ impl<P: Protocol> Server<P> {
 
         // update connections
         for (_, connection) in &mut self.user_connections {
-            connection.update(delta);
-
-            // maybe send pings?
-            connection.buffer_ping(&self.time_manager)?;
+            connection.update(delta, &self.time_manager);
         }
 
         // handle connections
@@ -241,7 +243,26 @@ impl<P: Protocol> Server<P> {
     pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             trace_span!("receive", client_id = ?client_id).entered();
-            let mut connection_events = connection.base.receive(world);
+            let mut connection_events = connection.base.receive(world, &self.time_manager);
+
+            // handle sync events
+            for sync in connection_events.into_iter_syncs() {
+                match sync {
+                    SyncMessage::Ping(ping) => {
+                        connection.buffer_pong(&self.time_manager, ping).unwrap();
+                    }
+                    SyncMessage::Pong(_) => {}
+                    SyncMessage::TimeSyncPing(ping) => {
+                        info!("received time_sync_ping");
+                        connection
+                            .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
+                            .unwrap();
+                    }
+                    SyncMessage::TimeSyncPong(_) => {
+                        panic!("only the server sends time-sync-pong messages")
+                    }
+                }
+            }
             // handle pings
             for ping in connection_events.into_iter_pings() {
                 connection.buffer_pong(&self.time_manager, ping).unwrap();

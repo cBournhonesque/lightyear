@@ -19,7 +19,7 @@ impl Plugin for SharedPlugin {
         // TODO: set log config
         app.add_plugins(log::LogPlugin {
             level: Level::DEBUG,
-            filter: "wgpu=error,bevy_render=warn,naga=error,bevy_app=info".to_string(),
+            filter: "wgpu=error,bevy_render=warn,naga=error,bevy_app=error,bevy=error".to_string(),
         });
     }
 }

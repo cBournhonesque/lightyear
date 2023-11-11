@@ -74,7 +74,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         let mut world = World::default();
         let mut rng = rand::thread_rng();
         loop {
-            server.update(start.elapsed().as_secs_f64())?;
+            server.update(start.elapsed())?;
             server.recv_packets()?;
             server.send_packets()?;
             server.receive(&mut world);
@@ -102,7 +102,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         let mut world = World::default();
         debug!("Starting client thread");
         loop {
-            client.update(start.elapsed().as_secs_f64())?;
+            client.update(start.elapsed())?;
             client.recv_packets()?;
             client.send_packets()?;
 
