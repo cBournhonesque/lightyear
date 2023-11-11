@@ -2,8 +2,8 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType, PostUpdate,
-    PreUpdate,
+    App, Fixed, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType,
+    PostUpdate, PreUpdate, Time,
 };
 
 use lightyear_shared::plugin::systems::replication::add_replication_send_systems;
@@ -53,7 +53,8 @@ impl<P: Protocol> Plugin<P> {
 impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let server = Server::new(config.server_config, config.protocol);
+        let server = Server::new(config.server_config.clone(), config.protocol);
+        let fixed_timestep = config.server_config.tick.tick_duration.clone();
 
         add_replication_send_systems::<P, Server<P>>(app);
         P::add_per_component_replication_send_systems::<Server<P>>(app);
@@ -64,6 +65,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_plugins(SharedPlugin)
             // RESOURCES //
             .insert_resource(server)
+            .insert_resource(Time::<Fixed>::from_seconds(fixed_timestep.as_secs_f64()))
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, ServerSet::Receive)

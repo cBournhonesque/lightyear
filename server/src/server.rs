@@ -253,7 +253,6 @@ impl<P: Protocol> Server<P> {
                     }
                     SyncMessage::Pong(_) => {}
                     SyncMessage::TimeSyncPing(ping) => {
-                        info!("received time_sync_ping");
                         connection
                             .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
                             .unwrap();

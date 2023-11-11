@@ -6,7 +6,7 @@ use lightyear_shared::{
     PingId, PingStore, PongMessage, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
 };
 use std::time::Duration;
-use tracing::info;
+use tracing::{info, trace};
 
 /// In charge of syncing the client's tick/time with the server's tick/time
 /// right after the connection is established
@@ -59,6 +59,7 @@ impl SyncManager {
     }
 
     // TODO: same as ping_manager
+    #[cold]
     pub(crate) fn maybe_prepare_ping(
         &mut self,
         time_manager: &TimeManager,
@@ -91,13 +92,14 @@ impl SyncManager {
 
     /// Received a pong: update
     /// Returns true if we have enough pongs to finalize the handshake
+    #[cold]
     pub(crate) fn process_pong(
         &mut self,
         pong: &TimeSyncPongMessage,
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
     ) {
-        info!("Received time sync pong: {:?}", pong);
+        trace!("Received time sync pong: {:?}", pong);
         let client_received_time = time_manager.current_time();
 
         let Some(ping_sent_time) = self.ping_store.remove(pong.ping_id) else {
@@ -116,7 +118,7 @@ impl SyncManager {
                 (pong.ping_received_time - ping_sent_time).num_milliseconds() as i32;
             // t2 - t3 (pong sent - pong receive)
             let pong_offset_ms =
-                -((client_received_time - pong.pong_sent_time).num_milliseconds() as i32);
+                (pong.pong_sent_time - client_received_time).num_milliseconds() as i32;
             let offset_ms = (ping_offset_ms + pong_offset_ms) / 2;
 
             // round-trip-delay
@@ -180,7 +182,7 @@ impl SyncManager {
         for stat in &stats {
             let offset_diff = (stat.offset_ms - offset_mean).abs();
             let rtt_diff = (stat.round_trip_delay_ms - rtt_mean).abs();
-            if offset_diff < offset_stdv && rtt_diff < rtt_stdv {
+            if offset_diff <= offset_stdv && rtt_diff <= rtt_stdv {
                 pruned_stats.push(stat);
             }
         }
@@ -204,7 +206,7 @@ impl SyncManager {
 
         // negative offset: client time (11am) is ahead of server time (10am)
         // positive offset: server time (11am) is ahead of client time (10am)
-        info!("Apply offset to client time: {}ms", pruned_offset_mean);
+        // info!("Apply offset to client time: {}ms", pruned_offset_mean);
         time_manager.set_current_time(
             time_manager.current_time() + ChronoDuration::milliseconds(pruned_offset_mean as i64),
         );
@@ -221,8 +223,13 @@ impl SyncManager {
 
         let delta_tick = delta_ms as u16 / tick_manager.config.tick_duration.as_millis() as u16;
         // Update client ticks
-        info!("Apply tick delta: {} ticks", delta_tick);
-        info!("Finished syncing!");
+        info!(
+            offset_ms = ?pruned_offset_mean,
+            ?latency_ms,
+            ?jitter_ms,
+            ?delta_tick,
+            "Finished syncing!"
+        );
         tick_manager.increment_tick_by(delta_tick)
     }
 }

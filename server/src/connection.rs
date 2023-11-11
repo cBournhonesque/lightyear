@@ -70,7 +70,7 @@ impl<P: Protocol> Connection<P> {
             .prepare_sync_pong(time_manager, tick_manager, ping);
 
         // info!("Sending ping {:?}", ping_message);
-        info!("Sending time sync pong {:?}", pong_message);
+        trace!("Sending time sync pong {:?}", pong_message);
         let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPong(pong_message));
         let channel = ChannelKind::of::<DefaultUnreliableChannel>();
         self.base.message_manager.buffer_send(message, channel)

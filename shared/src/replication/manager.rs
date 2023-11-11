@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::{Entity, World};
-use tracing::{debug, debug_span};
+use tracing::{debug, debug_span, trace_span};
 
 use crate::connection::ProtocolMessage;
 use crate::replication::entity_map::EntityMap;
@@ -138,7 +138,7 @@ impl<P: Protocol> ReplicationManager<P> {
 
     /// Apply any replication messages to the world
     pub(crate) fn apply_world(&mut self, world: &mut World, message: ProtocolMessage<P>) {
-        let span = debug_span!("apply received replication message to world").entered();
+        let span = trace_span!("Apply received replication message to world").entered();
         match message {
             ProtocolMessage::Replication(replication) => match replication {
                 ReplicationMessage::SpawnEntity(entity, components) => {

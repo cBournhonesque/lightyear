@@ -1,11 +1,16 @@
 use std::io::Result;
 use std::net::SocketAddr;
 use std::time::Duration;
-#[cfg(not(test))]
-use std::time::Instant;
 
-#[cfg(test)]
-use mock_instant::Instant;
+use cfg_if::cfg_if;
+cfg_if! {
+    if #[cfg(any(test, feature = "mock_time"))] {
+        use mock_instant::Instant;
+    } else {
+        use std::time::Instant;
+    }
+}
+
 use rand;
 use rand::{thread_rng, Rng};
 
@@ -15,7 +20,7 @@ use crate::utils::ReadyBuffer;
 /// Contains configuration required to initialize a LinkConditioner
 #[derive(Clone)]
 pub struct LinkConditionerConfig {
-    /// Delay to receive incoming messages in milliseconds
+    /// Delay to receive incoming messages in milliseconds (half the RTT)
     pub incoming_latency: u16,
     /// The maximum additional random latency to delay received incoming
     /// messages in milliseconds. This may be added OR subtracted from the

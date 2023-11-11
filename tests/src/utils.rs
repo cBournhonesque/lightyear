@@ -5,9 +5,9 @@ use lightyear_server::Server;
 use tracing_subscriber::fmt::time;
 
 pub fn tick(app: &mut App) {
-    let mut fxt = app.world.resource_mut::<Time<Fixed>>();
+    let fxt = app.world.resource_mut::<Time<Fixed>>();
     let timestep = fxt.timestep();
-    let mut time = app.world.resource_mut::<Time<Virtual>>();
+    let time = app.world.resource_mut::<Time<Virtual>>();
     // time.advance_by(timestep);
     app.update();
 }

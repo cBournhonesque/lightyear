@@ -75,7 +75,6 @@ impl<P: Protocol> ProtocolMessage<P> {
                     }
                     _ => {}
                 };
-                info!("pushing sync message to events: {:?}", sync);
                 events.push_sync(sync);
             }
         }

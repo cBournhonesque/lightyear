@@ -399,7 +399,7 @@ impl<Ctx> Client<Ctx> {
                 info!("client connected to server");
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
-                debug!("client received payload packet from server");
+                trace!("client received payload packet from server");
                 let reader = ReadWordBuffer::start_read(pkt.buf);
                 self.packet_queue.push_back(reader);
             }

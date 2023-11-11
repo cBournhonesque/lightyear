@@ -1,6 +1,6 @@
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{TickConfig, TimeManager, WrappedTime};
-use tracing::trace;
+use tracing::{info, trace};
 
 pub struct TickManager {
     pub(crate) config: TickConfig,
@@ -22,7 +22,7 @@ impl TickManager {
 
     pub fn increment_tick(&mut self) {
         self.tick += 1;
-        trace!(new_tick = ?self.tick, "incremented tick")
+        trace!(new_tick = ?self.tick, "incremented client tick")
     }
 
     pub fn increment_tick_by(&mut self, increment: u16) {

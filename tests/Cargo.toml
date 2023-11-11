@@ -18,6 +18,7 @@ name = "connection_soak"
 
 [features]
 metrics = ["lightyear_client/metrics", "lightyear_server/metrics", "lightyear_shared/metrics", "dep:metrics-exporter-prometheus"]
+mock_time = ["lightyear_shared/mock_time"]
 
 [dependencies]
 lightyear_client = { path = "../client" }
@@ -31,6 +32,8 @@ tracing-subscriber = "0.3.17"
 log = "0.4.20"
 bevy = { version = "0.12", features = ["bevy_core_pipeline"] }
 rand = "0.8.5"
+
+mock_instant = "0.3"
 
 metrics-exporter-prometheus = {  version = "0.12.1", optional = true }
 

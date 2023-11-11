@@ -16,8 +16,6 @@ pub struct Io {
     local_addr: SocketAddr,
     sender: Box<dyn PacketSender + Send + Sync>,
     receiver: Box<dyn PacketReceiver + Send + Sync>,
-    // transport: Box<dyn Transport>,
-    // read_buffer: ReadBuffer<'_>,
 }
 
 #[derive(Clone)]
@@ -45,13 +43,6 @@ impl IoConfig {
 }
 
 impl Io {
-    // pub(crate) fn new(transport: Box<dyn Transport>) -> Self {
-    //     Self {
-    //         transport,
-    //         // read_buffer: ReadBuffer::new(),
-    //     }
-    // }
-
     pub fn from_config(config: &IoConfig) -> Result<Self> {
         match config.transport {
             TransportConfig::UdpSocket(ref addr) => {
@@ -79,8 +70,6 @@ impl Io {
             local_addr,
             sender,
             receiver,
-            // transport,
-            // read_buffer: ReadBuffer::new(),
         }
     }
 

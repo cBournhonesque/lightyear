@@ -177,3 +177,10 @@ impl<P: Protocol> Client<P> {
         Ok(())
     }
 }
+
+// TODO: make this only available for integration tests
+impl<P: Protocol> Client<P> {
+    pub fn io(&self) -> &Io {
+        &self.io
+    }
+}
