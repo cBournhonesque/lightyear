@@ -48,7 +48,10 @@ impl FragmentReceiver {
             current_time,
         )? {
             self.fragment_messages.remove(&fragment.message_id);
-            return Ok(Some(SingleData::new(Some(fragment.message_id), payload)));
+            let mut data = SingleData::new(Some(fragment.message_id), payload);
+            // TODO: verify that all fragments had the same tick
+            data.tick = fragment.tick;
+            return Ok(Some(data));
         }
 
         Ok(None)
@@ -123,13 +126,15 @@ mod tests {
         let mut receiver = FragmentReceiver::new();
         let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let message_bytes = Bytes::from(vec![1 as u8; num_bytes]);
-        let fragments = FragmentSender::new().build_fragments(MessageId(0), message_bytes.clone());
+        let fragments =
+            FragmentSender::new().build_fragments(MessageId(0), None, message_bytes.clone());
 
         assert_eq!(receiver.receive_fragment(fragments[0].clone(), None)?, None);
         assert_eq!(
             receiver.receive_fragment(fragments[1].clone(), None)?,
             Some(SingleData {
                 id: Some(MessageId(0)),
+                tick: None,
                 bytes: message_bytes.clone()
             })
         );

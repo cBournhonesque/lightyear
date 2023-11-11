@@ -18,8 +18,8 @@ use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::{
-    BitSerializable, Channel, ChannelKind, ChannelRegistry, ReadWordBuffer, WriteBuffer,
-    WriteWordBuffer,
+    BitSerializable, Channel, ChannelKind, ChannelRegistry, ReadWordBuffer, TickManager,
+    WriteBuffer, WriteWordBuffer,
 };
 
 /// Wrapper to: send/receive messages via channels to a remote address
@@ -58,11 +58,11 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Update book-keeping
-    pub fn update(&mut self, delta: Duration) {
+    pub fn update(&mut self, delta: Duration, tick_manager: &TickManager) {
         self.current_time += delta;
         for channel in self.channels.values_mut() {
-            channel.sender.update(delta);
-            channel.receiver.update(delta);
+            channel.sender.update(delta, tick_manager);
+            channel.receiver.update(delta, tick_manager);
         }
     }
 

@@ -5,6 +5,7 @@ use bevy::prelude::{
     App, Fixed, FixedUpdate, IntoSystemConfigs, Plugin as PluginType, PostUpdate, PreUpdate, Time,
 };
 
+use lightyear_shared::plugin::systems::tick::increment_tick;
 use lightyear_shared::{
     ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol, ReplicationData,
     SharedPlugin,
@@ -13,7 +14,7 @@ use lightyear_shared::{
 use crate::client::Authentication;
 use crate::config::ClientConfig;
 use crate::plugin::sets::ClientSet;
-use crate::plugin::systems::{increment_tick, receive, send};
+use crate::plugin::systems::{receive, send};
 use crate::Client;
 
 mod events;
@@ -65,11 +66,11 @@ impl<P: Protocol> PluginType for Plugin<P> {
 
         app
             // PLUGINS //
-            .add_plugins(SharedPlugin)
+            .add_plugins(SharedPlugin {
+                config: config.client_config.shared.clone(),
+            })
             // RESOURCES //
             .insert_resource(client)
-            // NOTE: this tick duration must be the same as any previous existing fixed timesteps
-            .insert_resource(Time::<Fixed>::from_seconds(fixed_timestep.as_secs_f64()))
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, ClientSet::Receive)
@@ -80,7 +81,10 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_event::<EntitySpawnEvent>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ClientSet::Receive))
-            .add_systems(FixedUpdate, increment_tick::<P>)
+            // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
+            //  maybe TickManager should be a separate resource not contained in Client/Server?
+            //  and runs Update in PreUpdate before the client/server systems
+            .add_systems(FixedUpdate, increment_tick::<Client<P>>)
             .add_systems(PostUpdate, send::<P>.in_set(ClientSet::Send));
     }
 }

@@ -8,6 +8,7 @@ use crate::packet::message::{FragmentData, MessageAck, MessageContainer, Message
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
+use crate::TickManager;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Same as UnorderedUnreliableSender, but includes ordering information
@@ -35,15 +36,15 @@ impl SequencedUnreliableSender {
 }
 
 impl ChannelSend for SequencedUnreliableSender {
-    fn update(&mut self, delta: Duration) {}
+    fn update(&mut self, delta: Duration, _: &TickManager) {}
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: Bytes) {
         if message.len() > self.fragment_sender.fragment_size {
-            for fragment in self
-                .fragment_sender
-                .build_fragments(self.next_send_message_id, message)
+            for fragment in
+                self.fragment_sender
+                    .build_fragments(self.next_send_message_id, None, message)
             {
                 self.fragmented_messages_to_send.push_back(fragment);
             }

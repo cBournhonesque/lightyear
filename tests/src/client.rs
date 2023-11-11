@@ -12,10 +12,12 @@ use crate::protocol::{protocol, MyProtocol};
 pub fn setup(auth: Authentication) -> anyhow::Result<lightyear_client::Client<MyProtocol>> {
     let addr = SocketAddr::from_str("127.0.0.1:0")?;
     let config = ClientConfig {
-        shared: SharedConfig::default(),
+        shared: SharedConfig {
+            enable_replication: false,
+            tick: TickConfig::new(Duration::from_millis(10)),
+        },
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        tick: TickConfig::new(Duration::from_millis(10)),
         ping: PingConfig::default(),
     };
 
@@ -27,10 +29,12 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
     // create udp-socket based io
     let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
     let config = ClientConfig {
-        shared: SharedConfig::default(),
+        shared: SharedConfig {
+            enable_replication: false,
+            tick: TickConfig::new(Duration::from_millis(10)),
+        },
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        tick: TickConfig::new(Duration::from_millis(10)),
         ping: PingConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);

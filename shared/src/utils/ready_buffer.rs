@@ -8,6 +8,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 /// The most recent item (by associated key) is returned first
 #[derive(Clone)]
 pub struct ReadyBuffer<K: Ord, T: Eq + PartialEq> {
+    // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
     heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
 

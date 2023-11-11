@@ -1,4 +1,4 @@
-use crate::BitSerializable;
+use crate::{BitSerializable, TickManager};
 use enum_dispatch::enum_dispatch;
 use std::time::Duration;
 
@@ -9,6 +9,7 @@ pub(crate) mod fragment_receiver;
 pub(crate) mod ordered_reliable;
 pub(crate) mod sequenced_reliable;
 pub(crate) mod sequenced_unreliable;
+pub(crate) mod tick_unreliable;
 pub(crate) mod unordered_reliable;
 pub(crate) mod unordered_unreliable;
 
@@ -17,7 +18,7 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelReceive {
     /// Bookkeeping on the channel
-    fn update(&mut self, delta: Duration);
+    fn update(&mut self, delta: Duration, tick_manager: &TickManager);
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()>;
@@ -34,4 +35,5 @@ pub enum ChannelReceiver {
     OrderedReliable(ordered_reliable::OrderedReliableReceiver),
     SequencedReliable(sequenced_reliable::SequencedReliableReceiver),
     UnorderedReliable(unordered_reliable::UnorderedReliableReceiver),
+    TickUnreliable(tick_unreliable::TickUnreliableReceiver),
 }

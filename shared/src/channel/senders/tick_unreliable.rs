@@ -8,11 +8,12 @@ use crate::packet::message::{FragmentData, MessageAck, MessageContainer, Message
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
+use crate::tick::Tick;
 use crate::TickManager;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
-pub struct UnorderedUnreliableSender {
+pub struct TickUnreliableSender {
     /// list of single messages that we want to fit into packets and send
     single_messages_to_send: VecDeque<SingleData>,
     /// list of fragmented messages that we want to fit into packets and send
@@ -22,21 +23,25 @@ pub struct UnorderedUnreliableSender {
     next_send_fragmented_message_id: MessageId,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
+    current_tick: Tick,
 }
 
-impl UnorderedUnreliableSender {
+impl TickUnreliableSender {
     pub(crate) fn new() -> Self {
         Self {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
             next_send_fragmented_message_id: MessageId::default(),
             fragment_sender: FragmentSender::new(),
+            current_tick: Tick(0),
         }
     }
 }
 
-impl ChannelSend for UnorderedUnreliableSender {
-    fn update(&mut self, delta: Duration, _: &TickManager) {}
+impl ChannelSend for TickUnreliableSender {
+    fn update(&mut self, delta: Duration, tick_manager: &TickManager) {
+        self.current_tick = tick_manager.current_tick();
+    }
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
@@ -44,14 +49,15 @@ impl ChannelSend for UnorderedUnreliableSender {
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments(
                 self.next_send_fragmented_message_id,
-                None,
+                Some(self.current_tick),
                 message,
             ) {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
             self.next_send_fragmented_message_id += 1;
         } else {
-            let single_data = SingleData::new(None, message);
+            let mut single_data = SingleData::new(None, message);
+            single_data.tick = Some(self.current_tick);
             self.single_messages_to_send.push_back(single_data);
         }
     }
@@ -89,7 +95,7 @@ mod tests {
     use super::{MessageContainer, MessageId};
 
     #[test]
-    fn test_unordered_unreliable_sender_internals() {
-        let mut sender = UnorderedUnreliableSender::new();
+    fn test_tick_unreliable_sender_internals() {
+        // let mut sender = UnorderedUnreliableSender::new();
     }
 }

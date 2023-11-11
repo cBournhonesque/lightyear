@@ -29,6 +29,5 @@ pub struct ClientConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
-    pub tick: TickConfig,
     pub ping: PingConfig,
 }

@@ -1,11 +1,13 @@
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
 use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
+use crate::channel::receivers::tick_unreliable::TickUnreliableReceiver;
 use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
 use crate::channel::receivers::ChannelReceiver;
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
+use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
 use crate::protocol::BitSerializable;
@@ -70,6 +72,10 @@ impl ChannelContainer {
                 receiver = OrderedReliableReceiver::new().into();
                 sender = ReliableSender::new(reliable_settings).into();
             }
+            ChannelMode::TickBuffered => {
+                receiver = TickUnreliableReceiver::new().into();
+                sender = TickUnreliableSender::new().into();
+            }
         }
         Self {
             setting: settings_clone,
@@ -102,6 +108,9 @@ pub enum ChannelMode {
     SequencedReliable(ReliableSettings),
     /// Packets will arrive in the correct order at the destination
     OrderedReliable(ReliableSettings),
+    /// Inputs from the client are associated with the current tick on the client.
+    /// The server will buffer them and only receive them on the same tick.
+    TickBuffered,
 }
 
 impl ChannelMode {
@@ -112,6 +121,7 @@ impl ChannelMode {
             ChannelMode::UnorderedReliable(_) => true,
             ChannelMode::SequencedReliable(_) => true,
             ChannelMode::OrderedReliable(_) => true,
+            ChannelMode::TickBuffered => false,
         }
     }
 }

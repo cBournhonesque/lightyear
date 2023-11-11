@@ -6,6 +6,7 @@ use anyhow::anyhow;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
+use crate::TickManager;
 
 const DISCARD_AFTER: Duration = Duration::from_secs(3);
 
@@ -33,7 +34,7 @@ impl SequencedUnreliableReceiver {
 }
 
 impl ChannelReceive for SequencedUnreliableReceiver {
-    fn update(&mut self, delta: Duration) {
+    fn update(&mut self, delta: Duration, _: &TickManager) {
         self.current_time += delta;
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);

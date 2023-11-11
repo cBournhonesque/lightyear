@@ -15,12 +15,12 @@ pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
     DefaultReliableChannel, DefaultUnreliableChannel, ReliableSettings,
 };
-pub use config::SharedConfig;
 pub use connection::{Connection, ConnectionEvents};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
 pub use netcode::ClientId;
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
+pub use plugin::config::SharedConfig;
 pub use plugin::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
 pub use plugin::{ReplicationData, ReplicationSet, SharedPlugin};
 pub use protocol::channel::{ChannelKind, ChannelRegistry};
@@ -40,13 +40,13 @@ pub use tick::message::{
 };
 pub use tick::ping_store::{PingId, PingStore};
 pub use tick::time::{TimeManager, WrappedTime};
+pub use tick::TickBufferChannel;
 pub use transport::conditioner::LinkConditionerConfig;
 pub use transport::io::{Io, IoConfig, TransportConfig};
 pub use transport::udp::UdpSocket;
 pub use utils::named::{Named, TypeNamed};
 
 pub mod channel;
-pub mod config;
 pub mod connection;
 pub mod netcode;
 pub mod packet;

@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::tick::Tick;
 use crate::utils::named::Named;
 use crate::utils::wrapping_id;
 
@@ -131,7 +132,7 @@ impl From<SingleData> for MessageContainer {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// This structure contains the bytes for a single 'logical' message
 ///
 /// We store the bytes instead of the message directly.
@@ -140,12 +141,20 @@ impl From<SingleData> for MessageContainer {
 /// Also we know the size of the message early, which is useful for fragmentation.
 pub struct SingleData {
     pub id: Option<MessageId>,
+    // TODO: for now, we include the tick into every single data because it's easier
+    //  for optimizing size later, we want the tick channels to use a different SingleData type that contains tick
+    //  basically each channel should have either SingleData or TickData as associated type ?
+    pub tick: Option<Tick>,
     pub bytes: Bytes,
 }
 
 impl SingleData {
     pub fn new(id: Option<MessageId>, bytes: Bytes) -> Self {
-        Self { id, bytes }
+        Self {
+            id,
+            tick: None,
+            bytes,
+        }
     }
 
     // pub(crate) fn num_bits(&self) -> usize {
@@ -157,6 +166,7 @@ impl SingleData {
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.id, Fixed)?;
+        writer.encode(&self.tick, Fixed)?;
         // Maybe we should just newtype Bytes so we could implement encode for it separately?
 
         // we encode Bytes by writing the length first
@@ -171,6 +181,7 @@ impl SingleData {
     // TODO: are we doing an extra copy here?
     pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
         let id = reader.decode::<Option<MessageId>>(Fixed)?;
+        let tick = reader.decode::<Option<Tick>>(Fixed)?;
 
         // the encoding wrote the length as usize with gamma encoding
         // let num_bytes = reader.decode::<usize>(Gamma)?;
@@ -200,6 +211,7 @@ impl SingleData {
         // let bytes = reader.decode::<&[u8]>()?;
         Ok(Self {
             id,
+            tick,
             bytes: Bytes::from(read_bytes),
             // bytes: Bytes::copy_from_slice(read_bytes),
         })
@@ -210,6 +222,8 @@ impl SingleData {
 pub struct FragmentData {
     // we always need a message_id for fragment messages, for re-assembly
     pub message_id: MessageId,
+    // TODO: separate this out?
+    pub tick: Option<Tick>,
     pub fragment_id: FragmentIndex,
     pub num_fragments: FragmentIndex,
     /// Bytes data associated with the message that is too big
@@ -220,6 +234,7 @@ impl FragmentData {
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.message_id, Fixed)?;
+        writer.encode(&self.tick, Fixed)?;
         writer.encode(&self.fragment_id, Gamma)?;
         writer.encode(&self.num_fragments, Gamma)?;
         // TODO: be able to just concat the bytes to the buffer?
@@ -242,6 +257,7 @@ impl FragmentData {
         Self: Sized,
     {
         let message_id = reader.decode::<MessageId>(Fixed)?;
+        let tick = reader.decode::<Option<Tick>>(Fixed)?;
         let fragment_id = reader.decode::<FragmentIndex>(Gamma)?;
         let num_fragments = reader.decode::<FragmentIndex>(Gamma)?;
         let mut bytes: Bytes;
@@ -265,6 +281,7 @@ impl FragmentData {
         }
         Ok(Self {
             message_id,
+            tick,
             fragment_id,
             num_fragments,
             bytes,
@@ -407,6 +424,7 @@ mod tests {
         let bytes = Bytes::from(vec![0; 10]);
         let data = FragmentData {
             message_id: MessageId(0),
+            tick: None,
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),

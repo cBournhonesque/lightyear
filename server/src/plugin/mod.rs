@@ -7,9 +7,10 @@ use bevy::prelude::{
 };
 
 use lightyear_shared::plugin::systems::replication::add_replication_send_systems;
+use lightyear_shared::plugin::systems::tick::increment_tick;
 use lightyear_shared::{
     ClientId, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
-    ReplicationData, ReplicationSend, ReplicationSet, SharedPlugin,
+    ReplicationData, ReplicationSend, ReplicationSet, SharedConfig, SharedPlugin,
 };
 
 use crate::config::ServerConfig;
@@ -54,7 +55,6 @@ impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let server = Server::new(config.server_config.clone(), config.protocol);
-        let fixed_timestep = config.server_config.tick.tick_duration.clone();
 
         add_replication_send_systems::<P, Server<P>>(app);
         P::add_per_component_replication_send_systems::<Server<P>>(app);
@@ -62,10 +62,12 @@ impl<P: Protocol> PluginType for Plugin<P> {
 
         app
             // PLUGINS
-            .add_plugins(SharedPlugin)
+            .add_plugins(SharedPlugin {
+                // TODO: move shared config out of server_config
+                config: config.server_config.shared.clone(),
+            })
             // RESOURCES //
             .insert_resource(server)
-            .insert_resource(Time::<Fixed>::from_seconds(fixed_timestep.as_secs_f64()))
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, ServerSet::Receive)
@@ -83,7 +85,9 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_event::<EntitySpawnEvent<ClientId>>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(ServerSet::Receive))
-            .add_systems(FixedUpdate, increment_tick::<P>)
+            // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
+            //  maybe TickManager should be a separate resource not contained in Client/Server?
+            .add_systems(FixedUpdate, increment_tick::<Server<P>>)
             .add_systems(PostUpdate, send::<P>.in_set(ServerSet::Send));
     }
 }

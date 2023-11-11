@@ -13,6 +13,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
+use crate::TickManager;
 
 pub struct FragmentAck {
     data: FragmentData,
@@ -91,7 +92,7 @@ impl ReliableSender {
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
 impl ChannelSend for ReliableSender {
-    fn update(&mut self, delta: Duration) {
+    fn update(&mut self, delta: Duration, _: &TickManager) {
         self.current_time += delta;
         // TODO: update current_rtt
     }
@@ -100,9 +101,9 @@ impl ChannelSend for ReliableSender {
     /// This is a client-facing function, to be called when you want to send a message
     fn buffer_send(&mut self, message: Bytes) {
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
-            let fragments = self
-                .fragment_sender
-                .build_fragments(self.next_send_message_id, message);
+            let fragments =
+                self.fragment_sender
+                    .build_fragments(self.next_send_message_id, None, message);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()

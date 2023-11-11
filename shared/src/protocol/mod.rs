@@ -38,7 +38,7 @@ macro_rules! protocolize {
             use $shared_crate_name::{
                 App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
                 ComponentKindBehaviour, IntoKind, DefaultReliableChannel, DefaultUnreliableChannel,
-                Entity, MessageProtocol, Protocol, ReplicationSend, ReliableSettings, ChannelDirection, ChannelMode,
+                Entity, MessageProtocol, Protocol, ReplicationSend, ReliableSettings, ChannelDirection, ChannelMode, TickBufferChannel,
             };
 
             #[derive(Debug, Clone)]
@@ -77,6 +77,10 @@ macro_rules! protocolize {
                     protocol.add_channel::<DefaultUnreliableChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<TickBufferChannel>(ChannelSettings {
+                        mode: ChannelMode::TickBuffered,
+                        direction: ChannelDirection::ClientToServer,
                     });
                     protocol
                 }

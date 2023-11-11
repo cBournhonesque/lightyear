@@ -91,6 +91,12 @@ fn client_init(mut commands: Commands, mut client: ResMut<Client<MyProtocol>>) {
 }
 
 fn setup(app: &mut App, cli: Cli) {
+    let shared_config = SharedConfig {
+        enable_replication: false,
+        tick: TickConfig {
+            tick_duration: Duration::from_millis(16),
+        },
+    };
     match cli {
         Cli::SinglePlayer => {}
         Cli::Server { port } => {
@@ -99,9 +105,9 @@ fn setup(app: &mut App, cli: Cli) {
                 .with_protocol_id(PROTOCOL_ID)
                 .with_key(KEY);
             let config = ServerConfig {
+                shared: shared_config.clone(),
                 netcode: netcode_config,
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
-                tick: TickConfig::new(Duration::from_millis(16)),
                 ping: PingConfig::default(),
             };
             let plugin_config = lightyear_server::PluginConfig::new(config, protocol());
@@ -130,7 +136,7 @@ fn setup(app: &mut App, cli: Cli) {
             };
             let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
             let config = ClientConfig {
-                shared: SharedConfig::default(),
+                shared: shared_config.clone(),
                 netcode: Default::default(),
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
                 ping: lightyear_client::PingConfig::default(),

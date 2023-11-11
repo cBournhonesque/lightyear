@@ -5,7 +5,7 @@ use anyhow::Result;
 use lightyear_shared::connection::ProtocolMessage;
 use lightyear_shared::{
     ChannelKind, ChannelRegistry, DefaultUnreliableChannel, PingMessage, Protocol, SyncMessage,
-    TimeManager,
+    TickManager, TimeManager,
 };
 use std::time::Duration;
 use tracing::{debug, info, trace};
@@ -38,7 +38,7 @@ impl<P: Protocol> Connection<P> {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) {
-        self.base.update(delta);
+        self.base.update(delta, tick_manager);
         self.sync_manager.update(delta);
         // TODO: maybe prepare ping?
         // self.ping_manager.update(delta);

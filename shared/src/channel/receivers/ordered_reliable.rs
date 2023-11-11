@@ -1,7 +1,7 @@
 use std::collections::{btree_map, BTreeMap, HashSet};
 use std::time::Duration;
 
-use crate::BitSerializable;
+use crate::{BitSerializable, TickManager};
 use anyhow::anyhow;
 use bytes::Bytes;
 
@@ -32,7 +32,7 @@ impl OrderedReliableReceiver {
 }
 
 impl ChannelReceive for OrderedReliableReceiver {
-    fn update(&mut self, delta: Duration) {}
+    fn update(&mut self, _: Duration, _: &TickManager) {}
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {

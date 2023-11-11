@@ -83,10 +83,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     });
 }
 
-pub(crate) fn increment_tick<P: Protocol>(mut server: ResMut<Server<P>>) {
-    server.increment_tick();
-}
-
 // or do additional send stuff here
 pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     trace!("Send packets to clients");

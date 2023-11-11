@@ -1,5 +1,6 @@
 use crate::packet::message::{FragmentData, MessageId, SingleData};
 use crate::packet::packet::FRAGMENT_SIZE;
+use crate::tick::Tick;
 use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
 use anyhow::Result;
 use bytes::Bytes;
@@ -21,6 +22,7 @@ impl FragmentSender {
     pub fn build_fragments(
         &self,
         fragment_message_id: MessageId,
+        tick: Option<Tick>,
         fragment_bytes: Bytes,
     ) -> Vec<FragmentData> {
         if fragment_bytes.len() <= FRAGMENT_SIZE {
@@ -36,6 +38,7 @@ impl FragmentSender {
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
                 message_id: fragment_message_id,
+                tick,
                 fragment_id: fragment_index as u8,
                 num_fragments: num_fragments as u8,
                 bytes: fragment_bytes.slice_ref(chunk),
@@ -58,13 +61,14 @@ mod tests {
 
         let mut sender = FragmentSender::new();
 
-        let fragments = sender.build_fragments(message_id, bytes.clone());
+        let fragments = sender.build_fragments(message_id, None, bytes.clone());
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(
             fragments.get(0).unwrap(),
             &FragmentData {
                 message_id,
+                tick: None,
                 fragment_id: 0,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(0..FRAGMENT_SIZE),
@@ -74,6 +78,7 @@ mod tests {
             fragments.get(1).unwrap(),
             &FragmentData {
                 message_id,
+                tick: None,
                 fragment_id: 1,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(FRAGMENT_SIZE..2 * FRAGMENT_SIZE),
@@ -83,6 +88,7 @@ mod tests {
             fragments.get(2).unwrap(),
             &FragmentData {
                 message_id,
+                tick: None,
                 fragment_id: 2,
                 num_fragments: expected_num_fragments as u8,
                 bytes: bytes.slice(2 * FRAGMENT_SIZE..),

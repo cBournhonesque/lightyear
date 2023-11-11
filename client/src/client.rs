@@ -3,22 +3,23 @@ use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
+use bevy::ecs::component::ComponentTicks;
 use bevy::prelude::{Resource, World};
+use bevy::tasks::ThreadExecutorTicker;
 use tracing::{info, trace};
 
 use lightyear_shared::netcode::Client as NetcodeClient;
 use lightyear_shared::netcode::{ConnectToken, Key};
-use lightyear_shared::tick::Tick;
+use lightyear_shared::tick::{Tick, TickManaged};
 use lightyear_shared::transport::{PacketReceiver, PacketSender, Transport};
 use lightyear_shared::{
-    Channel, ChannelKind, ConnectionEvents, Message, PingMessage, SyncMessage, TimeManager,
-    WriteBuffer,
+    Channel, ChannelKind, ConnectionEvents, Message, PingMessage, SyncMessage, TickManager,
+    TimeManager, WriteBuffer,
 };
 use lightyear_shared::{Io, Protocol};
 
 use crate::config::ClientConfig;
 use crate::connection::Connection;
-use crate::tick_manager::TickManager;
 
 #[derive(Resource)]
 pub struct Client<P: Protocol> {
@@ -175,6 +176,12 @@ impl<P: Protocol> Client<P> {
             self.connection.base.recv_packet(&mut reader)?;
         }
         Ok(())
+    }
+}
+
+impl<P: Protocol> TickManaged for Client<P> {
+    fn increment_tick(&mut self) {
+        self.tick_manager.increment_tick();
     }
 }
 

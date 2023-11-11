@@ -12,8 +12,8 @@ use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
 use crate::tick::message::{PingMessage, SyncMessage};
 use crate::{
-    ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, TimeManager,
-    WriteBuffer,
+    ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, TickManager,
+    TimeManager, WriteBuffer,
 };
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
@@ -93,8 +93,8 @@ impl<P: Protocol> Connection<P> {
 }
 
 impl<P: Protocol> Connection<P> {
-    pub fn update(&mut self, delta: Duration) {
-        self.message_manager.update(delta);
+    pub fn update(&mut self, delta: Duration, tick_manager: &TickManager) {
+        self.message_manager.update(delta, tick_manager);
     }
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
         #[cfg(feature = "metrics")]

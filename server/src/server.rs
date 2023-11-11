@@ -9,14 +9,15 @@ use tracing::{debug, debug_span, info, trace_span};
 use crate::connection::Connection;
 use lightyear_shared::netcode::{generate_key, ClientId, ConnectToken};
 use lightyear_shared::replication::{Replicate, ReplicationSend, ReplicationTarget};
-use lightyear_shared::tick::Tick;
+use lightyear_shared::tick::{Tick, TickManaged};
 use lightyear_shared::transport::{PacketSender, Transport};
-use lightyear_shared::{Channel, ChannelKind, Entity, Io, Message, Protocol, SyncMessage};
+use lightyear_shared::{
+    Channel, ChannelKind, Entity, Io, Message, Protocol, SyncMessage, TickManager,
+};
 use lightyear_shared::{TimeManager, WriteBuffer};
 
 use crate::events::ServerEvents;
 use crate::io::NetcodeServerContext;
-use crate::tick_manager::TickManager;
 use crate::ServerConfig;
 
 #[derive(Resource)]
@@ -448,5 +449,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .expect("client not found");
             connection.base.prepare_replication_send();
         }
+    }
+}
+
+impl<P: Protocol> TickManaged for Server<P> {
+    fn increment_tick(&mut self) {
+        self.tick_manager.increment_tick();
     }
 }

@@ -1,6 +1,6 @@
 use crate::ping_manager::PingConfig;
 use lightyear_shared::netcode::Key;
-use lightyear_shared::{IoConfig, TickConfig};
+use lightyear_shared::{IoConfig, SharedConfig, TickConfig};
 
 #[derive(Clone)]
 pub struct NetcodeConfig {
@@ -34,8 +34,8 @@ impl NetcodeConfig {
 
 #[derive(Clone)]
 pub struct ServerConfig {
+    pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
-    pub tick: TickConfig,
     pub ping: PingConfig,
 }

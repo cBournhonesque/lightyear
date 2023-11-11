@@ -493,6 +493,7 @@ mod tests {
         let bytes = Bytes::from(vec![0; 10]);
         let fragment = FragmentData {
             message_id: MessageId(0),
+            tick: None,
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
@@ -530,6 +531,7 @@ mod tests {
         let bytes = Bytes::from(vec![0; 10]);
         let fragment = FragmentData {
             message_id: MessageId(0),
+            tick: None,
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),

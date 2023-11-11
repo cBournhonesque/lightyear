@@ -1,4 +1,4 @@
-use crate::BitSerializable;
+use crate::{BitSerializable, TickManager};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tracing::info;
@@ -27,7 +27,7 @@ impl UnorderedUnreliableReceiver {
 }
 
 impl ChannelReceive for UnorderedUnreliableReceiver {
-    fn update(&mut self, delta: Duration) {
+    fn update(&mut self, delta: Duration, _: &TickManager) {
         self.current_time += delta;
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
