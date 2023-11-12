@@ -4,12 +4,14 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use lightyear_client::{Authentication, ClientConfig, PingConfig, Plugin, PluginConfig};
+use lightyear_shared::client::{
+    Authentication, Client, ClientConfig, PingConfig, Plugin, PluginConfig,
+};
 use lightyear_shared::{IoConfig, SharedConfig, TickConfig, TransportConfig};
 
 use crate::protocol::{protocol, MyProtocol};
 
-pub fn setup(auth: Authentication) -> anyhow::Result<lightyear_client::Client<MyProtocol>> {
+pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
     let addr = SocketAddr::from_str("127.0.0.1:0")?;
     let config = ClientConfig {
         shared: SharedConfig {
@@ -22,7 +24,7 @@ pub fn setup(auth: Authentication) -> anyhow::Result<lightyear_client::Client<My
     };
 
     // create lightyear client
-    Ok(lightyear_client::Client::new(config, auth, protocol()))
+    Ok(Client::new(config, auth, protocol()))
 }
 
 pub fn bevy_setup(app: &mut App, auth: Authentication) {

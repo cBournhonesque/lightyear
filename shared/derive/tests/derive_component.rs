@@ -11,11 +11,9 @@ pub mod some_component {
     #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Component2(pub u32);
 
-    // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-    #[derive(Debug, PartialEq)]
     #[component_protocol(protocol = "MyProtocol")]
-    // #[derive(EnumAsInner)]
     pub enum MyComponentProtocol {
+        #[replication(predicted)]
         Component1(Component1),
         Component2(Component2),
     }

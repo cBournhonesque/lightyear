@@ -32,6 +32,12 @@ enum-as-inner = "0.6.0"
 tracing-subscriber = "0.3.17"
 cfg-if = "1.0"
 
+# FOR SERVER
+crossbeam-channel = { version = "0.5.8", features = [] }
+
+# FOR CLIENT
+atomic_enum = "0.2"  # prediction
+
 metrics = { version = "0.21", optional = true }
 metrics-util = { version = "0.15", optional = true }
 metrics-tracing-context = { version = "0.14", optional = true }

@@ -9,7 +9,7 @@ pub struct ReplicationData {
     /// ComponentId of the Replicate component
     pub replication_id: ComponentId,
     // TODO: maybe add a map from Component to the corresponding systems
-    /// Map of the replicated entities that are owned by the current world
+    /// Map of the replicated entities that are owned by the current world (the world that sends replication updates)
     pub owned_entities: HashMap<Entity, Replicate>,
     // pub received_entities: HashMap<Entity, Replicate>,
 }

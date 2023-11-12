@@ -20,12 +20,14 @@ use crate::{
 
 mod entity_map;
 pub mod manager;
+pub mod prediction;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
 pub struct DespawnTracker;
 
-/// Component that indicates that an entity should be replicated.
+/// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
+/// in the world that sends replication updates.
 #[derive(Component, Clone, Copy)]
 pub struct Replicate {
     // TODO: be able to specify channel separately for entiy spawn/despawn and component insertion/removal?
@@ -36,6 +38,10 @@ pub struct Replicate {
     // TODO: distinguish between replicating actions (inserts/etc.) vs updates
     pub channel: ChannelKind,
     pub target: ReplicationTarget,
+
+    /// If true, then this entity should have a predicted version on the client
+    // TODO: should we also have a PredictionTarget?
+    pub should_do_prediction: bool,
     // pub owner:
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates
@@ -61,6 +67,7 @@ impl Default for Replicate {
         Self {
             channel: ChannelKind::of::<DefaultReliableChannel>(),
             target: ReplicationTarget::default(),
+            should_do_prediction: false,
         }
     }
 }

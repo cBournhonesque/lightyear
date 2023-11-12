@@ -50,6 +50,7 @@ pub use utils::ready_buffer::ReadyBuffer;
 pub use utils::sequence_buffer::SequenceBuffer;
 
 pub mod channel;
+pub mod client;
 pub mod connection;
 pub mod netcode;
 pub mod packet;
@@ -57,6 +58,7 @@ pub mod plugin;
 pub mod protocol;
 pub mod replication;
 pub mod serialize;
+pub mod server;
 pub mod tick;
 pub mod transport;
 pub mod utils;

@@ -1,15 +1,16 @@
 use log::debug;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 
-use lightyear_client::{Authentication, ClientConfig};
-use lightyear_server::{NetcodeConfig, Server, ServerConfig};
+use lightyear_shared::client::{Authentication, Client, ClientConfig};
 use lightyear_shared::connection::events::IterMessageEvent;
 use lightyear_shared::netcode::generate_key;
+use lightyear_shared::server::{NetcodeConfig, Server, ServerConfig};
 use lightyear_shared::{
-    ChannelKind, IoConfig, LinkConditionerConfig, Protocol, SharedConfig, TransportConfig, World,
+    IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig, World,
 };
-use lightyear_tests::protocol::{protocol, Channel1, Channel2, Message1};
+use lightyear_tests::protocol::{protocol, Channel1, Message1};
 use rand::Rng;
 
 #[test]
@@ -27,6 +28,12 @@ fn test_connection_soak() -> anyhow::Result<()> {
     let netcode_config = NetcodeConfig::default()
         .with_protocol_id(protocol_id)
         .with_key(private_key);
+    let fixed_timestep = Duration::from_millis(10);
+    // TODO: link conditioner doesn't work with virtual time
+    let shared_config = SharedConfig {
+        enable_replication: false,
+        tick: TickConfig::new(fixed_timestep),
+    };
     let io_config = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
         LinkConditionerConfig {
             incoming_latency: 20,
@@ -38,8 +45,10 @@ fn test_connection_soak() -> anyhow::Result<()> {
         },
     );
     let config = ServerConfig {
+        shared: shared_config.clone(),
         netcode: netcode_config,
         io: io_config.clone(),
+        ping: Default::default(),
     };
     let mut server = Server::new(config, protocol());
     debug!("Created server with local address: {}", server.local_addr());
@@ -55,18 +64,19 @@ fn test_connection_soak() -> anyhow::Result<()> {
     // let addr = SocketAddr::from_str("127.0.0.1:0")?;
 
     let config = ClientConfig {
-        shared: SharedConfig::default(),
+        shared: shared_config.clone(),
         netcode: Default::default(),
         io: io_config,
+        ping: Default::default(),
     };
-    let mut client = lightyear_client::Client::new(config, auth, protocol());
+    let mut client = Client::new(config, auth, protocol());
     debug!("Created client with local address: {}", client.local_addr());
 
     // Start the connection
     client.connect();
 
     let start = std::time::Instant::now();
-    let tick_rate_secs = std::time::Duration::from_secs_f64(1.0 / 30.0);
+    let tick_rate_secs = Duration::from_secs_f64(1.0 / 30.0);
 
     // Run the server and client in parallel
     let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {

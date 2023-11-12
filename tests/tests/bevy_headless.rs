@@ -6,7 +6,7 @@ use bevy::MinimalPlugins;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_client::{Authentication, Client};
+use lightyear_shared::client::{Authentication, Client};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::ChannelKind;

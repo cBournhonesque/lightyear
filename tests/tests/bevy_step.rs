@@ -13,10 +13,10 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_client::{Authentication, Client, ClientConfig};
-use lightyear_server::{NetcodeConfig, PingConfig, ServerConfig};
+use lightyear_shared::client::{Authentication, Client, ClientConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::replication::Replicate;
+use lightyear_shared::server::{NetcodeConfig, PingConfig, ServerConfig};
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
     ChannelKind, IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig,
@@ -66,6 +66,10 @@ fn test_bevy_step() -> anyhow::Result<()> {
         incoming_jitter: 3,
         incoming_loss: 0.0,
     };
+    let shared_config = SharedConfig {
+        enable_replication: false,
+        tick: TickConfig::new(fixed_timestep),
+    };
 
     // Setup server
     let mut server_app = App::new();
@@ -74,14 +78,14 @@ fn test_bevy_step() -> anyhow::Result<()> {
         .with_protocol_id(protocol_id)
         .with_key(private_key);
     let config = ServerConfig {
+        shared: shared_config.clone(),
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
             .with_conditioner(conditioner.clone()),
-        tick: TickConfig::new(fixed_timestep),
         ping: PingConfig::default(),
     };
-    let plugin_config = lightyear_server::PluginConfig::new(config, protocol());
-    let plugin = lightyear_server::Plugin::new(plugin_config);
+    let plugin_config = lightyear_shared::server::PluginConfig::new(config, protocol());
+    let plugin = lightyear_shared::server::Plugin::new(plugin_config);
     server_app.add_plugins(plugin);
     server_app.add_systems(Startup, server_init);
     server_app.insert_resource(TimeUpdateStrategy::ManualDuration(frame_duration));
@@ -97,12 +101,11 @@ fn test_bevy_step() -> anyhow::Result<()> {
     };
     let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
     let config = ClientConfig {
-        shared: SharedConfig::default(),
+        shared: shared_config.clone(),
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
             .with_conditioner(conditioner.clone()),
-        tick: TickConfig::new(fixed_timestep),
-        ping: lightyear_client::PingConfig {
+        ping: lightyear_shared::client::PingConfig {
             sync_num_pings: 10,
             sync_ping_interval_ms: Duration::from_millis(30),
             ping_interval_ms: Default::default(),
@@ -111,8 +114,8 @@ fn test_bevy_step() -> anyhow::Result<()> {
             rtt_smoothing_factor: 0.0,
         },
     };
-    let plugin_config = lightyear_client::PluginConfig::new(config, protocol(), auth);
-    let plugin = lightyear_client::Plugin::new(plugin_config);
+    let plugin_config = lightyear_shared::client::PluginConfig::new(config, protocol(), auth);
+    let plugin = lightyear_shared::client::Plugin::new(plugin_config);
     client_app.add_plugins(plugin);
     client_app.add_systems(Startup, client_init);
     // TODO: maybe use ManualInstant for more granular control?

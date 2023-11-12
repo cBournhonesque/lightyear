@@ -1,7 +1,7 @@
 use crate::protocol::MyProtocol;
 use bevy::prelude::{App, Fixed, Time, Virtual};
-use lightyear_client::Client;
-use lightyear_server::Server;
+use lightyear_shared::client::Client;
+use lightyear_shared::server::Server;
 use tracing_subscriber::fmt::time;
 
 pub fn tick(app: &mut App) {

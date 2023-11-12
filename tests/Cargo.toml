@@ -17,12 +17,10 @@ name = "bevy_headless"
 name = "connection_soak"
 
 [features]
-metrics = ["lightyear_client/metrics", "lightyear_server/metrics", "lightyear_shared/metrics", "dep:metrics-exporter-prometheus"]
+metrics = ["lightyear_shared/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear_shared/mock_time"]
 
 [dependencies]
-lightyear_client = { path = "../client" }
-lightyear_server = { path = "../server" }
 lightyear_shared = { path = "../shared" }
 serde = { version = "1.0.188", features = ["derive"] }
 lazy_static = { version = "1.4.0", features = [] }

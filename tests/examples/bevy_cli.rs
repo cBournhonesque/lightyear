@@ -15,12 +15,12 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 
-use lightyear_client::{Authentication, Client, ClientConfig};
-use lightyear_server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::channel::channel::ReliableSettings;
+use lightyear_shared::client::{Authentication, Client, ClientConfig};
 use lightyear_shared::netcode::{ClientId, Key};
 use lightyear_shared::plugin::events::MessageEvent;
 use lightyear_shared::replication::Replicate;
+use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::{
     component_protocol, message_protocol, protocolize, Channel, ChannelDirection, ChannelMode,
     ChannelSettings, ConnectEvent, DisconnectEvent, EntitySpawnEvent, IoConfig, Message, Protocol,
@@ -110,8 +110,8 @@ fn setup(app: &mut App, cli: Cli) {
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
                 ping: PingConfig::default(),
             };
-            let plugin_config = lightyear_server::PluginConfig::new(config, protocol());
-            app.add_plugins(lightyear_server::Plugin::new(plugin_config));
+            let plugin_config = lightyear_shared::server::PluginConfig::new(config, protocol());
+            app.add_plugins(lightyear_shared::server::Plugin::new(plugin_config));
             app.add_systems(Startup, server_init);
             app.add_systems(
                 Update,
@@ -139,10 +139,11 @@ fn setup(app: &mut App, cli: Cli) {
                 shared: shared_config.clone(),
                 netcode: Default::default(),
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-                ping: lightyear_client::PingConfig::default(),
+                ping: lightyear_shared::client::PingConfig::default(),
             };
-            let plugin_config = lightyear_client::PluginConfig::new(config, protocol(), auth);
-            app.add_plugins(lightyear_client::Plugin::new(plugin_config));
+            let plugin_config =
+                lightyear_shared::client::PluginConfig::new(config, protocol(), auth);
+            app.add_plugins(lightyear_shared::client::Plugin::new(plugin_config));
             app.add_systems(Startup, client_init);
             app.add_systems(
                 Update,

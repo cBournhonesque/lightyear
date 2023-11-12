@@ -149,7 +149,9 @@ pub mod tests {
     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
     pub struct Component1;
 
-    #[derive(Debug, PartialEq)]
+    // TODO: because we add ShouldBePredicted to the enum, we cannot derive stuff for the enum anymore!
+    //  is it a problem? we could pass the derives through an attribute macro ...
+    // #[derive(Debug, PartialEq)]
     #[component_protocol_internal(protocol = MyProtocol)]
     pub enum MyComponentsProtocol {
         Component1(Component1),

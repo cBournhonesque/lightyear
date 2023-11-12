@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::connection::events::{
     EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
+use crate::replication::prediction::ShouldBePredicted;
 use crate::serialize::writer::WriteBuffer;
 use crate::{BitSerializable, Protocol, ReplicationSend};
 
@@ -17,15 +18,26 @@ use crate::{BitSerializable, Protocol, ReplicationSend};
 // that big enum will implement MessageProtocol via a proc macro
 // TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
 pub trait ComponentProtocol:
-    BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour + Send + Sync
+    BitSerializable
+    + Serialize
+    + DeserializeOwned
+    + ComponentBehaviour
+    + Send
+    + Sync
+    + From<ShouldBePredicted>
 {
     type Protocol: Protocol;
+
+    /// Add systems to send component inserts/removes/updates
     fn add_per_component_replication_send_systems<R: ReplicationSend<Self::Protocol>>(
         app: &mut App,
     );
 
+    /// Adds Component-related events to the app
     fn add_events<Ctx: EventContext>(app: &mut App);
 
+    // TODO: make this a system that runs after io-receive/recv/read
+    //  maybe a standalone EventsPlugin
     /// Takes messages that were written and writes MessageEvents
     fn push_component_events<
         E: IterComponentInsertEvent<Self::Protocol, Ctx>
@@ -36,6 +48,8 @@ pub trait ComponentProtocol:
         world: &mut World,
         events: &mut E,
     );
+
+    fn add_prediction_systems(app: &mut App);
 }
 
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type

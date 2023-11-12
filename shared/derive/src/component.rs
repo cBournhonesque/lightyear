@@ -1,12 +1,27 @@
 use darling::ast::NestedMeta;
-use darling::{Error, FromMeta};
+use darling::{Error, FromField, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Field, Fields, ItemEnum, Variant};
+use syn::{parse_macro_input, parse_quote, Field, Fields, ItemEnum, Type, Variant};
 
 #[derive(Debug, FromMeta)]
+/// Struct that will hold the value of attributes passed to the macro
 struct MacroAttrs {
     protocol: Ident,
+}
+
+#[derive(Debug, FromField)]
+#[darling(attributes(replication))]
+struct FieldReceiver {
+    // name of the enum field
+    ident: Option<Ident>,
+
+    // type of the field
+    ty: Type,
+
+    // if True, we want to run client prediction for this component
+    #[darling(default)]
+    predicted: bool,
 }
 
 pub fn component_protocol_impl(
@@ -27,10 +42,23 @@ pub fn component_protocol_impl(
         }
     };
     let protocol = &attr.protocol;
-    let input = parse_macro_input!(input as ItemEnum);
+
+    let mut input = parse_macro_input!(input as ItemEnum);
+
+    // Add extra variants
+    input.variants.push(parse_quote! {
+        ShouldBePredicted(ShouldBePredicted)
+    });
 
     // Helper Properties
     let fields = get_fields(&input);
+    let input_without_attributes = strip_attributes(&input);
+
+    // Use darling to parse the attributes for each field
+    let received_fields: Vec<FieldReceiver> = fields
+        .iter()
+        .map(|field| FromField::from_field(&field).unwrap())
+        .collect();
 
     // Names
     let enum_name = &input.ident;
@@ -45,6 +73,7 @@ pub fn component_protocol_impl(
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
+    let add_prediction_systems_method = add_prediction_systems_method(&received_fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -70,9 +99,13 @@ pub fn component_protocol_impl(
             };
             use #shared_crate_name::plugin::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
 
-            #[derive(Serialize, Deserialize, Clone)]
+            // TODO: write this behind feature?
+            // TODO: possibility to rename this? maybe we should put everything in one crate
+            use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted};
+
+            #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(ComponentBehaviour)]
-            #input
+            #input_without_attributes
 
             impl ComponentProtocol for #enum_name {
                 type Protocol = #protocol;
@@ -80,6 +113,7 @@ pub fn component_protocol_impl(
                 #add_systems_method
                 #add_events_method
                 #push_component_events_method
+                #add_prediction_systems_method
             }
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -109,21 +143,40 @@ pub fn component_protocol_impl(
     proc_macro::TokenStream::from(gen)
 }
 
-fn get_fields(input: &ItemEnum) -> Vec<&Field> {
+/// Get a copy of the type inside each enum variants
+fn get_fields(input: &ItemEnum) -> Vec<Field> {
     let mut fields = Vec::new();
-    for field in &input.variants {
-        let Fields::Unnamed(unnamed) = &field.fields else {
+    for mut variant in input.variants.iter() {
+        let Fields::Unnamed(ref unnamed) = variant.fields else {
             panic!("Field must be unnamed");
         };
         assert_eq!(unnamed.unnamed.len(), 1);
-        let component = unnamed.unnamed.first().unwrap();
+        let mut component = unnamed.unnamed.first().unwrap().clone();
+        // get the attrs from the variant
+        component.attrs = variant.attrs.clone();
+        // make field immutable
         fields.push(component);
     }
     fields
 }
 
+/// Make a copy of the input enum but remove all the field attributes defined by me
+fn strip_attributes(input: &ItemEnum) -> ItemEnum {
+    let mut input = input.clone();
+    for variant in input.variants.iter_mut() {
+        // remove all attributes that are used in this macro
+        variant.attrs.retain(|v| {
+            v.path()
+                .segments
+                .first()
+                .map_or(true, |s| s.ident.to_string() != "replication".to_string())
+        })
+    }
+    input
+}
+
 fn add_per_component_replication_send_systems_method(
-    fields: &Vec<&Field>,
+    fields: &Vec<Field>,
     protocol_name: &Ident,
 ) -> TokenStream {
     let mut body = quote! {};
@@ -142,7 +195,7 @@ fn add_per_component_replication_send_systems_method(
     }
 }
 
-fn push_component_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> TokenStream {
+fn push_component_events_method(fields: &Vec<Field>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -169,7 +222,7 @@ fn push_component_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> 
     }
 }
 
-fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
+fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -182,6 +235,28 @@ fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
     }
     quote! {
         fn add_events<Ctx: EventContext>(app: &mut App)
+        {
+            #body
+        }
+    }
+}
+
+fn add_prediction_systems_method(
+    fields: &Vec<FieldReceiver>,
+    protocol_name: &Ident,
+) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        if field.predicted {
+            let component_type = &field.ty;
+            body = quote! {
+                #body
+                add_prediction_systems::<#component_type, #protocol_name>(app);
+            };
+        }
+    }
+    quote! {
+        fn add_prediction_systems(app: &mut App)
         {
             #body
         }
@@ -244,7 +319,7 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     }
 }
 
-fn into_kind_method(input: &ItemEnum, fields: &Vec<&Field>, enum_kind_name: &Ident) -> TokenStream {
+fn into_kind_method(input: &ItemEnum, fields: &Vec<Field>, enum_kind_name: &Ident) -> TokenStream {
     let component_kind_names = input.variants.iter().map(|v| &v.ident);
     let component_types = fields.iter().map(|field| &field.ty);
 
@@ -262,7 +337,7 @@ fn into_kind_method(input: &ItemEnum, fields: &Vec<&Field>, enum_kind_name: &Ide
     field_body
 }
 
-fn remove_method(input: &ItemEnum, fields: &Vec<&Field>, enum_kind_name: &Ident) -> TokenStream {
+fn remove_method(input: &ItemEnum, fields: &Vec<Field>, enum_kind_name: &Ident) -> TokenStream {
     let component_kind_names = input.variants.iter().map(|v| &v.ident);
     let component_types = fields.iter().map(|field| &field.ty);
 
