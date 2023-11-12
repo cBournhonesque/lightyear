@@ -2,6 +2,7 @@ use crate::tick::Tick;
 use crate::ReadyBuffer;
 use bevy::prelude::Resource;
 
+// TODO: should we request that a user input is a message?
 pub trait UserInput: Clone + Eq + PartialEq + Send + Sync + 'static {}
 
 #[derive(Resource)]

@@ -52,6 +52,7 @@ pub use utils::sequence_buffer::SequenceBuffer;
 pub mod channel;
 pub mod client;
 pub mod connection;
+mod inputs;
 pub mod netcode;
 pub mod packet;
 pub mod plugin;

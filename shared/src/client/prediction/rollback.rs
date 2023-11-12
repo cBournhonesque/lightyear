@@ -1,4 +1,3 @@
-use super::input_buffer::{InputBuffer, UserInput};
 use super::predicted_history::ComponentHistory;
 use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
 use crate::client::Client;

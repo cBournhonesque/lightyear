@@ -2,9 +2,7 @@ pub use crate::replication::prediction::ShouldBePredicted;
 pub use plugin::add_prediction_systems;
 
 use crate::tick::Tick;
-use crate::ReadyBuffer;
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
-use std::sync::{Arc, Mutex};
 
 /// This file is dedicated to running Prediction on entities.
 /// On the client side, we run prediction on entities that are owned by the client.
@@ -85,7 +83,6 @@ pub trait PredictedComponent: Component + Clone + PartialEq + Eq {}
 
 pub trait A {}
 
-mod input_buffer;
 pub mod plugin;
 mod predicted_history;
 pub(crate) mod rollback;
