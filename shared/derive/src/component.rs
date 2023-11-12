@@ -43,6 +43,8 @@ pub fn component_protocol_impl(
 
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
+    let add_events_method = add_events_method(&fields);
+    let push_component_events_method = push_component_events_method(&fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -57,11 +59,16 @@ pub fn component_protocol_impl(
             use super::*;
             use serde::{Serialize, Deserialize};
             use #shared_crate_name::{enum_delegate};
-            use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut};
+            use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut, World};
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable,
                 ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, IntoKind, PostUpdate, Protocol,
                 ComponentKindBehaviour, ReplicationSet, ReplicationSend};
             use #shared_crate_name::plugin::systems::replication::add_per_component_replication_send_systems;
+            use #shared_crate_name::connection::events::{EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
+            use #shared_crate_name::plugin::systems::events::{
+                push_component_insert_events, push_component_remove_events, push_component_update_events,
+            };
+            use #shared_crate_name::plugin::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
 
             #[derive(Serialize, Deserialize, Clone)]
             #[enum_delegate::implement(ComponentBehaviour)]
@@ -71,9 +78,11 @@ pub fn component_protocol_impl(
                 type Protocol = #protocol;
 
                 #add_systems_method
+                #add_events_method
+                #push_component_events_method
             }
 
-            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
             #enum_kind
 
             impl ComponentProtocolKind for #enum_kind_name {
@@ -127,6 +136,52 @@ fn add_per_component_replication_send_systems_method(
     }
     quote! {
         fn add_per_component_replication_send_systems<R: ReplicationSend<#protocol_name>>(app: &mut App)
+        {
+            #body
+        }
+    }
+}
+
+fn push_component_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            push_component_insert_events::<#component_type, #protocol_name, E, Ctx>(world, events);
+            push_component_remove_events::<#component_type, #protocol_name, E, Ctx>(world, events);
+            push_component_update_events::<#component_type, #protocol_name, E, Ctx>(world, events);
+        };
+    }
+    quote! {
+        fn push_component_events<
+            E: IterComponentInsertEvent<#protocol_name, Ctx>
+                + IterComponentRemoveEvent<#protocol_name, Ctx>
+                + IterComponentUpdateEvent<#protocol_name, Ctx>,
+            Ctx: EventContext,
+        >(
+            world: &mut World,
+            events: &mut E
+        )
+        {
+            #body
+        }
+    }
+}
+
+fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            app.add_event::<ComponentInsertEvent<#component_type, Ctx>>();
+            app.add_event::<ComponentUpdateEvent<#component_type, Ctx>>();
+            app.add_event::<ComponentRemoveEvent<#component_type, Ctx>>();
+        };
+    }
+    quote! {
+        fn add_events<Ctx: EventContext>(app: &mut App)
         {
             #body
         }

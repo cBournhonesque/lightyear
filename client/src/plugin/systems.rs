@@ -57,6 +57,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                     entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, ()));
                 }
             }
+
+            // Update component events
         }
     });
 }

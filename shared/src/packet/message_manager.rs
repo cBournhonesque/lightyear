@@ -16,6 +16,7 @@ use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACI
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
+use crate::tick::Tick;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::{
     BitSerializable, Channel, ChannelKind, ChannelRegistry, ReadWordBuffer, TickManager,
@@ -80,7 +81,10 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
-    pub fn send_packets(&mut self) -> anyhow::Result<Vec<Payload>> {
+    // TODO: maybe pass TickManager instead of Tick? Find a more elegant way to pass extra data that might not be used?
+    //  (ticks are not purely necessary without client prediction)
+    //  maybe be generic over a Context ?
+    pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<Payload>> {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
@@ -101,7 +105,9 @@ impl<M: BitSerializable> MessageManager<M> {
 
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
-        for packet in packets {
+        for mut packet in packets {
+            // set the current tick
+            packet.header.tick = current_tick;
             trace!(?packet, "Sending packet");
             // Step 2. Get the packets to send over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
@@ -140,9 +146,11 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
-    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<()> {
+    /// Returns the tick of the packet
+    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<Tick> {
         // Step 1. Parse the packet
         let packet: Packet = self.packet_manager.decode_packet(reader)?;
+        let tick = packet.header().tick;
         trace!(?packet, "Received packet");
 
         // TODO: if it's fragmented, put it in a buffer? while we wait for all the parts to be ready?
@@ -190,7 +198,7 @@ impl<M: BitSerializable> MessageManager<M> {
                 channel.receiver.buffer_recv(message)?;
             }
         }
-        Ok(())
+        Ok(tick)
     }
 
     /// Read all the messages in the internal buffers that are ready to be processed
@@ -229,6 +237,7 @@ mod tests {
     use crate::channel::channel::ReliableSettings;
     use crate::packet::message::{MessageAck, MessageId};
     use crate::packet::packet::{PacketId, FRAGMENT_SIZE};
+    use crate::tick::Tick;
     use crate::transport::Transport;
     use crate::{
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
@@ -286,7 +295,7 @@ mod tests {
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
         client_message_manager.buffer_send(message.clone(), channel_kind_2)?;
-        let mut packet_bytes = client_message_manager.send_packets()?;
+        let mut packet_bytes = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(
             client_message_manager.packet_to_message_ack_map,
             HashMap::from([(
@@ -330,7 +339,7 @@ mod tests {
 
         // Server sends back a message
         server_message_manager.buffer_send(message.clone(), channel_kind_1)?;
-        let mut packet_bytes = server_message_manager.send_packets()?;
+        let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {
@@ -377,7 +386,7 @@ mod tests {
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
         client_message_manager.buffer_send(message.clone(), channel_kind_2)?;
-        let mut packet_bytes = client_message_manager.send_packets()?;
+        let mut packet_bytes = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(packet_bytes.len(), 4);
         assert_eq!(
             client_message_manager.packet_to_message_ack_map,
@@ -440,7 +449,7 @@ mod tests {
         // Server sends back a message
         server_message_manager
             .buffer_send(MyMessageProtocol::Message1(Message1(0)), channel_kind_1)?;
-        let mut packet_bytes = server_message_manager.send_packets()?;
+        let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {

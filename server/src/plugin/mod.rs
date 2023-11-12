@@ -9,16 +9,15 @@ use bevy::prelude::{
 use lightyear_shared::plugin::systems::replication::add_replication_send_systems;
 use lightyear_shared::plugin::systems::tick::increment_tick;
 use lightyear_shared::{
-    ClientId, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
-    ReplicationData, ReplicationSend, ReplicationSet, SharedConfig, SharedPlugin,
+    ClientId, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
+    Protocol, ReplicationData, ReplicationSend, ReplicationSet, SharedConfig, SharedPlugin,
 };
 
 use crate::config::ServerConfig;
 use crate::plugin::sets::ServerSet;
-use crate::plugin::systems::{increment_tick, receive, send};
+use crate::plugin::systems::{receive, send};
 use crate::Server;
 
-mod events;
 mod schedules;
 mod sets;
 mod systems;
@@ -56,8 +55,11 @@ impl<P: Protocol> PluginType for Plugin<P> {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let server = Server::new(config.server_config.clone(), config.protocol);
 
+        // TODO: maybe put those 2 in a ReplicationPlugin?
         add_replication_send_systems::<P, Server<P>>(app);
-        P::add_per_component_replication_send_systems::<Server<P>>(app);
+        // P::add_per_component_replication_send_systems::<Server<P>>(app);
+        P::Components::add_per_component_replication_send_systems::<Server<P>>(app);
+
         P::Message::add_events::<ClientId>(app);
 
         app

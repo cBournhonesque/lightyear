@@ -6,6 +6,7 @@ use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 
 use crate::packet::packet_type::PacketType;
+use crate::tick::Tick;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding
@@ -21,6 +22,8 @@ pub(crate) struct PacketHeader {
     /// (this means that in total we send acks for 33 packet-ids)
     /// See more information at: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
     ack_bitfield: u32,
+    /// Current tick
+    pub(crate) tick: Tick,
 }
 
 impl PacketHeader {
@@ -151,6 +154,8 @@ impl PacketHeaderManager {
             packet_id: self.next_packet_id,
             last_ack_packet_id,
             ack_bitfield: self.recv_buffer.get_bitfield(),
+            // TODO: we send the tick, later. Seems a bit dangerous...
+            tick: Tick(0),
         };
         self.sent_packets_not_acked.insert(self.next_packet_id);
         self.increment_next_packet_id();
@@ -307,6 +312,7 @@ mod tests {
             packet_id: PacketId(27),
             last_ack_packet_id: PacketId(13),
             ack_bitfield: 3,
+            tick: Tick(0),
         };
         let mut writer = WriteWordBuffer::with_capacity(50);
         writer.encode(&header, Fixed)?;

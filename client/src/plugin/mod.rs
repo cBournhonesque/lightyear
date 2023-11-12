@@ -17,7 +17,6 @@ use crate::plugin::sets::ClientSet;
 use crate::plugin::systems::{receive, send};
 use crate::Client;
 
-mod events;
 mod sets;
 mod systems;
 
@@ -55,7 +54,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let client = Client::new(config.client_config.clone(), config.auth, config.protocol);
-        let fixed_timestep = config.client_config.tick.tick_duration.clone();
+        let fixed_timestep = config.client_config.shared.tick.tick_duration.clone();
 
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that

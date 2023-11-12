@@ -11,6 +11,7 @@ use crate::packet::packet_manager::Payload;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
 use crate::tick::message::{PingMessage, SyncMessage};
+use crate::tick::Tick;
 use crate::{
     ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, TickManager,
     TimeManager, WriteBuffer,
@@ -61,16 +62,28 @@ impl<P: Protocol> ProtocolMessage<P> {
                 ReplicationMessage::SpawnEntity(entity, components) => {
                     events.push_spawn(entity);
                     for component in components {
-                        events.push_insert_component(entity, component);
+                        events.push_insert_component(entity, (&component).into());
                     }
                 }
-                _ => {
-                    // todo!()
+                ReplicationMessage::DespawnEntity(entity) => {
+                    events.push_despawn(entity);
+                }
+                ReplicationMessage::InsertComponent(entity, component) => {
+                    events.push_insert_component(entity, (&component).into());
+                }
+                ReplicationMessage::RemoveComponent(entity, component_kind) => {
+                    events.push_remove_component(entity, component_kind);
+                }
+                ReplicationMessage::EntityUpdate(entity, components) => {
+                    for component in components {
+                        events.push_update_component(entity, (&component).into());
+                    }
                 }
             },
             ProtocolMessage::Sync(mut sync) => {
                 match sync {
                     SyncMessage::TimeSyncPing(ref mut ping) => {
+                        // set the time received
                         ping.ping_received_time = Some(time_manager.current_time());
                     }
                     _ => {}
@@ -243,12 +256,13 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Send packets that are ready to be sent
-    pub fn send_packets(&mut self) -> Result<Vec<Payload>> {
-        self.message_manager.send_packets()
+    pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<Payload>> {
+        self.message_manager
+            .send_packets(tick_manager.current_tick())
     }
 
     /// Receive a packet and buffer it
-    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<()> {
+    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<Tick> {
         self.message_manager.recv_packet(reader)
     }
 }

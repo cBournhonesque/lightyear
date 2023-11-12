@@ -124,10 +124,10 @@ pub fn message_protocol_impl(
 fn push_message_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
-        let component_type = &field.ty;
+        let message_type = &field.ty;
         body = quote! {
             #body
-            push_message_events::<#component_type, #protocol_name, E, Ctx>(world, events);
+            push_message_events::<#message_type, #protocol_name, E, Ctx>(world, events);
         };
     }
     quote! {

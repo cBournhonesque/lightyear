@@ -80,7 +80,7 @@ impl<P: Protocol> Server<P> {
             protocol,
             events: ServerEvents::new(),
             time_manager: TimeManager::new(),
-            tick_manager: TickManager::from_config(config.tick),
+            tick_manager: TickManager::from_config(config.shared.tick),
         }
     }
 
@@ -213,7 +213,7 @@ impl<P: Protocol> Server<P> {
 
         // update connections
         for (_, connection) in &mut self.user_connections {
-            connection.update(delta, &self.time_manager);
+            connection.update(delta, &self.time_manager, &self.tick_manager);
         }
 
         // handle connections
@@ -290,7 +290,7 @@ impl<P: Protocol> Server<P> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for mut packet_byte in connection.base.send_packets()? {
+            for mut packet_byte in connection.base.send_packets(&self.tick_manager)? {
                 self.netcode
                     .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
             }

@@ -6,7 +6,7 @@ use bevy::prelude::{Component, Entity, Event};
 
 use crate::protocol::message::MessageKind;
 use crate::{
-    Channel, ChannelKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol,
+    Channel, ChannelKind, IntoKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol,
     SyncMessage,
 };
 
@@ -27,9 +27,15 @@ pub struct ConnectionEvents<P: Protocol> {
     pub spawns: Vec<Entity>,
     pub despawns: Vec<Entity>,
     // TODO: key by entity or by kind?
-    pub insert_components: HashMap<Entity, Vec<P::Components>>,
-    pub remove_components: HashMap<Entity, Vec<P::ComponentKinds>>,
-    pub update_components: HashMap<Entity, Vec<P::Components>>,
+    // TODO: include the actual value in the event, or just the type? let's just include the type for now
+    pub component_inserts: HashMap<P::ComponentKinds, Vec<Entity>>,
+    // pub insert_components: HashMap<Entity, Vec<P::Components>>,
+    pub component_removes: HashMap<P::ComponentKinds, Vec<Entity>>,
+    // TODO: here as well, we could only include the type.. we already apply the changes to the entity directly, so users could keep track of changes
+    //  let's just start with the kind...
+    //  also, normally the updates are sequenced
+    // TODO: include the tick for each update?
+    pub component_updates: HashMap<P::ComponentKinds, Vec<Entity>>,
     empty: bool,
 }
 
@@ -54,9 +60,9 @@ impl<P: Protocol> ConnectionEvents<P> {
             // replication
             spawns: Vec::new(),
             despawns: Vec::new(),
-            insert_components: Default::default(),
-            remove_components: Default::default(),
-            update_components: Default::default(),
+            component_inserts: Default::default(),
+            component_removes: Default::default(),
+            component_updates: Default::default(),
             // bookkeeping
             empty: true,
         }
@@ -180,11 +186,33 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.empty = false;
     }
 
-    pub(crate) fn push_insert_component(&mut self, entity: Entity, component: P::Components) {
-        self.insert_components
-            .entry(entity)
+    pub(crate) fn push_despawn(&mut self, entity: Entity) {
+        self.despawns.push(entity);
+        self.empty = false;
+    }
+
+    pub(crate) fn push_insert_component(&mut self, entity: Entity, component: P::ComponentKinds) {
+        self.component_inserts
+            .entry(component)
             .or_default()
-            .push(component);
+            .push(entity);
+        self.empty = false;
+    }
+
+    pub(crate) fn push_remove_component(&mut self, entity: Entity, component: P::ComponentKinds) {
+        self.component_removes
+            .entry(component)
+            .or_default()
+            .push(entity);
+        self.empty = false;
+    }
+
+    // TODO: how do distinguish between multiple updates for the same component/entity? add ticks?
+    pub(crate) fn push_update_component(&mut self, entity: Entity, component: P::ComponentKinds) {
+        self.component_updates
+            .entry(component)
+            .or_default()
+            .push(entity);
         self.empty = false;
     }
 }
@@ -244,23 +272,123 @@ impl<P: Protocol> IterEntitySpawnEvent for ConnectionEvents<P> {
     }
 }
 
-// pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
-//     fn into_iter_entity_spawn<C: Component>(
-//         &mut self,
-//     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
-//     fn has_entity_spawn<C: Component>(&self) -> bool;
-// }
-//
-// impl<P: Protocol> IterComponentInsertEvent for ConnectionEvents<P> {
-//     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
-//         let spawns = std::mem::take(&mut self.spawns);
-//         Box::new(spawns.into_iter().map(|entity| (entity, ())))
-//     }
-//
-//     fn has_entity_spawn(&self) -> bool {
-//         !self.spawns.is_empty()
-//     }
-// }
+pub trait IterEntityDespawnEvent<Ctx: EventContext = ()> {
+    fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
+    fn has_entity_despawn(&self) -> bool;
+}
+
+impl<P: Protocol> IterEntityDespawnEvent for ConnectionEvents<P> {
+    fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+        let despawns = std::mem::take(&mut self.despawns);
+        Box::new(despawns.into_iter().map(|entity| (entity, ())))
+    }
+
+    fn has_entity_despawn(&self) -> bool {
+        !self.despawns.is_empty()
+    }
+}
+
+pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
+    fn into_iter_component_update<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>;
+    fn has_component_update<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>;
+}
+
+impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
+    fn into_iter_component_update<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        let component_kind = C::into_kind();
+        if let Some(data) = self.component_updates.remove(&component_kind) {
+            return Box::new(data.into_iter().map(|entity| (entity, ())));
+        }
+        return Box::new(iter::empty());
+    }
+
+    fn has_component_update<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        let component_kind = C::into_kind();
+        self.component_updates.contains_key(&component_kind)
+    }
+}
+
+pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
+    fn into_iter_component_remove<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>;
+    fn has_component_remove<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>;
+}
+
+impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
+    fn into_iter_component_remove<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        let component_kind = C::into_kind();
+        if let Some(data) = self.component_removes.remove(&component_kind) {
+            return Box::new(data.into_iter().map(|entity| (entity, ())));
+        }
+        return Box::new(iter::empty());
+    }
+
+    fn has_component_remove<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        let component_kind = C::into_kind();
+        self.component_removes.contains_key(&component_kind)
+    }
+}
+
+pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
+    fn into_iter_component_insert<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>;
+    fn has_component_insert<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>;
+}
+
+impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
+    fn into_iter_component_insert<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        let component_kind = C::into_kind();
+        if let Some(data) = self.component_inserts.remove(&component_kind) {
+            return Box::new(data.into_iter().map(|entity| (entity, ())));
+        }
+        return Box::new(iter::empty());
+    }
+
+    fn has_component_insert<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        let component_kind = C::into_kind();
+        self.component_inserts.contains_key(&component_kind)
+    }
+}
 
 // pub trait IterMessageEvent<M: Message, P: Protocol, Ctx = ()>
 // where

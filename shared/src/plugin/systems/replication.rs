@@ -101,7 +101,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
         })
     }
 
-    // TODO: find a way to not do this if we already sent messages in the previous loops for newly conencted clients
+    // TODO: find a way to not do this if we already sent messages in the previous loops for newly connected clients
     query.iter().for_each(|(entity, component, replicate)| {
         // send an component_insert for components that were newly added
         if component.is_added() {

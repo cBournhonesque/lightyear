@@ -4,8 +4,8 @@ use chrono::Duration as ChronoDuration;
 use lightyear_shared::connection::ProtocolMessage;
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
-    ChannelKind, Connection, DefaultUnreliableChannel, MessageManager, PingId, PingMessage,
-    PingStore, PongMessage, Protocol, SyncMessage, TimeManager, TimeSyncPingMessage,
+    ChannelKind, Connection, DefaultSequencedUnreliableChannel, MessageManager, PingId,
+    PingMessage, PingStore, PongMessage, Protocol, SyncMessage, TimeManager, TimeSyncPingMessage,
     TimeSyncPongMessage, WrappedTime,
 };
 use std::time::Duration;

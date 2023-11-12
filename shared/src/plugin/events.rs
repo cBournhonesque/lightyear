@@ -3,6 +3,7 @@ use crate::netcode::ClientId;
 use crate::{ChannelKind, Message, Protocol};
 use bevy::prelude::{App, Component, Entity, Event};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 // pub struct NetworkEvent<Inner: EventContext, Ctx: EventContext> {
 //     inner: Inner,
@@ -78,26 +79,99 @@ impl<Ctx> EntitySpawnEvent<Ctx> {
 }
 
 #[derive(Event)]
-pub struct DespawnEntityEvent(pub ClientId, pub Entity);
+pub struct EntityDespawnEvent<Ctx = ()> {
+    entity: Entity,
+    context: Ctx,
+}
 
-#[derive(Event)]
-pub struct InsertComponentEvent<C: Component> {
-    inner: Vec<(ClientId, Entity)>,
-    marker: std::marker::PhantomData<C>,
+impl<Ctx> EntityDespawnEvent<Ctx> {
+    pub fn new(entity: Entity, context: Ctx) -> Self {
+        Self { entity, context }
+    }
+
+    pub fn entity(&self) -> &Entity {
+        &self.entity
+    }
+
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
 }
 
 #[derive(Event)]
-pub struct RemoveComponentEvent<C: Component> {
-    inner: Vec<(ClientId, Entity)>,
-    marker: std::marker::PhantomData<C>,
+pub struct ComponentUpdateEvent<C: Component, Ctx = ()> {
+    entity: Entity,
+    context: Ctx,
+
+    _marker: PhantomData<C>,
+}
+
+impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
+    pub fn new(entity: Entity, context: Ctx) -> Self {
+        Self {
+            entity,
+            context,
+            _marker: PhantomData::default(),
+        }
+    }
+
+    pub fn entity(&self) -> &Entity {
+        &self.entity
+    }
+
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
 }
 
 #[derive(Event)]
-pub struct UpdateComponentEvent<C: Component> {
-    inner: Vec<(ClientId, Entity)>,
-    marker: std::marker::PhantomData<C>,
+pub struct ComponentInsertEvent<C: Component, Ctx = ()> {
+    entity: Entity,
+    context: Ctx,
+
+    _marker: PhantomData<C>,
 }
 
-// pub fn add_message_event_systems<M: Message, P: Protocol>(app: &mut App) {
-//     app.add_event::<MessageEvent<M>>()
-// }
+impl<C: Component, Ctx> ComponentInsertEvent<C, Ctx> {
+    pub fn new(entity: Entity, context: Ctx) -> Self {
+        Self {
+            entity,
+            context,
+            _marker: PhantomData::default(),
+        }
+    }
+
+    pub fn entity(&self) -> &Entity {
+        &self.entity
+    }
+
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
+}
+
+#[derive(Event)]
+pub struct ComponentRemoveEvent<C: Component, Ctx = ()> {
+    entity: Entity,
+    context: Ctx,
+
+    _marker: PhantomData<C>,
+}
+
+impl<C: Component, Ctx> ComponentRemoveEvent<C, Ctx> {
+    pub fn new(entity: Entity, context: Ctx) -> Self {
+        Self {
+            entity,
+            context,
+            _marker: PhantomData::default(),
+        }
+    }
+
+    pub fn entity(&self) -> &Entity {
+        &self.entity
+    }
+
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
+}

@@ -1,9 +1,13 @@
 use std::fmt::Debug;
+use std::hash::Hash;
 
-use bevy::prelude::{App, Component, EntityWorldMut};
+use bevy::prelude::{App, Component, EntityWorldMut, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use crate::connection::events::{
+    EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+};
 use crate::serialize::writer::WriteBuffer;
 use crate::{BitSerializable, Protocol, ReplicationSend};
 
@@ -13,11 +17,24 @@ use crate::{BitSerializable, Protocol, ReplicationSend};
 // that big enum will implement MessageProtocol via a proc macro
 // TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
 pub trait ComponentProtocol:
-    BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour
+    BitSerializable + Serialize + DeserializeOwned + ComponentBehaviour + Send + Sync
 {
     type Protocol: Protocol;
     fn add_per_component_replication_send_systems<R: ReplicationSend<Self::Protocol>>(
         app: &mut App,
+    );
+
+    fn add_events<Ctx: EventContext>(app: &mut App);
+
+    /// Takes messages that were written and writes MessageEvents
+    fn push_component_events<
+        E: IterComponentInsertEvent<Self::Protocol, Ctx>
+            + IterComponentRemoveEvent<Self::Protocol, Ctx>
+            + IterComponentUpdateEvent<Self::Protocol, Ctx>,
+        Ctx: EventContext,
+    >(
+        world: &mut World,
+        events: &mut E,
     );
 }
 
@@ -38,7 +55,12 @@ pub trait ComponentProtocolKind:
     BitSerializable
     + Serialize
     + DeserializeOwned
+    + PartialEq
+    + Eq
+    + Hash
     + Debug
+    + Send
+    + Sync
     + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
     + ComponentKindBehaviour
 {

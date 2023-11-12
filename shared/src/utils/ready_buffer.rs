@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::{cmp::Ordering, collections::BinaryHeap};
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)
@@ -9,7 +10,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 #[derive(Clone)]
 pub struct ReadyBuffer<K: Ord, T: Eq + PartialEq> {
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
-    heap: BinaryHeap<ItemWithReadyKey<K, T>>,
+    pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
 
 impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
@@ -29,9 +30,9 @@ impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
     /// Returns whether or not there is an item that is ready to be returned
     /// (i.e. we are beyond the instant associated with the item)
     pub fn has_item(&self, current_key: &K) -> bool {
-        if self.heap.is_empty() {
-            return false;
-        }
+        // if self.heap.is_empty() {
+        //     return false;
+        // }
         if let Some(item) = self.heap.peek() {
             // if the current_key is bigger than the item key, we are ready to return
             let cmp = item.key.cmp(current_key);
@@ -63,7 +64,7 @@ impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
 }
 
 #[derive(Clone)]
-struct ItemWithReadyKey<K: Ord, T> {
+pub struct ItemWithReadyKey<K: Ord, T> {
     pub key: K,
     pub item: T,
 }

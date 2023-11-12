@@ -13,7 +13,8 @@ pub use paste::paste;
 
 pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-    DefaultReliableChannel, DefaultUnreliableChannel, ReliableSettings,
+    DefaultReliableChannel, DefaultSequencedUnreliableChannel, DefaultUnorderedUnreliableChannel,
+    ReliableSettings,
 };
 pub use connection::{Connection, ConnectionEvents};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
@@ -45,6 +46,8 @@ pub use transport::conditioner::LinkConditionerConfig;
 pub use transport::io::{Io, IoConfig, TransportConfig};
 pub use transport::udp::UdpSocket;
 pub use utils::named::{Named, TypeNamed};
+pub use utils::ready_buffer::ReadyBuffer;
+pub use utils::sequence_buffer::SequenceBuffer;
 
 pub mod channel;
 pub mod connection;

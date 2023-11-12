@@ -1,10 +1,9 @@
 use crate::ping_manager::{PingConfig, PingManager};
-use crate::tick_manager::TickManager;
 use anyhow::Result;
 use lightyear_shared::connection::ProtocolMessage;
 use lightyear_shared::{
-    ChannelKind, ChannelRegistry, DefaultUnreliableChannel, PingMessage, Protocol, SyncMessage,
-    TickManager, TimeManager, TimeSyncPingMessage,
+    ChannelKind, ChannelRegistry, DefaultSequencedUnreliableChannel, PingMessage, Protocol,
+    SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
 };
 use std::time::Duration;
 use tracing::{debug, info, trace};
@@ -50,7 +49,7 @@ impl<P: Protocol> Connection<P> {
         trace!("Sending ping {:?}", ping_message);
 
         let message = ProtocolMessage::Sync(SyncMessage::Ping(ping_message));
-        let channel = ChannelKind::of::<DefaultUnreliableChannel>();
+        let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
 
@@ -60,7 +59,7 @@ impl<P: Protocol> Connection<P> {
         // info!("Sending ping {:?}", ping_message);
         trace!("Sending pong {:?}", pong_message);
         let message = ProtocolMessage::Sync(SyncMessage::Pong(pong_message));
-        let channel = ChannelKind::of::<DefaultUnreliableChannel>();
+        let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
 
@@ -77,7 +76,7 @@ impl<P: Protocol> Connection<P> {
         // info!("Sending ping {:?}", ping_message);
         trace!("Sending time sync pong {:?}", pong_message);
         let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPong(pong_message));
-        let channel = ChannelKind::of::<DefaultUnreliableChannel>();
+        let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
 }

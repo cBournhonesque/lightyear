@@ -1,11 +1,10 @@
-use crate::tick_manager::TickManager;
 use bevy::prelude::{Timer, TimerMode};
 use lightyear_shared::connection::ProtocolMessage;
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
-    ChannelKind, Connection, DefaultUnreliableChannel, MessageManager, PingMessage, PingStore,
-    PongMessage, Protocol, SyncMessage, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
-    WrappedTime,
+    ChannelKind, Connection, DefaultSequencedUnreliableChannel, MessageManager, PingMessage,
+    PingStore, PongMessage, Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
+    TimeSyncPongMessage, WrappedTime,
 };
 use std::time::Duration;
 

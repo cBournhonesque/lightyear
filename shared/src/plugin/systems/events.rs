@@ -1,7 +1,12 @@
-use crate::connection::events::{EventContext, IterMessageEvent};
-use crate::plugin::events::MessageEvent;
-use crate::{Message, Protocol};
-use bevy::prelude::{Event, Events, World};
+use crate::connection::events::{
+    EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    IterMessageEvent,
+};
+use crate::plugin::events::{
+    ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
+};
+use crate::{IntoKind, Message, Protocol};
+use bevy::prelude::{Component, Event, Events, World};
 
 // TODO: would it be easier to have this be a system?
 
@@ -25,6 +30,72 @@ pub fn push_message_events<
         for (message, ctx) in events.into_iter_messages::<M>() {
             let message_event = MessageEvent::new(message, ctx);
             message_event_writer.send(message_event);
+        }
+    }
+}
+
+pub fn push_component_insert_events<
+    C: Component,
+    P: Protocol,
+    E: IterComponentInsertEvent<P, Ctx>,
+    Ctx: EventContext,
+>(
+    world: &mut World,
+    events: &mut E,
+) where
+    C: IntoKind<P::ComponentKinds>,
+{
+    if events.has_component_insert::<C>() {
+        let mut event_writer = world
+            .get_resource_mut::<Events<ComponentInsertEvent<C, Ctx>>>()
+            .unwrap();
+        for (entity, ctx) in events.into_iter_component_insert::<C>() {
+            let event = ComponentInsertEvent::new(entity, ctx);
+            event_writer.send(event);
+        }
+    }
+}
+
+pub fn push_component_remove_events<
+    C: Component,
+    P: Protocol,
+    E: IterComponentRemoveEvent<P, Ctx>,
+    Ctx: EventContext,
+>(
+    world: &mut World,
+    events: &mut E,
+) where
+    C: IntoKind<P::ComponentKinds>,
+{
+    if events.has_component_remove::<C>() {
+        let mut event_writer = world
+            .get_resource_mut::<Events<ComponentRemoveEvent<C, Ctx>>>()
+            .unwrap();
+        for (entity, ctx) in events.into_iter_component_remove::<C>() {
+            let event = ComponentRemoveEvent::new(entity, ctx);
+            event_writer.send(event);
+        }
+    }
+}
+
+pub fn push_component_update_events<
+    C: Component,
+    P: Protocol,
+    E: IterComponentUpdateEvent<P, Ctx>,
+    Ctx: EventContext,
+>(
+    world: &mut World,
+    events: &mut E,
+) where
+    C: IntoKind<P::ComponentKinds>,
+{
+    if events.has_component_update::<C>() {
+        let mut event_writer = world
+            .get_resource_mut::<Events<ComponentUpdateEvent<C, Ctx>>>()
+            .unwrap();
+        for (entity, ctx) in events.into_iter_component_update::<C>() {
+            let event = ComponentUpdateEvent::new(entity, ctx);
+            event_writer.send(event);
         }
     }
 }

@@ -5,7 +5,6 @@ use anyhow::Context;
 use anyhow::Result;
 use bevy::ecs::component::ComponentTicks;
 use bevy::prelude::{Resource, World};
-use bevy::tasks::ThreadExecutorTicker;
 use tracing::{info, trace};
 
 use lightyear_shared::netcode::Client as NetcodeClient;
@@ -82,7 +81,7 @@ impl<P: Protocol> Client<P> {
             events: ConnectionEvents::new(),
             synced: false,
             time_manager: TimeManager::new(),
-            tick_manager: TickManager::from_config(config.tick),
+            tick_manager: TickManager::from_config(config.shared.tick),
         }
     }
 
@@ -103,6 +102,10 @@ impl<P: Protocol> Client<P> {
 
     pub fn tick(&self) -> Tick {
         self.tick_manager.current_tick()
+    }
+
+    pub fn latest_received_server_tick(&self) -> Tick {
+        self.connection.latest_received_server_tick
     }
 
     pub(crate) fn increment_tick(&mut self) {
@@ -163,7 +166,7 @@ impl<P: Protocol> Client<P> {
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
-        let packet_bytes = self.connection.base.send_packets()?;
+        let packet_bytes = self.connection.base.send_packets(&self.tick_manager)?;
         for mut packet_byte in packet_bytes {
             self.netcode.send(packet_byte.as_slice(), &mut self.io)?;
         }
@@ -173,7 +176,7 @@ impl<P: Protocol> Client<P> {
     /// Receive packets from the transport layer and buffer them with the message manager
     pub fn recv_packets(&mut self) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
-            self.connection.base.recv_packet(&mut reader)?;
+            self.connection.recv_packet(&mut reader)?;
         }
         Ok(())
     }

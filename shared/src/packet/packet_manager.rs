@@ -19,6 +19,7 @@ use crate::protocol::{BitSerializable, Protocol};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::tick::Tick;
 use crate::ChannelKind;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.

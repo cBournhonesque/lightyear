@@ -10,7 +10,11 @@ pub(crate) mod client;
 mod config;
 mod connection;
 mod events;
+mod interpolation;
 mod ping_manager;
 mod plugin;
+
+// #[cfg(feature = "prediction")]
+mod prediction;
 mod sync;
 // mod tick_manager;

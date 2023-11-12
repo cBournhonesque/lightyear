@@ -22,7 +22,9 @@ impl TickConfig {
 // Manages the tick for the host system
 #[derive(Resource)]
 pub struct TickManager {
-    config: TickConfig,
+    pub config: TickConfig,
+    /// Current tick (sequence number of the FixedUpdate schedule)
+    /// Gets updated by the FixedUpdate schedule
     tick: Tick,
 }
 

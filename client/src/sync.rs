@@ -1,9 +1,9 @@
-use crate::tick_manager::TickManager;
 use bevy::prelude::Timer;
 use bevy::time::TimerMode;
 use chrono::Duration as ChronoDuration;
 use lightyear_shared::{
-    PingId, PingStore, PongMessage, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
+    PingId, PingStore, PongMessage, TickManager, TimeManager, TimeSyncPingMessage,
+    TimeSyncPongMessage,
 };
 use std::time::Duration;
 use tracing::{info, trace};

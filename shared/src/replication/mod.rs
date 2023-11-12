@@ -101,7 +101,8 @@ pub enum ReplicationMessage<C, K> {
     DespawnEntity(Entity),
     InsertComponent(Entity, C),
     RemoveComponent(Entity, K),
-    // unreliable
+    // sequenced unreliable
+    // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
     EntityUpdate(Entity, Vec<C>),
 }
 

@@ -11,6 +11,9 @@ use crate::protocol::BitSerializable;
 use crate::tick::Tick;
 use crate::TickManager;
 
+// TODO: FOR INPUTS, WE WANT TO SEND REPEATEDLY THE LAST 10 INPUTS; or the inputs from the last 10 TICKS!
+//  (in case of packet loss),
+
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
 pub struct TickUnreliableSender {

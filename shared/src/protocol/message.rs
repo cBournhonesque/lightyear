@@ -14,7 +14,7 @@ use crate::{BitSerializable, Message, Named, Protocol};
 
 // that big enum will implement MessageProtocol via a proc macro
 pub trait MessageProtocol:
-    BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour + Named
+    BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour + Named + Send + Sync
 {
     type Protocol: Protocol;
 
