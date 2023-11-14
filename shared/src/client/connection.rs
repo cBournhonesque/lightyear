@@ -1,6 +1,7 @@
 use super::ping_manager::PingConfig;
 use super::sync::SyncManager;
 use crate::connection::ProtocolMessage;
+use crate::inputs::input_buffer::InputBuffer;
 use crate::tick::Tick;
 use crate::{
     ChannelKind, ChannelRegistry, DefaultSequencedUnreliableChannel, PingMessage, Protocol,
@@ -16,6 +17,7 @@ pub struct Connection<P: Protocol> {
     pub(crate) base: crate::Connection<P>,
 
     // pub(crate) ping_manager: PingManager,
+    pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
     // TODO: see if this is correct; should we instead attach the tick on every update message?
     /// Tick of the server that we last received in any packet from the server.
@@ -29,12 +31,18 @@ impl<P: Protocol> Connection<P> {
         Self {
             base: crate::Connection::new(channel_registry),
             // ping_manager: PingManager::new(ping_config),
+            input_buffer: InputBuffer::default(),
             sync_manager: SyncManager::new(
                 ping_config.sync_num_pings,
                 ping_config.sync_ping_interval_ms,
             ),
             latest_received_server_tick: Tick(0),
         }
+    }
+
+    /// Add an input for the given tick
+    pub fn add_input(&mut self, input: P::Input, tick: Tick) {
+        self.input_buffer.buffer.push(&tick, input);
     }
 
     pub fn update(

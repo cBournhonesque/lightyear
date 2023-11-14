@@ -7,6 +7,7 @@ use bevy::prelude::{Resource, Time, World};
 use tracing::{debug, debug_span, info, trace_span};
 
 use super::connection::Connection;
+use crate::inputs::input_buffer::InputMessage;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::replication::prediction::ShouldBePredicted;
 use crate::replication::{Replicate, ReplicationSend, ReplicationTarget};
@@ -106,8 +107,24 @@ impl<P: Protocol> Server<P> {
         self.tick_manager.increment_tick()
     }
 
-    // REPLICATION
+    // INPUTS
 
+    /// Update the input buffer for the connection when receiving an input message.
+    /// TODO: maybe do this directly during receive instead of here?
+    pub(crate) fn update_inputs(
+        &mut self,
+        input_message: &InputMessage<P::Input>,
+        client_id: &ClientId,
+    ) {
+        // TODO: do nothing if client does not exist (was disconnected)?
+        let connection = self
+            .user_connections
+            .get_mut(&client_id)
+            .expect("client not found");
+        connection.input_buffer.update_from_message(&input_message);
+    }
+
+    // REPLICATION
     fn apply_replication<F: Fn(ClientId, &Replicate, &mut Connection<P>) -> Result<()>>(
         &mut self,
         replicate: &Replicate,

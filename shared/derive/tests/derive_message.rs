@@ -12,7 +12,7 @@ pub mod some_message {
     pub struct Message2(pub u32);
 
     // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-    #[derive(Debug, PartialEq)]
+    // #[derive(Debug, PartialEq)]
     #[message_protocol(protocol = "MyProtocol")]
     // #[derive(EnumAsInner)]
     pub enum MyMessageProtocol {

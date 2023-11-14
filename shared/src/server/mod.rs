@@ -9,6 +9,7 @@ pub use server::Server;
 mod config;
 mod connection;
 mod events;
+mod input;
 pub(crate) mod io;
 mod ping_manager;
 mod plugin;

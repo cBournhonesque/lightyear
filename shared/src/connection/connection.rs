@@ -28,8 +28,6 @@ pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager<ProtocolMessage<P>>,
     pub replication_manager: ReplicationManager<P>,
     pub events: ConnectionEvents<P>,
-    // TODO: replace with a SyncManager?
-    synced: bool,
 }
 
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -100,7 +98,6 @@ impl<P: Protocol> Connection<P> {
             message_manager: MessageManager::new(channel_registry),
             replication_manager: ReplicationManager::default(),
             events: ConnectionEvents::new(),
-            synced: false,
         }
     }
 }

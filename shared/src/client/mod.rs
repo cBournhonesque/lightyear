@@ -15,6 +15,7 @@ mod ping_manager;
 mod plugin;
 
 // #[cfg(feature = "prediction")]
+mod input;
 pub mod prediction;
 mod sync;
 // mod tick_manager;

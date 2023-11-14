@@ -7,6 +7,7 @@ use bevy::ecs::component::ComponentTicks;
 use bevy::prelude::{Resource, World};
 use tracing::{info, trace};
 
+use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::Client as NetcodeClient;
 use crate::netcode::{ConnectToken, Key};
 use crate::tick::{Tick, TickManaged};
@@ -96,6 +97,17 @@ impl<P: Protocol> Client<P> {
 
     pub fn is_connected(&self) -> bool {
         self.netcode.is_connected()
+    }
+
+    // INPUT
+
+    pub fn add_input(&mut self, input: P::Input) {
+        self.connection
+            .add_input(input, self.tick_manager.current_tick());
+    }
+
+    pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
+        &self.connection.input_buffer
     }
 
     // TICK

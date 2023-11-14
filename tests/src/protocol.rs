@@ -14,7 +14,6 @@ pub struct Message1(pub String);
 #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[derive(Debug, PartialEq)]
 #[message_protocol(protocol = "MyProtocol")]
 pub enum MyMessageProtocol {
     Message1(Message1),
@@ -29,7 +28,11 @@ pub enum MyComponentsProtocol {
     Component1(Component1),
 }
 
-protocolize!(MyProtocol, MyMessageProtocol, MyComponentsProtocol);
+protocolize! {
+    Self = MyProtocol,
+    Message = MyMessageProtocol,
+    Component = MyComponentsProtocol,
+}
 
 // Channels
 #[derive(Channel)]

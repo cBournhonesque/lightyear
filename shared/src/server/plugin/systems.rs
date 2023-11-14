@@ -27,6 +27,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             // TODO: write these as systems? might be easier to also add the events to the app
             //  it might just be less efficient? + maybe tricky to
 
+            // Connection / Disconnection events
             if events.has_connections() {
                 let mut connect_event_writer = world
                     .get_resource_mut::<Events<ConnectEvent<ClientId>>>()
@@ -46,24 +47,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                     connect_event_writer.send(DisconnectEvent::new(client_id));
                 }
             }
-            // // Connect Event
-            // if events.has::<crate::events::ConnectEvent>() {
-            //     let mut connect_event_writer =
-            //         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-            //     for client_id in events.into_iter::<crate::events::ConnectEvent>() {
-            //         debug!("Client connected event: {}", client_id);
-            //         connect_event_writer.send(ConnectEvent(client_id));
-            //     }
-            // }
-            //
-            // // Disconnect Event
-            // if events.has::<crate::events::DisconnectEvent>() {
-            //     let mut connect_event_writer =
-            //         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-            //     for client_id in events.into_iter::<crate::events::DisconnectEvent>() {
-            //         connect_event_writer.send(DisconnectEvent(client_id));
-            //     }
-            // }
 
             // Message Events
             P::Message::push_message_events(world, &mut events);

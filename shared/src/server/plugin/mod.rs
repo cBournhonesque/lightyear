@@ -19,7 +19,7 @@ use sets::ServerSet;
 use systems::{receive, send};
 
 mod schedules;
-mod sets;
+pub(crate) mod sets;
 mod systems;
 
 pub struct PluginConfig<P: Protocol> {

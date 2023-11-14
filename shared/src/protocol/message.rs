@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::connection::events::{EventContext, IterMessageEvent};
+use crate::inputs::input_buffer::InputMessage;
 use crate::protocol::registry::{TypeKind, TypeMapper};
 use crate::serialize::writer::WriteBuffer;
 use crate::{BitSerializable, Message, Named, Protocol};
@@ -14,7 +15,15 @@ use crate::{BitSerializable, Message, Named, Protocol};
 
 // that big enum will implement MessageProtocol via a proc macro
 pub trait MessageProtocol:
-    BitSerializable + Serialize + DeserializeOwned + Clone + MessageBehaviour + Named + Send + Sync
+    BitSerializable
+    + Serialize
+    + DeserializeOwned
+    + Clone
+    + MessageBehaviour
+    + Named
+    + Send
+    + Sync
+    + From<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>>
 {
     type Protocol: Protocol;
 

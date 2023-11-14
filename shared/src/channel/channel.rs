@@ -153,7 +153,7 @@ impl ReliableSettings {
 pub struct DefaultReliableChannel;
 
 /// Default channel to replicate entity updates
-/// We send them in a sequenced way because there's no point in getting older updates if we received a later onek
+/// We send them in a sequenced way because there's no point in getting older updates if we received a later one
 #[derive(ChannelInternal)]
 pub struct DefaultSequencedUnreliableChannel;
 

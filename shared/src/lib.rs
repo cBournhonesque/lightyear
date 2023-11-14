@@ -17,6 +17,7 @@ pub use channel::channel::{
     ReliableSettings,
 };
 pub use connection::{Connection, ConnectionEvents};
+pub use inputs::input_buffer::{InputMessage, UserInput};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
 pub use netcode::ClientId;
 pub use packet::message::{Message, MessageContainer};
@@ -52,7 +53,7 @@ pub use utils::sequence_buffer::SequenceBuffer;
 pub mod channel;
 pub mod client;
 pub mod connection;
-mod inputs;
+pub mod inputs;
 pub mod netcode;
 pub mod packet;
 pub mod plugin;

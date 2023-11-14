@@ -2,7 +2,7 @@ use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput, Field, Fields, ItemEnum, LitStr};
+use syn::{parse_macro_input, parse_quote, DeriveInput, Field, Fields, ItemEnum, LitStr};
 
 #[derive(Debug, FromMeta)]
 struct MacroAttrs {
@@ -16,6 +16,8 @@ pub fn message_impl(
     let input = parse_macro_input!(input as DeriveInput);
 
     // Helper Properties
+    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+
     // Names
     let struct_name = input.ident;
     let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
@@ -23,17 +25,19 @@ pub fn message_impl(
         struct_name.to_string().to_lowercase().as_str(),
         Span::call_site(),
     );
-    let module_name = format_ident!("defne_{}", lowercase_struct_name);
+    let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
     let gen = quote! {
         mod #module_name {
             use super::#struct_name;
             use #shared_crate_name::{Message, Named};
-            impl Message for #struct_name {}
+            use #shared_crate_name::UserInput;
+
+            impl #impl_generics Message for #struct_name #type_generics #where_clause {}
 
             // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
-            impl Named for #struct_name {
+            impl #impl_generics Named for #struct_name #type_generics #where_clause {
                 fn name(&self) -> String {
                     return #struct_name_str.to_string();
                 }
@@ -63,7 +67,12 @@ pub fn message_protocol_impl(
         }
     };
     let protocol = &attr.protocol;
-    let input = parse_macro_input!(input as ItemEnum);
+    let mut input = parse_macro_input!(input as ItemEnum);
+
+    // Add extra variants
+    input.variants.push(parse_quote! {
+        InputMessage(InputMessage<<#protocol as Protocol>::Input>)
+    });
 
     // Helper Properties
     let fields = get_fields(&input);
@@ -83,6 +92,8 @@ pub fn message_protocol_impl(
     let encode_method = encode_method();
     let decode_method = decode_method();
 
+    let from_into_methods = from_into_methods(&input, &fields, &enum_name);
+
     let output = quote! {
         mod #module_name {
             use super::*;
@@ -94,8 +105,10 @@ pub fn message_protocol_impl(
             use #shared_crate_name::connection::events::{EventContext, IterMessageEvent};
             use #shared_crate_name::plugin::systems::events::push_message_events;
             use #shared_crate_name::plugin::events::MessageEvent;
+            use #shared_crate_name::{InputMessage, UserInput, Protocol};
 
-            #[derive(Serialize, Deserialize, Clone)]
+
+            #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(MessageBehaviour)]
             // #[derive(EnumAsInner)]
             #input
@@ -108,6 +121,7 @@ pub fn message_protocol_impl(
 
             }
 
+            // #from_into_methods
             #name_method
             // impl BitSerializable for #enum_name {
             //     #encode_method
@@ -178,6 +192,36 @@ fn name_method(input: &ItemEnum) -> TokenStream {
                 }
             }
         }
+    }
+}
+
+fn from_into_methods(input: &ItemEnum, fields: &Vec<&Field>, enum_name: &Ident) -> TokenStream {
+    let enum_name = &input.ident;
+    let variants = input.variants.iter().map(|v| v.ident.clone());
+    let mut body = quote! {};
+    for (variant, field) in input.variants.iter().zip(fields.iter()) {
+        let ident = &variant.ident;
+        body = quote! {
+            #body
+            impl From<#field> for #enum_name {
+                fn from(value: #field) -> Self {
+                    #enum_name::#ident(value)
+                }
+            }
+            impl TryInto<#field> for #enum_name {
+                type Error = ();
+                fn try_into(self) -> Result<#field, Self::Error> {
+                    match self {
+                        #enum_name::#ident(x) => Ok(x),
+                        _ => Err(()),
+                    }
+                }
+            }
+        }
+    }
+
+    quote! {
+        #body
     }
 }
 

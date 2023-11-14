@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 /// - constant time get by key
 /// - constant time removal
 ///
-/// The key must be a WrappedId.
+/// The key must be a WrappedId, we update the buffer by using the key modulo the buffer size
 /// More optimized than HashMap
 pub struct SequenceBuffer<K: WrappedId, T, const N: usize> {
     buffer: [Option<T>; N],

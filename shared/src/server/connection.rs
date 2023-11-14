@@ -1,5 +1,6 @@
 use super::ping_manager::{PingConfig, PingManager};
 use crate::connection::ProtocolMessage;
+use crate::inputs::input_buffer::InputBuffer;
 use crate::{
     ChannelKind, ChannelRegistry, DefaultSequencedUnreliableChannel, PingMessage, Protocol,
     SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
@@ -13,6 +14,7 @@ use tracing::{debug, info, trace};
 pub struct Connection<P: Protocol> {
     pub(crate) base: crate::Connection<P>,
 
+    pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) ping_manager: PingManager,
 }
 
@@ -20,6 +22,7 @@ impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
         Self {
             base: crate::Connection::new(channel_registry),
+            input_buffer: InputBuffer::default(),
             ping_manager: PingManager::new(ping_config),
         }
     }

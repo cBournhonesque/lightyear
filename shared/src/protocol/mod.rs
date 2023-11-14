@@ -10,15 +10,17 @@ use crate::protocol::message::MessageProtocol;
 use crate::replication::ReplicationSend;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::{Channel, ChannelSettings};
+use crate::{Channel, ChannelSettings, UserInput};
 
 pub(crate) mod channel;
 pub(crate) mod component;
 pub(crate) mod message;
 pub(crate) mod registry;
 
+// TODO: how to make components or messages or inputs optional? Just by having an implementation for () ?
 // TODO: maybe make input part of the protocol as well?
 pub trait Protocol: Send + Sync + Clone + 'static {
+    type Input: UserInput;
     type Message: MessageProtocol<Protocol = Self>;
     type Components: ComponentProtocol<Protocol = Self>;
     type ComponentKinds: ComponentProtocolKind<Protocol = Self>;
@@ -31,7 +33,13 @@ pub trait Protocol: Send + Sync + Clone + 'static {
 #[macro_export]
 macro_rules! protocolize {
 
-    ($protocol:ident, $message:ty, $components:ty, $shared_crate_name:ident) => {
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+        Input = $input:ty,
+        Crate = $shared_crate_name:ident,
+    ) => {
         use $shared_crate_name::paste;
         paste! {
         mod [<$protocol:lower _module>] {
@@ -48,6 +56,7 @@ macro_rules! protocolize {
             }
 
             impl Protocol for $protocol {
+                type Input = $input;
                 type Message = $message;
                 type Components = $components;
                 type ComponentKinds = [<$components Kind>];
@@ -94,9 +103,52 @@ macro_rules! protocolize {
         pub use [<$protocol:lower _module>]::$protocol;
         }
     };
-    ($protocol:ident, $message:ty, $components:ty) => {
-        protocolize!($protocol, $message, $components, lightyear_shared);
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+        Crate = $shared_crate_name:ident,
+    ) => {
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = (),
+            Crate = $shared_crate_name,
+        }
     };
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+        Input = $input:ty,
+    ) => {
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = $input,
+            Crate = lightyear_shared,
+        }
+    };
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+    ) => {
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = (),
+            Crate = lightyear_shared,
+        }
+    };
+
+
 }
 
 /// Something that can be serialized bit by bit
@@ -108,6 +160,7 @@ pub trait BitSerializable: Clone {
         Self: Sized;
 }
 
+// TODO: allow for either decode/encode directly, or use serde if we add an attribute with_serde?
 impl<T> BitSerializable for T
 where
     T: Serialize + DeserializeOwned + Clone,
@@ -139,7 +192,7 @@ pub mod tests {
     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message2(pub u32);
 
-    #[derive(Debug, PartialEq)]
+    // #[derive(Debug, PartialEq)]
     #[message_protocol_internal(protocol = "MyProtocol")]
     pub enum MyMessageProtocol {
         Message1(Message1),
@@ -157,7 +210,12 @@ pub mod tests {
         Component1(Component1),
     }
 
-    protocolize!(MyProtocol, MyMessageProtocol, MyComponentsProtocol, crate);
+    protocolize! {
+        Self = MyProtocol,
+        Message = MyMessageProtocol,
+        Component = MyComponentsProtocol,
+        Crate = crate,
+    }
 
     // Channels
     #[derive(ChannelInternal)]
