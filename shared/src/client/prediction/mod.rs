@@ -80,6 +80,7 @@ pub struct Confirmed {
 /// Component that is predicted by the client
 // #[bevy_trait_query::queryable]
 pub trait PredictedComponent: Component + Clone + PartialEq + Eq {}
+impl<T> PredictedComponent for T where T: Component + Clone + PartialEq + Eq {}
 
 pub trait A {}
 

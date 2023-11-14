@@ -1,10 +1,14 @@
 use crate::inputs::input_buffer::InputMessage;
-use crate::plugin::events::MessageEvent;
-use crate::server::plugin::sets::ServerSet;
+use crate::plugin::events::{InputEvent, MessageEvent};
+use crate::plugin::sets::MainSet;
 use crate::server::Server;
 use crate::ClientId;
 use crate::{App, Protocol};
-use bevy::prelude::{EventReader, IntoSystemConfigs, Plugin, PreUpdate, ResMut};
+use bevy::prelude::{
+    EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    PreUpdate, ResMut, SystemSet,
+};
+use tracing::{info_span, trace, trace_span};
 
 // - ClientInputs:
 // - inputs will be sent via a special message
@@ -27,12 +31,41 @@ pub struct InputPlugin<P: Protocol> {
     _marker: std::marker::PhantomData<P>,
 }
 
+impl<P: Protocol> Default for InputPlugin<P> {
+    fn default() -> Self {
+        Self {
+            _marker: std::marker::PhantomData::default(),
+        }
+    }
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum InputSystemSet {
+    /// FixedUpdate system to get any inputs from the client. This should be run before the game/physics logic
+    WriteInputEvents,
+    /// System Set to clear the input events (otherwise bevy clears events every frame, not every tick)
+    ClearInputEvents,
+}
+
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
+        // SETS
+        app.configure_sets(
+            FixedUpdate,
+            (
+                InputSystemSet::WriteInputEvents.before(MainSet::FixedUpdateGame),
+                InputSystemSet::ClearInputEvents.after(MainSet::FixedUpdateGame),
+            ),
+        );
+
         // insert the input buffer resource
         app.add_systems(
-            PreUpdate,
-            update_input_buffer::<P>.after(ServerSet::Receive),
+            FixedUpdate,
+            write_input_event::<P>.in_set(InputSystemSet::WriteInputEvents),
+        );
+        app.add_systems(
+            FixedUpdate,
+            clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvents),
         );
 
         //right after receive, update the input buffer for each connection
@@ -41,18 +74,39 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
     }
 }
 
-// TODO: do it directly when receiving the message, not in a system
-/// After receiving messages, we update the input buffer for each connection by reading the InputMessage
-pub fn update_input_buffer<P: Protocol>(
+// Create a system that reads from the input buffer and returns the inputs of all clients for the current tick.
+// The only tricky part is that events are cleared every frame, but we want to clear every tick instead
+fn write_input_event<P: Protocol>(
     mut server: ResMut<Server<P>>,
-    mut input_messages: EventReader<MessageEvent<InputMessage<P::Input>, ClientId>>,
+    mut input_events: EventWriter<InputEvent<P::Input, ClientId>>,
 ) {
-    for input_message in input_messages.read() {
-        let client_id = input_message.context();
-        let input_message = input_message.message();
-        server.update_inputs(input_message, client_id);
+    let current_tick = server.tick();
+    for (input, client_id) in server.events.pop_inputs(current_tick) {
+        input_events.send(InputEvent::new(input, client_id));
     }
 }
+
+/// System that clears the input events.
+/// It is necessary because events are cleared every frame, but we want to clear every tick instead
+fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::Input, ClientId>>) {
+    input_events.clear();
+}
+
+// TODO: do it directly when receiving the message, not in a system
+// After receiving messages, we update the input buffer for each connection by reading the InputMessage
+// pub fn update_input_buffer<P: Protocol>(
+//     mut server: ResMut<Server<P>>,
+//     mut input_messages: EventReader<MessageEvent<InputMessage<P::Input>, ClientId>>,
+// ) {
+//     if !input_messages.is_empty() {
+//         let _span = info_span!("update_input_buffer");
+//         for input_message in input_messages.read() {
+//             let client_id = input_message.context();
+//             let input_message = input_message.message();
+//             server.update_inputs(input_message, client_id);
+//         }
+//     }
+// }
 
 // on the client:
 // - FixedUpdate: before physics but after increment tick,

@@ -2,10 +2,10 @@ use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 
 use lightyear_shared::channel::channel::ReliableSettings;
-use lightyear_shared::Protocol;
 use lightyear_shared::{component_protocol, message_protocol};
 use lightyear_shared::{protocolize, Channel, Message};
 use lightyear_shared::{ChannelDirection, ChannelMode, ChannelSettings};
+use lightyear_shared::{Protocol, UserInput};
 
 // Messages
 #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -20,18 +20,33 @@ pub enum MyMessageProtocol {
     Message2(Message2),
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+// Components
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Component1;
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Component2;
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
+    #[replication(predicted)]
     Component1(Component1),
+    Component2(Component2),
 }
+
+// Inputs
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct Input(pub usize);
+impl UserInput for Input {}
+
+// Protocol
 
 protocolize! {
     Self = MyProtocol,
     Message = MyMessageProtocol,
     Component = MyComponentsProtocol,
+    Input = Input,
 }
 
 // Channels

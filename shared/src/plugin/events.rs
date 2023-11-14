@@ -1,6 +1,6 @@
 use crate::connection::events::EventContext;
 use crate::netcode::ClientId;
-use crate::{ChannelKind, Message, Protocol};
+use crate::{ChannelKind, Message, Protocol, UserInput};
 use bevy::prelude::{App, Component, Entity, Event};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -49,6 +49,27 @@ impl<M: Message, Ctx> MessageEvent<M, Ctx> {
 
     pub fn message(&self) -> &M {
         &self.message
+    }
+
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
+}
+
+#[derive(Event)]
+/// Event emitted on server every time we receive an event
+pub struct InputEvent<I: UserInput, Ctx = ()> {
+    input: Option<I>,
+    context: Ctx,
+}
+
+impl<I: UserInput, Ctx> InputEvent<I, Ctx> {
+    pub fn new(input: Option<I>, context: Ctx) -> Self {
+        Self { input, context }
+    }
+
+    pub fn input(&self) -> &Option<I> {
+        &self.input
     }
 
     pub fn context(&self) -> &Ctx {

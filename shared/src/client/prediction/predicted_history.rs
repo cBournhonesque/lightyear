@@ -67,8 +67,6 @@ mod tests {
     #[derive(Component, Clone, PartialEq, Eq, Debug)]
     pub struct A(u32);
 
-    impl PredictedComponent for A {}
-
     #[test]
     fn test_component_history() {
         let mut component_history = ComponentHistory::new();

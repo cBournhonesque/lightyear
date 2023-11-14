@@ -1,9 +1,9 @@
 use crate::connection::ProtocolMessage;
 use crate::tick::Tick;
 use crate::{
-    ChannelKind, Connection, DefaultSequencedUnreliableChannel, MessageManager, PingMessage,
-    PingStore, PongMessage, Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
-    TimeSyncPongMessage, WrappedTime,
+    ChannelKind, Connection, MessageManager, PingChannel, PingMessage, PingStore, PongMessage,
+    Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
+    WrappedTime,
 };
 use bevy::prelude::{Timer, TimerMode};
 use std::time::Duration;

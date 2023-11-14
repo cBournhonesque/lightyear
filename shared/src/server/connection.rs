@@ -2,8 +2,8 @@ use super::ping_manager::{PingConfig, PingManager};
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::{
-    ChannelKind, ChannelRegistry, DefaultSequencedUnreliableChannel, PingMessage, Protocol,
-    SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
+    ChannelKind, ChannelRegistry, PingChannel, PingMessage, Protocol, SyncMessage, TickManager,
+    TimeManager, TimeSyncPingMessage,
 };
 use anyhow::Result;
 use std::time::Duration;
@@ -52,7 +52,7 @@ impl<P: Protocol> Connection<P> {
         trace!("Sending ping {:?}", ping_message);
 
         let message = ProtocolMessage::Sync(SyncMessage::Ping(ping_message));
-        let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
+        let channel = ChannelKind::of::<PingChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
 
@@ -62,7 +62,7 @@ impl<P: Protocol> Connection<P> {
         // info!("Sending ping {:?}", ping_message);
         trace!("Sending pong {:?}", pong_message);
         let message = ProtocolMessage::Sync(SyncMessage::Pong(pong_message));
-        let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
+        let channel = ChannelKind::of::<PingChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
 
@@ -79,7 +79,7 @@ impl<P: Protocol> Connection<P> {
         // info!("Sending ping {:?}", ping_message);
         trace!("Sending time sync pong {:?}", pong_message);
         let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPong(pong_message));
-        let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
+        let channel = ChannelKind::of::<PingChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }
 }

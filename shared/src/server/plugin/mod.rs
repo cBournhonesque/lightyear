@@ -14,12 +14,13 @@ use crate::{
 };
 
 use super::config::ServerConfig;
+use crate::plugin::events::InputEvent;
+use crate::plugin::sets::MainSet;
+use crate::server::input::InputPlugin;
 use crate::server::Server;
-use sets::ServerSet;
 use systems::{receive, send};
 
 mod schedules;
-pub(crate) mod sets;
 mod systems;
 
 pub struct PluginConfig<P: Protocol> {
@@ -68,28 +69,30 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 // TODO: move shared config out of server_config
                 config: config.server_config.shared.clone(),
             })
+            .add_plugins(InputPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(server)
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
-            .configure_sets(PreUpdate, ServerSet::Receive)
+            .configure_sets(PreUpdate, MainSet::Receive)
             .configure_sets(
                 PostUpdate,
                 (
                     ReplicationSet::SendEntityUpdates,
                     ReplicationSet::SendComponentUpdates.after(ReplicationSet::SendEntityUpdates),
-                    ServerSet::Send.after(ReplicationSet::SendComponentUpdates),
+                    MainSet::Send.after(ReplicationSet::SendComponentUpdates),
                 ),
             )
             // EVENTS //
             .add_event::<ConnectEvent<ClientId>>()
             .add_event::<DisconnectEvent<ClientId>>()
             .add_event::<EntitySpawnEvent<ClientId>>()
+            .add_event::<InputEvent<P::Input, ClientId>>()
             // SYSTEMS //
-            .add_systems(PreUpdate, receive::<P>.in_set(ServerSet::Receive))
+            .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
             //  maybe TickManager should be a separate resource not contained in Client/Server?
             .add_systems(FixedUpdate, increment_tick::<Server<P>>)
-            .add_systems(PostUpdate, send::<P>.in_set(ServerSet::Send));
+            .add_systems(PostUpdate, send::<P>.in_set(MainSet::Send));
     }
 }

@@ -46,9 +46,11 @@ macro_rules! protocolize {
             use super::*;
             use $shared_crate_name::{
                 App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
-                ComponentKindBehaviour, IntoKind, DefaultReliableChannel, DefaultUnorderedUnreliableChannel, DefaultSequencedUnreliableChannel,
-                Entity, MessageProtocol, Protocol, ReplicationSend, ReliableSettings, ChannelDirection, ChannelMode, TickBufferChannel,
+                ComponentKindBehaviour, IntoKind, Entity, MessageProtocol, Protocol, ReplicationSend, ReliableSettings,
+                ChannelDirection, ChannelMode
             };
+            // TODO: use prelude?
+            use $shared_crate_name::{DefaultUnorderedUnreliableChannel, EntityUpdateChannel, InputChannel, PingChannel, TickBufferChannel};
 
             #[derive(Debug, Clone)]
             pub struct $protocol {
@@ -80,13 +82,17 @@ macro_rules! protocolize {
                     let mut protocol = Self {
                         channel_registry: ChannelRegistry::default(),
                     };
-                    protocol.add_channel::<DefaultReliableChannel>(ChannelSettings {
+                    protocol.add_channel::<EntityUpdateChannel>(ChannelSettings {
                         mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
                     });
-                    protocol.add_channel::<DefaultSequencedUnreliableChannel>(ChannelSettings {
+                    protocol.add_channel::<PingChannel>(ChannelSettings {
                         mode: ChannelMode::SequencedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<InputChannel>(ChannelSettings {
+                        mode: ChannelMode::SequencedUnreliable,
+                        direction: ChannelDirection::ClientToServer,
                     });
                     protocol.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliable,

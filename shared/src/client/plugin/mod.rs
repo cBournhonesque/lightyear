@@ -1,4 +1,3 @@
-pub(crate) mod sets;
 mod systems;
 
 use std::ops::DerefMut;
@@ -17,9 +16,10 @@ use crate::{
 };
 
 use super::config::ClientConfig;
+use crate::client::input::InputPlugin;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::{Authentication, Client};
-use sets::ClientSet;
+use crate::plugin::sets::MainSet;
 use systems::{receive, send};
 
 pub struct PluginConfig<P: Protocol> {
@@ -70,28 +70,29 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_plugins(SharedPlugin {
                 config: config.client_config.shared.clone(),
             })
+            .add_plugins(InputPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(client)
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
-            .configure_sets(PreUpdate, ClientSet::Receive)
-            .configure_sets(PostUpdate, ClientSet::Send)
+            .configure_sets(PreUpdate, MainSet::Receive)
+            .configure_sets(PostUpdate, MainSet::Send)
             // EVENTS //
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()
             .add_event::<EntitySpawnEvent>()
             // SYSTEMS //
-            .add_systems(PreUpdate, receive::<P>.in_set(ClientSet::Receive))
+            .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
             //  maybe TickManager should be a separate resource not contained in Client/Server?
             //  and runs Update in PreUpdate before the client/server systems
             .add_systems(
                 FixedUpdate,
                 increment_tick::<Client<P>>
-                    .before(ClientSet::FixedUpdateGame)
+                    .before(MainSet::FixedUpdateGame)
                     // run if there is no rollback resource, or if we are not in rollback
                     .run_if((not(resource_exists::<Rollback>())).or_else(not(is_in_rollback))),
             )
-            .add_systems(PostUpdate, send::<P>.in_set(ClientSet::Send));
+            .add_systems(PostUpdate, send::<P>.in_set(MainSet::Send));
     }
 }

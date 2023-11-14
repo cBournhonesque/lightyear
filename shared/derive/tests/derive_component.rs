@@ -5,10 +5,10 @@ pub mod some_component {
     use lightyear_derive::{component_protocol, message_protocol};
     use lightyear_shared::{protocolize, Message};
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
     pub struct Component1(pub u8);
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
     pub struct Component2(pub u32);
 
     #[component_protocol(protocol = "MyProtocol")]
@@ -26,7 +26,11 @@ pub mod some_component {
         Message1(Message1),
     }
 
-    protocolize!(MyProtocol, MyMessageProtocol, MyComponentProtocol);
+    protocolize! {
+        Self = MyProtocol,
+        Message = MyMessageProtocol,
+        Component = MyComponentProtocol,
+    }
 }
 
 #[cfg(test)]

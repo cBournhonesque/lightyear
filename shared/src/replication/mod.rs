@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use lightyear_derive::ChannelInternal;
 
-use crate::channel::channel::DefaultReliableChannel;
+use crate::channel::channel::EntityUpdateChannel;
 use crate::netcode::ClientId;
 use crate::{
     BitSerializable, Channel, ChannelKind, ComponentProtocol, ComponentProtocolKind, Protocol,
@@ -65,7 +65,7 @@ impl Replicate {
 impl Default for Replicate {
     fn default() -> Self {
         Self {
-            channel: ChannelKind::of::<DefaultReliableChannel>(),
+            channel: ChannelKind::of::<EntityUpdateChannel>(),
             target: ReplicationTarget::default(),
             should_do_prediction: false,
         }

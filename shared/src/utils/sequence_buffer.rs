@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 ///
 /// The key must be a WrappedId, we update the buffer by using the key modulo the buffer size
 /// More optimized than HashMap
+#[derive(Debug)]
 pub struct SequenceBuffer<K: WrappedId, T, const N: usize> {
     buffer: [Option<T>; N],
     _marker: PhantomData<K>,

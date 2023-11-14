@@ -17,7 +17,7 @@ impl UserInput for () {}
 // this should be more than enough, maybe make smaller or tune depending on latency?
 const INPUT_BUFFER_SIZE: usize = 128;
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserInput> {
     pub buffer: SequenceBuffer<Tick, T, INPUT_BUFFER_SIZE>,
     // TODO: maybe keep track of the start?
@@ -55,7 +55,7 @@ impl<T: UserInput> InputBuffer<T> {
     /// TODO: should we keep track of which inputs in the input buffer are absent and only update those?
     ///  The current tick is the current server tick, no need to update the buffer for ticks that are older than that
     pub(crate) fn update_from_message(&mut self, message: &InputMessage<T>) {
-        let message_start_tick = Tick(message.end_tick.0 - message.inputs.len() as u16 + 1);
+        let message_start_tick = Tick(message.end_tick.0) - message.inputs.len() as u16 + 1;
 
         // // the input message is too old, don't do anything
         // if current_tick > message.end_tick {
@@ -87,26 +87,28 @@ impl<T: UserInput> InputBuffer<T> {
         let mut inputs = Vec::new();
         let mut current_tick = end_tick;
         // start with the first value
-        let start_tick = Tick(end_tick.0 - num_ticks + 1);
+        let start_tick = Tick(end_tick.0) - num_ticks + 1;
         inputs.push(
             self.buffer
                 .get(&start_tick)
                 .map_or(InputData::Absent, |input| InputData::Input(input.clone())),
         );
-
+        // keep track of the previous value to avoid sending the same value multiple times
+        let mut prev_value_idx = 0;
         for delta in 1..num_ticks {
             let tick = start_tick + Tick(delta);
             // safe because we keep pushing elements
-            let prev_value = inputs.last().unwrap();
             let value = self
                 .buffer
                 .get(&tick)
                 .map_or(InputData::Absent, |input| InputData::Input(input.clone()));
-            inputs.push(if prev_value == &value {
-                InputData::SameAsPrecedent
+            // safe before prev_value_idx is always present
+            if inputs.get(prev_value_idx).unwrap() == &value {
+                inputs.push(InputData::SameAsPrecedent);
             } else {
-                value
-            });
+                prev_value_idx = inputs.len();
+                inputs.push(value);
+            }
         }
         InputMessage { inputs, end_tick }
     }
@@ -126,11 +128,11 @@ mod tests {
         input_buffer.buffer.push(&Tick(6), 1);
         input_buffer.buffer.push(&Tick(7), 1);
 
-        let message = input_buffer.create_message(Tick(9), 7);
+        let message = input_buffer.create_message(Tick(10), 8);
         assert_eq!(
             message,
             InputMessage {
-                end_tick: Tick(9),
+                end_tick: Tick(10),
                 inputs: vec![
                     InputData::Absent,
                     InputData::Input(0),
@@ -139,8 +141,11 @@ mod tests {
                     InputData::SameAsPrecedent,
                     InputData::Absent,
                     InputData::SameAsPrecedent,
+                    InputData::SameAsPrecedent,
                 ],
             }
         );
     }
+
+    // TODO: add test for update_from_message
 }

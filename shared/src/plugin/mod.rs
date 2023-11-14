@@ -10,7 +10,7 @@ pub(crate) mod config;
 pub mod events;
 pub(crate) mod log;
 mod replication;
-mod sets;
+pub(crate) mod sets;
 pub mod systems;
 
 pub struct SharedPlugin {

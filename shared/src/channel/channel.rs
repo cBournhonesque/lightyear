@@ -150,12 +150,17 @@ impl ReliableSettings {
 /// Default channel to replicate entity updates reliably
 /// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
 #[derive(ChannelInternal)]
-pub struct DefaultReliableChannel;
+pub struct EntityUpdateChannel;
 
 /// Default channel to replicate entity updates
 /// We send them in a sequenced way because there's no point in getting older updates if we received a later one
 #[derive(ChannelInternal)]
-pub struct DefaultSequencedUnreliableChannel;
+pub struct PingChannel;
+
+#[derive(ChannelInternal)]
+/// Should we send input as unordered unreliable or sequenced?
+/// At least WE CANNOT SHARE SEQUENCED CHANNEL FOR PINGS AND INPUTS BECAUSE THEN RECEIVING MORE RECENT PINGS COULD MAKE US DISCARD INPUTS!
+pub struct InputChannel;
 
 /// Default channel to send messages as fast as possible without any ordering
 #[derive(ChannelInternal)]

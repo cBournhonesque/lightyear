@@ -24,6 +24,7 @@ pub trait MessageProtocol:
     + Send
     + Sync
     + From<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>>
+    + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
 {
     type Protocol: Protocol;
 

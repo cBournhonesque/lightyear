@@ -1,12 +1,21 @@
-use crate::client::plugin::sets::ClientSet;
 use crate::client::Client;
-use crate::{App, DefaultSequencedUnreliableChannel, Protocol, UserInput};
+use crate::plugin::sets::MainSet;
+use crate::{App, InputChannel, PingChannel, Protocol, UserInput};
 use bevy::prelude::{
-    IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, ResMut, SystemSet,
+    FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, ResMut, SystemSet,
 };
+use tracing::{debug, trace};
 
 pub struct InputPlugin<P: Protocol> {
     _marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> Default for InputPlugin<P> {
+    fn default() -> Self {
+        Self {
+            _marker: std::marker::PhantomData::default(),
+        }
+    }
 }
 
 /// Input of the user for the current tick
@@ -20,8 +29,12 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // insert the input buffer resource
         // SETS
         app.configure_sets(
+            FixedUpdate,
+            InputSystemSet::BufferInputs.before(MainSet::FixedUpdateGame),
+        );
+        app.configure_sets(
             PostUpdate,
-            InputSystemSet::PrepareInputMessage.before(ClientSet::Send),
+            InputSystemSet::PrepareInputMessage.before(MainSet::Send),
         );
 
         // SYSTEMS
@@ -34,6 +47,8 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
+    /// FixedUpdate system to get any inputs from the client. This should be run before the game/physics logic
+    BufferInputs,
     /// System Set to prepare the input message
     PrepareInputMessage,
 }
@@ -51,8 +66,9 @@ fn apply_input() {}
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     // TODO: the number of messages should be in SharedConfig
+    trace!(tick = ?client.tick(), "prepare_input_message");
     let message = client.get_input_buffer().create_message(client.tick(), 15);
-    client.buffer_send::<DefaultSequencedUnreliableChannel, _>(message);
+    client.buffer_send::<InputChannel, _>(message);
 }
 
 // on the client:

@@ -74,7 +74,7 @@ impl ChannelSend for SequencedUnreliableSender {
     fn notify_message_delivered(&mut self, message_ack: &MessageAck) {}
 
     fn has_messages_to_send(&self) -> bool {
-        !self.single_messages_to_send.is_empty() && !self.fragmented_messages_to_send.is_empty()
+        !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
     }
 }
 

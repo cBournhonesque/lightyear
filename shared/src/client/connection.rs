@@ -4,8 +4,8 @@ use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::tick::Tick;
 use crate::{
-    ChannelKind, ChannelRegistry, DefaultSequencedUnreliableChannel, PingMessage, Protocol,
-    ReadBuffer, SyncMessage, TickManager, TimeManager, World,
+    ChannelKind, ChannelRegistry, PingChannel, PingMessage, Protocol, ReadBuffer, SyncMessage,
+    TickManager, TimeManager, World,
 };
 use anyhow::Result;
 use std::time::Duration;
@@ -63,7 +63,7 @@ impl<P: Protocol> Connection<P> {
                 .maybe_prepare_ping(time_manager, tick_manager)
             {
                 let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPing(sync_ping));
-                let channel = ChannelKind::of::<DefaultSequencedUnreliableChannel>();
+                let channel = ChannelKind::of::<PingChannel>();
                 self.base
                     .message_manager
                     .buffer_send(message, channel)

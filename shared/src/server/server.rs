@@ -34,7 +34,7 @@ pub struct Server<P: Protocol> {
     // Protocol
     pub protocol: P,
     // Events
-    events: ServerEvents<P>,
+    pub(crate) events: ServerEvents<P>,
     // Time
     time_manager: TimeManager,
     tick_manager: TickManager,
@@ -98,6 +98,12 @@ impl<P: Protocol> Server<P> {
         self.netcode.client_ids()
     }
 
+    // EVENTS
+
+    pub fn clear_events(&mut self) {
+        self.events = ServerEvents::new();
+    }
+
     // TICK
 
     pub fn tick(&self) -> Tick {
@@ -109,20 +115,20 @@ impl<P: Protocol> Server<P> {
 
     // INPUTS
 
-    /// Update the input buffer for the connection when receiving an input message.
-    /// TODO: maybe do this directly during receive instead of here?
-    pub(crate) fn update_inputs(
-        &mut self,
-        input_message: &InputMessage<P::Input>,
-        client_id: &ClientId,
-    ) {
-        // TODO: do nothing if client does not exist (was disconnected)?
-        let connection = self
-            .user_connections
-            .get_mut(&client_id)
-            .expect("client not found");
-        connection.input_buffer.update_from_message(&input_message);
-    }
+    // /// Update the input buffer for the connection when receiving an input message.
+    // /// TODO: maybe do this directly during receive instead of here?
+    // pub(crate) fn update_inputs(
+    //     &mut self,
+    //     input_message: &InputMessage<P::Input>,
+    //     client_id: &ClientId,
+    // ) {
+    //     // TODO: do nothing if client does not exist (was disconnected)?
+    //     let connection = self
+    //         .user_connections
+    //         .get_mut(&client_id)
+    //         .expect("client not found");
+    //     connection.input_buffer.update_from_message(&input_message);
+    // }
 
     // REPLICATION
     fn apply_replication<F: Fn(ClientId, &Replicate, &mut Connection<P>) -> Result<()>>(
@@ -254,7 +260,8 @@ impl<P: Protocol> Server<P> {
         Ok(())
     }
 
-    pub fn receive(&mut self, world: &mut World) -> ServerEvents<P> {
+    pub fn receive(&mut self, world: &mut World) {
+        // -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             trace_span!("receive", client_id = ?client_id).entered();
             let mut connection_events = connection.base.receive(world, &self.time_manager);
@@ -294,7 +301,7 @@ impl<P: Protocol> Server<P> {
         }
 
         // return all received messages and reset the buffer
-        std::mem::replace(&mut self.events, ServerEvents::new())
+        // std::mem::replace(&mut self.events, ServerEvents::new())
     }
 
     /// Send packets that are ready from the message manager through the transport layer

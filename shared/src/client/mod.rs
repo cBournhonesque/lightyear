@@ -3,6 +3,7 @@
 
 pub use client::{Authentication, Client};
 pub use config::ClientConfig;
+pub use input::InputSystemSet;
 pub use ping_manager::PingConfig;
 pub use plugin::{Plugin, PluginConfig};
 

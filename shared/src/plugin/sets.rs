@@ -10,6 +10,21 @@ pub enum ReplicationSet {
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum MainSet {
+    /// Systems that receive data (buffer any data received from transport, and read
+    /// data from the buffers)
+    ///
+    /// Runs in `PreUpdate`.
+    Receive,
+    /// Main loop (with physics, game logic) during FixedUpdate
+    FixedUpdateGame,
+    /// Systems that send data (buffer any data to be sent, and send any buffered packets)
+    ///
+    /// Runs in `PostUpdate`.
+    Send,
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FixedUpdateSet {
     TickUpdate,
 }

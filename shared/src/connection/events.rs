@@ -3,11 +3,14 @@ use std::iter;
 
 use crate::netcode::ClientId;
 use bevy::prelude::{Component, Entity, Event};
+use tracing::trace;
 
+use crate::inputs::input_buffer::InputBuffer;
 use crate::protocol::message::MessageKind;
+use crate::tick::Tick;
 use crate::{
-    Channel, ChannelKind, IntoKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol,
-    SyncMessage,
+    Channel, ChannelKind, InputMessage, IntoKind, Message, MessageBehaviour, PingMessage,
+    PongMessage, Protocol, SyncMessage,
 };
 
 // TODO: don't make fields pub but instead make accessors
@@ -21,6 +24,12 @@ pub struct ConnectionEvents<P: Protocol> {
     pub pings: Vec<PingMessage>,
     pub pongs: Vec<PongMessage>,
     pub syncs: Vec<SyncMessage>,
+    // inputs
+    // TODO: maybe support a vec of inputs?
+    // TODO: we put the InputBuffer here right now instead of Connection because this struct is the one that is the most
+    //  accessible from bevy. Maybe refactor later
+    //  THIS ONLY CONTAINS THE INPUTS RECEIVED FROM REMOTE, I.E THIS FIELD IS ONLY USED BY THE SERVER RIGHT NOW
+    pub inputs: InputBuffer<P::Input>,
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
@@ -55,6 +64,8 @@ impl<P: Protocol> ConnectionEvents<P> {
             pings: Vec::new(),
             pongs: Vec::new(),
             syncs: Vec::new(),
+            // inputs
+            inputs: InputBuffer::default(),
             // messages
             messages: HashMap::new(),
             // replication
@@ -126,47 +137,25 @@ impl<P: Protocol> ConnectionEvents<P> {
         std::mem::take(&mut self.pongs).into_iter()
     }
 
-    // TODO: add channel_kind in the output? add channel as a generic parameter?
-    // pub fn into_iter_messages<M: Message>(&mut self) -> impl Iterator<Item = M>
-    // where
-    //     // M: From<P::Message>,
-    //     // TODO: this Error = () bound is not ideal..
-    //     P::Message: TryInto<M, Error = ()>,
-    // {
-    //     let message_kind = MessageKind::of::<M>();
-    //     self.messages
-    //         .remove(&message_kind)
-    //         .into_iter()
-    //         .flat_map(|data| {
-    //             data.into_iter().flat_map(|(_, messages)| {
-    //                 messages.into_iter().map(|message| {
-    //                     // SAFETY: we checked via message kind that only messages of the type M
-    //                     // are in the list
-    //                     message.try_into().unwrap()
-    //                 })
-    //             })
-    //         })
-    // }
+    /// Read the messages of type InputMessage read from remote to update the input buffer
+    pub(crate) fn update_inputs(&mut self) {
+        if self.has_messages::<InputMessage<P::Input>>() {
+            trace!("update input buffer");
+            let input_messages: Vec<_> = self
+                .into_iter_messages::<InputMessage<P::Input>>()
+                .map(|(input_message, _)| input_message)
+                .collect();
+            for input_message in input_messages {
+                // for (input_message, _) in self.into_iter_messages::<InputMessage<P::Input>>() {
+                self.inputs.update_from_message(&input_message);
+            }
+        }
+    }
 
-    // pub fn has_messages<M: Message>(&self) -> bool {
-    //     let message_kind = MessageKind::of::<M>();
-    //     self.messages.contains_key(&message_kind)
-    // }
-
-    // pub fn into_iter_messages_from_channel<M: Message, C: Channel>(
-    //     &mut self,
-    // ) -> impl Iterator<Item = M> {
-    //     let message_kind = MessageKind::of::<M>();
-    //     let channel_kind = ChannelKind::of::<C>();
-    //     if let Some(data) = self.messages.remove(&message_kind) {
-    //         if let Some(data) = data.remove(&channel_kind) {
-    //             return data.into_iter();
-    //         }
-    //     }
-    //     return Vec::new().into_iter();
-    // }
-
-    // pub fn into_iter_component<C: Component>(&mut self) -> impl Iterator<>
+    /// Pop the input for the current tick from the input buffer
+    pub fn pop_input(&mut self, tick: Tick) -> Option<P::Input> {
+        self.inputs.buffer.remove(&tick)
+    }
 
     pub fn is_empty(&self) -> bool {
         self.empty

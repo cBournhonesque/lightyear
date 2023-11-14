@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
 use crate::netcode::ClientId;
+use crate::tick::Tick;
 use crate::{ConnectionEvents, Entity, Message, PingMessage, PongMessage, Protocol};
 
 pub struct ServerEvents<P: Protocol> {
@@ -26,6 +27,12 @@ impl<P: Protocol> ServerEvents<P> {
 
     pub fn is_empty(&self) -> bool {
         self.empty
+    }
+
+    pub(crate) fn update_inputs(&mut self) {
+        for connection_event in self.events.values_mut() {
+            connection_event.update_inputs();
+        }
     }
 
     // TODO: could also return a IntoIterMessages struct and impl Iterator for that
@@ -60,6 +67,17 @@ impl<P: Protocol> ServerEvents<P> {
         self.events
             .iter()
             .any(|(_, connection_events)| connection_events.has_connection())
+    }
+
+    /// Pop the inputs for all clients for the given tick
+    pub fn pop_inputs(
+        &mut self,
+        tick: Tick,
+    ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
+        self.events.iter_mut().map(move |(client_id, events)| {
+            let input = events.pop_input(tick);
+            (input, client_id.clone())
+        })
     }
 
     pub fn iter_disconnections(&self) -> impl Iterator<Item = ClientId> + '_ {
