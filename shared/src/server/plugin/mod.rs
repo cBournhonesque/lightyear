@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    App, Fixed, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType,
+    App, Events, Fixed, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType,
     PostUpdate, PreUpdate, Time,
 };
 
@@ -87,6 +87,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_event::<ConnectEvent<ClientId>>()
             .add_event::<DisconnectEvent<ClientId>>()
             .add_event::<EntitySpawnEvent<ClientId>>()
+            // .insert_resource(Events::<InputEvent<P::Input, ClientId>>::default())
             .add_event::<InputEvent<P::Input, ClientId>>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))

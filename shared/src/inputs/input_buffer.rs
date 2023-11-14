@@ -71,9 +71,10 @@ impl<T: UserInput> InputBuffer<T> {
                 }
                 InputData::SameAsPrecedent => {
                     let prev_tick = tick - 1;
-                    // guaranteed to exist because we just pushed it, and because of how InputMessage is constructed
-                    let prev_value = self.buffer.get(&prev_tick).unwrap();
-                    self.buffer.push(&tick, prev_value.clone());
+                    let prev_value = self.buffer.get(&prev_tick).cloned();
+                    if let Some(v) = prev_value.or_else(|| self.buffer.remove(&tick)) {
+                        self.buffer.push(&tick, v);
+                    }
                 }
                 InputData::Input(input) => {
                     self.buffer.push(&tick, input.clone());

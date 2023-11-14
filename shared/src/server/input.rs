@@ -65,7 +65,9 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         );
         app.add_systems(
             FixedUpdate,
-            clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvents),
+            bevy::ecs::event::event_update_system::<InputEvent<P::Input, ClientId>>
+                .in_set(InputSystemSet::ClearInputEvents),
+            // clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvents),
         );
 
         //right after receive, update the input buffer for each connection

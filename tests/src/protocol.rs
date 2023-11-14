@@ -37,8 +37,8 @@ pub enum MyComponentsProtocol {
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct Input(pub usize);
-impl UserInput for Input {}
+pub struct MyInput(pub usize);
+impl UserInput for MyInput {}
 
 // Protocol
 
@@ -46,7 +46,7 @@ protocolize! {
     Self = MyProtocol,
     Message = MyMessageProtocol,
     Component = MyComponentsProtocol,
-    Input = Input,
+    Input = MyInput,
 }
 
 // Channels

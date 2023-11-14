@@ -24,7 +24,8 @@ pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
 pub use plugin::config::SharedConfig;
 pub use plugin::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
-pub use plugin::{ReplicationData, ReplicationSet, SharedPlugin};
+pub use plugin::sets::{MainSet, ReplicationSet};
+pub use plugin::{ReplicationData, SharedPlugin};
 pub use protocol::channel::{ChannelKind, ChannelRegistry};
 pub use protocol::component::{
     ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind, IntoKind,

@@ -20,6 +20,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         server.recv_packets().unwrap();
 
         // receive events
+        server.receive(world);
         // let mut events = server.receive(world);
 
         // Write the received events into bevy events

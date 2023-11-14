@@ -24,10 +24,10 @@ use lightyear_shared::replication::Replicate;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
-    ChannelKind, ClientId, IoConfig, LinkConditionerConfig, SharedConfig, TickConfig,
+    ChannelKind, ClientId, IoConfig, LinkConditionerConfig, MainSet, SharedConfig, TickConfig,
     TransportConfig,
 };
-use lightyear_tests::protocol::{protocol, Channel2, Input, MyProtocol};
+use lightyear_tests::protocol::{protocol, Channel2, MyInput, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 use lightyear_tests::tick_once;
 use lightyear_tests::utils::{init_bevy_step, tick};
@@ -48,13 +48,13 @@ fn server_init(mut commands: Commands) {
 // System that runs every fixed timestep, and will add an input to the buffer
 fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
     let tick = client.tick();
-    client.add_input(Input(tick.0 as usize))
+    client.add_input(MyInput(tick.0 as usize))
 }
 
 fn server_read_input(
     // TODO: maybe put the tick in a separate resource? it lowers parallelism to have to fetch the entire server just to get the tick..
     server: Res<Server<MyProtocol>>,
-    mut input_reader: EventReader<InputEvent<Input, ClientId>>,
+    mut input_reader: EventReader<InputEvent<MyInput, ClientId>>,
 ) {
     let tick = server.tick();
     for input in input_reader.read() {
@@ -89,11 +89,20 @@ fn test_bevy_step() -> anyhow::Result<()> {
         FixedUpdate,
         buffer_client_inputs.in_set(InputSystemSet::BufferInputs),
     );
+    stepper.server_app.add_systems(
+        FixedUpdate,
+        server_read_input.in_set(MainSet::FixedUpdateGame),
+    );
 
     // tick a bit, and check the input buffer received on server
     for i in 0..20 {
         stepper.frame_step();
     }
+
+    // we correctly receive inputs!! however off-by-one tick error
+
+    // TODO:
+    //  - weird, sometimes i get InputMessages where the latest input is Absent. That shouldn't happen because we are writing a new input every fixed-update schedule
 
     // check that connection is synced?
     // assert_eq!(client(&mut client_app).inc

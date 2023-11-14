@@ -141,6 +141,7 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub(crate) fn update_inputs(&mut self) {
         if self.has_messages::<InputMessage<P::Input>>() {
             trace!("update input buffer");
+            // this has the added advantage that we don't read the InputMessage later
             let input_messages: Vec<_> = self
                 .into_iter_messages::<InputMessage<P::Input>>()
                 .map(|(input_message, _)| input_message)
