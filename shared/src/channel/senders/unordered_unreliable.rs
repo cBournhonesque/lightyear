@@ -1,12 +1,10 @@
-use bytes::Bytes;
 use std::collections::VecDeque;
-use std::time::Duration;
+
+use bytes::Bytes;
 
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
-use crate::packet::packet::FRAGMENT_SIZE;
-use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
 use crate::{TickManager, TimeManager};
 
@@ -81,12 +79,6 @@ impl ChannelSend for UnorderedUnreliableSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
-
-    use crate::packet::message::SingleData;
-
-    use super::ChannelSend;
-    use super::{MessageContainer, MessageId};
 
     #[test]
     fn test_unordered_unreliable_sender_internals() {

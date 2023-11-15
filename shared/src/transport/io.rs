@@ -1,13 +1,12 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
-#[cfg(feature = "metrics")]
-use metrics;
-
 use std::fmt::{Debug, Formatter};
 use std::io::Result;
 use std::net::SocketAddr;
 
-use crate::serialize::reader::ReadBuffer;
+#[cfg(feature = "metrics")]
+use metrics;
+
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::UdpSocket;

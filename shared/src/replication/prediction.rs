@@ -1,8 +1,8 @@
-use crate::client::prediction::{Rollback, RollbackState};
-use crate::tick::Tick;
-use bevy::prelude::{Component, Res, Resource};
+use bevy::prelude::{Component, Res};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
+
+use crate::client::prediction::{Rollback, RollbackState};
 
 // TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
 //  that's pretty dangerous because it's now hard for the user to derive new traits.

@@ -1,9 +1,8 @@
 use log::debug;
 
 use lightyear_shared::client::Authentication;
-use lightyear_shared::connection::events::IterMessageEvent;
 use lightyear_shared::netcode::generate_key;
-use lightyear_shared::{ChannelKind, MessageKind, World};
+use lightyear_shared::{ChannelKind, World};
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
 #[test]

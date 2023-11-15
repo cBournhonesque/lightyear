@@ -3,6 +3,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use cfg_if::cfg_if;
+use rand;
+use rand::{thread_rng, Rng};
+
+use crate::transport::PacketReceiver;
+use crate::utils::ReadyBuffer;
+
 cfg_if! {
     if #[cfg(any(test, feature = "mock_time"))] {
         use mock_instant::Instant;
@@ -10,12 +16,6 @@ cfg_if! {
         use std::time::Instant;
     }
 }
-
-use rand;
-use rand::{thread_rng, Rng};
-
-use crate::transport::PacketReceiver;
-use crate::utils::ReadyBuffer;
 
 /// Contains configuration required to initialize a LinkConditioner
 #[derive(Clone)]

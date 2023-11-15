@@ -1,4 +1,9 @@
-use super::ping_manager::{PingConfig, PingManager};
+use std::time::Duration;
+
+use anyhow::Result;
+use bevy::prelude::World;
+use tracing::trace;
+
 use crate::connection::events::IterMessageEvent;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
@@ -6,11 +11,8 @@ use crate::{
     ChannelKind, ChannelRegistry, ConnectionEvents, InputMessage, PingChannel, PingMessage,
     Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
 };
-use anyhow::Result;
-use bevy::prelude::World;
-use std::time::Duration;
-use tracing::{debug, info, trace};
-use tracing_subscriber::fmt::time;
+
+use super::ping_manager::{PingConfig, PingManager};
 
 // TODO: this layer of indirection is annoying, is there a better way?
 //  maybe just pass the inner connection to ping_manager? (but harder to test)

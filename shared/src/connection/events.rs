@@ -1,16 +1,12 @@
 use std::collections::HashMap;
 use std::iter;
 
-use crate::netcode::ClientId;
 use bevy::prelude::{Component, Entity, Event};
-use tracing::trace;
 
-use crate::inputs::input_buffer::InputBuffer;
 use crate::protocol::message::MessageKind;
-use crate::tick::Tick;
 use crate::{
-    Channel, ChannelKind, InputMessage, IntoKind, Message, MessageBehaviour, PingMessage,
-    PongMessage, Protocol, SyncMessage,
+    Channel, ChannelKind, IntoKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol,
+    SyncMessage,
 };
 
 // TODO: don't make fields pub but instead make accessors
@@ -467,10 +463,11 @@ impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::protocol::tests::{
         Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
     };
+
+    use super::*;
 
     #[test]
     fn test_iter_messages() {

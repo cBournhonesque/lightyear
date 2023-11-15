@@ -1,9 +1,7 @@
-use crate::{BitSerializable, TickManager, TimeManager};
 use enum_dispatch::enum_dispatch;
-use std::time::Duration;
 
-use crate::packet::message::FragmentData;
 use crate::packet::message::{MessageContainer, SingleData};
+use crate::{BitSerializable, TickManager, TimeManager};
 
 pub(crate) mod fragment_receiver;
 pub(crate) mod ordered_reliable;

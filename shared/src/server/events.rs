@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
 use crate::netcode::ClientId;
-use crate::tick::Tick;
 use crate::{ConnectionEvents, Entity, Message, PingMessage, PongMessage, Protocol};
 
 pub struct ServerEvents<P: Protocol> {
@@ -257,12 +256,12 @@ impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ChannelKind, ClientId, MessageKind};
-
-    use super::*;
     use crate::protocol::tests::{
         Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
     };
+    use crate::{ChannelKind, ClientId};
+
+    use super::*;
 
     #[test]
     fn test_iter_messages() {

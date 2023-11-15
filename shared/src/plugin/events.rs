@@ -1,9 +1,8 @@
-use crate::connection::events::EventContext;
-use crate::netcode::ClientId;
-use crate::{ChannelKind, Message, Protocol, UserInput};
-use bevy::prelude::{App, Component, Entity, Event};
-use std::collections::HashMap;
 use std::marker::PhantomData;
+
+use bevy::prelude::{Component, Entity, Event};
+
+use crate::{Message, Protocol, UserInput};
 
 // pub struct NetworkEvent<Inner: EventContext, Ctx: EventContext> {
 //     inner: Inner,

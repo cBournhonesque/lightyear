@@ -1,10 +1,9 @@
+use std::collections::VecDeque;
+
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
-use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
-use crate::packet::packet_manager::PacketManager;
+use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::protocol::BitSerializable;
 use crate::{TickManager, TimeManager};
 

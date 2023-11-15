@@ -1,13 +1,12 @@
-use super::predicted_history::ComponentHistory;
-use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
+use bevy::prelude::{EventReader, FixedUpdate, Query, Res, ResMut, World};
+use tracing::{error, info, trace_span, warn};
+
 use crate::client::Client;
 use crate::plugin::events::ComponentUpdateEvent;
 use crate::Protocol;
-use bevy::prelude::{
-    Component, Entity, EventReader, FixedUpdate, Mut, Query, Res, ResMut, With, World,
-};
-use std::ops::Deref;
-use tracing::{error, info, trace_span, warn};
+
+use super::predicted_history::ComponentHistory;
+use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
 
 /// When we  want to create newly predicted entities, we need to:
 /// - spawn an entity on the server for that client

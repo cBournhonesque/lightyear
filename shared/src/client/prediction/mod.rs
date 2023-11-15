@@ -1,8 +1,9 @@
-pub use crate::replication::prediction::ShouldBePredicted;
+use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
+
 pub use plugin::add_prediction_systems;
 
+pub use crate::replication::prediction::ShouldBePredicted;
 use crate::tick::Tick;
-use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
 
 /// This file is dedicated to running Prediction on entities.
 /// On the client side, we run prediction on entities that are owned by the client.

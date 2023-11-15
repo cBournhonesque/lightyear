@@ -1,15 +1,17 @@
-use super::ping_manager::PingConfig;
-use super::sync::SyncManager;
+use std::time::Duration;
+
+use anyhow::Result;
+
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::tick::Tick;
 use crate::{
-    ChannelKind, ChannelRegistry, PingChannel, PingMessage, Protocol, ReadBuffer, SyncMessage,
-    TickManager, TimeManager, World,
+    ChannelKind, ChannelRegistry, PingChannel, Protocol, ReadBuffer, SyncMessage, TickManager,
+    TimeManager,
 };
-use anyhow::Result;
-use std::time::Duration;
-use tracing::{debug, info, trace};
+
+use super::ping_manager::PingConfig;
+use super::sync::SyncManager;
 
 // TODO: this layer of indirection is annoying, is there a better way?
 //  maybe just pass the inner connection to ping_manager? (but harder to test)

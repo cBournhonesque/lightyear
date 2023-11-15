@@ -1,17 +1,15 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
-use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use bitcode::read::Read;
-use bytes::Bytes;
-use tracing::{debug, info, trace};
+use tracing::trace;
 
 use crate::channel::channel::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
-use crate::packet::packet::{Packet, PacketData, PacketId};
+use crate::packet::message::{FragmentData, MessageAck, SingleData};
+use crate::packet::packet::{Packet, PacketId};
 use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
@@ -238,7 +236,6 @@ mod tests {
         ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
         MessageManager, Protocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
     };
-    use tracing_subscriber::fmt::format::FmtSpan;
 
     // Messages
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

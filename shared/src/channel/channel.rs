@@ -1,3 +1,5 @@
+use lightyear_derive::ChannelInternal;
+
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
 use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
@@ -12,7 +14,6 @@ use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
 use crate::protocol::BitSerializable;
 use crate::TypeNamed;
-use lightyear_derive::ChannelInternal;
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel

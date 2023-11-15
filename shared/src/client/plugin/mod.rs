@@ -1,13 +1,18 @@
-mod systems;
-
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    not, resource_exists, App, Condition, Fixed, FixedUpdate, IntoSystemConfigs,
-    Plugin as PluginType, PostUpdate, PreUpdate, Time,
+    not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs, Plugin as PluginType,
+    PostUpdate, PreUpdate,
 };
 
+use systems::{receive, send};
+
+use crate::client::input::InputPlugin;
+use crate::client::prediction::plugin::PredictionPlugin;
+use crate::client::prediction::Rollback;
+use crate::client::{Authentication, Client};
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::tick::increment_tick;
 use crate::replication::prediction::is_in_rollback;
 use crate::{
@@ -16,13 +21,8 @@ use crate::{
 };
 
 use super::config::ClientConfig;
-use crate::client::input::InputPlugin;
-use crate::client::prediction::plugin::PredictionPlugin;
-use crate::client::prediction::{Rollback, RollbackState};
-use crate::client::{Authentication, Client};
-use crate::plugin::events::ComponentInsertEvent;
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use systems::{receive, send};
+
+mod systems;
 
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,

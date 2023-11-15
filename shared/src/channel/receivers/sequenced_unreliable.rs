@@ -1,11 +1,10 @@
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
+use crate::packet::message::{MessageContainer, MessageId, SingleData};
 use crate::{TickManager, TimeManager, WrappedTime};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
@@ -78,11 +77,11 @@ impl ChannelReceive for SequencedUnreliableReceiver {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, SingleData};
-    use crate::MessageContainer;
-    use bytes::Bytes;
 
     #[test]
     fn test_sequenced_unreliable_receiver_internals() -> anyhow::Result<()> {

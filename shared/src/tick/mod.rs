@@ -1,11 +1,13 @@
+use bevy::prelude::Resource;
+
+use lightyear_derive::ChannelInternal;
+
+use crate::utils::wrapping_id;
+
 pub(crate) mod manager;
 pub(crate) mod message;
 pub(crate) mod ping_store;
 pub(crate) mod time;
-
-use crate::utils::wrapping_id;
-use bevy::prelude::Resource;
-use lightyear_derive::ChannelInternal;
 
 /// Internal id that tracks the Tick value for the server and the client
 wrapping_id!(Tick);

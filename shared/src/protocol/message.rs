@@ -1,6 +1,6 @@
-use bevy::prelude::{App, Event, World};
 use std::any::TypeId;
 
+use bevy::prelude::{App, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 

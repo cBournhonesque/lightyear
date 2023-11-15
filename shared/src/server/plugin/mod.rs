@@ -2,23 +2,23 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    App, Events, Fixed, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType,
-    PostUpdate, PreUpdate, Time,
+    App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType, PostUpdate,
+    PreUpdate,
 };
 
+use systems::{receive, send};
+
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::replication::add_replication_send_systems;
 use crate::plugin::systems::tick::increment_tick;
+use crate::server::input::InputPlugin;
+use crate::server::Server;
 use crate::{
     ClientId, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
-    Protocol, ReplicationData, ReplicationSend, ReplicationSet, SharedConfig, SharedPlugin,
+    Protocol, ReplicationData, ReplicationSend, ReplicationSet, SharedPlugin,
 };
 
 use super::config::ServerConfig;
-use crate::plugin::events::InputEvent;
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use crate::server::input::InputPlugin;
-use crate::server::Server;
-use systems::{receive, send};
 
 mod schedules;
 mod systems;

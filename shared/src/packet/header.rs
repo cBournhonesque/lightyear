@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use crate::packet::packet::PacketId;
 use bitcode::{Decode, Encode};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 
+use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::tick::Tick;
 
@@ -250,9 +250,11 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
     use bitcode::encoding::Fixed;
+
+    use crate::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+
+    use super::*;
 
     #[test]
     fn test_recv_buffer() {

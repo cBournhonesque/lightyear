@@ -1,9 +1,11 @@
-use crate::tick::Tick;
-use crate::{BitSerializable, ReadBuffer, ReadyBuffer, SequenceBuffer, WriteBuffer};
-use bevy::prelude::{In, Resource};
+use bevy::prelude::Resource;
 use bitcode::{Decode, Encode};
-use lightyear_derive::{Message, MessageInternal};
 use serde::{Deserialize, Serialize};
+
+use lightyear_derive::MessageInternal;
+
+use crate::tick::Tick;
+use crate::{BitSerializable, ReadBuffer, SequenceBuffer, WriteBuffer};
 
 // TODO: should we request that a user input is a message?
 pub trait UserInput: BitSerializable + Clone + Eq + PartialEq + Send + Sync + 'static {}

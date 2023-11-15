@@ -2,20 +2,16 @@ use anyhow::Result;
 use bevy::prelude::{Entity, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
-use std::time::Duration;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{trace, trace_span};
 
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
-use crate::tick::message::{PingMessage, SyncMessage};
+use crate::tick::message::SyncMessage;
 use crate::tick::Tick;
-use crate::{
-    ChannelKind, ChannelRegistry, MessageBehaviour, Named, Protocol, ReadBuffer, TickManager,
-    TimeManager, WriteBuffer,
-};
+use crate::{ChannelKind, ChannelRegistry, Named, Protocol, ReadBuffer, TickManager, TimeManager};
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
 // because prior to calling message_manager.recv() we don't know if the packet is a message or a replication event

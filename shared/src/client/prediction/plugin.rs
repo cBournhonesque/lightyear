@@ -1,14 +1,17 @@
-use super::predicted_history::{add_component_history, update_component_history};
-use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
-use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use crate::replication::prediction::is_in_rollback;
-use crate::{ComponentProtocol, Protocol};
+use std::marker::PhantomData;
+
 use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate,
     SystemSet,
 };
-use std::marker::PhantomData;
+
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
+use crate::replication::prediction::is_in_rollback;
+use crate::{ComponentProtocol, Protocol};
+
+use super::predicted_history::{add_component_history, update_component_history};
+use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
+use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
 
 pub struct PredictionPlugin<P: Protocol> {
     _marker: PhantomData<P>,

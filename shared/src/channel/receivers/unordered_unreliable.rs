@@ -1,11 +1,9 @@
-use crate::{BitSerializable, TickManager, TimeManager, WrappedTime};
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
-use tracing::info;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, SingleData};
+use crate::packet::message::{MessageContainer, SingleData};
+use crate::{BitSerializable, TickManager, TimeManager, WrappedTime};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
@@ -54,11 +52,12 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bytes::Bytes;
+
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::{MessageId, SingleData};
-    use crate::MessageContainer;
-    use bytes::Bytes;
+
+    use super::*;
 
     #[test]
     fn test_unordered_unreliable_receiver_internals() -> anyhow::Result<()> {

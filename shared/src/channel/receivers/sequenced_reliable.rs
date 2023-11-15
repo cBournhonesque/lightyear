@@ -1,11 +1,10 @@
 use std::collections::{btree_map, BTreeMap};
-use std::time::Duration;
 
 use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
+use crate::packet::message::{MessageContainer, MessageId, SingleData};
 use crate::{TickManager, TimeManager};
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
@@ -81,11 +80,12 @@ impl ChannelReceive for SequencedReliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bytes::Bytes;
+
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::SingleData;
-    use crate::MessageContainer;
-    use bytes::Bytes;
+
+    use super::*;
 
     // TODO: check that the fragment receiver correctly removes items from the buffer, so they dont accumulate!
 

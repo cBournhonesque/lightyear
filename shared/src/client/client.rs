@@ -1,11 +1,9 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use anyhow::Context;
 use anyhow::Result;
-use bevy::ecs::component::ComponentTicks;
 use bevy::prelude::{Resource, World};
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::Client as NetcodeClient;
@@ -13,8 +11,7 @@ use crate::netcode::{ConnectToken, Key};
 use crate::tick::{Tick, TickManaged};
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::{
-    Channel, ChannelKind, ConnectionEvents, Message, PingMessage, SyncMessage, TickManager,
-    TimeManager, WriteBuffer,
+    Channel, ChannelKind, ConnectionEvents, Message, SyncMessage, TickManager, TimeManager,
 };
 use crate::{Io, Protocol};
 

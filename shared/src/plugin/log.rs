@@ -7,6 +7,16 @@
 use std::panic;
 use std::thread;
 
+use bevy::prelude::{App, Plugin};
+#[cfg(feature = "metrics")]
+use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
+#[cfg(feature = "metrics")]
+use metrics_util::layers::Layer;
+use tracing::Level;
+#[cfg(feature = "tracing-chrome")]
+use tracing_subscriber::fmt::{format::DefaultFields, FormattedFields};
+use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
+
 #[cfg(target_os = "android")]
 mod android_tracing;
 
@@ -15,18 +25,7 @@ mod android_tracing;
 static GLOBAL: tracy_client::ProfiledAllocator<std::alloc::System> =
     tracy_client::ProfiledAllocator::new(std::alloc::System, 100);
 
-use bevy::prelude::{App, Plugin};
-use tracing::Level;
 // use tracing_log::LogTracer;
-
-#[cfg(feature = "metrics")]
-use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
-#[cfg(feature = "metrics")]
-use metrics_util::layers::{Layer, Stack};
-
-#[cfg(feature = "tracing-chrome")]
-use tracing_subscriber::fmt::{format::DefaultFields, FormattedFields};
-use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
 
 /// Adds logging to Apps.
 ///

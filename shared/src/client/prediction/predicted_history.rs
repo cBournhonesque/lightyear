@@ -1,13 +1,10 @@
-use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
+use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With};
+
 use crate::client::Client;
-use crate::replication::prediction::ShouldBePredicted;
 use crate::tick::Tick;
-use crate::{Protocol, ReadyBuffer, SequenceBuffer};
-use bevy::prelude::{
-    Added, Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With,
-};
-use std::thread::current;
-use tracing::info;
+use crate::{Protocol, ReadyBuffer};
+
+use super::{Predicted, PredictedComponent, Rollback, RollbackState};
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
 

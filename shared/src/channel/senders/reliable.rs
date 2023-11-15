@@ -1,10 +1,9 @@
-use bevy::ui::FlexWrap::Wrap;
-use bytes::Bytes;
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashSet};
 #[cfg(not(test))]
 use std::time::Instant;
-use std::{collections::VecDeque, time::Duration};
 
+use bytes::Bytes;
 #[cfg(test)]
 use mock_instant::Instant;
 
@@ -12,7 +11,6 @@ use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
-use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
 use crate::{TickManager, TimeManager, WrappedTime};
 
@@ -250,9 +248,9 @@ impl ChannelSend for ReliableSender {
 
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
     use std::time::Duration;
 
+    use bytes::Bytes;
     use mock_instant::MockClock;
 
     use crate::channel::channel::ReliableSettings;
@@ -260,8 +258,8 @@ mod tests {
 
     use super::ChannelSend;
     use super::Instant;
+    use super::MessageId;
     use super::ReliableSender;
-    use super::{MessageContainer, MessageId};
 
     #[test]
     fn test_reliable_sender_internals() {

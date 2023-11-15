@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use anyhow::Context;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::{Encoding, Fixed};
@@ -7,7 +9,6 @@ use bitcode::word_buffer::{WordBuffer, WordContext, WordReader};
 use bitcode::Decode;
 use self_cell::self_cell;
 use serde::de::DeserializeOwned;
-use std::num::NonZeroUsize;
 
 use crate::serialize::reader::{BitRead, ReadBuffer};
 

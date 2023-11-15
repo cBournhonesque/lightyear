@@ -1,13 +1,7 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
+use bevy::prelude::{Commands, ResMut};
+use tracing::info;
 
-use bevy::prelude::{App, Commands, ResMut, Startup};
-use bevy::MinimalPlugins;
-use tracing::{debug, info};
-use tracing_subscriber::fmt::format::FmtSpan;
-
-use lightyear_shared::client::{Authentication, Client};
-use lightyear_shared::netcode::generate_key;
+use lightyear_shared::client::Client;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::ChannelKind;
 use lightyear_tests::protocol::{Channel2, MyProtocol};

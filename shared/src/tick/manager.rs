@@ -1,8 +1,9 @@
-use crate::tick::Tick;
-use bevy::prelude::Resource;
-use bevy::time::Time;
 use std::time::Duration;
+
+use bevy::prelude::Resource;
 use tracing::trace;
+
+use crate::tick::Tick;
 
 // When a server sends a message with its tick Ts, t
 // the client knows its current tick Tc and can compare Ts-Tc and know if it needs to slow down/up etc.

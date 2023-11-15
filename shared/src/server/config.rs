@@ -1,6 +1,7 @@
-use super::ping_manager::PingConfig;
 use crate::netcode::Key;
-use crate::{IoConfig, SharedConfig, TickConfig};
+use crate::{IoConfig, SharedConfig};
+
+use super::ping_manager::PingConfig;
 
 #[derive(Clone)]
 pub struct NetcodeConfig {

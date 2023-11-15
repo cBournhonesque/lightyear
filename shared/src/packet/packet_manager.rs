@@ -5,7 +5,6 @@ use bitcode::buffer::BufferTrait;
 use bitcode::encoding::Gamma;
 use bitcode::read::Read;
 use bitcode::write::Write;
-use bytes::Bytes;
 
 use crate::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
@@ -14,13 +13,11 @@ use crate::packet::packet::{
     FragmentedPacket, Packet, PacketData, SinglePacket, FRAGMENT_SIZE, MTU_PAYLOAD_BYTES,
 };
 use crate::packet::packet_type::PacketType;
-use crate::protocol::registry::{NetId, TypeMapper};
+use crate::protocol::registry::NetId;
 use crate::protocol::{BitSerializable, Protocol};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::tick::Tick;
-use crate::ChannelKind;
 
 // enough to hold a biggest fragment + writing channel/message_id/etc.
 // pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS as usize) + 50;
@@ -640,7 +637,7 @@ impl PacketManager {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap, VecDeque};
+    use std::collections::{BTreeMap, VecDeque};
 
     use bitvec::access::BitAccess;
     use bytes::Bytes;
@@ -648,12 +645,11 @@ mod tests {
     use lightyear_derive::ChannelInternal;
 
     use crate::channel::senders::fragment_sender::FragmentSender;
-    use crate::packet::message::{FragmentData, MessageId, SingleData};
+    use crate::packet::message::{MessageId, SingleData};
     use crate::packet::packet::MTU_PAYLOAD_BYTES;
     use crate::packet::packet_manager::PacketManager;
     use crate::{
-        ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
-        MessageContainer, WriteBuffer,
+        ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings, WriteBuffer,
     };
 
     #[derive(ChannelInternal)]

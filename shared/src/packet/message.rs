@@ -1,13 +1,13 @@
+use std::fmt::Debug;
+
 use bevy::prelude::Event;
 use bitcode::encoding::{Fixed, Gamma};
 use bitcode::{Decode, Encode};
-use bytes::{Bytes, BytesMut};
-use std::fmt::Debug;
-
-use crate::connection::events::EventContext;
-use crate::packet::packet::{FragmentedPacket, FRAGMENT_SIZE};
+use bytes::Bytes;
 use serde::Serialize;
 
+use crate::connection::events::EventContext;
+use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -385,9 +385,9 @@ pub trait Message: EventContext + Named {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{ReadWordBuffer, WriteWordBuffer};
-    use bitvec::prelude::AsBits;
+
+    use super::*;
 
     // #[test]
     // fn test_single_data_num_bits() {

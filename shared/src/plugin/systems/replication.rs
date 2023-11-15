@@ -1,13 +1,11 @@
-use bevy::ecs::removal_detection::RemovedComponentEntity;
+use std::ops::Deref;
+
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs,
     PostUpdate, Query, Ref, RemovedComponents, ResMut,
 };
-use std::ops::Deref;
 use tracing::debug;
 
-use crate::connection::events::EventContext;
-use crate::replication::ReplicationMessage::DespawnEntity;
 use crate::replication::{DespawnTracker, Replicate, ReplicationSend};
 use crate::{ClientId, IntoKind, ReplicationData};
 use crate::{ConnectEvent, Protocol, ReplicationSet};

@@ -1,7 +1,9 @@
-use log::debug;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+
+use log::debug;
+use rand::Rng;
 
 use lightyear_shared::client::{Authentication, Client, ClientConfig};
 use lightyear_shared::connection::events::IterMessageEvent;
@@ -11,7 +13,6 @@ use lightyear_shared::{
     IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig, World,
 };
 use lightyear_tests::protocol::{protocol, Channel1, Message1};
-use rand::Rng;
 
 #[test]
 fn test_connection_soak() -> anyhow::Result<()> {

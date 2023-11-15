@@ -1,3 +1,5 @@
+use bevy::prelude::{Component, Events, World};
+
 use crate::connection::events::{
     EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterMessageEvent,
@@ -6,7 +8,6 @@ use crate::plugin::events::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
 };
 use crate::{IntoKind, Message, Protocol};
-use bevy::prelude::{Component, Event, Events, World};
 
 // TODO: would it be easier to have this be a system?
 

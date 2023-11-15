@@ -184,12 +184,15 @@ where
 }
 
 pub mod tests {
-    use super::*;
-    use crate::{ChannelDirection, ChannelMode, Message, ReliableSettings};
     use bevy::prelude::Component;
+
     use lightyear_derive::{
         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
     };
+
+    use crate::{ChannelDirection, ChannelMode, Message, ReliableSettings};
+
+    use super::*;
 
     // Messages
     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]

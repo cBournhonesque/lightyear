@@ -1,17 +1,13 @@
-use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::netcode::MAX_PACKET_SIZE;
 use bitcode::__private::Gamma;
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
+use crate::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
-use crate::packet::packet_manager::PacketManager;
 use crate::packet::packet_type::PacketType;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
@@ -383,16 +379,15 @@ impl Packet {
 mod tests {
     use bitcode::encoding::Gamma;
     use bytes::Bytes;
+
     use lightyear_derive::ChannelInternal;
 
     use crate::packet::message::{FragmentData, MessageId, SingleData};
-    use crate::packet::packet::{FragmentedPacket, PacketData, SinglePacket};
+    use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketManager;
-    use crate::packet::packet_type::PacketType;
     use crate::{
         BitSerializable, ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry,
-        ChannelSettings, MessageContainer, ReadBuffer, ReadWordBuffer, WriteBuffer,
-        WriteWordBuffer,
+        ChannelSettings, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
     };
 
     #[derive(ChannelInternal)]

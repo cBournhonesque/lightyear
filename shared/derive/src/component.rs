@@ -2,7 +2,7 @@ use darling::ast::NestedMeta;
 use darling::{Error, FromField, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, parse_quote, Field, Fields, ItemEnum, Type, Variant};
+use syn::{parse_macro_input, parse_quote, Field, Fields, ItemEnum, Type};
 
 #[derive(Debug, FromMeta)]
 /// Struct that will hold the value of attributes passed to the macro

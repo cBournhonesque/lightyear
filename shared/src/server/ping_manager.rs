@@ -1,12 +1,12 @@
-use crate::connection::ProtocolMessage;
+use std::time::Duration;
+
+use bevy::prelude::{Timer, TimerMode};
+
 use crate::tick::Tick;
 use crate::{
-    ChannelKind, Connection, MessageManager, PingChannel, PingMessage, PingStore, PongMessage,
-    Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
-    WrappedTime,
+    PingMessage, PingStore, PongMessage, Protocol, TickManager, TimeManager, TimeSyncPingMessage,
+    TimeSyncPongMessage, WrappedTime,
 };
-use bevy::prelude::{Timer, TimerMode};
-use std::time::Duration;
 
 // TODO: this could be used by client or by server?
 /// Contains Config properties which will be used by a Server or Client
@@ -149,9 +149,10 @@ impl PingManager {
 
 #[cfg(test)]
 mod tests {
+    use crate::PingId;
+
     use super::*;
-    use crate::{PingId, TickConfig};
-    use bevy::prelude::Time;
+
     #[test]
     fn test_ping_manager() {
         let ping_config = PingConfig {

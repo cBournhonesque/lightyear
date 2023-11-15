@@ -1,11 +1,9 @@
-use crate::packet::message::{FragmentData, MessageId, SingleData};
+use bytes::Bytes;
+
+use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::tick::Tick;
-use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
-use anyhow::Result;
-use bytes::Bytes;
-use std::collections::HashMap;
-use tracing::trace;
+use crate::{BitSerializable, ReadBuffer};
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 pub(crate) struct FragmentSender {
@@ -49,9 +47,11 @@ impl FragmentSender {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::packet::packet::FRAGMENT_SIZE;
     use bytes::Bytes;
+
+    use crate::packet::packet::FRAGMENT_SIZE;
+
+    use super::*;
 
     #[test]
     fn test_build_fragments() {

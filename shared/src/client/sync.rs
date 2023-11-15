@@ -1,12 +1,13 @@
-use crate::{
-    PingId, PingStore, PongMessage, TickManager, TimeManager, TimeSyncPingMessage,
-    TimeSyncPongMessage,
-};
+use std::time::Duration;
+
 use bevy::prelude::Timer;
 use bevy::time::TimerMode;
 use chrono::Duration as ChronoDuration;
-use std::time::Duration;
 use tracing::{info, trace};
+
+use crate::{
+    PingId, PingStore, TickManager, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
+};
 
 /// In charge of syncing the client's tick/time with the server's tick/time
 /// right after the connection is established
@@ -236,9 +237,10 @@ impl SyncManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::tick::Tick;
     use crate::{TickConfig, WrappedTime};
+
+    use super::*;
 
     #[test]
     fn test_sync() {

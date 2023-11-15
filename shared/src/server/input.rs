@@ -1,14 +1,13 @@
-use crate::inputs::input_buffer::InputMessage;
-use crate::plugin::events::{InputEvent, MessageEvent};
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
+use bevy::prelude::{
+    EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, ResMut,
+    SystemSet,
+};
+
+use crate::plugin::events::InputEvent;
+use crate::plugin::sets::FixedUpdateSet;
 use crate::server::Server;
 use crate::ClientId;
 use crate::{App, Protocol};
-use bevy::prelude::{
-    EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PreUpdate, ResMut, SystemSet,
-};
-use tracing::{info_span, trace, trace_span};
 
 // - ClientInputs:
 // - inputs will be sent via a special message

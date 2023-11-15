@@ -1,5 +1,6 @@
-use crate::utils::wrapping_id::WrappedId;
 use std::marker::PhantomData;
+
+use crate::utils::wrapping_id::WrappedId;
 
 /// Fixed size data structure with
 /// - constant time insertion
@@ -52,8 +53,9 @@ impl<K: WrappedId, T, const N: usize> SequenceBuffer<K, T, N> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::packet::message::MessageId;
+
+    use super::*;
 
     #[test]
     fn test_sequence_buffer() {

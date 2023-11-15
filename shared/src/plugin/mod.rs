@@ -1,7 +1,6 @@
-use bevy::prelude::{App, Fixed, FixedUpdate, Plugin, Time};
+use bevy::prelude::{App, Fixed, Plugin, Time};
 use tracing::Level;
 
-use crate::plugin::systems::tick::increment_tick;
 use config::SharedConfig;
 pub use replication::ReplicationData;
 pub use sets::ReplicationSet;

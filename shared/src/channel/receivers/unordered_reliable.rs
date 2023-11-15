@@ -1,11 +1,10 @@
 use std::collections::{btree_map, BTreeMap, HashSet};
-use std::time::Duration;
 
 use anyhow::anyhow;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
+use crate::packet::message::{MessageContainer, MessageId, SingleData};
 use crate::{TickManager, TimeManager};
 
 /// Unordered Reliable receiver: make sure that all messages are received,
@@ -105,11 +104,12 @@ impl ChannelReceive for UnorderedReliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bytes::Bytes;
+
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::SingleData;
-    use crate::MessageContainer;
-    use bytes::Bytes;
+
+    use super::*;
 
     #[test]
     fn test_unordered_reliable_receiver_internals() -> anyhow::Result<()> {

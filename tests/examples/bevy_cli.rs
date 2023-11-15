@@ -5,15 +5,13 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[cfg(feature = "metrics")]
-use metrics_exporter_prometheus;
-
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use clap::Parser;
+#[cfg(feature = "metrics")]
+use metrics_exporter_prometheus;
 use serde::{Deserialize, Serialize};
-use tracing::Level;
 
 use lightyear_shared::channel::channel::ReliableSettings;
 use lightyear_shared::client::{Authentication, Client, ClientConfig};

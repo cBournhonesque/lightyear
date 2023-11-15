@@ -1,18 +1,20 @@
-use crate::protocol::{protocol, MyProtocol};
-use bevy::prelude::{App, Fixed, PluginGroup, Real, Startup, Time, Virtual};
-use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
-use lightyear_shared::client::{Authentication, Client, ClientConfig};
-use lightyear_shared::netcode::generate_key;
-use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::{
-    IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig,
-};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
+
+use bevy::prelude::{App, Fixed, PluginGroup, Real, Time, Virtual};
+use bevy::time::TimeUpdateStrategy;
+use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::fmt::time;
+
+use lightyear_shared::client::{Authentication, ClientConfig};
+use lightyear_shared::netcode::generate_key;
+use lightyear_shared::server::{NetcodeConfig, PingConfig, ServerConfig};
+use lightyear_shared::{
+    IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig,
+};
+
+use crate::protocol::protocol;
 
 pub fn tick(app: &mut App) {
     let fxt = app.world.resource_mut::<Time<Fixed>>();

@@ -1,13 +1,14 @@
-use crate::client::prediction::{Rollback, RollbackState};
-use crate::client::Client;
-use crate::plugin::events::InputEvent;
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use crate::{App, InputChannel, PingChannel, Protocol, UserInput};
 use bevy::prelude::{
     EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
     PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{debug, trace};
+use tracing::trace;
+
+use crate::client::prediction::{Rollback, RollbackState};
+use crate::client::Client;
+use crate::plugin::events::InputEvent;
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
+use crate::{App, InputChannel, Protocol, UserInput};
 
 pub struct InputPlugin<P: Protocol> {
     _marker: std::marker::PhantomData<P>,
