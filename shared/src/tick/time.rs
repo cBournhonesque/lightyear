@@ -49,7 +49,7 @@ impl TimeManager {
 
 /// Time since start of server, in milliseconds
 /// Serializes in a compact manner
-#[derive(Encode, Decode, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Encode, Decode, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WrappedTime {
     // Amount of time elapsed since the start of the server, in microseconds
     // wraps around 1 hour
@@ -128,6 +128,16 @@ impl Sub for WrappedTime {
     fn sub(self, rhs: Self) -> Self::Output {
         let diff_us = Self::wrapping_diff(&rhs, &self);
         ChronoDuration::microseconds(diff_us as i64)
+    }
+}
+
+impl Sub<ChronoDuration> for WrappedTime {
+    type Output = WrappedTime;
+
+    fn sub(self, rhs: ChronoDuration) -> Self::Output {
+        let mut result = self;
+        result -= rhs;
+        result
     }
 }
 

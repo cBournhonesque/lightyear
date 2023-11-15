@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
-use crate::TickManager;
+use crate::{TickManager, TimeManager};
 
 pub(crate) mod fragment_sender;
 pub(crate) mod reliable;
@@ -19,7 +19,7 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelSend {
     /// Bookkeeping for the channel
-    fn update(&mut self, delta: Duration, tick_manager: &TickManager);
+    fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager);
 
     /// Queues a message to be transmitted
     fn buffer_send(&mut self, message: Bytes);

@@ -1,4 +1,4 @@
-use crate::{BitSerializable, TickManager};
+use crate::{BitSerializable, TickManager, TimeManager, WrappedTime};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tracing::info;
@@ -7,13 +7,12 @@ use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 
-const DISCARD_AFTER: Duration = Duration::from_secs(3);
+const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
 pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<SingleData>,
     fragment_receiver: FragmentReceiver,
-    // TODO: maybe use WrappedTime
-    current_time: Instant,
+    current_time: WrappedTime,
 }
 
 impl UnorderedUnreliableReceiver {
@@ -21,14 +20,14 @@ impl UnorderedUnreliableReceiver {
         Self {
             recv_message_buffer: VecDeque::new(),
             fragment_receiver: FragmentReceiver::new(),
-            current_time: Instant::now(),
+            current_time: WrappedTime::default(),
         }
     }
 }
 
 impl ChannelReceive for UnorderedUnreliableReceiver {
-    fn update(&mut self, delta: Duration, _: &TickManager) {
-        self.current_time += delta;
+    fn update(&mut self, time_manager: &TimeManager, _: &TickManager) {
+        self.current_time = time_manager.current_time();
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
     }

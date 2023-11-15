@@ -132,8 +132,12 @@ impl<P: Protocol> Client<P> {
         // self.tick_manager.update(delta);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 
-        self.connection
-            .update(delta, &self.time_manager, &self.tick_manager);
+        // only start the connection (sending messages, sending pings, starting sync, etc.)
+        // once we are connected
+        if self.netcode.is_connected() {
+            self.connection
+                .update(delta, &self.time_manager, &self.tick_manager);
+        }
 
         Ok(())
     }

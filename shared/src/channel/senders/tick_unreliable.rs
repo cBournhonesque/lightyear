@@ -9,7 +9,7 @@ use crate::packet::packet::FRAGMENT_SIZE;
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
 use crate::tick::Tick;
-use crate::TickManager;
+use crate::{TickManager, TimeManager};
 
 // TODO: FOR INPUTS, WE WANT TO SEND REPEATEDLY THE LAST 10 INPUTS; or the inputs from the last 10 TICKS!
 //  (in case of packet loss),
@@ -42,7 +42,7 @@ impl TickUnreliableSender {
 }
 
 impl ChannelSend for TickUnreliableSender {
-    fn update(&mut self, delta: Duration, tick_manager: &TickManager) {
+    fn update(&mut self, _: &TimeManager, tick_manager: &TickManager) {
         self.current_tick = tick_manager.current_tick();
     }
 

@@ -16,8 +16,6 @@ pub enum MainSet {
     ///
     /// Runs in `PreUpdate`.
     Receive,
-    /// Main loop (with physics, game logic) during FixedUpdate
-    FixedUpdateGame,
     /// Systems that send data (buffer any data to be sent, and send any buffered packets)
     ///
     /// Runs in `PostUpdate`.
@@ -26,7 +24,10 @@ pub enum MainSet {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FixedUpdateSet {
+    /// System that runs at the very start of the FixedUpdate schedule to increment the ticks
     TickUpdate,
+    /// Main loop (with physics, game logic) during FixedUpdate
+    Main,
 }
 
 // To fix that we could do:

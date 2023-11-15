@@ -20,6 +20,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::plugin::events::InputEvent;
+use lightyear_shared::plugin::sets::FixedUpdateSet;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::tick::Tick;
@@ -76,7 +77,7 @@ fn test_bevy_step() -> anyhow::Result<()> {
         tick: TickConfig::new(tick_duration),
     };
     let link_conditioner = LinkConditionerConfig {
-        incoming_latency: 0,
+        incoming_latency: 20,
         incoming_jitter: 0,
         incoming_loss: 0.0,
     };
@@ -89,27 +90,21 @@ fn test_bevy_step() -> anyhow::Result<()> {
         FixedUpdate,
         buffer_client_inputs.in_set(InputSystemSet::BufferInputs),
     );
-    stepper.server_app.add_systems(
-        FixedUpdate,
-        server_read_input.in_set(MainSet::FixedUpdateGame),
-    );
+    stepper
+        .server_app
+        .add_systems(FixedUpdate, server_read_input.in_set(FixedUpdateSet::Main));
 
     // tick a bit, and check the input buffer received on server
-    for i in 0..20 {
+    for i in 0..200 {
         stepper.frame_step();
     }
 
-    // we correctly receive inputs!! however off-by-one tick error
+    // TODO: add asserts? at least we correctly receive inputs!
 
     // TODO:
-    //  - weird, sometimes i get InputMessages where the latest input is Absent. That shouldn't happen because we are writing a new input every fixed-update schedule
-
-    // check that connection is synced?
-    // assert_eq!(client(&mut client_app).inc
-
-    // TODO:
-    // check that delta-tick works and that speedup/slowdown works
-    // (for example set a delta-tick too low and the client packets arrive too late)
+    //  -off-by-one error: weird, sometimes i get InputMessages where the latest input is Absent. That shouldn't happen because we are writing a new input every fixed-update schedule
+    //  -check on client that we can read the input event as well.
+    //     - check also how it behaves during rollback: we need to use rollback tikc
 
     Ok(())
 }

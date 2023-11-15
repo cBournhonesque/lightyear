@@ -6,9 +6,9 @@ use anyhow::anyhow;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
-use crate::TickManager;
+use crate::{TickManager, TimeManager, WrappedTime};
 
-const DISCARD_AFTER: Duration = Duration::from_secs(3);
+const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
 /// Sequenced Unreliable receiver:
 /// do not return messages in order, but ignore the messages that are older than the most recent one received
@@ -18,8 +18,7 @@ pub struct SequencedUnreliableReceiver {
     /// Highest message id received so far
     most_recent_message_id: MessageId,
     fragment_receiver: FragmentReceiver,
-    // TODO: maybe use wrapped time?
-    current_time: Instant,
+    current_time: WrappedTime,
 }
 
 impl SequencedUnreliableReceiver {
@@ -28,14 +27,15 @@ impl SequencedUnreliableReceiver {
             recv_message_buffer: VecDeque::new(),
             most_recent_message_id: MessageId(0),
             fragment_receiver: FragmentReceiver::new(),
-            current_time: Instant::now(),
+            // TODO: starting at 0 time could be dangerous, because the first update will bring it to time_manager time ?
+            current_time: WrappedTime::default(),
         }
     }
 }
 
 impl ChannelReceive for SequencedUnreliableReceiver {
-    fn update(&mut self, delta: Duration, _: &TickManager) {
-        self.current_time += delta;
+    fn update(&mut self, time_manager: &TimeManager, _: &TickManager) {
+        self.current_time = time_manager.current_time();
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
     }

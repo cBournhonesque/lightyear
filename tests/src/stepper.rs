@@ -31,6 +31,7 @@ pub struct BevyStepper {
     pub current_time: std::time::Instant,
 }
 
+// Do not forget to use --features mock_time when using the LinkConditioner
 impl BevyStepper {
     pub fn new(
         shared_config: SharedConfig,

@@ -1,6 +1,6 @@
 use crate::inputs::input_buffer::InputMessage;
 use crate::plugin::events::{InputEvent, MessageEvent};
-use crate::plugin::sets::MainSet;
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::server::Server;
 use crate::ClientId;
 use crate::{App, Protocol};
@@ -53,8 +53,8 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         app.configure_sets(
             FixedUpdate,
             (
-                InputSystemSet::WriteInputEvents.before(MainSet::FixedUpdateGame),
-                InputSystemSet::ClearInputEvents.after(MainSet::FixedUpdateGame),
+                InputSystemSet::WriteInputEvents.before(FixedUpdateSet::Main),
+                InputSystemSet::ClearInputEvents.after(FixedUpdateSet::Main),
             ),
         );
 

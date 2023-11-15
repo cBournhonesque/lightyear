@@ -39,7 +39,6 @@ pub struct InputMessage<T: UserInput> {
     end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     inputs: Vec<InputData<T>>,
-    // inputs: [InputData<T>; N],
 }
 
 impl<T: UserInput> Default for InputBuffer<T> {
@@ -122,7 +121,7 @@ mod tests {
     impl UserInput for usize {}
 
     #[test]
-    fn test_input_buffer() {
+    fn test_create_message() {
         let mut input_buffer = InputBuffer::default();
 
         input_buffer.buffer.push(&Tick(4), 0);
@@ -148,5 +147,32 @@ mod tests {
         );
     }
 
-    // TODO: add test for update_from_message
+    #[test]
+    fn test_update_from_message() {
+        let mut input_buffer = InputBuffer::default();
+
+        let message = InputMessage {
+            end_tick: Tick(20),
+            inputs: vec![
+                InputData::Absent,
+                InputData::Input(0),
+                InputData::Absent,
+                InputData::Input(1),
+                InputData::SameAsPrecedent,
+                InputData::Absent,
+                InputData::SameAsPrecedent,
+                InputData::SameAsPrecedent,
+            ],
+        };
+        input_buffer.update_from_message(&message);
+
+        assert_eq!(input_buffer.buffer.get(&Tick(20)), None);
+        assert_eq!(input_buffer.buffer.get(&Tick(19)), None);
+        assert_eq!(input_buffer.buffer.get(&Tick(18)), None);
+        assert_eq!(input_buffer.buffer.get(&Tick(17)), Some(&1));
+        assert_eq!(input_buffer.buffer.get(&Tick(16)), Some(&1));
+        assert_eq!(input_buffer.buffer.get(&Tick(15)), None);
+        assert_eq!(input_buffer.buffer.get(&Tick(14)), Some(&0));
+        assert_eq!(input_buffer.buffer.get(&Tick(13)), None);
+    }
 }

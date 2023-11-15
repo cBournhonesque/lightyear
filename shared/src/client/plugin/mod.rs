@@ -19,7 +19,7 @@ use super::config::ClientConfig;
 use crate::client::input::InputPlugin;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::{Authentication, Client};
-use crate::plugin::sets::MainSet;
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use systems::{receive, send};
 
 pub struct PluginConfig<P: Protocol> {
@@ -89,7 +89,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_systems(
                 FixedUpdate,
                 increment_tick::<Client<P>>
-                    .before(MainSet::FixedUpdateGame)
+                    .in_set(FixedUpdateSet::TickUpdate)
                     // run if there is no rollback resource, or if we are not in rollback
                     .run_if((not(resource_exists::<Rollback>())).or_else(not(is_in_rollback))),
             )

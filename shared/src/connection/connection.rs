@@ -103,8 +103,8 @@ impl<P: Protocol> Connection<P> {
 }
 
 impl<P: Protocol> Connection<P> {
-    pub fn update(&mut self, delta: Duration, tick_manager: &TickManager) {
-        self.message_manager.update(delta, tick_manager);
+    pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+        self.message_manager.update(time_manager, tick_manager);
     }
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
         #[cfg(feature = "metrics")]

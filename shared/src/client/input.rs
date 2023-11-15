@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::plugin::sets::MainSet;
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::{App, InputChannel, PingChannel, Protocol, UserInput};
 use bevy::prelude::{
     FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, ResMut, SystemSet,
@@ -30,7 +30,9 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // SETS
         app.configure_sets(
             FixedUpdate,
-            InputSystemSet::BufferInputs.before(MainSet::FixedUpdateGame),
+            InputSystemSet::BufferInputs
+                .before(FixedUpdateSet::Main)
+                .after(FixedUpdateSet::TickUpdate),
         );
         app.configure_sets(
             PostUpdate,

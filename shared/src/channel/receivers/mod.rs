@@ -1,4 +1,4 @@
-use crate::{BitSerializable, TickManager};
+use crate::{BitSerializable, TickManager, TimeManager};
 use enum_dispatch::enum_dispatch;
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelReceive {
     /// Bookkeeping on the channel
-    fn update(&mut self, delta: Duration, tick_manager: &TickManager);
+    fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager);
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()>;

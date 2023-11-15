@@ -1,7 +1,7 @@
 use super::predicted_history::{add_component_history, update_component_history};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
 use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
-use crate::plugin::sets::MainSet;
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::replication::prediction::is_in_rollback;
 use crate::{ComponentProtocol, Protocol};
 use bevy::prelude::{
@@ -107,7 +107,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             FixedUpdate,
             (
                 PredictionSet::IncrementRollbackTick
-                    .after(MainSet::FixedUpdateGame)
+                    .after(FixedUpdateSet::Main)
                     .run_if(is_in_rollback),
                 PredictionSet::UpdateHistory.after(PredictionSet::IncrementRollbackTick),
             ),

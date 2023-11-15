@@ -1,6 +1,6 @@
 use crate::packet::message::{FragmentData, MessageId, SingleData};
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer};
+use crate::{BitSerializable, MessageContainer, ReadBuffer, ReadWordBuffer, WrappedTime};
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ impl FragmentReceiver {
     /// (i.e. the message is too old)
     ///
     /// If we don't keep track of the last received time, we will never clean up the messages.
-    pub fn cleanup(&mut self, cleanup_time: Instant) {
+    pub fn cleanup(&mut self, cleanup_time: WrappedTime) {
         self.fragment_messages.retain(|_, c| {
             c.last_received
                 .map(|t| t > cleanup_time)
@@ -34,7 +34,7 @@ impl FragmentReceiver {
     pub fn receive_fragment(
         &mut self,
         fragment: FragmentData,
-        current_time: Option<Instant>,
+        current_time: Option<WrappedTime>,
     ) -> Result<Option<SingleData>> {
         let fragment_message = self
             .fragment_messages
@@ -67,7 +67,7 @@ pub struct FragmentConstructor {
     // bytes: Bytes,
     bytes: Vec<u8>,
 
-    last_received: Option<Instant>,
+    last_received: Option<WrappedTime>,
 }
 
 impl FragmentConstructor {
@@ -85,7 +85,7 @@ impl FragmentConstructor {
         &mut self,
         fragment_index: usize,
         bytes: &[u8],
-        received_time: Option<Instant>,
+        received_time: Option<WrappedTime>,
     ) -> Result<Option<Bytes>> {
         self.last_received = received_time;
 

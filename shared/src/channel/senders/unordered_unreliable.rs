@@ -8,7 +8,7 @@ use crate::packet::message::{FragmentData, MessageAck, MessageContainer, Message
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
-use crate::TickManager;
+use crate::{TickManager, TimeManager};
 
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
@@ -36,7 +36,7 @@ impl UnorderedUnreliableSender {
 }
 
 impl ChannelSend for UnorderedUnreliableSender {
-    fn update(&mut self, delta: Duration, _: &TickManager) {}
+    fn update(&mut self, _: &TimeManager, _: &TickManager) {}
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message

@@ -15,7 +15,7 @@ use crate::{
 
 use super::config::ServerConfig;
 use crate::plugin::events::InputEvent;
-use crate::plugin::sets::MainSet;
+use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::server::input::InputPlugin;
 use crate::server::Server;
 use systems::{receive, send};
@@ -93,7 +93,10 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
             //  maybe TickManager should be a separate resource not contained in Client/Server?
-            .add_systems(FixedUpdate, increment_tick::<Server<P>>)
+            .add_systems(
+                FixedUpdate,
+                increment_tick::<Server<P>>.in_set(FixedUpdateSet::TickUpdate),
+            )
             .add_systems(PostUpdate, send::<P>.in_set(MainSet::Send));
     }
 }

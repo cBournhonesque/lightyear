@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
-use crate::TickManager;
+use crate::{TickManager, TimeManager};
 
 /// Unordered Reliable receiver: make sure that all messages are received,
 /// and return them in any order
@@ -35,7 +35,7 @@ impl UnorderedReliableReceiver {
 }
 
 impl ChannelReceive for UnorderedReliableReceiver {
-    fn update(&mut self, _: Duration, _: &TickManager) {}
+    fn update(&mut self, _: &TimeManager, _: &TickManager) {}
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: MessageContainer) -> anyhow::Result<()> {

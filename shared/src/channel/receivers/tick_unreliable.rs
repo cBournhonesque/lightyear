@@ -8,9 +8,9 @@ use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::tick::Tick;
 use crate::utils::ReadyBuffer;
-use crate::TickManager;
+use crate::{TickManager, TimeManager, WrappedTime};
 
-const DISCARD_AFTER: Duration = Duration::from_secs(3);
+const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
 /// Sequenced Unreliable receiver:
 /// do not return messages in order, but ignore the messages that are older than the most recent one received
@@ -18,8 +18,7 @@ pub struct TickUnreliableReceiver {
     /// Buffer of the messages that we received, but haven't processed yet
     recv_message_buffer: ReadyBuffer<Tick, SingleData>,
     fragment_receiver: FragmentReceiver,
-    // TODO: maybe use wrapped time?
-    current_time: Instant,
+    current_time: WrappedTime,
     current_tick: Tick,
 }
 
@@ -35,7 +34,7 @@ impl TickUnreliableReceiver {
         Self {
             recv_message_buffer: ReadyBuffer::new(),
             fragment_receiver: FragmentReceiver::new(),
-            current_time: Instant::now(),
+            current_time: WrappedTime::default(),
             current_tick: Tick(0),
         }
     }
@@ -56,9 +55,8 @@ impl TickUnreliableReceiver {
 }
 
 impl ChannelReceive for TickUnreliableReceiver {
-    // TODO: maybe pass time_manager and tick_manager?
-    fn update(&mut self, delta: Duration, tick_manager: &TickManager) {
-        self.current_time += delta;
+    fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+        self.current_time = time_manager.current_time();
         self.current_tick = tick_manager.current_tick();
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
@@ -102,6 +100,7 @@ mod tests {
         let mut tick_manager = TickManager::from_config(TickConfig {
             tick_duration: Duration::from_millis(10),
         });
+        let mut time_manager = TimeManager::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));
         let mut single2 = SingleData::new(None, Bytes::from("world"));
@@ -128,12 +127,12 @@ mod tests {
 
         // increment tick by 1: we still haven't reached the tick of the message
         tick_manager.increment_tick();
-        receiver.update(Duration::default(), &tick_manager);
+        receiver.update(&time_manager, &tick_manager);
         assert_eq!(receiver.read_message(), None);
 
         // increment tick by 1: we can not read the message
         tick_manager.increment_tick();
-        receiver.update(Duration::default(), &tick_manager);
+        receiver.update(&time_manager, &tick_manager);
         assert_eq!(receiver.read_message(), Some(single2.clone()));
         Ok(())
     }

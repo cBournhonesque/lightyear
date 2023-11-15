@@ -1,3 +1,4 @@
+use bevy::ui::FlexWrap::Wrap;
 use bytes::Bytes;
 use std::collections::{BTreeMap, HashSet};
 #[cfg(not(test))]
@@ -13,12 +14,12 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageContainer, MessageId, SingleData};
 use crate::packet::packet_manager::PacketManager;
 use crate::protocol::BitSerializable;
-use crate::TickManager;
+use crate::{TickManager, TimeManager, WrappedTime};
 
 pub struct FragmentAck {
     data: FragmentData,
     acked: bool,
-    last_sent: Option<Instant>,
+    last_sent: Option<WrappedTime>,
 }
 
 /// A message that has not been acked yet
@@ -27,7 +28,7 @@ pub enum UnackedMessage {
         bytes: Bytes,
         /// If None: this packet has never been sent before
         /// else: the last instant when this packet was sent
-        last_sent: Option<Instant>,
+        last_sent: Option<WrappedTime>,
     },
     Fragmented(Vec<FragmentAck>),
 }
@@ -56,7 +57,7 @@ pub struct ReliableSender {
 
     // TODO: only need pub for test
     current_rtt_millis: f32,
-    current_time: Instant,
+    current_time: WrappedTime,
 }
 
 impl ReliableSender {
@@ -70,7 +71,7 @@ impl ReliableSender {
             message_ids_to_send: Default::default(),
             fragment_sender: FragmentSender::new(),
             current_rtt_millis: 0.0,
-            current_time: Instant::now(),
+            current_time: WrappedTime::default(),
         }
     }
 
@@ -92,8 +93,8 @@ impl ReliableSender {
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
 impl ChannelSend for ReliableSender {
-    fn update(&mut self, delta: Duration, _: &TickManager) {
-        self.current_time += delta;
+    fn update(&mut self, time_manager: &TimeManager, _: &TickManager) {
+        self.current_time = time_manager.current_time();
         // TODO: update current_rtt
     }
 
@@ -157,10 +158,10 @@ impl ChannelSend for ReliableSender {
     /// Needs to be called before [`ReliableSender::send_packet`]
     fn collect_messages_to_send(&mut self) {
         // resend delay is based on the rtt
-        let resend_delay = Duration::from_millis(
-            (self.reliable_settings.rtt_resend_factor * self.current_rtt_millis) as u64,
+        let resend_delay = chrono::Duration::milliseconds(
+            (self.reliable_settings.rtt_resend_factor * self.current_rtt_millis) as i64,
         );
-        let should_send = |last_sent: Option<Instant>| -> bool {
+        let should_send = |last_sent: Option<WrappedTime>| -> bool {
             match last_sent {
                 // send it the message has never been sent
                 None => true,

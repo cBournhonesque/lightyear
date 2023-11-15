@@ -31,7 +31,8 @@ impl<P: Protocol> Connection<P> {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) {
-        self.base.update(delta, tick_manager);
+        self.base.update(time_manager, tick_manager);
+        // TODO: handle deltas inside time_manager
         self.ping_manager.update(delta);
 
         // maybe send pings
