@@ -28,6 +28,8 @@ impl<P: Protocol> Default for PredictionPlugin<P> {
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PredictionSet {
     // PreUpdate Sets
+    // // Contains the other pre-update prediction stes
+    // PreUpdatePrediction,
     /// Spawn predicted entities,
     SpawnPrediction,
     /// Add component history for all predicted entities' predicted components
@@ -55,11 +57,11 @@ pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App)
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
-        (add_component_history::<C>).in_set(PredictionSet::SpawnPrediction),
+        (add_component_history::<C>).in_set(PredictionSet::SpawnHistory),
     );
     app.add_systems(
         PreUpdate,
-        (client_rollback_check::<C, P>).before(PredictionSet::Rollback),
+        (client_rollback_check::<C, P>).in_set(PredictionSet::CheckRollback),
     );
     app.add_systems(
         FixedUpdate,
@@ -85,22 +87,33 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PreUpdate,
             (
                 PredictionSet::SpawnPrediction.after(MainSet::Receive),
-                PredictionSet::SpawnHistory.after(PredictionSet::SpawnPrediction),
-                PredictionSet::CheckRollback.after(PredictionSet::SpawnHistory),
-                PredictionSet::Rollback
-                    .after(PredictionSet::CheckRollback)
-                    .run_if(is_in_rollback),
-            ),
+                PredictionSet::SpawnHistory,
+                PredictionSet::CheckRollback,
+                PredictionSet::Rollback.run_if(is_in_rollback),
+            )
+                .chain(),
+            // (
+            //     PredictionSet::SpawnPrediction.after(MainSet::Receive),
+            //     PredictionSet::SpawnHistory.after(PredictionSet::SpawnPrediction),
+            //     PredictionSet::CheckRollback.after(PredictionSet::SpawnHistory),
+            //     PredictionSet::Rollback
+            //         .after(PredictionSet::CheckRollback)
+            //         .run_if(is_in_rollback),
+            // ),
         );
         app.add_systems(
             PreUpdate,
+            // apply_deferred because we spawn a predicted entity
             ((spawn_predicted_entity, apply_deferred).chain())
                 .in_set(PredictionSet::SpawnPrediction),
         );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         app.add_systems(
             PreUpdate,
-            (apply_deferred).after(PredictionSet::SpawnPrediction),
+            // apply deferred because we spawn the PredictedComponent and ComponentHistory
+            (apply_deferred)
+                .after(PredictionSet::SpawnHistory)
+                .before(PredictionSet::CheckRollback),
         );
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback

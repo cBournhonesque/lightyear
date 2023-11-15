@@ -1,8 +1,8 @@
-use bevy::prelude::{EventReader, FixedUpdate, Query, Res, ResMut, World};
+use bevy::prelude::{EventReader, FixedUpdate, Query, Res, ResMut, Without, World};
 use tracing::{error, info, trace_span, warn};
 
 use crate::client::Client;
-use crate::plugin::events::ComponentUpdateEvent;
+use crate::plugin::events::{ComponentInsertEvent, ComponentUpdateEvent};
 use crate::Protocol;
 
 use super::predicted_history::ComponentHistory;
@@ -30,7 +30,20 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
     client: Res<Client<P>>,
     mut updates: EventReader<ComponentUpdateEvent<C>>,
-    mut predicted_query: Query<(&Predicted, &mut ComponentHistory<C>)>,
+    mut inserts: EventReader<ComponentInsertEvent<C>>,
+    // TODO: here we basically snap back the value only for the ComponentHistory components
+    //  but we might want to copy the predictive state of some components from Confirmed to Predicted, without caring
+    //  about rollback
+    //  So there would be three states:
+    //  #[replication(predicted)]  -> do full rollback
+    //  #[replication(copy)]  -> prediction just copy the state of the server when it arrives (even if the server state is a bit late. Useful for
+    //     components that don't get updated often, such as Color, Name, etc.)
+    //  -> no replication at all, the component is replicated to the Confirmed entity but not the predicted one.
+    //  IDEALLY THIS GET BE SET PER ENTITY, NOT IN THE PROTOCOL ITSELF?
+    //  MAYBE A PREDICTION-STATE for each component, similar to prediction history?
+
+    // We also snap the value of the component to the server state if we are in rollback
+    mut predicted_query: Query<(&Predicted, &mut C, &mut ComponentHistory<C>), Without<Confirmed>>,
     confirmed_query: Query<(&C, &Confirmed)>,
     mut rollback: ResMut<Rollback>,
 )
@@ -45,14 +58,20 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     // - History contains the history of what we predicted at the tick
     let latest_server_tick = client.latest_received_server_tick();
 
-    // 1. Go through all server updates we received on this frame
-    for event in updates.read() {
+    // 1. We want to do a rollback check every time a component got updated/inserted on this frame
+    let updated_confirmed_entities = updates
+        .read()
+        .map(|event| event.entity())
+        .chain(inserts.read().map(|event| event.entity()));
+    // for event in updates.read() {
+    for confirmed_entity in updated_confirmed_entities {
         // TODO: get the tick of the update from context of ComponentUpdateEvent if we switch to that
-        let confirmed_entity = event.entity();
+        // let confirmed_entity = event.entity();
         if let Ok((confirmed_component, confirmed)) = confirmed_query.get(*confirmed_entity) {
             // TODO: no need to get the Predicted component because we're not using it right now..
+            //  we could use it in the future if we add more state in the Predicted Component
             // 2. Get the predicted entity, and it's history
-            if let Ok((predicted, mut predicted_history)) =
+            if let Ok((predicted, mut predicted_component, mut predicted_history)) =
                 predicted_query.get_mut(confirmed.predicted)
             {
                 // Note: it may seem like an optimization to only compare the history/server-state if we are not sure
@@ -71,6 +90,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                             predicted_history
                                 .buffer
                                 .add_item(latest_server_tick, confirmed_component.clone());
+                            *predicted_component = confirmed_component.clone();
                             // TODO: try atomic enum update
                             rollback.state = RollbackState::ShouldRollback {
                                 current_tick: latest_server_tick,
@@ -83,6 +103,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                         predicted_history
                             .buffer
                             .add_item(latest_server_tick, confirmed_component.clone());
+                        *predicted_component = confirmed_component.clone();
                         return;
                     }
                     _ => {
@@ -104,7 +125,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
 // TODO: check how we handle the user inputs here??
 pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
     let client = world.get_resource::<Client<P>>().unwrap();
-    let num_rollback_ticks = client.tick() - client.latest_received_server_tick() + 1;
+    let num_rollback_ticks = client.tick() - client.latest_received_server_tick();
     info!(
         "Rollback between {:?} and {:?}",
         client.latest_received_server_tick(),
@@ -131,13 +152,14 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
 }
 
 pub(crate) fn increment_rollback_tick(mut rollback: ResMut<Rollback>) {
-    info!("start update component history!");
-    dbg!(&rollback.state);
+    info!("increment rollback tick");
     // update the rollback tick
     // (we already set the history for client.last_received_server_tick() in the rollback check,
     // we will start at the next tick. This is valid because this system runs after the physics systems)
-    if let RollbackState::ShouldRollback { mut current_tick } = rollback.state {
-        current_tick += 1;
+    if let RollbackState::ShouldRollback {
+        ref mut current_tick,
+    } = rollback.state
+    {
+        *current_tick += 1;
     }
-    dbg!(&rollback.state);
 }

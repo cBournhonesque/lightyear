@@ -49,7 +49,7 @@ fn server_init(mut commands: Commands) {
 // System that runs every fixed timestep, and will add an input to the buffer
 fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
     let tick = client.tick();
-    client.add_input(MyInput(tick.0 as usize))
+    client.add_input(MyInput(tick.0 as i16))
 }
 
 fn client_read_input(
@@ -122,8 +122,7 @@ fn test_bevy_step() -> anyhow::Result<()> {
     // TODO:
     //  -Sometimes, the client's InputMessage has some absent inputs in the middle for some reason ??
     //     - not sure if it still happens
-    //  -check on client that we can read the input event as well.
-    //     - check also how it behaves during rollback: we need to use rollback tikc
+    //  -check on client behaves during rollback (need to use rollback tick)
 
     Ok(())
 }

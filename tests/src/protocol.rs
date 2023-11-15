@@ -22,7 +22,7 @@ pub enum MyMessageProtocol {
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Component1;
+pub struct Component1(pub i16);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Component2;
@@ -37,7 +37,7 @@ pub enum MyComponentsProtocol {
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct MyInput(pub usize);
+pub struct MyInput(pub i16);
 impl UserInput for MyInput {}
 
 // Protocol

@@ -1,10 +1,13 @@
-use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With};
+use bevy::prelude::{
+    Added, Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With,
+};
+use std::ops::Deref;
 
 use crate::client::Client;
 use crate::tick::Tick;
 use crate::{Protocol, ReadyBuffer};
 
-use super::{Predicted, PredictedComponent, Rollback, RollbackState};
+use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
 
@@ -93,18 +96,26 @@ mod tests {
     }
 }
 
-// TODO: system that adds component history for all predicted entities and predicted component
-
-//
+// TODO: maybe only add component_history for components that got replicated on confirmed?
+//  also we need to copy the components from confirmed to predicted
+// Copy component insert/remove from confirmed to predicted
+// Currently we will just copy every PredictedComponent
 pub fn add_component_history<T: PredictedComponent>(
     mut commands: Commands,
-    predicted_entities: Query<Entity, With<Predicted>>,
+    predicted_entities: Query<Entity, Added<Predicted>>,
+    confirmed_entities: Query<(&Confirmed, Ref<T>)>,
 ) {
-    for predicted_entity in predicted_entities.iter() {
-        // safety: we know the entity exists
-        let mut predicted_entity_mut = commands.get_entity(predicted_entity).unwrap();
-        // insert an empty history, it will be filled by a rollback
-        predicted_entity_mut.insert((ComponentHistory::<T>::new(),));
+    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
+        if confirmed_component.is_added() {
+            // safety: we know the entity exists
+            let mut predicted_entity_mut = commands.get_entity(confirmed_entity.predicted).unwrap();
+            // and add the component state
+            // insert an empty history, it will be filled by a rollback (since it starts empty)
+            predicted_entity_mut.insert((
+                confirmed_component.deref().clone(),
+                ComponentHistory::<T>::new(),
+            ));
+        }
     }
 }
 

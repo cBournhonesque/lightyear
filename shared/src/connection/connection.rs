@@ -234,6 +234,9 @@ impl<P: Protocol> Connection<P> {
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
                 for message in messages {
+                    // TODO: maybe only run apply world if the client is time-synced!
+                    //  that would mean that for now, apply_world only runs on client, and not on server :)
+
                     // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
                     // apply replication messages to the world
                     self.replication_manager.apply_world(world, message.clone());

@@ -3,7 +3,9 @@ use tracing::{debug, trace};
 
 use crate::client::Client;
 use crate::connection::events::IterEntitySpawnEvent;
-use crate::{ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol};
+use crate::{
+    ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+};
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
@@ -26,8 +28,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         // receive packets from message managers
         let mut events = client.receive(world);
         if !events.is_empty() {
-            // panic!();
-
             if events.has_connection() {
                 let mut connect_event_writer =
                     world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
@@ -55,7 +55,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                 }
             }
 
-            // Update component events
+            // Update component events (updates, inserts, removes)
+            P::Components::push_component_events(world, &mut events);
         }
     });
 }

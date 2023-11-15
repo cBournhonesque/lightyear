@@ -2,8 +2,8 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs, Plugin as PluginType,
-    PostUpdate, PreUpdate,
+    apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
+    Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
 use systems::{receive, send};
@@ -86,7 +86,10 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_event::<DisconnectEvent>()
             .add_event::<EntitySpawnEvent>()
             // SYSTEMS //
-            .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
+            .add_systems(
+                PreUpdate,
+                (receive::<P>, apply_deferred).in_set(MainSet::Receive),
+            )
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
             //  maybe TickManager should be a separate resource not contained in Client/Server?
             //  and runs Update in PreUpdate before the client/server systems

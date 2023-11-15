@@ -165,6 +165,7 @@ impl<P: Protocol> Server<P> {
     ) -> Result<()> {
         match replicate.target {
             ReplicationTarget::All => {
+                // TODO: maybe only send stuff when the client is time-synced ?
                 for client_id in self.netcode.connected_client_ids() {
                     let connection = self
                         .user_connections
