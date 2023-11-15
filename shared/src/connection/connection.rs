@@ -242,13 +242,16 @@ impl<P: Protocol> Connection<P> {
                     // apply replication messages to the world
                     self.replication_manager.apply_world(world, message.clone());
                     // update events
-                    message.push_to_events(channel_kind, &mut self.events, time_manager);
+                    message.push_to_events(channel_kind, &mut events, time_manager);
                 }
             }
         }
 
+        // HERE: we are clearing the input buffers from every connection, which is not what we want!
+
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
+        //  is it because of push_connection?
         std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 

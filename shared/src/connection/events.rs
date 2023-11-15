@@ -79,6 +79,24 @@ impl<P: Protocol> ConnectionEvents<P> {
         }
     }
 
+    // TODO: this seems to show that events might not the right place to put the input buffer
+    //  maybe we want to create a dedicated InputBuffer resource for it?
+    //  on server-side it would be hashmap, and we need to sync it with connections/disconnections
+    pub fn clear(&mut self) {
+        self.connection = false;
+        self.disconnection = false;
+        self.pings.clear();
+        self.pongs.clear();
+        self.syncs.clear();
+        self.messages.clear();
+        self.spawns.clear();
+        self.despawns.clear();
+        self.component_inserts.clear();
+        self.component_removes.clear();
+        self.component_updates.clear();
+        self.empty = true;
+    }
+
     /// If true, the connection was established
     pub fn has_connection(&self) -> bool {
         self.connection
@@ -137,25 +155,15 @@ impl<P: Protocol> ConnectionEvents<P> {
         std::mem::take(&mut self.pongs).into_iter()
     }
 
-    /// Read the messages of type InputMessage read from remote to update the input buffer
-    pub(crate) fn update_inputs(&mut self) {
-        if self.has_messages::<InputMessage<P::Input>>() {
-            trace!("update input buffer");
-            // this has the added advantage that we don't read the InputMessage later
-            let input_messages: Vec<_> = self
-                .into_iter_messages::<InputMessage<P::Input>>()
-                .map(|(input_message, _)| input_message)
-                .collect();
-            for input_message in input_messages {
-                // for (input_message, _) in self.into_iter_messages::<InputMessage<P::Input>>() {
-                self.inputs.update_from_message(&input_message);
-            }
-        }
-    }
-
     /// Pop the input for the current tick from the input buffer
+    /// We can pop it because we won't be needing it anymore?
+    /// Maybe not because of rollback!
     pub fn pop_input(&mut self, tick: Tick) -> Option<P::Input> {
         self.inputs.buffer.remove(&tick)
+    }
+
+    pub fn get_input(&mut self, tick: Tick) -> Option<&P::Input> {
+        self.inputs.buffer.get(&tick)
     }
 
     pub fn is_empty(&self) -> bool {

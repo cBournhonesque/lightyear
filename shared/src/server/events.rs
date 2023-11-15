@@ -25,14 +25,18 @@ impl<P: Protocol> ServerEvents<P> {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.empty
+    /// Clear all events except for the input buffer which we want to keep around
+    // TODO: this seems to show that events might not the right place to put the input buffer
+    //  maybe we want to create a dedicated InputBuffer resource for it?
+    //  on server-side it would be hashmap, and we need to sync it with connections/disconnections
+    pub(crate) fn clear(&mut self) {
+        self.disconnects = Vec::new();
+        self.empty = true;
+        self.events.values_mut().for_each(|events| events.clear());
     }
 
-    pub(crate) fn update_inputs(&mut self) {
-        for connection_event in self.events.values_mut() {
-            connection_event.update_inputs();
-        }
+    pub fn is_empty(&self) -> bool {
+        self.empty
     }
 
     // TODO: could also return a IntoIterMessages struct and impl Iterator for that
@@ -76,6 +80,17 @@ impl<P: Protocol> ServerEvents<P> {
     ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
         self.events.iter_mut().map(move |(client_id, events)| {
             let input = events.pop_input(tick);
+            (input, client_id.clone())
+        })
+    }
+
+    /// Get the inputs for all clients for the given tick
+    pub fn get_inputs(
+        &mut self,
+        tick: Tick,
+    ) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
+        self.events.iter_mut().map(move |(client_id, events)| {
+            let input = events.get_input(tick);
             (input, client_id.clone())
         })
     }

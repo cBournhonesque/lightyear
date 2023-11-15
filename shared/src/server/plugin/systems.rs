@@ -29,7 +29,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             //  it might just be less efficient? + maybe tricky to
             // Input events
             // Update the input buffers with any InputMessage received:
-            server.events.update_inputs();
+
+            // ADD A FUNCTION THAT ITERATES THROUGH EACH CONNECTION AND RETURNS InputEvent for THE CURRENT TICK
 
             // Connection / Disconnection events
             if server.events.has_connections() {

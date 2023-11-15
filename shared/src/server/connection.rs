@@ -1,19 +1,23 @@
 use super::ping_manager::{PingConfig, PingManager};
+use crate::connection::events::IterMessageEvent;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::{
-    ChannelKind, ChannelRegistry, PingChannel, PingMessage, Protocol, SyncMessage, TickManager,
-    TimeManager, TimeSyncPingMessage,
+    ChannelKind, ChannelRegistry, ConnectionEvents, InputMessage, PingChannel, PingMessage,
+    Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
 };
 use anyhow::Result;
+use bevy::prelude::World;
 use std::time::Duration;
 use tracing::{debug, info, trace};
+use tracing_subscriber::fmt::time;
 
 // TODO: this layer of indirection is annoying, is there a better way?
 //  maybe just pass the inner connection to ping_manager? (but harder to test)
 pub struct Connection<P: Protocol> {
     pub(crate) base: crate::Connection<P>,
 
+    pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) ping_manager: PingManager,
 }
 
@@ -21,8 +25,32 @@ impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
         Self {
             base: crate::Connection::new(channel_registry),
+            input_buffer: InputBuffer::default(),
             ping_manager: PingManager::new(ping_config),
         }
+    }
+
+    /// Read messages received from buffer (either messages or replication events) and push them to events
+    /// Also update the input buffer
+    pub fn receive(
+        &mut self,
+        world: &mut World,
+        time_manager: &TimeManager,
+    ) -> ConnectionEvents<P> {
+        let mut events = self.base.receive(world, time_manager);
+        if events.has_messages::<InputMessage<P::Input>>() {
+            trace!("update input buffer");
+            // this has the added advantage that we remove the InputMessages so we don't read them later
+            let input_messages: Vec<_> = self
+                .into_iter_messages::<InputMessage<P::Input>>()
+                .map(|(input_message, _)| input_message)
+                .collect();
+            for input_message in input_messages {
+                // for (input_message, _) in self.into_iter_messages::<InputMessage<P::Input>>() {
+                self.input_buffer.update_from_message(&input_message);
+            }
+        }
+        events
     }
 
     pub fn update(

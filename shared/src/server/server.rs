@@ -101,7 +101,7 @@ impl<P: Protocol> Server<P> {
     // EVENTS
 
     pub fn clear_events(&mut self) {
-        self.events = ServerEvents::new();
+        self.events.clear();
     }
 
     // TICK
