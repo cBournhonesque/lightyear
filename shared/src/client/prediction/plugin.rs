@@ -14,6 +14,14 @@ pub struct PredictionPlugin<P: Protocol> {
     _marker: PhantomData<P>,
 }
 
+impl<P: Protocol> Default for PredictionPlugin<P> {
+    fn default() -> Self {
+        Self {
+            _marker: std::marker::PhantomData::default(),
+        }
+    }
+}
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PredictionSet {
     // PreUpdate Sets

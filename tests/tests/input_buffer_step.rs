@@ -52,6 +52,19 @@ fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
     client.add_input(MyInput(tick.0 as usize))
 }
 
+fn client_read_input(
+    client: Res<Client<MyProtocol>>,
+    mut input_reader: EventReader<InputEvent<MyInput>>,
+) {
+    for input in input_reader.read() {
+        info!(
+            "Client has input {:?} at tick {:?}",
+            input.input(),
+            client.tick()
+        );
+    }
+}
+
 fn server_read_input(
     // TODO: maybe put the tick in a separate resource? it lowers parallelism to have to fetch the entire server just to get the tick..
     server: Res<Server<MyProtocol>>,
@@ -59,12 +72,14 @@ fn server_read_input(
 ) {
     let tick = server.tick();
     for input in input_reader.read() {
-        info!(
-            "Server received input {:?} from client {:?} at tick {:?}",
-            input.input(),
-            input.context(),
-            tick
-        );
+        if input.input().is_some() {
+            info!(
+                "Server received input {:?} from client {:?} at tick {:?}",
+                input.input(),
+                input.context(),
+                tick
+            );
+        }
     }
 }
 
@@ -91,6 +106,9 @@ fn test_bevy_step() -> anyhow::Result<()> {
         buffer_client_inputs.in_set(InputSystemSet::BufferInputs),
     );
     stepper
+        .client_app
+        .add_systems(FixedUpdate, client_read_input.in_set(FixedUpdateSet::Main));
+    stepper
         .server_app
         .add_systems(FixedUpdate, server_read_input.in_set(FixedUpdateSet::Main));
 
@@ -102,7 +120,8 @@ fn test_bevy_step() -> anyhow::Result<()> {
     // TODO: add asserts? at least we correctly receive inputs!
 
     // TODO:
-    //  -off-by-one error: weird, sometimes i get InputMessages where the latest input is Absent. That shouldn't happen because we are writing a new input every fixed-update schedule
+    //  -Sometimes, the client's InputMessage has some absent inputs in the middle for some reason ??
+    //     - not sure if it still happens
     //  -check on client that we can read the input event as well.
     //     - check also how it behaves during rollback: we need to use rollback tikc
 

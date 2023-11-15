@@ -73,27 +73,27 @@ impl<P: Protocol> ServerEvents<P> {
             .any(|(_, connection_events)| connection_events.has_connection())
     }
 
-    /// Pop the inputs for all clients for the given tick
-    pub fn pop_inputs(
-        &mut self,
-        tick: Tick,
-    ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-        self.events.iter_mut().map(move |(client_id, events)| {
-            let input = events.pop_input(tick);
-            (input, client_id.clone())
-        })
-    }
-
-    /// Get the inputs for all clients for the given tick
-    pub fn get_inputs(
-        &mut self,
-        tick: Tick,
-    ) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
-        self.events.iter_mut().map(move |(client_id, events)| {
-            let input = events.get_input(tick);
-            (input, client_id.clone())
-        })
-    }
+    // /// Pop the inputs for all clients for the given tick
+    // pub fn pop_inputs(
+    //     &mut self,
+    //     tick: Tick,
+    // ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
+    //     self.events.iter_mut().map(move |(client_id, events)| {
+    //         let input = events.pop_input(tick);
+    //         (input, client_id.clone())
+    //     })
+    // }
+    //
+    // /// Get the inputs for all clients for the given tick
+    // pub fn get_inputs(
+    //     &mut self,
+    //     tick: Tick,
+    // ) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
+    //     self.events.iter_mut().map(move |(client_id, events)| {
+    //         let input = events.get_input(tick);
+    //         (input, client_id.clone())
+    //     })
+    // }
 
     pub fn iter_disconnections(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.events.iter().filter_map(|(client_id, events)| {

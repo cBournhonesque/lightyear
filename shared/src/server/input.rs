@@ -49,11 +49,15 @@ pub enum InputSystemSet {
 
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
+        // EVENTS
+        app.add_event::<InputEvent<P::Input, ClientId>>();
         // SETS
         app.configure_sets(
             FixedUpdate,
             (
-                InputSystemSet::WriteInputEvents.before(FixedUpdateSet::Main),
+                InputSystemSet::WriteInputEvents
+                    .before(FixedUpdateSet::Main)
+                    .after(FixedUpdateSet::TickUpdate),
                 InputSystemSet::ClearInputEvents.after(FixedUpdateSet::Main),
             ),
         );
@@ -78,12 +82,12 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 
 // Create a system that reads from the input buffer and returns the inputs of all clients for the current tick.
 // The only tricky part is that events are cleared every frame, but we want to clear every tick instead
+// Do it in this system because we want an input for every tick
 fn write_input_event<P: Protocol>(
     mut server: ResMut<Server<P>>,
     mut input_events: EventWriter<InputEvent<P::Input, ClientId>>,
 ) {
-    let current_tick = server.tick();
-    for (input, client_id) in server.events.pop_inputs(current_tick) {
+    for (input, client_id) in server.pop_inputs() {
         input_events.send(InputEvent::new(input, client_id));
     }
 }

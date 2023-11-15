@@ -101,6 +101,8 @@ impl<P: Protocol> Client<P> {
 
     // INPUT
 
+    // TODO: maybe put the input_buffer directly in Client ?
+    //  layer of indirection feelds annoying
     pub fn add_input(&mut self, input: P::Input) {
         self.connection
             .add_input(input, self.tick_manager.current_tick());
@@ -108,6 +110,12 @@ impl<P: Protocol> Client<P> {
 
     pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
         &self.connection.input_buffer
+    }
+
+    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
+    /// to keep it for rollback)
+    pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
+        self.connection.input_buffer.buffer.get(&tick).cloned()
     }
 
     // TICK

@@ -25,11 +25,11 @@ pub struct ConnectionEvents<P: Protocol> {
     pub pongs: Vec<PongMessage>,
     pub syncs: Vec<SyncMessage>,
     // inputs
-    // TODO: maybe support a vec of inputs?
-    // TODO: we put the InputBuffer here right now instead of Connection because this struct is the one that is the most
-    //  accessible from bevy. Maybe refactor later
-    //  THIS ONLY CONTAINS THE INPUTS RECEIVED FROM REMOTE, I.E THIS FIELD IS ONLY USED BY THE SERVER RIGHT NOW
-    pub inputs: InputBuffer<P::Input>,
+    // // TODO: maybe support a vec of inputs?
+    // // TODO: we put the InputBuffer here right now instead of Connection because this struct is the one that is the most
+    // //  accessible from bevy. Maybe refactor later
+    // //  THIS ONLY CONTAINS THE INPUTS RECEIVED FROM REMOTE, I.E THIS FIELD IS ONLY USED BY THE SERVER RIGHT NOW
+    // pub inputs: InputBuffer<P::Input>,
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
@@ -65,7 +65,7 @@ impl<P: Protocol> ConnectionEvents<P> {
             pongs: Vec::new(),
             syncs: Vec::new(),
             // inputs
-            inputs: InputBuffer::default(),
+            // inputs: InputBuffer::default(),
             // messages
             messages: HashMap::new(),
             // replication
@@ -155,16 +155,16 @@ impl<P: Protocol> ConnectionEvents<P> {
         std::mem::take(&mut self.pongs).into_iter()
     }
 
-    /// Pop the input for the current tick from the input buffer
-    /// We can pop it because we won't be needing it anymore?
-    /// Maybe not because of rollback!
-    pub fn pop_input(&mut self, tick: Tick) -> Option<P::Input> {
-        self.inputs.buffer.remove(&tick)
-    }
-
-    pub fn get_input(&mut self, tick: Tick) -> Option<&P::Input> {
-        self.inputs.buffer.get(&tick)
-    }
+    // /// Pop the input for the current tick from the input buffer
+    // /// We can pop it because we won't be needing it anymore?
+    // /// Maybe not because of rollback!
+    // pub fn pop_input(&mut self, tick: Tick) -> Option<P::Input> {
+    //     self.inputs.buffer.remove(&tick)
+    // }
+    //
+    // pub fn get_input(&mut self, tick: Tick) -> Option<&P::Input> {
+    //     self.inputs.buffer.get(&tick)
+    // }
 
     pub fn is_empty(&self) -> bool {
         self.empty

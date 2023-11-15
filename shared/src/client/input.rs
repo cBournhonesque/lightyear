@@ -1,8 +1,11 @@
+use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::Client;
+use crate::plugin::events::InputEvent;
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::{App, InputChannel, PingChannel, Protocol, UserInput};
 use bevy::prelude::{
-    FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, ResMut, SystemSet,
+    EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    PostUpdate, Res, ResMut, SystemSet,
 };
 use tracing::{debug, trace};
 
@@ -26,13 +29,18 @@ pub struct CurrentInput<T: UserInput> {
 }
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
-        // insert the input buffer resource
+        // EVENT
+        app.add_event::<InputEvent<P::Input>>();
         // SETS
         app.configure_sets(
             FixedUpdate,
-            InputSystemSet::BufferInputs
-                .before(FixedUpdateSet::Main)
-                .after(FixedUpdateSet::TickUpdate),
+            (
+                InputSystemSet::BufferInputs.after(FixedUpdateSet::TickUpdate),
+                InputSystemSet::WriteInputEvent
+                    .before(FixedUpdateSet::Main)
+                    .after(InputSystemSet::BufferInputs),
+                InputSystemSet::ClearInputEvent.after(FixedUpdateSet::Main),
+            ),
         );
         app.configure_sets(
             PostUpdate,
@@ -40,6 +48,14 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         );
 
         // SYSTEMS
+        app.add_systems(
+            FixedUpdate,
+            write_input_event::<P>.in_set(InputSystemSet::WriteInputEvent),
+        );
+        app.add_systems(
+            FixedUpdate,
+            clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvent),
+        );
         app.add_systems(
             PostUpdate,
             prepare_input_message::<P>.in_set(InputSystemSet::PrepareInputMessage),
@@ -49,21 +65,52 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
-    /// FixedUpdate system to get any inputs from the client. This should be run before the game/physics logic
+    /// System Set to write the input events to the input buffer.
+    /// The User should add their system here!!
     BufferInputs,
+    /// FixedUpdate system to get any inputs from the client. This should be run before the game/physics logic
+    WriteInputEvent,
+    /// System Set to clear the input events (otherwise bevy clears events every frame, not every tick)
+    ClearInputEvent,
     /// System Set to prepare the input message
     PrepareInputMessage,
 }
 
-/// Runs at the start of every FixedUpdate schedule
-/// The USER must write this. Check what inputs were pressed and add them to the input buffer
-/// DO NOT RUN THIS DURING ROLLBACK
-fn update_input_buffer<P: Protocol>(mut client: ResMut<Client<P>>) {}
+// /// Runs at the start of every FixedUpdate schedule
+// /// The USER must write this. Check what inputs were pressed and add them to the input buffer
+// /// DO NOT RUN THIS DURING ROLLBACK
+// fn update_input_buffer<P: Protocol>(mut client: ResMut<Client<P>>) {}
+//
+// // system that runs after update_input_buffer, and uses the input to update the world?
+// // - NOT rollback: gets the input for the current tick from the input buffer, only runs on predicted entities.
+// // - IN rollback: gets the input for the current rollback tick from the input buffer, only runs on predicted entities.
+// fn apply_input() {}
 
-// system that runs after update_input_buffer, and uses the input to update the world?
-// - NOT rollback: gets the input for the current tick from the input buffer, only runs on predicted entities.
-// - IN rollback: gets the input for the current rollback tick from the input buffer, only runs on predicted entities.
-fn apply_input() {}
+/// System that clears the input events.
+/// It is necessary because events are cleared every frame, but we want to clear every tick instead
+fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::Input>>) {
+    input_events.clear();
+}
+
+// Create a system that reads from the input buffer and returns the inputs of all clients for the current tick.
+// The only tricky part is that events are cleared every frame, but we want to clear every tick instead
+// Do it in this system because we want an input for every tick
+fn write_input_event<P: Protocol>(
+    mut client: ResMut<Client<P>>,
+    mut input_events: EventWriter<InputEvent<P::Input>>,
+    rollback: Res<Rollback>,
+) {
+    let tick = match rollback.state {
+        RollbackState::Default => client.tick(),
+        RollbackState::ShouldRollback {
+            current_tick: rollback_tick,
+        } => rollback_tick,
+        _ => {
+            unreachable!()
+        }
+    };
+    input_events.send(InputEvent::new(client.get_input(tick).clone(), ()));
+}
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {

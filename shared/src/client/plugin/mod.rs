@@ -11,14 +11,16 @@ use bevy::prelude::{
 use crate::plugin::systems::tick::increment_tick;
 use crate::replication::prediction::is_in_rollback;
 use crate::{
-    ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol, ReplicationData,
-    SharedPlugin,
+    ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+    ReplicationData, SharedPlugin,
 };
 
 use super::config::ClientConfig;
 use crate::client::input::InputPlugin;
+use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::{Authentication, Client};
+use crate::plugin::events::ComponentInsertEvent;
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use systems::{receive, send};
 
@@ -58,6 +60,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
         let client = Client::new(config.client_config.clone(), config.auth, config.protocol);
         let fixed_timestep = config.client_config.shared.tick.tick_duration.clone();
 
+        P::Components::add_events::<()>(app);
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that
         //  can be created from Ctx and Message
@@ -71,6 +74,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 config: config.client_config.shared.clone(),
             })
             .add_plugins(InputPlugin::<P>::default())
+            .add_plugins(PredictionPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(client)
             .init_resource::<ReplicationData>()

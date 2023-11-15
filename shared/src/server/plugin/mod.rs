@@ -60,6 +60,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
         add_replication_send_systems::<P, Server<P>>(app);
         // P::add_per_component_replication_send_systems::<Server<P>>(app);
         P::Components::add_per_component_replication_send_systems::<Server<P>>(app);
+        P::Components::add_events::<ClientId>(app);
 
         P::Message::add_events::<ClientId>(app);
 
@@ -87,8 +88,6 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_event::<ConnectEvent<ClientId>>()
             .add_event::<DisconnectEvent<ClientId>>()
             .add_event::<EntitySpawnEvent<ClientId>>()
-            // .insert_resource(Events::<InputEvent<P::Input, ClientId>>::default())
-            .add_event::<InputEvent<P::Input, ClientId>>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin

@@ -41,7 +41,7 @@ impl<P: Protocol> Connection<P> {
         if events.has_messages::<InputMessage<P::Input>>() {
             trace!("update input buffer");
             // this has the added advantage that we remove the InputMessages so we don't read them later
-            let input_messages: Vec<_> = self
+            let input_messages: Vec<_> = events
                 .into_iter_messages::<InputMessage<P::Input>>()
                 .map(|(input_message, _)| input_message)
                 .collect();

@@ -104,6 +104,34 @@ impl<P: Protocol> Server<P> {
         self.events.clear();
     }
 
+    // INPUTS
+
+    /// Get the inputs for all clients for the given tick
+    pub fn pop_inputs(&mut self) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
+        self.user_connections
+            .iter_mut()
+            .map(|(client_id, connection)| {
+                let input = connection
+                    .input_buffer
+                    .buffer
+                    .remove(&self.tick_manager.current_tick());
+                (input, *client_id)
+            })
+    }
+
+    /// Get the inputs for all clients for the given tick
+    pub fn get_inputs(&mut self) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
+        self.user_connections
+            .iter_mut()
+            .map(|(client_id, connection)| {
+                let input = connection
+                    .input_buffer
+                    .buffer
+                    .get(&self.tick_manager.current_tick());
+                (input, *client_id)
+            })
+    }
+
     // TICK
 
     pub fn tick(&self) -> Tick {
@@ -264,8 +292,9 @@ impl<P: Protocol> Server<P> {
         // -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             trace_span!("receive", client_id = ?client_id).entered();
-            let mut connection_events = connection.base.receive(world, &self.time_manager);
+            let mut connection_events = connection.receive(world, &self.time_manager);
 
+            // TODO: put all this code inside the server's Connection
             // handle sync events
             for sync in connection_events.into_iter_syncs() {
                 match sync {

@@ -242,7 +242,7 @@ impl<P: Protocol> Connection<P> {
                     // apply replication messages to the world
                     self.replication_manager.apply_world(world, message.clone());
                     // update events
-                    message.push_to_events(channel_kind, &mut events, time_manager);
+                    message.push_to_events(channel_kind, &mut self.events, time_manager);
                 }
             }
         }
