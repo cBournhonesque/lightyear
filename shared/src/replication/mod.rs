@@ -11,11 +11,11 @@ use serde::Deserialize;
 
 use lightyear_derive::ChannelInternal;
 
-use crate::channel::channel::EntityUpdateChannel;
+use crate::channel::channel::EntityActionsChannel;
 use crate::netcode::ClientId;
 use crate::{
-    BitSerializable, Channel, ChannelKind, ComponentProtocol, ComponentProtocolKind, Protocol,
-    ReadBuffer, WriteBuffer,
+    BitSerializable, Channel, ChannelKind, ComponentProtocol, ComponentProtocolKind,
+    EntityUpdatesChannel, Protocol, ReadBuffer, WriteBuffer,
 };
 
 mod entity_map;
@@ -36,7 +36,9 @@ pub struct Replicate {
 
     /// The channel to use for replication (indicated by the generic type)
     // TODO: distinguish between replicating actions (inserts/etc.) vs updates
-    pub channel: ChannelKind,
+    // pub channel: ChannelKind,
+    pub actions_channel: ChannelKind,
+    pub updates_channel: ChannelKind,
     pub target: ReplicationTarget,
 
     /// If true, then this entity should have a predicted version on the client
@@ -56,7 +58,8 @@ pub enum Authority {
 impl Replicate {
     pub fn with_channel<C: Channel>() -> Self {
         Self {
-            channel: ChannelKind::of::<C>(),
+            actions_channel: ChannelKind::of::<C>(),
+            updates_channel: ChannelKind::of::<C>(),
             ..Default::default()
         }
     }
@@ -65,7 +68,8 @@ impl Replicate {
 impl Default for Replicate {
     fn default() -> Self {
         Self {
-            channel: ChannelKind::of::<EntityUpdateChannel>(),
+            actions_channel: ChannelKind::of::<EntityActionsChannel>(),
+            updates_channel: ChannelKind::of::<EntityUpdatesChannel>(),
             target: ReplicationTarget::default(),
             should_do_prediction: false,
         }

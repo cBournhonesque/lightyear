@@ -43,7 +43,6 @@ fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
     commands.spawn((
         Replicate {
-            channel: ChannelKind::of::<Channel2>(),
             should_do_prediction: true,
             ..Default::default()
         },
@@ -105,11 +104,11 @@ fn server_read_input(
             let input = input.input().as_ref().unwrap();
             // apply physics
             for mut component1 in component1_query.iter_mut() {
+                shared_behaviour(&mut component1, input);
                 info!(
                     "Server updated component1 {:?} with input {:?}, at tick {:?}",
                     &component1, input, tick
                 );
-                shared_behaviour(&mut component1, input);
             }
         }
     }
@@ -124,9 +123,9 @@ fn test_bevy_step_prediction() -> anyhow::Result<()> {
         tick: TickConfig::new(tick_duration),
     };
     let link_conditioner = LinkConditionerConfig {
-        incoming_latency: 0,
-        incoming_jitter: 0,
-        incoming_loss: 0.0,
+        incoming_latency: 40,
+        incoming_jitter: 5,
+        incoming_loss: 0.05,
     };
     let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);
 
@@ -149,22 +148,19 @@ fn test_bevy_step_prediction() -> anyhow::Result<()> {
         stepper.frame_step();
     }
 
-    // TODO: add asserts? at least we correctly receive inputs!
+    // TODO: add asserts
 
-    // TODO:
-    //  - at 0 latency, the server/client don't match but we don't do rollbacks. Why?
-    //  - the confirmed Component1 state when we initially check rollback is 0 for some reason, is it because we didn't receive the update?
-    //    we receive Component1 = 0 when server-tick = 15, doesn't seem to make sense?
-    //    oh it's because the client sends inputs only after time-synced, so the server only starts using inputs after time sync
-    //    => MAYBE ON CLIENT WE SHOULDN'T RECEIVE REPLICATION EVENTS UNTIL TIME SYNCED?
-    //  - it looks like we keep doing a lot of small rollbacks when the ticks become slightly out of sync by 1 (because of tick boundaries)?
-    //      its probably because of we update the latest_received_server_tick from another packet (like ping), but we didn't receive the latest
+    // NOTE: situation
+    // - rollback seems to work fairly well with only 1 player (only rollback and then we're in sync)
+    //   - this is expected since inconsistencies happen mostly when we didn't predict other players' inputs
+
+    // TODO: Sometimes there is a desync and we have to do another rollback, I don't really understand why
+
+    // TODO: its possible that we update the latest_received_server_tick from another packet (like ping), but we didn't receive the latest
     //      update for the component yet. So the latest_received_server_tick and confirmed_component_value are no in sync.
     //      this is the crucial potential bug that we outlined. Should we take the latest tick of each latest component update?
-    //      or just the latest server-received tick, across everything?
-    //      Confirm that this is the cause, and think about the solution.
-    //      Use tick-buffered for EntityUpdates?
-    //      Or maybe that's intended? that's why we have rollback? but then that's a lot of rollback
+    //      IS THIS REALLY THE CASE?
+    //      we could keep track of latest-server-update-tick, i.e. the latest tick for the entire game state!
 
     Ok(())
 }

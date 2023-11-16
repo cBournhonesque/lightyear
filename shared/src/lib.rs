@@ -13,8 +13,8 @@ pub use paste::paste;
 
 pub use channel::channel::{
     Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-    DefaultUnorderedUnreliableChannel, EntityUpdateChannel, InputChannel, PingChannel,
-    ReliableSettings,
+    DefaultUnorderedUnreliableChannel, EntityActionsChannel, EntityUpdatesChannel, InputChannel,
+    PingChannel, ReliableSettings,
 };
 pub use connection::{Connection, ConnectionEvents};
 pub use inputs::input_buffer::{InputMessage, UserInput};

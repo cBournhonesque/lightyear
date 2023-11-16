@@ -31,7 +31,6 @@ pub struct Client<P: Protocol> {
     // events
     events: ConnectionEvents<P>,
     // syncing
-    synced: bool,
     time_manager: TimeManager,
     tick_manager: TickManager,
 }
@@ -77,7 +76,6 @@ impl<P: Protocol> Client<P> {
             netcode,
             connection,
             events: ConnectionEvents::new(),
-            synced: false,
             time_manager: TimeManager::new(),
             tick_manager: TickManager::from_config(config.shared.tick),
         }
@@ -94,6 +92,11 @@ impl<P: Protocol> Client<P> {
 
     pub fn is_connected(&self) -> bool {
         self.netcode.is_connected()
+    }
+
+    /// Returns true if the client is connected and has been time-synced with the server
+    pub fn is_synced(&self) -> bool {
+        self.connection.sync_manager.is_synced()
     }
 
     // INPUT

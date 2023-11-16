@@ -148,10 +148,15 @@ impl ReliableSettings {
     }
 }
 
-/// Default channel to replicate entity updates reliably
+/// Default channel to replicate entity actions reliably
 /// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
 #[derive(ChannelInternal)]
-pub struct EntityUpdateChannel;
+pub struct EntityActionsChannel;
+
+#[derive(ChannelInternal)]
+/// Default channel to replicate entity updates (ComponentUpdate)
+/// This is a sequenced unreliable channel
+pub struct EntityUpdatesChannel;
 
 /// Default channel to replicate entity updates
 /// We send them in a sequenced way because there's no point in getting older updates if we received a later one

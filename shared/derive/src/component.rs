@@ -124,7 +124,6 @@ pub fn component_protocol_impl(
             }
 
             #into_kind_method
-
             #from_method
 
             impl ComponentKindBehaviour for #enum_kind_name {

@@ -117,6 +117,9 @@ fn write_input_event<P: Protocol>(
 fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?client.tick(), "prepare_input_message");
+    // TODO: instead of 15, send ticks up to the latest yet ACK-ed input tick
+    //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
+    //  this system what the latest acked input tick is?
     let message = client.get_input_buffer().create_message(client.tick(), 15);
     client.buffer_send::<InputChannel, _>(message);
 }

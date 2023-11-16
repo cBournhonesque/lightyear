@@ -86,7 +86,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             PreUpdate,
             (
-                PredictionSet::SpawnPrediction.after(MainSet::Receive),
+                MainSet::Receive,
+                PredictionSet::SpawnPrediction,
                 PredictionSet::SpawnHistory,
                 PredictionSet::CheckRollback,
                 PredictionSet::Rollback.run_if(is_in_rollback),
@@ -129,12 +130,18 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // 4. Update predicted history
         app.configure_sets(
             FixedUpdate,
-            (
-                PredictionSet::IncrementRollbackTick
-                    .after(FixedUpdateSet::Main)
-                    .run_if(is_in_rollback),
-                PredictionSet::UpdateHistory.after(PredictionSet::IncrementRollbackTick),
-            ),
+            ((
+                FixedUpdateSet::Main,
+                PredictionSet::UpdateHistory,
+                PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
+            )
+                .chain()), // (
+                           //     PredictionSet::UpdateHistory
+                           //         .after(FixedUpdateSet::Main),
+                           //     PredictionSet::IncrementRollbackTick
+                           //         .after(PredictionSet::UpdateHistory)
+                           //         .run_if(is_in_rollback),
+                           // ),
         );
         // TODO: add apply user inputs? maybe that should be done by the user in their own physics systems!
         //  apply user input should use client_tick normally, but use rollback tick during rollback!

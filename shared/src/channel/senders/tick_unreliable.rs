@@ -9,11 +9,8 @@ use crate::protocol::BitSerializable;
 use crate::tick::Tick;
 use crate::{TickManager, TimeManager};
 
-// TODO: FOR INPUTS, WE WANT TO SEND REPEATEDLY THE LAST 10 INPUTS; or the inputs from the last 10 TICKS!
-//  (in case of packet loss),
-
 /// A sender that simply sends the messages without checking if they were received
-/// Does not include any ordering information
+/// Acts as unreliable unordered, but sends the current tick with the message.
 pub struct TickUnreliableSender {
     /// list of single messages that we want to fit into packets and send
     single_messages_to_send: VecDeque<SingleData>,

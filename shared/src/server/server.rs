@@ -386,7 +386,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             }
             connection
                 .base
-                .buffer_spawn_entity(entity, components, replicate.channel)
+                .buffer_spawn_entity(entity, components, replicate.actions_channel)
             // if replicate.should_do_prediction {
             //     connection.base.buffer_component_insert(entity, , replicate.channel)
             //
@@ -404,7 +404,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             connection
                 .base
-                .buffer_despawn_entity(entity, replicate.channel)
+                .buffer_despawn_entity(entity, replicate.actions_channel)
         };
         self.apply_replication(replicate, buffer_message)
     }
@@ -429,7 +429,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             connection.base.buffer_update_entity_single_component(
                 entity,
                 component.clone(),
-                replicate.channel,
+                replicate.actions_channel,
             )
         };
         self.apply_replication(replicate, buffer_message)
@@ -450,7 +450,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             connection.base.buffer_component_remove(
                 entity,
                 component_kind.clone(),
-                replicate.channel,
+                replicate.actions_channel,
             )
         };
         self.apply_replication(replicate, buffer_message)
@@ -476,7 +476,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             connection.base.buffer_update_entity_single_component(
                 entity,
                 component.clone(),
-                replicate.channel,
+                replicate.updates_channel,
             )
         };
         self.apply_replication(replicate, buffer_message)
@@ -494,9 +494,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection
-                .base
-                .buffer_update_entity(entity, components.clone(), replicate.channel)
+            connection.base.buffer_update_entity(
+                entity,
+                components.clone(),
+                replicate.updates_channel,
+            )
         };
         self.apply_replication(replicate, buffer_message)
     }

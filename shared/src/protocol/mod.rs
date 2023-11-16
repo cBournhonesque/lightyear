@@ -50,7 +50,7 @@ macro_rules! protocolize {
                 ChannelDirection, ChannelMode
             };
             // TODO: use prelude?
-            use $shared_crate_name::{DefaultUnorderedUnreliableChannel, EntityUpdateChannel, InputChannel, PingChannel, TickBufferChannel};
+            use $shared_crate_name::{DefaultUnorderedUnreliableChannel, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel, TickBufferChannel};
 
             #[derive(Debug, Clone)]
             pub struct $protocol {
@@ -82,8 +82,12 @@ macro_rules! protocolize {
                     let mut protocol = Self {
                         channel_registry: ChannelRegistry::default(),
                     };
-                    protocol.add_channel::<EntityUpdateChannel>(ChannelSettings {
+                    protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+                        direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
+                        mode: ChannelMode::SequencedUnreliable,
                         direction: ChannelDirection::Bidirectional,
                     });
                     protocol.add_channel::<PingChannel>(ChannelSettings {

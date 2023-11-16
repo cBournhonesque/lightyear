@@ -26,6 +26,7 @@ use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
 /// Systems that try to see if we should perform rollback for the predicted entity.
 /// For each companent, we compare the confirmed component (server-state) with the history.
 /// If we need to run rollback, we clear the predicted history and snap the history back to the server-state
+// TODO: do not rollback if client is not time synced
 pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
     client: Res<Client<P>>,
@@ -50,6 +51,9 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
 // where
 // <P as Protocol>::Components: From<C>,
 {
+    if !client.is_synced() {
+        return;
+    }
     // TODO: can just enable bevy spans?
     let _span = trace_span!("client rollback check");
 
@@ -82,18 +86,31 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                     // 3.a We are still not sure if we should do rollback. Compare history against confirmed
                     // We rollback if there's no history (newly added predicted entity, or if there is a mismatch)
                     RollbackState::Default => {
-                        let should_rollback = predicted_history
-                            .get_history_at_tick(latest_server_tick)
+                        let history_value =
+                            predicted_history.get_history_at_tick(latest_server_tick);
+                        let should_rollback = history_value
                             .map_or(true, |history_value| history_value != *confirmed_component);
                         if should_rollback {
+                            // info!(
+                            //     "Rollback check: mismatch for component {:?} between predicted and confirmed {:?}", C::name(),
+                            //     confirmed_entity
+                            // );
+                            // TODO (unrelated): pattern for enabling replication-behaviour for a component/entity.
+                            //  Added a ReplicationBehaviour<C>.
+                            //  And then maybe we can add an EntityCommands extension that adds a ReplicationBehaviour<C>
+
+                            // TODO: WE ACTUALLY DONT NEED TO CLEAR THE HISTORY BECAUSE WE WILL ROLLBACK ANYWAY.
                             predicted_history.clear();
+                            // TODO: WE DON'T NEED TO WRITE THE HISTORY HERE, BECAUSE WE WILL NEVER USE THIS TICK AGAIN NORMALLY!
                             predicted_history
                                 .buffer
                                 .add_item(latest_server_tick, confirmed_component.clone());
                             *predicted_component = confirmed_component.clone();
                             // TODO: try atomic enum update
                             rollback.state = RollbackState::ShouldRollback {
-                                current_tick: latest_server_tick,
+                                // we already replicated the latest_server_tick state
+                                // after this we will start right away with a physics update, so we need to start taking the inputs from the next tick
+                                current_tick: latest_server_tick + 1,
                             };
                         }
                     }
