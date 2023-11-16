@@ -28,7 +28,11 @@ pub mod some_message {
         Component1(Component1),
     }
 
-    protocolize!(MyProtocol, MyMessageProtocol, MyComponentProtocol);
+    protocolize! {
+        Self = MyProtocol,
+        Message = MyMessageProtocol,
+        Component = MyComponentProtocol,
+    }
 }
 
 #[cfg(test)]

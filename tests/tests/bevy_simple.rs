@@ -22,7 +22,7 @@ fn client_init(mut client: ResMut<Client<MyProtocol>>) {
 fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
     commands.spawn(Replicate {
-        channel: ChannelKind::of::<Channel2>(),
+        updates_channel: ChannelKind::of::<Channel2>(),
         ..Default::default()
     });
 }

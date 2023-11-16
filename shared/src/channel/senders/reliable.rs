@@ -1,11 +1,7 @@
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashSet};
-#[cfg(not(test))]
-use std::time::Instant;
 
 use bytes::Bytes;
-#[cfg(test)]
-use mock_instant::Instant;
 
 use crate::channel::channel::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
@@ -251,13 +247,12 @@ mod tests {
     use std::time::Duration;
 
     use bytes::Bytes;
-    use mock_instant::MockClock;
 
     use crate::channel::channel::ReliableSettings;
     use crate::packet::message::SingleData;
+    use crate::WrappedTime;
 
     use super::ChannelSend;
-    use super::Instant;
     use super::MessageId;
     use super::ReliableSender;
 
@@ -267,7 +262,7 @@ mod tests {
             rtt_resend_factor: 1.5,
         });
         sender.current_rtt_millis = 100.0;
-        sender.current_time = Instant::now();
+        sender.current_time = WrappedTime::new(0);
 
         // Buffer a new message
         let mut message1 = Bytes::from("hello");
@@ -279,14 +274,12 @@ mod tests {
         assert_eq!(sender.single_messages_to_send.len(), 1);
 
         // Advance by a time that is below the resend threshold
-        MockClock::advance(Duration::from_millis(100));
-        sender.current_time = Instant::now();
+        sender.current_time += Duration::from_millis(100);
         sender.collect_messages_to_send();
         assert_eq!(sender.single_messages_to_send.len(), 1);
 
         // Advance by a time that is above the resend threshold
-        MockClock::advance(Duration::from_millis(200));
-        sender.current_time = Instant::now();
+        sender.current_time += Duration::from_millis(200);
         sender.collect_messages_to_send();
         assert_eq!(sender.single_messages_to_send.len(), 1);
         assert_eq!(
@@ -299,8 +292,7 @@ mod tests {
         assert_eq!(sender.unacked_messages.len(), 0);
 
         // Advance by a time that is above the resend threshold
-        MockClock::advance(Duration::from_millis(200));
-        sender.current_time = Instant::now();
+        sender.current_time += Duration::from_millis(200);
         // this time there are no new messages to send
         assert_eq!(sender.single_messages_to_send.len(), 1);
     }

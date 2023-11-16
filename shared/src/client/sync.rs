@@ -307,11 +307,11 @@ mod tests {
         );
         assert_eq!(
             sync_manager.ping_store.remove(PingId(1)),
-            Some(WrappedTime::new(120))
+            Some(WrappedTime::new(120000))
         );
         assert_eq!(
             sync_manager.ping_store.remove(PingId(2)),
-            Some(WrappedTime::new(220))
+            Some(WrappedTime::new(220000))
         );
 
         // receive pongs

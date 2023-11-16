@@ -189,7 +189,7 @@ pub struct PlayerId(ClientId);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(Vec2);
 
-#[derive(Component, Deserialize, Serialize, Clone)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(Color);
 
 #[derive(Channel)]
@@ -205,13 +205,16 @@ pub enum Components {
 #[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(usize);
 
-#[derive(Debug)]
 #[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     Message1(Message1),
 }
 
-protocolize!(MyProtocol, Messages, Components);
+protocolize! {
+    Self = MyProtocol,
+    Message = Messages,
+    Component = Components,
+}
 
 /// Server connection system
 fn server_handle_connections(

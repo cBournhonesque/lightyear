@@ -25,7 +25,7 @@ use lightyear_shared::{
 use lightyear_tests::protocol::{protocol, Channel2, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 use lightyear_tests::tick_once;
-use lightyear_tests::utils::{client, init_bevy_step, server, tick};
+use lightyear_tests::utils::{init_bevy_step, tick};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {
     info!("Connecting to server");
@@ -35,7 +35,6 @@ fn client_init(mut client: ResMut<Client<MyProtocol>>) {
 fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
     commands.spawn(Replicate {
-        channel: ChannelKind::of::<Channel2>(),
         ..Default::default()
     });
 }
@@ -60,14 +59,14 @@ fn test_bevy_step() -> anyhow::Result<()> {
     stepper.server_app.add_systems(Startup, server_init);
 
     // app start: check that tick increment works
-    stepper.step();
+    stepper.frame_step();
     assert_eq!(stepper.client().tick(), Tick(1));
-    stepper.step();
+    stepper.frame_step();
     assert_eq!(stepper.client().tick(), Tick(3));
 
     // check that time sync works
     for i in 0..60 {
-        tick_once!();
+        stepper.frame_step();
     }
 
     // check that connection is synced?
