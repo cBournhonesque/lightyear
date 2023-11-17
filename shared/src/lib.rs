@@ -16,6 +16,7 @@ pub use channel::channel::{
     DefaultUnorderedUnreliableChannel, EntityActionsChannel, EntityUpdatesChannel, InputChannel,
     PingChannel, ReliableSettings,
 };
+pub use client::Client;
 pub use connection::{Connection, ConnectionEvents};
 pub use inputs::input_buffer::{InputMessage, UserInput};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
@@ -50,6 +51,17 @@ pub use transport::udp::UdpSocket;
 pub use utils::named::{Named, TypeNamed};
 pub use utils::ready_buffer::ReadyBuffer;
 pub use utils::sequence_buffer::SequenceBuffer;
+
+pub mod prelude {
+    pub use crate::channel::channel::{
+        Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
+        DefaultUnorderedUnreliableChannel, EntityActionsChannel, EntityUpdatesChannel,
+        InputChannel, PingChannel, ReliableSettings,
+    };
+    pub use crate::protocolize;
+    pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
+    pub use netcode::ClientId;
+}
 
 pub mod channel;
 pub mod client;

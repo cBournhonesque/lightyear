@@ -1,0 +1,6 @@
+[book]
+authors = ["Charles Bournhonesque"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Lightyear cheatbook"

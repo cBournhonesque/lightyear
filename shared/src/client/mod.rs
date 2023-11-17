@@ -7,7 +7,7 @@ pub use input::InputSystemSet;
 pub use ping_manager::PingConfig;
 pub use plugin::{Plugin, PluginConfig};
 
-pub(crate) mod client;
+pub mod client;
 mod config;
 mod connection;
 mod events;
