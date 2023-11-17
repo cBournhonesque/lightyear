@@ -34,6 +34,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
     let shared_config = SharedConfig {
         enable_replication: false,
         tick: TickConfig::new(fixed_timestep),
+        ..Default::default()
     };
     let io_config = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
         LinkConditionerConfig {

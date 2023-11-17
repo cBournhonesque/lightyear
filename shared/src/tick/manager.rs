@@ -43,8 +43,8 @@ impl TickManager {
         trace!(new_tick = ?self.tick, "incremented client tick")
     }
 
-    pub fn increment_tick_by(&mut self, increment: u16) {
-        self.tick += increment;
+    pub fn set_tick_to(&mut self, tick: Tick) {
+        self.tick = tick;
     }
 
     //     /// Update the status of the TickManager after time advances by `elapsed`

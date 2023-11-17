@@ -1,5 +1,5 @@
 use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerPosition};
-use crate::shared::{shared_movement_behaviour, SHARED_CONFIG};
+use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear_shared::client::prediction::Predicted;
@@ -26,7 +26,7 @@ impl Plugin for ClientPlugin {
         };
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let config = ClientConfig {
-            shared: SHARED_CONFIG.clone(),
+            shared: shared_config().clone(),
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
             ping: lightyear_shared::client::PingConfig::default(),
@@ -86,6 +86,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     if keypress.pressed(KeyCode::Space) {
         return client.add_input(Inputs::Spawn);
     }
+    info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
     client.add_input(Inputs::Direction(input));
 }
 

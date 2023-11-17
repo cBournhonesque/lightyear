@@ -5,7 +5,7 @@ use config::SharedConfig;
 pub use replication::ReplicationData;
 pub use sets::ReplicationSet;
 
-pub(crate) mod config;
+pub mod config;
 pub mod events;
 pub(crate) mod log;
 mod replication;
@@ -28,9 +28,10 @@ impl Plugin for SharedPlugin {
         // app.add_systems(FixedUpdate, increment_tick);
 
         // TODO: set log config
+        let log_config = self.config.log.clone();
         app.add_plugins(log::LogPlugin {
-            level: Level::DEBUG,
-            filter: "wgpu=error,bevy_render=warn,naga=error,bevy_app=error,bevy=error".to_string(),
+            level: log_config.level,
+            filter: log_config.filter,
         });
     }
 }

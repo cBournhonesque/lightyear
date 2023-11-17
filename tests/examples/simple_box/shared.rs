@@ -1,14 +1,23 @@
 use crate::protocol::*;
 use bevy::prelude::*;
+use lightyear_shared::plugin::config::LogConfig;
 use lightyear_shared::{SharedConfig, TickConfig};
 use std::time::Duration;
+use tracing::Level;
 
-pub const SHARED_CONFIG: SharedConfig = SharedConfig {
-    enable_replication: false,
-    tick: TickConfig {
-        tick_duration: Duration::from_millis(16),
-    },
-};
+pub fn shared_config() -> SharedConfig {
+    SharedConfig {
+        enable_replication: false,
+        tick: TickConfig {
+            tick_duration: Duration::from_millis(16),
+        },
+        log: LogConfig {
+            level: Level::INFO,
+            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn"
+                .to_string(),
+        },
+    }
+}
 
 pub struct SharedPlugin;
 

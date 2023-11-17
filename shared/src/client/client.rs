@@ -125,7 +125,7 @@ impl<P: Protocol> Client<P> {
     }
 
     pub fn latest_received_server_tick(&self) -> Tick {
-        self.connection.latest_received_server_tick
+        self.connection.sync_manager.latest_received_server_tick
     }
 
     pub(crate) fn increment_tick(&mut self) {

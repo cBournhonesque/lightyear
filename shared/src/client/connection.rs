@@ -21,10 +21,6 @@ pub struct Connection<P: Protocol> {
     // pub(crate) ping_manager: PingManager,
     pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
-    // TODO: see if this is correct; should we instead attach the tick on every update message?
-    /// Tick of the server that we last received in any packet from the server.
-    /// This is not updated every tick!
-    pub(crate) latest_received_server_tick: Tick,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
@@ -38,7 +34,6 @@ impl<P: Protocol> Connection<P> {
                 ping_config.sync_num_pings,
                 ping_config.sync_ping_interval_ms,
             ),
-            latest_received_server_tick: Tick(0),
         }
     }
 
@@ -76,8 +71,8 @@ impl<P: Protocol> Connection<P> {
 
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<()> {
         let tick = self.base.recv_packet(reader)?;
-        if tick > self.latest_received_server_tick {
-            self.latest_received_server_tick = tick;
+        if tick > self.sync_manager.latest_received_server_tick {
+            self.sync_manager.latest_received_server_tick = tick;
         }
         Ok(())
     }

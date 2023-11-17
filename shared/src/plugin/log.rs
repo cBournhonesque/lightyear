@@ -34,6 +34,7 @@ static GLOBAL: tracy_client::ProfiledAllocator<std::alloc::System> =
 /// This plugin should not be added multiple times in the same process. This plugin
 /// sets up global logging configuration for **all** Apps in a given process, and
 /// rerunning the same initialization multiple times will lead to a panic.
+// TODO: take directly log config?
 pub struct LogPlugin {
     /// Filters logs using the [`EnvFilter`] format
     pub filter: String,

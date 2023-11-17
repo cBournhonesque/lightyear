@@ -7,6 +7,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use bevy::log::LogPlugin;
+use bevy::prelude::default;
 use bevy::prelude::{App, Commands, PluginGroup, Real, ResMut, Startup, Time};
 use bevy::time::TimeUpdateStrategy;
 use bevy::winit::WinitPlugin;
@@ -46,6 +47,7 @@ fn test_bevy_step() -> anyhow::Result<()> {
     let shared_config = SharedConfig {
         enable_replication: false,
         tick: TickConfig::new(tick_duration),
+        ..default()
     };
     let link_conditioner = LinkConditionerConfig {
         incoming_latency: 45,

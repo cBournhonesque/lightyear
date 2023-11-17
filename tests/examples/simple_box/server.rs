@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::shared::{shared_movement_behaviour, SHARED_CONFIG};
+use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear_shared::plugin::events::InputEvent;
@@ -21,7 +21,7 @@ impl Plugin for ServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let config = ServerConfig {
-            shared: SHARED_CONFIG.clone(),
+            shared: shared_config().clone(),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
             ping: PingConfig::default(),
@@ -90,11 +90,13 @@ pub(crate) fn movement(
     mut position_query: Query<&mut PlayerPosition>,
     mut input_reader: EventReader<InputEvent<Inputs, ClientId>>,
     global: Res<Global>,
+    server: Res<Server<MyProtocol>>,
 ) {
     for input in input_reader.read() {
         let client_id = input.context();
         if input.input().is_some() {
             let input = input.input().as_ref().unwrap();
+            info!("Receiving input: {:?} on tick: {:?}", input, server.tick());
             // TODO: on the server-side maintain a map from client_id to entity_id
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(mut position) = position_query.get_mut(*player_entity) {

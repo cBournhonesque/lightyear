@@ -5,6 +5,7 @@ use bevy::time::TimerMode;
 use chrono::Duration as ChronoDuration;
 use tracing::{info, trace};
 
+use crate::tick::Tick;
 use crate::{
     PingId, PingStore, TickManager, TimeManager, TimeSyncPingMessage, TimeSyncPongMessage,
 };
@@ -25,6 +26,11 @@ pub struct SyncManager {
     ping_store: PingStore,
     /// ping id corresponding to the most recent pong received
     most_recent_received_ping: PingId,
+    // TODO: see if this is correct; should we instead attach the tick on every update message?
+    /// Tick of the server that we last received in any packet from the server.
+    /// This is not updated every tick, but only when we receive a packet from the server.
+    /// (usually every frame)
+    pub(crate) latest_received_server_tick: Tick,
     /// whether the handshake is finalized
     synced: bool,
 }
@@ -47,6 +53,7 @@ impl SyncManager {
             ping_store: PingStore::new(),
             // start at -1 so that any first ping is more recent
             most_recent_received_ping: PingId(u16::MAX - 1),
+            latest_received_server_tick: Tick(0),
             synced: false,
         }
     }
@@ -231,7 +238,7 @@ impl SyncManager {
             ?delta_tick,
             "Finished syncing!"
         );
-        tick_manager.increment_tick_by(delta_tick)
+        tick_manager.set_tick_to(self.latest_received_server_tick + Tick(delta_tick))
     }
 }
 

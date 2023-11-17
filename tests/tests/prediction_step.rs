@@ -121,6 +121,7 @@ fn test_bevy_step_prediction() -> anyhow::Result<()> {
     let shared_config = SharedConfig {
         enable_replication: false,
         tick: TickConfig::new(tick_duration),
+        ..Default::default()
     };
     let link_conditioner = LinkConditionerConfig {
         incoming_latency: 40,

@@ -23,6 +23,7 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
         shared: SharedConfig {
             enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
+            ..Default::default()
         },
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
@@ -42,6 +43,7 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
         shared: SharedConfig {
             enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
+            ..Default::default()
         },
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),

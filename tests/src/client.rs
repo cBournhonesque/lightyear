@@ -17,6 +17,7 @@ pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
         shared: SharedConfig {
             enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
+            ..Default::default()
         },
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
@@ -34,6 +35,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         shared: SharedConfig {
             enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
+            ..Default::default()
         },
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),

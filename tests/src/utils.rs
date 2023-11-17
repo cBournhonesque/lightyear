@@ -62,6 +62,7 @@ pub fn init_bevy_step() -> (App, App) {
     let shared_config = SharedConfig {
         enable_replication: false,
         tick: TickConfig::new(fixed_timestep),
+        ..Default::default()
     };
 
     // Setup server
