@@ -96,6 +96,50 @@ impl SyncManager {
         None
     }
 
+    // TODO:
+    // - on client, when we send a packet, we record its instant
+    //   when we receive a packet, we check its acks. if the ack is one of the packets we sent, we use that
+    //   to update our RTT estimate
+    // TODO: when we receive a packet on the client, we check the acks and we learn when the packet
+
+    /// Update the client time ("upstream-throttle"): speed-up or down depending on the
+    pub(crate) fn update_client_time(
+        &mut self,
+        time_manager: &mut TimeManager,
+        tick_manager: &mut TickManager,
+    ) {
+        // The objective of update-client-time is to make sure the client packets for tick T arrive on server before server reaches tick T
+        // but not too far ahead
+
+        // TODO: add overstep()! (provide it in TimeManager?)
+        let overstep = 0.0;
+        let current_client_time =
+            (tick_manager.current_tick() / tick_manager.config.tick_duration) + overstep;
+
+        let duration_since_last_received_server_tick = 0.0;
+        let current_server_time = (self.latest_received_server_tick
+            / tick_manager.config.tick_duration)
+            + duration_since_last_received_server_tick;
+
+        let current_rtt_pred = 0.0;
+        let current_jitter_pred = 0.0;
+
+        // time at which the server would receive a packet we send now
+        let time_server_receive = current_server_time + current_rtt_pred;
+        // how far ahead of the server am I?
+        let client_ahead_delta = current_client_time - time_server_receive;
+        // how far ahead of the server should I be?
+
+        let client_ahead_minimum = k * rtt_dev + N / tick_rate;
+        // we want client_ahead_delta > 3 * RTT_stddev + N / tick_rate to be safe
+        let error = client_head_delta - client_ahead_minimum;
+        if error > epsilon {
+            // we are too far ahead of the server, slow down
+        } else {
+            // we are too far behind the server, speed up
+        }
+    }
+
     // TODO: USE KALMAN FILTERS?
 
     /// Received a pong: update

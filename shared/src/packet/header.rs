@@ -133,6 +133,7 @@ impl PacketHeaderManager {
         if self.sent_packets_not_acked.contains(packet_id) {
             // TODO: make this non-blocking, but keep trying until it works?
             // notify that one of the packets we sent got acked
+            // TODO: important to compute RTT
             // self.ack_notification_sender.send(*packet_id)?;
 
             self.sent_packets_not_acked.remove(packet_id);
