@@ -1,4 +1,4 @@
-use bevy::prelude::{Events, Mut, ResMut, Time, World};
+use bevy::prelude::{Events, Fixed, Mut, ResMut, Time, Virtual, World};
 use tracing::{debug, trace};
 
 use crate::client::Client;
@@ -10,7 +10,8 @@ use crate::{
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
     world.resource_scope(|world, mut client: Mut<Client<P>>| {
-        let time = world.get_resource::<Time>().unwrap();
+        let time = world.get_resource::<Time<Virtual>>().unwrap();
+        let fixed_time = world.get_resource::<Time<Fixed>>().unwrap();
 
         // TODO: here we can control time elapsed from the client's perspective?
 
@@ -22,7 +23,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
 
         // update client state, send keep-alives, receive packets from io
-        client.update(time.delta()).unwrap();
+        client.update(time, fixed_time).unwrap();
         // buffer packets into message managers
         client.recv_packets().unwrap();
         // receive packets from message managers

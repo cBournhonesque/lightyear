@@ -86,8 +86,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                     // 3.a We are still not sure if we should do rollback. Compare history against confirmed
                     // We rollback if there's no history (newly added predicted entity, or if there is a mismatch)
                     RollbackState::Default => {
-                        let history_value =
-                            predicted_history.get_history_at_tick(latest_server_tick);
+                        let history_value = predicted_history.pop_until_tick(latest_server_tick);
                         let should_rollback = history_value
                             .map_or(true, |history_value| history_value != *confirmed_component);
                         if should_rollback {

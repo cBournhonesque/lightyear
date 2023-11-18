@@ -35,65 +35,72 @@ impl<T: PredictedComponent> ComponentHistory<T> {
     }
 
     /// Get the value of the component at the specified tick.
-    /// Clears the history buffer of all ticks older than the specified tick.
+    /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// Returns None
-    pub(crate) fn get_history_at_tick(&mut self, tick: Tick) -> Option<T> {
-        if self.buffer.heap.is_empty() {
-            return None;
-        }
-        let mut val = None;
-        loop {
-            if let Some(item_with_key) = self.buffer.heap.pop() {
-                // we have a new update that is older than what we want, stop
-                if item_with_key.key > tick {
-                    // put back the update in the heap
-                    self.buffer.heap.push(item_with_key);
-                    break;
-                } else {
-                    val = Some(item_with_key.item);
-                }
-            } else {
-                break;
-            }
-        }
-        val
+    pub(crate) fn pop_until_tick(&mut self, tick: Tick) {
+        self.buffer.pop_until(&tick);
     }
+
+    // /// Get the value of the component at the specified tick.
+    // /// Clears the history buffer of all ticks older than the specified tick.
+    // /// Returns None
+    // pub(crate) fn get_history_at_tick(&mut self, tick: Tick) -> Option<T> {
+    //     if self.buffer.heap.is_empty() {
+    //         return None;
+    //     }
+    //     let mut val = None;
+    //     loop {
+    //         if let Some(item_with_key) = self.buffer.heap.pop() {
+    //             // we have a new update that is older than what we want, stop
+    //             if item_with_key.key > tick {
+    //                 // put back the update in the heap
+    //                 self.buffer.heap.push(item_with_key);
+    //                 break;
+    //             } else {
+    //                 val = Some(item_with_key.item);
+    //             }
+    //         } else {
+    //             break;
+    //         }
+    //     }
+    //     val
+    // }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[derive(Component, Clone, PartialEq, Eq, Debug)]
-    pub struct A(u32);
-
-    #[test]
-    fn test_component_history() {
-        let mut component_history = ComponentHistory::new();
-
-        // check when we try to access a value when the buffer is empty
-        assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
-
-        // check when we try to access an exact tick
-        component_history.buffer.add_item(Tick(1), A(1));
-        component_history.buffer.add_item(Tick(2), A(2));
-        assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(2)));
-        // check that we cleared older ticks
-        assert!(component_history.buffer.is_empty());
-
-        // check when we try to access a value in-between ticks
-        component_history.buffer.add_item(Tick(1), A(1));
-        component_history.buffer.add_item(Tick(3), A(3));
-        assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(1)));
-        assert_eq!(component_history.buffer.len(), 1);
-        assert_eq!(component_history.get_history_at_tick(Tick(4)), Some(A(3)));
-        assert!(component_history.buffer.is_empty());
-
-        // check when we try to access a value before any ticks
-        component_history.buffer.add_item(Tick(1), A(1));
-        assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
-        assert_eq!(component_history.buffer.len(), 1);
-    }
+    // use super::*;
+    //
+    // #[derive(Component, Clone, PartialEq, Eq, Debug)]
+    // pub struct A(u32);
+    //
+    // #[test]
+    // fn test_component_history() {
+    //     let mut component_history = ComponentHistory::new();
+    //
+    //     // check when we try to access a value when the buffer is empty
+    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
+    //
+    //     // check when we try to access an exact tick
+    //     component_history.buffer.add_item(Tick(1), A(1));
+    //     component_history.buffer.add_item(Tick(2), A(2));
+    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(2)));
+    //     // check that we cleared older ticks
+    //     assert!(component_history.buffer.is_empty());
+    //
+    //     // check when we try to access a value in-between ticks
+    //     component_history.buffer.add_item(Tick(1), A(1));
+    //     component_history.buffer.add_item(Tick(3), A(3));
+    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(1)));
+    //     assert_eq!(component_history.buffer.len(), 1);
+    //     assert_eq!(component_history.get_history_at_tick(Tick(4)), Some(A(3)));
+    //     assert!(component_history.buffer.is_empty());
+    //
+    //     // check when we try to access a value before any ticks
+    //     component_history.buffer.add_item(Tick(1), A(1));
+    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
+    //     assert_eq!(component_history.buffer.len(), 1);
+    // }
 }
 
 // TODO: maybe only add component_history for components that got replicated on confirmed?

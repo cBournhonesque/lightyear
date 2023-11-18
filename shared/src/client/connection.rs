@@ -4,6 +4,8 @@ use anyhow::Result;
 
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
+use crate::packet::packet::PacketId;
+use crate::packet::packet_manager::Payload;
 use crate::tick::Tick;
 use crate::{
     ChannelKind, ChannelRegistry, PingChannel, Protocol, ReadBuffer, SyncMessage, TickManager,
@@ -42,31 +44,55 @@ impl<P: Protocol> Connection<P> {
         self.input_buffer.buffer.push(&tick, input);
     }
 
-    pub fn update(
-        &mut self,
-        delta: Duration,
-        time_manager: &TimeManager,
-        tick_manager: &TickManager,
-    ) {
+    pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.base.update(time_manager, tick_manager);
-        self.sync_manager.update(delta);
+        self.sync_manager.update(time_manager);
         // TODO: maybe prepare ping?
         // self.ping_manager.update(delta);
 
-        // if not synced, keep doing syncing
-        if !self.sync_manager.is_synced() {
-            if let Some(sync_ping) = self
-                .sync_manager
-                .maybe_prepare_ping(time_manager, tick_manager)
-            {
-                let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPing(sync_ping));
-                let channel = ChannelKind::of::<PingChannel>();
-                self.base
-                    .message_manager
-                    .buffer_send(message, channel)
-                    .unwrap();
-            }
+        // client send pings to estimate rtt
+        if let Some(sync_ping) = self
+            .sync_manager
+            .maybe_prepare_ping(time_manager, tick_manager)
+        {
+            let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPing(sync_ping));
+            let channel = ChannelKind::of::<PingChannel>();
+            self.base
+                .message_manager
+                .buffer_send(message, channel)
+                .unwrap();
         }
+    }
+
+    pub fn send_packets(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<Vec<(Payload, PacketId)>> {
+        Ok(self
+            .base
+            .message_manager
+            .send_packets(tick_manager.current_tick())?
+            .iter()
+            .map(|(payload, packet_id)| {
+                // record the packet send time in the sync manager (so that when we receive an ack for that packet
+                // we can estimate the RTT)
+                // TODO: the problem with this approach is that the server might not be (or even running receive) sending packets back every frame!
+                //  potential delays not accounted for:
+                //  - the server received the packet physically but didn't call io.recv()
+                //  - the packet was io.recv() but the server doesn't send any packet back
+                //  - time between recv() and send()
+                //  THIS MEANS WE SHOULD ONLY SEND PING MESSAGES FOR RTT! ALSO THE PONG INCLUDES
+                //  SERVER_RECV_TIME AND SERVER_SEND_TIME, SO WE CAN REMOVE THAT TIME FROM THE RTT
+
+                //  if it doesn't, then the ack time cannot be used for RTT.
+                //  But realistic the server does
+                self.sync_manager
+                    .record_sent_packet(*packet_id, time_manager.now());
+
+                payload
+            })
+            .collect())
     }
 
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<()> {

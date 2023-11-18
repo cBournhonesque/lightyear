@@ -7,7 +7,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 /// when the key associated with the item is less than or equal to the current key
 ///
 /// The most recent item (by associated key) is returned first
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ReadyBuffer<K: Ord, T: Eq + PartialEq> {
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
@@ -50,6 +50,29 @@ impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
             }
         }
         None
+    }
+
+    /// Pop all items that are older than the provided key, then return the value for the provided key
+    pub(crate) fn pop_until(&mut self, key: &K) -> Option<T> {
+        if self.heap.is_empty() {
+            return None;
+        }
+        let mut val = None;
+        loop {
+            if let Some(item_with_key) = self.heap.pop() {
+                // we have a new update that is older than what we want, stop
+                if item_with_key.key > key {
+                    // put back the update in the heap
+                    self.heap.push(item_with_key);
+                    break;
+                } else {
+                    val = Some(item_with_key.item);
+                }
+            } else {
+                break;
+            }
+        }
+        val
     }
 
     /// Returns the length of the underlying queue
@@ -95,6 +118,7 @@ impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
 mod tests {
     use std::time::Duration;
 
+    use crate::tick::Tick;
     use mock_instant::Instant;
     use mock_instant::MockClock;
 
@@ -119,5 +143,33 @@ mod tests {
         matches!(heap.pop_item(&Instant::now()), Some((_, 2)));
         assert_eq!(heap.pop_item(&Instant::now()), None);
         assert_eq!(heap.len(), 1);
+    }
+
+    #[test]
+    fn test_pop_until() {
+        let mut buffer = ReadyBuffer::new();
+
+        // check when we try to access a value when the buffer is empty
+        assert_eq!(buffer.pop_until(&Tick(0)), None);
+
+        // check when we try to access an exact tick
+        buffer.add_item(Tick(1), 1);
+        buffer.add_item(Tick(2), 2);
+        assert_eq!(buffer.pop_until(&Tick(2)), Some(2));
+        // check that we cleared older ticks
+        assert!(buffer.is_empty());
+
+        // check when we try to access a value in-between ticks
+        buffer.add_item(Tick(1), 1);
+        buffer.add_item(Tick(3), 3);
+        assert_eq!(buffer.pop_until(&Tick(2)), Some(1));
+        assert_eq!(buffer.len(), 1);
+        assert_eq!(buffer.pop_until(&Tick(4)), Some(3));
+        assert!(buffer.is_empty());
+
+        // check when we try to access a value before any ticks
+        buffer.add_item(Tick(1), 1);
+        assert_eq!(buffer.pop_until(&Tick(0)), None);
+        assert_eq!(buffer.len(), 1);
     }
 }

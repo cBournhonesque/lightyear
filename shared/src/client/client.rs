@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::Result;
-use bevy::prelude::{Resource, World};
+use bevy::prelude::{Fixed, Resource, Time, Virtual, World};
 use tracing::trace;
 
 use crate::inputs::input_buffer::InputBuffer;
@@ -135,8 +135,9 @@ impl<P: Protocol> Client<P> {
     // REPLICATION
 
     /// Maintain connection with server, queues up any packet received from the server
-    pub fn update(&mut self, delta: Duration) -> Result<()> {
-        self.time_manager.update(delta);
+    pub fn update(&mut self, time: &Time<Virtual>, fixed_time: &Time<Fixed>) -> Result<()> {
+        let delta = time.delta();
+        self.time_manager.update(time, fixed_time);
         // self.tick_manager.update(delta);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 
@@ -144,7 +145,7 @@ impl<P: Protocol> Client<P> {
         // once we are connected
         if self.netcode.is_connected() {
             self.connection
-                .update(delta, &self.time_manager, &self.tick_manager);
+                .update(&self.time_manager, &self.tick_manager);
         }
 
         Ok(())

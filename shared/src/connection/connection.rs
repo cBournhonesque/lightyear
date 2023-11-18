@@ -6,6 +6,7 @@ use tracing::{trace, trace_span};
 
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message_manager::MessageManager;
+use crate::packet::packet::PacketId;
 use crate::packet::packet_manager::Payload;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
@@ -255,7 +256,7 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Send packets that are ready to be sent
-    pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<Payload>> {
+    pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<(Payload, PacketId)>> {
         self.message_manager
             .send_packets(tick_manager.current_tick())
     }

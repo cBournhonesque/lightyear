@@ -77,7 +77,7 @@ impl<M: BitSerializable> MessageManager<M> {
     // TODO: maybe pass TickManager instead of Tick? Find a more elegant way to pass extra data that might not be used?
     //  (ticks are not purely necessary without client prediction)
     //  maybe be generic over a Context ?
-    pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<Payload>> {
+    pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<(Payload, PacketId)>> {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
@@ -99,14 +99,18 @@ impl<M: BitSerializable> MessageManager<M> {
         // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
         for mut packet in packets {
+            let packet_id = packet.header().packet_id;
+
             // set the current tick
             packet.header.tick = current_tick;
             trace!(?packet, "Sending packet");
+
             // Step 2. Get the packets to send over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
-            bytes.push(payload);
+            bytes.push((payload, packet_id));
             // io.send(payload, &self.remote_addr)?;
 
+            // TODO: update this to be cleaner
             // TODO: should we update this to include fragment info as well?
             // Step 3. Update the packet_to_message_id_map (only for reliable channels)
             packet
@@ -121,7 +125,6 @@ impl<M: BitSerializable> MessageManager<M> {
                         .channels
                         .get(channel_kind)
                         .context("Channel not found")?;
-                    let packet_id = packet.header().packet_id;
                     if channel.setting.mode.is_reliable() {
                         self.packet_to_message_ack_map
                             .entry(packet_id)

@@ -1,3 +1,4 @@
+use bevy::prelude::{Fixed, Time, Virtual};
 use std::cmp::Ordering;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
@@ -6,26 +7,39 @@ use bitcode::{Decode, Encode};
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
 
-// TODO: still keep around the old wrapped time with wrapping
-
 // wrapping time: u32::MAX in microseconds (a bit over an hour)
 pub const WRAPPING_TIME_US: u32 = u32::MAX;
 
 pub struct TimeManager {
     wrapped_time: WrappedTime,
+    overstep: Duration,
+    delta: Duration,
 }
 
 impl TimeManager {
     pub fn new() -> Self {
         Self {
             wrapped_time: WrappedTime::new(0),
+            overstep: Duration::default(),
+            delta: Duration::default(),
         }
+    }
+
+    pub fn delta(&self) -> Duration {
+        self.delta
+    }
+
+    pub fn overstep(&self) -> Duration {
+        self.overstep
     }
 
     /// Update the time by matching the virtual time from bevy
     /// (time from server start, wrapped around the hour)
-    pub fn update(&mut self, delta: Duration) {
-        self.wrapped_time += delta;
+    pub fn update(&mut self, time: &Time<Virtual>, fixed_time: &Time<Fixed>) {
+        self.delta = time.delta();
+        self.wrapped_time += self.delta;
+        // set the overstep to the overstep of fixed_time
+        self.overstep = fixed_time.overstep();
     }
 
     // pub fn subtract_millis(&mut self, offset_ms: u32) {
@@ -50,6 +64,7 @@ impl TimeManager {
 
 /// Time since start of server, in milliseconds
 /// Serializes in a compact manner
+/// Wraps around u32::max
 #[derive(Default, Encode, Decode, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WrappedTime {
     // Amount of time elapsed since the start of the server, in microseconds
