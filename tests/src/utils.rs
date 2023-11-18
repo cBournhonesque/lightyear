@@ -7,7 +7,7 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::{Authentication, ClientConfig};
+use lightyear_shared::client::{Authentication, ClientConfig, SyncConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, ServerConfig};
 use lightyear_shared::{
@@ -106,6 +106,7 @@ pub fn init_bevy_step() -> (App, App) {
             jitter_ms_initial_estimate: Default::default(),
             rtt_smoothing_factor: 0.0,
         },
+        sync: SyncConfig::default(),
     };
     let plugin_config = lightyear_shared::client::PluginConfig::new(config, protocol(), auth);
     let plugin = lightyear_shared::client::Plugin::new(plugin_config);

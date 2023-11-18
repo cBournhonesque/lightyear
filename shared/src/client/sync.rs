@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use bevy::prelude::Timer;
 use bevy::time::TimerMode;
+use bitvec::macros::internal::funty::Fundamental;
 use chrono::Duration as ChronoDuration;
 use tracing::{info, trace};
 
@@ -12,23 +13,40 @@ use crate::{
     TimeSyncPongMessage, WrappedTime,
 };
 
+#[derive(Clone, Debug)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time
     /// a packet will get received by the server
     /// (worst case will be RTT / 2 + jitter * multiple_margin)
+    /// % of packets that will be received within k * jitter
+    /// 1: 65%, 2: 95%, 3: 99.7%
     pub jitter_multiple_margin: u8,
+    /// How many ticks to we apply as margin when computing the time
+    ///  a packet will get received by the server
     pub tick_margin: u8,
+    /// How often do we send sync pings
     pub sync_ping_interval: Duration,
     /// Number of pings to exchange with the server before finalizing the handshake
     pub handshake_pings: u8,
+    /// Duration of the rolling buffer of stats to compute RTT/jitter
+    pub stats_buffer_duration: Duration,
+    /// Error margin for upstream throttle (in multiple of ticks)
+    pub error_margin: f32,
+    // TODO: instead of constant speedup_factor, the speedup should be linear w.r.t the offset
+    /// By how much should we speed up the simulation to make ticks stay in sync with server?
+    pub speedup_factor: f32,
 }
 
 impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
             jitter_multiple_margin: 3,
+            tick_margin: 0,
             sync_ping_interval: Duration::from_millis(100),
             handshake_pings: 10,
+            stats_buffer_duration: Duration::from_secs(2),
+            error_margin: 0.5,
+            speedup_factor: 1.05,
         }
     }
 }
@@ -50,37 +68,45 @@ impl SentPacketStore {
 /// right after the connection is established
 pub struct SyncManager {
     config: SyncConfig,
-    current_handshake: u8,
 
+    // pings
     /// Timer to send regular pings to server
     ping_timer: Timer,
-    sync_stats: SyncStatsBuffer,
-    /// Current best estimates of various networking statistics
-    final_stats: FinalStats,
-
-    /// sent packet store to track the time we sent each packet
-    sent_packet_store: SentPacketStore,
     /// ping store to track which time sync pings we sent
     ping_store: PingStore,
     /// ping id corresponding to the most recent pong received
     most_recent_received_ping: PingId,
+
+    // stats
+    /// Buffer to store the stats of the last
+    sync_stats: SyncStatsBuffer,
+    /// Current best estimates of various networking statistics
+    final_stats: FinalStats,
+    /// whether the handshake is finalized
+    synced: bool,
+
+    // /// sent packet store to track the time we sent each packet
+    // sent_packet_store: SentPacketStore,
+
+    // ticks
     // TODO: see if this is correct; should we instead attach the tick on every update message?
     /// Tick of the server that we last received in any packet from the server.
     /// This is not updated every tick, but only when we receive a packet from the server.
     /// (usually every frame)
     pub(crate) latest_received_server_tick: Tick,
-    /// whether the handshake is finalized
-    synced: bool,
+    pub(crate) duration_since_latest_received_server_tick: Duration,
 }
 
 /// The final stats that we care about
 #[derive(Default)]
 pub struct FinalStats {
-    pub rtt_ms: f32,
-    pub jitter_ms: f32,
+    pub rtt: Duration,
+    pub jitter: Duration,
 }
 
 /// NTP algorithm stats
+// TODO: maybe use Duration?
+#[derive(Debug, PartialEq, Eq)]
 pub struct SyncStats {
     // clock offset: a positive value means that the client clock is faster than server clock
     pub(crate) offset_ms: f32,
@@ -104,34 +130,36 @@ impl SyncManager {
     pub fn new(config: SyncConfig) -> Self {
         Self {
             config,
-            current_handshake: 0,
+            // pings
             ping_timer: Timer::new(config.sync_ping_interval.clone(), TimerMode::Repeating),
-            sync_stats: SyncStatsBuffer::new(),
-            // sent_packet_store: SentPacketStore::new(),
-            final_stats: FinalStats::default(),
-            sent_packet_store: SentPacketStore::default(),
             ping_store: PingStore::new(),
-            // start at -1 so that any first ping is more recent
             most_recent_received_ping: PingId(u16::MAX - 1),
-            latest_received_server_tick: Tick(0),
+            // sync
+            sync_stats: SyncStatsBuffer::new(),
+            final_stats: FinalStats::default(),
             synced: false,
+            // sent_packet_store: SentPacketStore::default(),
+            // start at -1 so that any first ping is more recent
+            latest_received_server_tick: Tick(0),
+            duration_since_latest_received_server_tick: Duration::default(),
         }
     }
 
-    pub fn rtt(&self) -> f32 {
-        self.final_stats.rtt_ms
+    pub fn rtt(&self) -> Duration {
+        self.final_stats.rtt
     }
 
-    pub fn jitter(&self) -> f32 {
-        self.final_stats.jitter_ms
+    pub fn jitter(&self) -> Duration {
+        self.final_stats.jitter
     }
 
     pub(crate) fn update(&mut self, time_manager: &TimeManager) {
         self.ping_timer.tick(time_manager.delta());
+        self.duration_since_latest_received_server_tick += time_manager.delta();
 
         if self.synced {
             // clear stats that are older than a threshold, such as 2 seconds
-            let oldest_time = time_manager.current_time() - ChronoDuration::seconds(2);
+            let oldest_time = time_manager.current_time() - self.config.stats_buffer_duration;
             self.sync_stats.buffer.pop_until(&oldest_time);
 
             // recompute RTT jitter from the last 2-seconds of stats
@@ -149,8 +177,8 @@ impl SyncManager {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Option<TimeSyncPingMessage> {
-        if self.ping_timer.finished() || self.current_handshake == 0 {
-            self.current_handshake += 1;
+        // TODO: should we have something to start sending a sync ping right away?
+        if self.ping_timer.finished() {
             self.ping_timer.reset();
 
             let ping_id = self
@@ -229,9 +257,9 @@ impl SyncManager {
         // TODO: recompute rtt_stdv from pruned ?
 
         FinalStats {
-            rtt_ms: pruned_rtt_mean,
+            rtt: Duration::from_secs_f32(pruned_rtt_mean / 1000.0),
             // jitter is based on one-way delay, so we divide by 2
-            jitter_ms: rtt_stdv / 2,
+            jitter: Duration::from_secs_f32((rtt_stdv / 2) / 1000.0),
         }
     }
 
@@ -241,43 +269,92 @@ impl SyncManager {
     //   to update our RTT estimate
     // TODO: when we receive a packet on the client, we check the acks and we learn when the packet
 
+    /// current server time from server's point of view (using server tick)
+    fn current_server_time(&self, tick_manager: &TickManager) -> WrappedTime {
+        WrappedTime::from_duration(
+            self.latest_received_server_tick.0 as u32 * tick_manager.config.tick_duration
+                + self.duration_since_latest_received_server_tick
+                + self.rtt() / 2,
+        )
+    }
+
+    /// time at which the server would receive a packet we send now
+    fn predicted_server_receive_time(&self, tick_manager: &TickManager) -> WrappedTime {
+        self.current_server_time(tick_manager) + self.rtt() / 2
+    }
+
+    /// how far ahead of the server should I be?
+    fn client_ahead_minimum(&self, tick_manager: &TickManager) -> Duration {
+        self.config.jitter_multiple_margin * self.jitter()
+            + self.config.tick_margin / tick_manager.config.tick_duration
+    }
+
     /// Update the client time ("upstream-throttle"): speed-up or down depending on the
     pub(crate) fn update_client_time(
         &mut self,
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
     ) {
+        let rtt = self.rtt();
+        let jitter = self.jitter();
         // The objective of update-client-time is to make sure the client packets for tick T arrive on server before server reaches tick T
         // but not too far ahead
-
         let overstep = time_manager.overstep();
-        let current_client_time =
-            (tick_manager.current_tick() / tick_manager.config.tick_duration) + overstep;
 
-        let duration_since_last_received_server_tick = 0.0;
-        let current_server_time = (self.latest_received_server_tick
-            / tick_manager.config.tick_duration)
-            + duration_since_last_received_server_tick
-            + self.rtt();
-
-        let current_rtt_pred = 0.0;
-        let current_jitter_pred = 0.0;
-
-        // time at which the server would receive a packet we send now
-        let time_server_receive = current_server_time + current_rtt_pred;
-        // how far ahead of the server am I?
-        let client_ahead_delta = current_client_time - time_server_receive;
-        // how far ahead of the server should I be?
-
-        let client_ahead_minimum = self.config.jitter_multiple_margin * self.jitter()
-            + N / tick_manager.config.tick_duration;
-        // we want client_ahead_delta > 3 * RTT_stddev + N / tick_rate to be safe
-        let error = client_head_delta - client_ahead_minimum;
-        if error > epsilon {
-            // we are too far ahead of the server, slow down
-        } else {
-            // we are too far behind the server, speed up
+        // NOTE: careful! We know that client tick should always be ahead of server tick.
+        //  let's assume that this is the case after we did tick syncing
+        //  so if we are behind, that means that the client tick wrapped around.
+        //  for the purposes of the sync computations, the client tick should be ahead
+        let mut client_tick_raw = tick_manager.current_tick().0;
+        if client_tick_raw < self.latest_received_server_tick.0 {
+            client_tick_raw = client_tick_raw + u16::MAX;
         }
+        let current_client_time = WrappedTime::from_duration(
+            tick_manager.config.tick_duration * client_tick_raw as u32 + overstep,
+        );
+
+        // current server time from server's point of view (using server tick)
+        let current_server_time = self.current_server_time(tick_manager);
+        // time at which the server would receive a packet we send now
+        let predicted_server_receive_time = self.predicted_server_receive_time(tick_manager);
+
+        // how far ahead of the server am I?
+        let client_ahead_delta = current_client_time - predicted_server_receive_time;
+        // how far ahead of the server should I be?
+        let client_ahead_minimum = self.client_ahead_minimum(tick_manager);
+
+        // we want client_ahead_delta > 3 * RTT_stddev + N / tick_rate to be safe
+        let error = client_ahead_delta - chrono::Duration::from_std(client_ahead_minimum).unwrap();
+        let error_margin_time = self.config.error_margin * tick_manager.config.tick_duration;
+
+        time_manager.relative_speed = if error > error_margin_time {
+            info!(
+                ?rtt,
+                ?jitter,
+                ?client_ahead_delta,
+                ?client_ahead_minimum,
+                ?error,
+                ?error_margin_time,
+                "Too far ahead of server! Slow down!",
+            );
+            // we are too far ahead of the server, slow down
+            1.0 / self.config.speedup_factor
+        } else if error < -error_margin_time {
+            info!(
+                ?rtt,
+                ?jitter,
+                ?client_ahead_delta,
+                ?client_ahead_minimum,
+                ?error,
+                ?error_margin_time,
+                "Too far behind of server! Speed up!",
+            );
+            // we are too far behind the server, speed up
+            1.0 / self.config.speedup_factor
+        } else {
+            // we are within margins
+            1.0
+        };
     }
 
     /// Received a pong: update
@@ -326,7 +403,7 @@ impl SyncManager {
             );
 
             // finalize if we have enough pongs
-            if self.sync_stats.len() >= self.config.handshake_pings as usize {
+            if self.sync_stats.buffer.len() >= self.config.handshake_pings as usize {
                 info!("received enough pongs to finalize handshake");
                 self.synced = true;
                 self.finalize(time_manager, tick_manager);
@@ -355,21 +432,21 @@ impl SyncManager {
         self.ping_store.clear();
 
         // Compute how many ticks the client must be compared to server
-        let latency_ms = (self.final_stats.rtt_ms / 2.0) as u32;
-        let delta_ms = latency_ms
-            + self.final_stats.jitter_ms * self.config.jitter_multiple_margin
-            + tick_manager.config.tick_duration.as_millis() as u32;
+        let client_ideal_time = self.predicted_server_receive_time(tick_manager)
+            + self.client_ahead_minimum(tick_manager);
+        let client_ideal_tick =
+            Tick((client_ideal_time / tick_manager.config.tick_duration.as_millis() as f32) as u16);
 
-        let delta_tick = delta_ms as u16 / tick_manager.config.tick_duration.as_millis() as u16;
+        let delta_tick = client_ideal_tick - tick_manager.current_tick();
         // Update client ticks
         info!(
-            offset_ms = ?pruned_offset_mean,
             ?latency_ms,
-            ?jitter_ms,
+            ?jitter,
+            ?client_ideal_tick,
             ?delta_tick,
             "Finished syncing!"
         );
-        tick_manager.set_tick_to(self.latest_received_server_tick + Tick(delta_tick))
+        tick_manager.set_tick_to(client_ideal_tick)
     }
 }
 
@@ -381,8 +458,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sync() {
-        let mut sync_manager = SyncManager::new(3, Duration::from_millis(100));
+    fn test_send_pings() {
+        let config = SyncConfig::default();
+        let mut sync_manager = SyncManager::new(config);
         let mut time_manager = TimeManager::new();
         let mut tick_manager = TickManager::from_config(TickConfig {
             tick_duration: Duration::from_millis(50),
@@ -400,16 +478,16 @@ mod tests {
             })
         );
         let delta = Duration::from_millis(60);
-        sync_manager.update(delta);
-        time_manager.update(delta);
+        time_manager.update(delta, Duration::default());
+        sync_manager.update(&time_manager);
 
         // ping timer hasn't gone off yet, send nothing
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
             None
         );
-        sync_manager.update(delta);
-        time_manager.update(delta);
+        time_manager.update(delta, Duration::default());
+        sync_manager.update(&time_manager);
         tick_manager.increment_tick_by(2);
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
@@ -421,8 +499,8 @@ mod tests {
         );
 
         let delta = Duration::from_millis(100);
-        sync_manager.update(delta);
-        time_manager.update(delta);
+        time_manager.update(delta, Duration::default());
+        sync_manager.update(&time_manager);
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
             Some(TimeSyncPingMessage {

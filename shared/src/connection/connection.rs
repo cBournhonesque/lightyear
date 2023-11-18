@@ -256,7 +256,7 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Send packets that are ready to be sent
-    pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<(Payload, PacketId)>> {
+    pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<Payload>> {
         self.message_manager
             .send_packets(tick_manager.current_tick())
     }

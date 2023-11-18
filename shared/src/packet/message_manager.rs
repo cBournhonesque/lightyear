@@ -77,7 +77,7 @@ impl<M: BitSerializable> MessageManager<M> {
     // TODO: maybe pass TickManager instead of Tick? Find a more elegant way to pass extra data that might not be used?
     //  (ticks are not purely necessary without client prediction)
     //  maybe be generic over a Context ?
-    pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<(Payload, PacketId)>> {
+    pub fn send_packets(&mut self, current_tick: Tick) -> anyhow::Result<Vec<Payload>> {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
@@ -107,7 +107,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
             // Step 2. Get the packets to send over the network
             let payload = self.packet_manager.encode_packet(&packet)?;
-            bytes.push((payload, packet_id));
+            bytes.push(payload);
             // io.send(payload, &self.remote_addr)?;
 
             // TODO: update this to be cleaner

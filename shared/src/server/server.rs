@@ -250,7 +250,7 @@ impl<P: Protocol> Server<P> {
     // TODO: change the argument to delta?
     pub fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
-        self.time_manager.update(delta);
+        self.time_manager.update(delta, Duration::default());
         // self.tick_manager.update(delta);
 
         // update netcode server

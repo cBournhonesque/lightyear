@@ -6,6 +6,7 @@ pub use config::ClientConfig;
 pub use input::InputSystemSet;
 pub use ping_manager::PingConfig;
 pub use plugin::{Plugin, PluginConfig};
+pub use sync::SyncConfig;
 
 pub mod client;
 mod config;

@@ -168,7 +168,7 @@ mod tests {
         assert!(!ping_manager.should_send_ping());
         let delta = Duration::from_millis(100);
         ping_manager.update(delta);
-        time_manager.update(delta);
+        time_manager.update(delta, Duration::default());
         assert!(ping_manager.should_send_ping());
 
         let ping_message = ping_manager.prepare_ping(&time_manager);
@@ -177,7 +177,7 @@ mod tests {
 
         let delta = Duration::from_millis(20);
         ping_manager.update(delta);
-        time_manager.update(delta);
+        time_manager.update(delta, Duration::default());
         let pong_message = PongMessage {
             ping_id: PingId(0),
             tick: Default::default(),

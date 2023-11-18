@@ -23,7 +23,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
 
         // update client state, send keep-alives, receive packets from io
-        client.update(time, fixed_time).unwrap();
+        client.update(time.delta(), fixed_time.overstep()).unwrap();
         // buffer packets into message managers
         client.recv_packets().unwrap();
         // receive packets from message managers

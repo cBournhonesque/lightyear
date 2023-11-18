@@ -1,4 +1,5 @@
 use log::debug;
+use std::time::Duration;
 
 use lightyear_shared::client::Authentication;
 use lightyear_shared::netcode::generate_key;
@@ -74,7 +75,7 @@ fn test_simple_server_client() -> anyhow::Result<()> {
         debug!("Starting client thread");
         let mut World = World::default();
         loop {
-            client.update(start.elapsed())?;
+            client.update(start.elapsed(), Duration::default())?;
             client.recv_packets()?;
             client.send_packets()?;
 

@@ -69,7 +69,7 @@ impl<P: Protocol> Client<P> {
             .expect("could not create netcode client");
         let io = Io::from_config(&config.io).expect("could not build io");
 
-        let connection = Connection::new(protocol.channel_registry(), &config.ping);
+        let connection = Connection::new(protocol.channel_registry(), config.sync);
         Self {
             io,
             protocol,
@@ -135,9 +135,8 @@ impl<P: Protocol> Client<P> {
     // REPLICATION
 
     /// Maintain connection with server, queues up any packet received from the server
-    pub fn update(&mut self, time: &Time<Virtual>, fixed_time: &Time<Fixed>) -> Result<()> {
-        let delta = time.delta();
-        self.time_manager.update(time, fixed_time);
+    pub fn update(&mut self, delta: Duration, overstep: Duration) -> Result<()> {
+        self.time_manager.update(delta, overstep);
         // self.tick_manager.update(delta);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 

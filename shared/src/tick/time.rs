@@ -14,6 +14,10 @@ pub struct TimeManager {
     wrapped_time: WrappedTime,
     overstep: Duration,
     delta: Duration,
+
+    /// Should we speedup or slowdown the simulation?
+    /// >1.0 = speedup, <1.0 = slowdown
+    pub(crate) relative_speed: f32,
 }
 
 impl TimeManager {
@@ -22,6 +26,7 @@ impl TimeManager {
             wrapped_time: WrappedTime::new(0),
             overstep: Duration::default(),
             delta: Duration::default(),
+            relative_speed: 1.0,
         }
     }
 
@@ -33,13 +38,20 @@ impl TimeManager {
         self.overstep
     }
 
+    pub fn update_relative_speed(&self, time: &mut Time<Virtual>) {
+        time.set_relative_speed(self.relative_speed)
+    }
+
     /// Update the time by matching the virtual time from bevy
+    /// delta: delta time since last frame
+    /// overstep: remaining time after running the fixed-update steps
     /// (time from server start, wrapped around the hour)
-    pub fn update(&mut self, time: &Time<Virtual>, fixed_time: &Time<Fixed>) {
-        self.delta = time.delta();
-        self.wrapped_time += self.delta;
+    // TODO: maybe just provide delta and overstep? (more easily testable, + it's just what we need)
+    pub fn update(&mut self, delta: Duration, overstep: Duration) {
+        self.delta = delta;
+        self.wrapped_time += delta;
         // set the overstep to the overstep of fixed_time
-        self.overstep = fixed_time.overstep();
+        self.overstep = overstep;
     }
 
     // pub fn subtract_millis(&mut self, offset_ms: u32) {

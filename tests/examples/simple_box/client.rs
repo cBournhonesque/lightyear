@@ -30,6 +30,7 @@ impl Plugin for ClientPlugin {
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
             ping: lightyear_shared::client::PingConfig::default(),
+            sync: SyncConfig::default(),
         };
         let plugin_config =
             lightyear_shared::client::PluginConfig::new(config, MyProtocol::default(), auth);

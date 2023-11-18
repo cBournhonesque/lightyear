@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 
+use crate::client::sync::SyncConfig;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::packet::packet::PacketId;
@@ -27,15 +28,13 @@ pub struct Connection<P: Protocol> {
 }
 
 impl<P: Protocol> Connection<P> {
-    pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
+    // NOTE: looks like we're using SyncManager on the client, and PingManager on the server
+    pub fn new(channel_registry: &ChannelRegistry, sync_config: SyncConfig) -> Self {
         Self {
             base: crate::Connection::new(channel_registry),
             // ping_manager: PingManager::new(ping_config),
             input_buffer: InputBuffer::default(),
-            sync_manager: SyncManager::new(
-                ping_config.sync_num_pings,
-                ping_config.sync_ping_interval_ms,
-            ),
+            sync_manager: SyncManager::new(sync_config),
         }
     }
 
@@ -64,41 +63,11 @@ impl<P: Protocol> Connection<P> {
         }
     }
 
-    pub fn send_packets(
-        &mut self,
-        time_manager: &TimeManager,
-        tick_manager: &TickManager,
-    ) -> Result<Vec<(Payload, PacketId)>> {
-        Ok(self
-            .base
-            .message_manager
-            .send_packets(tick_manager.current_tick())?
-            .iter()
-            .map(|(payload, packet_id)| {
-                // record the packet send time in the sync manager (so that when we receive an ack for that packet
-                // we can estimate the RTT)
-                // TODO: the problem with this approach is that the server might not be (or even running receive) sending packets back every frame!
-                //  potential delays not accounted for:
-                //  - the server received the packet physically but didn't call io.recv()
-                //  - the packet was io.recv() but the server doesn't send any packet back
-                //  - time between recv() and send()
-                //  THIS MEANS WE SHOULD ONLY SEND PING MESSAGES FOR RTT! ALSO THE PONG INCLUDES
-                //  SERVER_RECV_TIME AND SERVER_SEND_TIME, SO WE CAN REMOVE THAT TIME FROM THE RTT
-
-                //  if it doesn't, then the ack time cannot be used for RTT.
-                //  But realistic the server does
-                self.sync_manager
-                    .record_sent_packet(*packet_id, time_manager.now());
-
-                payload
-            })
-            .collect())
-    }
-
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<()> {
         let tick = self.base.recv_packet(reader)?;
         if tick > self.sync_manager.latest_received_server_tick {
             self.sync_manager.latest_received_server_tick = tick;
+            self.sync_manager.duration_since_latest_received_server_tick = Duration::default();
         }
         Ok(())
     }

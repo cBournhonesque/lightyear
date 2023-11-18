@@ -61,7 +61,7 @@ impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
         loop {
             if let Some(item_with_key) = self.heap.pop() {
                 // we have a new update that is older than what we want, stop
-                if item_with_key.key > key {
+                if item_with_key.key > *key {
                     // put back the update in the heap
                     self.heap.push(item_with_key);
                     break;

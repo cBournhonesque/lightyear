@@ -1,3 +1,4 @@
+use crate::client::sync::SyncConfig;
 use crate::{IoConfig, SharedConfig};
 
 use super::ping_manager::PingConfig;
@@ -31,4 +32,5 @@ pub struct ClientConfig {
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
     pub ping: PingConfig,
+    pub sync: SyncConfig,
 }

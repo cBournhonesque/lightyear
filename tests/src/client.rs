@@ -5,7 +5,7 @@ use std::time::Duration;
 use bevy::app::App;
 
 use lightyear_shared::client::{
-    Authentication, Client, ClientConfig, PingConfig, Plugin, PluginConfig,
+    Authentication, Client, ClientConfig, PingConfig, Plugin, PluginConfig, SyncConfig,
 };
 use lightyear_shared::{IoConfig, SharedConfig, TickConfig, TransportConfig};
 
@@ -22,6 +22,7 @@ pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
+        sync: SyncConfig::default(),
     };
 
     // create lightyear client
@@ -40,6 +41,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
+        sync: SyncConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);
     let plugin = Plugin::new(plugin_config);

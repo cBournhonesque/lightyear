@@ -70,6 +70,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         netcode: Default::default(),
         io: io_config,
         ping: Default::default(),
+        sync: SyncConfig::default(),
     };
     let mut client = Client::new(config, auth, protocol());
     debug!("Created client with local address: {}", client.local_addr());
@@ -114,7 +115,8 @@ fn test_connection_soak() -> anyhow::Result<()> {
         let mut world = World::default();
         debug!("Starting client thread");
         loop {
-            client.update(start.elapsed())?;
+            // can use 0 overstep if not in Bevy
+            client.update(start.elapsed(), Duration::default())?;
             client.recv_packets()?;
             client.send_packets()?;
 
