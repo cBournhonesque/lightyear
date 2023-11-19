@@ -6,6 +6,8 @@
 
 
 PROBLEMS:
+- if i wait a bit on the client before sending inputs, the whole thing stays very laggy. Sync bug?
+- TODO: the speedup/slowdown seems to take a lot of ticks before having any noticeable effect, which is strange.
 - when the client is disconnected, the server seems to suddenly apply a bunch of inputs at once? is it because the server is behind the client?
   maybe the server should just get disconnected right away
 - when there are no updates being sent, the last_received_server_tick/time is not updated very frequently, only from pings,
@@ -33,6 +35,7 @@ ROUGH EDGES:
   - TODO: maybe define different 'modes' for how components of a predicted entity get copied from confirmed to predicted
     - with_rollback: create a component history and rollback to the confirmed state when needed
     - copy_once: only copy the component from confirmed to predicted once, and then never again
+      - if we don't have this, the color will be reverted to the confirmed color every time we rollback
     - not_copy: never copy the component from confirmed to predicted
 
 - Replication:

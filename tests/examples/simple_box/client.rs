@@ -11,6 +11,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::DerefMut;
 use std::str::FromStr;
 
+#[derive(Resource, Copy, Clone)]
 pub struct ClientPlugin {
     pub(crate) client_id: ClientId,
     pub(crate) server_port: u16,
@@ -37,6 +38,7 @@ impl Plugin for ClientPlugin {
             lightyear_shared::client::PluginConfig::new(config, MyProtocol::default(), auth);
         app.add_plugins(lightyear_shared::client::Plugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
+        app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         app.add_systems(
             FixedUpdate,
@@ -61,10 +63,14 @@ impl Plugin for ClientPlugin {
 // }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<Client<MyProtocol>>) {
+pub(crate) fn init(
+    mut commands: Commands,
+    mut client: ResMut<Client<MyProtocol>>,
+    plugin: Res<ClientPlugin>,
+) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
-        "Client",
+        format!("Client {}", plugin.client_id),
         TextStyle {
             font_size: 30.0,
             color: Color::WHITE,
@@ -102,6 +108,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     if keypress.pressed(KeyCode::Space) {
         return client.add_input(Inputs::Spawn);
     }
+    // TODO: should we only send an input if it's not all NIL?
     // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
     client.add_input(Inputs::Direction(input));
 }

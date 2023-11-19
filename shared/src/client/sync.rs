@@ -345,31 +345,31 @@ impl SyncManager {
         .unwrap();
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            info!(
-                ?rtt,
-                ?jitter,
-                ?current_client_time,
-                client_tick = ?tick_manager.current_tick(),
-                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
-                ?client_ahead_minimum,
-                error_ms = ?error.num_milliseconds(),
-                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
-                "Too far ahead of server! Slow down!",
-            );
+            // info!(
+            //     ?rtt,
+            //     ?jitter,
+            //     ?current_client_time,
+            //     client_tick = ?tick_manager.current_tick(),
+            //     client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
+            //     ?client_ahead_minimum,
+            //     error_ms = ?error.num_milliseconds(),
+            //     error_margin_time_ms = ?error_margin_time.num_milliseconds(),
+            //     "Too far ahead of server! Slow down!",
+            // );
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            info!(
-                ?rtt,
-                ?jitter,
-                ?current_client_time,
-                client_tick = ?tick_manager.current_tick(),
-                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
-                ?client_ahead_minimum,
-                error_ms = ?error.num_milliseconds(),
-                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
-                "Too far behind of server! Speed up!",
-            );
+            // info!(
+            //     ?rtt,
+            //     ?jitter,
+            //     ?current_client_time,
+            //     client_tick = ?tick_manager.current_tick(),
+            //     client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
+            //     ?client_ahead_minimum,
+            //     error_ms = ?error.num_milliseconds(),
+            //     error_margin_time_ms = ?error_margin_time.num_milliseconds(),
+            //     "Too far behind of server! Speed up!",
+            // );
             // we are too far behind the server, speed up
             1.0 / self.config.speedup_factor
         } else {

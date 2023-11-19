@@ -127,13 +127,13 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                     }
                 }
             } else {
-                warn!("Predicted entity {:?} was not found", confirmed.predicted);
+                // warn!("Predicted entity {:?} was not found", confirmed.predicted);
             }
         } else {
-            warn!(
+            /*warn!(
                 "Confirmed entity from UpdateEvent {:?} was not found",
                 confirmed_entity
-            );
+            );*/
         }
     }
 }

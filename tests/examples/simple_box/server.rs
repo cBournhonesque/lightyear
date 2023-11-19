@@ -97,7 +97,12 @@ pub(crate) fn movement(
         let client_id = input.context();
         if input.input().is_some() {
             let input = input.input().as_ref().unwrap();
-            // info!("Receiving input: {:?} on tick: {:?}", input, server.tick());
+            // info!(
+            //     "Receiving input: {:?} from client: {:?} on tick: {:?}",
+            //     input,
+            //     client_id,
+            //     server.tick()
+            // );
             // TODO: on the server-side maintain a map from client_id to entity_id
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(mut position) = position_query.get_mut(*player_entity) {
