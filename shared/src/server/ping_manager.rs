@@ -116,10 +116,11 @@ impl PingManager {
         // TODO: for rtt purposes, we could just send a ping that has no tick info
         TimeSyncPongMessage {
             ping_id: ping.id,
-            server_tick_instant: WrappedTime::new(0),
-            server_tick: tick_manager.current_tick(),
+            // server_tick_instant: WrappedTime::new(0),
+            // server_tick: tick_manager.current_tick(),
             ping_received_time: ping.ping_received_time.unwrap(),
-            // TODO: can we get a more precise time?
+            // TODO: can we get a more precise time? (based on real)?
+            // TODO: otherwise we can consider that there's an entire tick duration between receive and sent
             pong_sent_time: time_manager.current_time(),
         }
         // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));

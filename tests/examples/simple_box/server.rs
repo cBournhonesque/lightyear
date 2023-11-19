@@ -39,11 +39,11 @@ impl Plugin for ServerPlugin {
 }
 
 #[derive(Resource, Default)]
-pub struct Global {
+struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands) {
+pub(crate) fn init(mut commands: Commands, mut server: ResMut<Server<MyProtocol>>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         "Server",
@@ -53,6 +53,7 @@ pub(crate) fn init(mut commands: Commands) {
             ..default()
         },
     ));
+    // server.set_base_relative_speed(0.001);
 }
 
 /// Server connection system, create a player upon connection
@@ -67,13 +68,13 @@ pub(crate) fn handle_connections(
         let client_id = connection.context();
         info!("New connection from client: {:?}", client_id);
         // Generate pseudo random color from client id.
-        let r = ((client_id % 23) as f32) / 23.0;
-        let g = ((client_id % 27) as f32) / 27.0;
-        let b = ((client_id % 39) as f32) / 39.0;
+        let h = ((client_id % 360) as f32) / 360.0;
+        let s = 0.8;
+        let l = 0.5;
         let entity = commands.spawn(PlayerBundle::new(
             *client_id,
             Vec2::ZERO,
-            Color::rgb(r, g, b),
+            Color::hsl(h, s, l),
         ));
         // Add a mapping from client id to entity id
         global
@@ -96,7 +97,7 @@ pub(crate) fn movement(
         let client_id = input.context();
         if input.input().is_some() {
             let input = input.input().as_ref().unwrap();
-            info!("Receiving input: {:?} on tick: {:?}", input, server.tick());
+            // info!("Receiving input: {:?} on tick: {:?}", input, server.tick());
             // TODO: on the server-side maintain a map from client_id to entity_id
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(mut position) = position_query.get_mut(*player_entity) {

@@ -1,5 +1,6 @@
 use bevy::prelude::{Fixed, Time, Virtual};
 use std::cmp::Ordering;
+use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
 
@@ -15,9 +16,11 @@ pub struct TimeManager {
     overstep: Duration,
     delta: Duration,
 
-    /// Should we speedup or slowdown the simulation?
+    /// The relative speed set by the client.
+    pub base_relative_speed: f32,
+    /// Should we speedup or slowdown the simulation to sync the ticks?
     /// >1.0 = speedup, <1.0 = slowdown
-    pub(crate) relative_speed: f32,
+    pub(crate) sync_relative_speed: f32,
 }
 
 impl TimeManager {
@@ -26,7 +29,8 @@ impl TimeManager {
             wrapped_time: WrappedTime::new(0),
             overstep: Duration::default(),
             delta: Duration::default(),
-            relative_speed: 1.0,
+            base_relative_speed: 1.0,
+            sync_relative_speed: 1.0,
         }
     }
 
@@ -38,8 +42,10 @@ impl TimeManager {
         self.overstep
     }
 
+    // TODO: when the user updates the relative speed, they should set the base_relative_speed here!
+    //  not use modify the relative speed on bevy's Time resource
     pub fn update_relative_speed(&self, time: &mut Time<Virtual>) {
-        time.set_relative_speed(self.relative_speed)
+        time.set_relative_speed(self.base_relative_speed * self.sync_relative_speed)
     }
 
     /// Update the time by matching the virtual time from bevy
@@ -77,13 +83,24 @@ impl TimeManager {
 /// Time since start of server, in milliseconds
 /// Serializes in a compact manner
 /// Wraps around u32::max
-#[derive(Default, Encode, Decode, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Encode, Decode, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
 pub struct WrappedTime {
     // Amount of time elapsed since the start of the server, in microseconds
     // wraps around 1 hour
     // We use milli-seconds because micro-seconds lose precisions very quickly
     // #[bitcode_hint(expected_range = "0..3600000000")]
-    elapsed_us_wrapped: u32,
+    pub(crate) elapsed_us_wrapped: u32,
+}
+
+impl std::fmt::Debug for WrappedTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WrappedTime")
+            .field(
+                "time",
+                &Duration::from_micros(self.elapsed_us_wrapped as u64),
+            )
+            .finish()
+    }
 }
 
 impl WrappedTime {
@@ -159,6 +176,16 @@ impl Sub for WrappedTime {
     }
 }
 
+impl Sub<Duration> for WrappedTime {
+    type Output = WrappedTime;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        let mut result = self;
+        result -= rhs;
+        result
+    }
+}
+
 impl Sub<ChronoDuration> for WrappedTime {
     type Output = WrappedTime;
 
@@ -166,6 +193,16 @@ impl Sub<ChronoDuration> for WrappedTime {
         let mut result = self;
         result -= rhs;
         result
+    }
+}
+
+/// Returns the absolute duration between two times (no matter which one is ahead of which)!
+/// Only valid for durations under 1 hour
+impl SubAssign<Duration> for WrappedTime {
+    fn sub_assign(&mut self, rhs: Duration) {
+        let rhs_micros = rhs.as_micros();
+        // we can use wrapping_sub because we wrap around u32::max
+        self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_sub(rhs_micros as u32);
     }
 }
 

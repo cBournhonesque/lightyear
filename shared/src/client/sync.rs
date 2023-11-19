@@ -41,11 +41,11 @@ impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
             jitter_multiple_margin: 3,
-            tick_margin: 0,
+            tick_margin: 1,
             sync_ping_interval: Duration::from_millis(100),
             handshake_pings: 10,
             stats_buffer_duration: Duration::from_secs(2),
-            error_margin: 0.5,
+            error_margin: 1.0,
             speedup_factor: 1.05,
         }
     }
@@ -106,11 +106,11 @@ pub struct FinalStats {
 
 /// NTP algorithm stats
 // TODO: maybe use Duration?
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct SyncStats {
     // clock offset: a positive value means that the client clock is faster than server clock
-    pub(crate) offset_ms: f32,
-    pub(crate) round_trip_delay_ms: f32,
+    pub(crate) offset_us: f64,
+    pub(crate) round_trip_delay_us: f64,
 }
 
 // TODO: maybe use type alias instead?
@@ -129,7 +129,7 @@ impl SyncStatsBuffer {
 impl SyncManager {
     pub fn new(config: SyncConfig) -> Self {
         Self {
-            config,
+            config: config.clone(),
             // pings
             ping_timer: Timer::new(config.sync_ping_interval.clone(), TimerMode::Repeating),
             ping_store: PingStore::new(),
@@ -158,12 +158,17 @@ impl SyncManager {
         self.duration_since_latest_received_server_tick += time_manager.delta();
 
         if self.synced {
+            // TODO: the buffer duration should depend on loss rate!
             // clear stats that are older than a threshold, such as 2 seconds
             let oldest_time = time_manager.current_time() - self.config.stats_buffer_duration;
+            let old_len = self.sync_stats.buffer.len();
             self.sync_stats.buffer.pop_until(&oldest_time);
+            let new_len = self.sync_stats.buffer.len();
 
-            // recompute RTT jitter from the last 2-seconds of stats
-            self.final_stats = self.compute_stats();
+            // recompute RTT jitter from the last 2-seconds of stats if we popped anything
+            if old_len != new_len {
+                self.final_stats = self.compute_stats();
+            }
         }
     }
 
@@ -177,7 +182,7 @@ impl SyncManager {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Option<TimeSyncPingMessage> {
-        // TODO: should we have something to start sending a sync ping right away?
+        // TODO: should we have something to start sending a sync ping right away? (so we don't wait for initial timer)
         if self.ping_timer.finished() {
             self.ping_timer.reset();
 
@@ -205,7 +210,7 @@ impl SyncManager {
     // - every N seconds (for example 2 seconds), we clear the buffer for stats older than 2 seconds and recompute mean/std from the remaining elements
     /// Compute the stats (offset, rtt, jitter) from the stats present in the buffer
     pub fn compute_stats(&mut self) -> FinalStats {
-        let sample_count = self.sync_stats.len() as f32;
+        let sample_count = self.sync_stats.buffer.len() as f64;
 
         // Find the Mean
         let (offset_mean, rtt_mean) =
@@ -216,50 +221,53 @@ impl SyncManager {
                 .fold((0.0, 0.0), |acc, stat| {
                     let item = &stat.item;
                     (
-                        acc.0 + item.offset_ms / sample_count,
-                        acc.1 + item.round_trip_delay_ms / sample_count,
+                        acc.0 + item.offset_us / sample_count,
+                        acc.1 + item.round_trip_delay_us / sample_count,
                     )
                 });
 
-        // TODO: should I use biased or not?
-        // Find the Variance (use the unbiased estimator)
-        let (offset_diff_mean, rtt_diff_mean) =
-            self.sync_stats
-                .buffer
-                .heap
-                .iter()
-                .fold((0.0, 0.0), |acc, stat| {
-                    let item = &stat.item;
-                    (
-                        acc.0 + (item.offset_ms - offset_mean).powi(2) / (sample_count - 1),
-                        acc.1 + (item.round_trip_delay_ms - rtt_mean).powi(2) / (sample_count - 1),
-                    )
-                });
+        // TODO: should I use biased or unbiased estimator?
+        // Find the Variance
+        let (offset_diff_mean, rtt_diff_mean): (f64, f64) = self
+            .sync_stats
+            .buffer
+            .heap
+            .iter()
+            .fold((0.0, 0.0), |acc, stat| {
+                let item = &stat.item;
+                (
+                    acc.0 + (item.offset_us - offset_mean).powi(2) / (sample_count),
+                    acc.1 + (item.round_trip_delay_us - rtt_mean).powi(2) / (sample_count),
+                )
+            });
 
         // Find the Standard Deviation
-        let (offset_stdv, rtt_stdv) = (offset_diff_mean.sqrt() as f32, rtt_diff_mean.sqrt() as f32);
+        let (offset_stdv, rtt_stdv) = (offset_diff_mean.sqrt(), rtt_diff_mean.sqrt());
 
         // Get the pruned mean: keep only the stat values inside the standard deviation (mitigation)
         let pruned_samples = self.sync_stats.buffer.heap.iter().filter(|stat| {
             let item = &stat.item;
-            let offset_diff = (item.offset_ms - offset_mean).abs();
-            let rtt_diff = (item.round_trip_delay_ms - rtt_mean).abs();
-            offset_diff <= offset_stdv && rtt_diff <= rtt_stdv
+            let offset_diff = (item.offset_us - offset_mean).abs();
+            let rtt_diff = (item.round_trip_delay_us - rtt_mean).abs();
+            offset_diff <= offset_stdv + f64::EPSILON && rtt_diff <= rtt_stdv + f64::EPSILON
         });
-        let pruned_sample_count = pruned_samples.len() as f32;
-        let (pruned_offset_mean, pruned_rtt_mean) = pruned_samples.fold((0.0, 0.0), |acc, stat| {
-            let item = &stat.item;
-            (
-                acc.0 + item.offset_ms / pruned_sample_count,
-                acc.1 + item.round_trip_delay_ms / pruned_sample_count,
-            )
-        });
+        let (mut pruned_offset_mean, mut pruned_rtt_mean, pruned_sample_count) = pruned_samples
+            .fold((0.0, 0.0, 0.0), |acc, stat| {
+                let item = &stat.item;
+                (
+                    acc.0 + item.offset_us,
+                    acc.1 + item.round_trip_delay_us,
+                    acc.2 + 1.0,
+                )
+            });
+        pruned_offset_mean /= pruned_sample_count;
+        pruned_rtt_mean /= pruned_sample_count;
         // TODO: recompute rtt_stdv from pruned ?
 
         FinalStats {
-            rtt: Duration::from_secs_f32(pruned_rtt_mean / 1000.0),
+            rtt: Duration::from_secs_f64(pruned_rtt_mean / 1000000.0),
             // jitter is based on one-way delay, so we divide by 2
-            jitter: Duration::from_secs_f32((rtt_stdv / 2) / 1000.0),
+            jitter: Duration::from_secs_f64((rtt_stdv / 2.0) / 1000000.0),
         }
     }
 
@@ -285,15 +293,16 @@ impl SyncManager {
 
     /// how far ahead of the server should I be?
     fn client_ahead_minimum(&self, tick_manager: &TickManager) -> Duration {
-        self.config.jitter_multiple_margin * self.jitter()
-            + self.config.tick_margin / tick_manager.config.tick_duration
+        self.config.jitter_multiple_margin as u32 * self.jitter()
+            + self.config.tick_margin as u32 * tick_manager.config.tick_duration
     }
 
+    // TODO: only run when there's a change? (new server tick received or new ping received)
     /// Update the client time ("upstream-throttle"): speed-up or down depending on the
     pub(crate) fn update_client_time(
         &mut self,
         time_manager: &mut TimeManager,
-        tick_manager: &mut TickManager,
+        tick_manager: &TickManager,
     ) {
         let rtt = self.rtt();
         let jitter = self.jitter();
@@ -305,9 +314,11 @@ impl SyncManager {
         //  let's assume that this is the case after we did tick syncing
         //  so if we are behind, that means that the client tick wrapped around.
         //  for the purposes of the sync computations, the client tick should be ahead
-        let mut client_tick_raw = tick_manager.current_tick().0;
-        if client_tick_raw < self.latest_received_server_tick.0 {
-            client_tick_raw = client_tick_raw + u16::MAX;
+        let mut client_tick_raw = tick_manager.current_tick().0 as i32;
+        // TODO: fix this
+        // client can only be this behind server if it wrapped around...
+        if (self.latest_received_server_tick.0 as i32 - client_tick_raw) > i16::MAX as i32 - 1000 {
+            client_tick_raw = client_tick_raw + u16::MAX as i32;
         }
         let current_client_time = WrappedTime::from_duration(
             tick_manager.config.tick_duration * client_tick_raw as u32 + overstep,
@@ -325,16 +336,24 @@ impl SyncManager {
 
         // we want client_ahead_delta > 3 * RTT_stddev + N / tick_rate to be safe
         let error = client_ahead_delta - chrono::Duration::from_std(client_ahead_minimum).unwrap();
-        let error_margin_time = self.config.error_margin * tick_manager.config.tick_duration;
+        let error_margin_time = chrono::Duration::from_std(
+            tick_manager
+                .config
+                .tick_duration
+                .mul_f32(self.config.error_margin),
+        )
+        .unwrap();
 
-        time_manager.relative_speed = if error > error_margin_time {
+        time_manager.sync_relative_speed = if error > error_margin_time {
             info!(
                 ?rtt,
                 ?jitter,
-                ?client_ahead_delta,
+                ?current_client_time,
+                client_tick = ?tick_manager.current_tick(),
+                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
                 ?client_ahead_minimum,
-                ?error,
-                ?error_margin_time,
+                error_ms = ?error.num_milliseconds(),
+                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
                 "Too far ahead of server! Slow down!",
             );
             // we are too far ahead of the server, slow down
@@ -343,10 +362,12 @@ impl SyncManager {
             info!(
                 ?rtt,
                 ?jitter,
-                ?client_ahead_delta,
+                ?current_client_time,
+                client_tick = ?tick_manager.current_tick(),
+                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
                 ?client_ahead_minimum,
-                ?error,
-                ?error_margin_time,
+                error_ms = ?error.num_milliseconds(),
+                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
                 "Too far behind of server! Speed up!",
             );
             // we are too far behind the server, speed up
@@ -380,30 +401,36 @@ impl SyncManager {
 
             // offset
             // t1 - t0 (ping recv - ping sent)
-            let ping_offset_ms =
-                (pong.ping_received_time - ping_sent_time).num_milliseconds() as i32;
+            let ping_offset_us = (pong.ping_received_time - ping_sent_time)
+                .num_microseconds()
+                .unwrap();
             // t2 - t3 (pong sent - pong receive)
-            let pong_offset_ms =
-                (pong.pong_sent_time - client_received_time).num_milliseconds() as i32;
-            let offset_ms = (ping_offset_ms + pong_offset_ms) / 2;
+            let pong_offset_us = (pong.pong_sent_time - client_received_time)
+                .num_microseconds()
+                .unwrap();
+            let offset_us = (ping_offset_us + pong_offset_us) / 2;
 
             // round-trip-delay
-            let rtt_ms = (client_received_time - ping_sent_time).num_milliseconds() as u32;
-            let server_process_time_ms =
-                (pong.pong_sent_time - pong.ping_received_time).num_milliseconds() as u32;
-            let round_trip_delay_ms = rtt_ms - server_process_time_ms;
+            let rtt_us = (client_received_time - ping_sent_time)
+                .num_microseconds()
+                .unwrap();
+            let server_process_time_us = (pong.pong_sent_time - pong.ping_received_time)
+                .num_microseconds()
+                .unwrap();
+            let round_trip_delay_us = rtt_us - server_process_time_us;
 
             // update stats buffer
             self.sync_stats.buffer.add_item(
                 client_received_time,
                 SyncStats {
-                    offset_ms: offset_ms as f32,
-                    round_trip_delay_ms: round_trip_delay_ms as f32,
+                    offset_us: offset_us as f64,
+                    round_trip_delay_us: round_trip_delay_us as f64,
                 },
             );
 
             // finalize if we have enough pongs
-            if self.sync_stats.buffer.len() >= self.config.handshake_pings as usize {
+            if !self.synced && self.sync_stats.buffer.len() >= self.config.handshake_pings as usize
+            {
                 info!("received enough pongs to finalize handshake");
                 self.synced = true;
                 self.finalize(time_manager, tick_manager);
@@ -429,19 +456,22 @@ impl SyncManager {
         // );
 
         // Clear out outstanding pings
-        self.ping_store.clear();
+        // self.ping_store.clear();
 
         // Compute how many ticks the client must be compared to server
         let client_ideal_time = self.predicted_server_receive_time(tick_manager)
             + self.client_ahead_minimum(tick_manager);
-        let client_ideal_tick =
-            Tick((client_ideal_time / tick_manager.config.tick_duration.as_millis() as f32) as u16);
+        let client_ideal_tick = Tick(
+            (client_ideal_time.elapsed_us_wrapped
+                / tick_manager.config.tick_duration.as_micros() as u32) as u16,
+        );
 
         let delta_tick = client_ideal_tick - tick_manager.current_tick();
         // Update client ticks
+        let latency = self.final_stats.rtt / 2;
         info!(
-            ?latency_ms,
-            ?jitter,
+            ?latency,
+            ?self.final_stats.jitter,
             ?client_ideal_tick,
             ?delta_tick,
             "Finished syncing!"
@@ -467,6 +497,14 @@ mod tests {
         });
 
         assert!(!sync_manager.is_synced());
+        assert_eq!(
+            sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
+            None
+        );
+
+        let delta = Duration::from_millis(100);
+        time_manager.update(delta, Duration::default());
+        sync_manager.update(&time_manager);
 
         // send pings
         assert_eq!(
@@ -488,7 +526,7 @@ mod tests {
         );
         time_manager.update(delta, Duration::default());
         sync_manager.update(&time_manager);
-        tick_manager.increment_tick_by(2);
+        tick_manager.set_tick_to(Tick(2));
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
             Some(TimeSyncPingMessage {
@@ -519,15 +557,15 @@ mod tests {
         // check ping store
         assert_eq!(
             sync_manager.ping_store.remove(PingId(0)),
-            Some(WrappedTime::new(0))
+            Some(WrappedTime::new(100000))
         );
         assert_eq!(
             sync_manager.ping_store.remove(PingId(1)),
-            Some(WrappedTime::new(120000))
+            Some(WrappedTime::new(220000))
         );
         assert_eq!(
             sync_manager.ping_store.remove(PingId(2)),
-            Some(WrappedTime::new(220000))
+            Some(WrappedTime::new(320000))
         );
 
         // receive pongs

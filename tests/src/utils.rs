@@ -55,8 +55,8 @@ pub fn init_bevy_step() -> (App, App) {
     let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let fixed_timestep = Duration::from_millis(10);
     let conditioner = LinkConditionerConfig {
-        incoming_latency: 45,
-        incoming_jitter: 3,
+        incoming_latency: Duration::from_millis(45),
+        incoming_jitter: Duration::from_millis(3),
         incoming_loss: 0.0,
     };
     let shared_config = SharedConfig {

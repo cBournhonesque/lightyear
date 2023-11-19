@@ -21,11 +21,11 @@ cfg_if! {
 #[derive(Clone)]
 pub struct LinkConditionerConfig {
     /// Delay to receive incoming messages in milliseconds (half the RTT)
-    pub incoming_latency: u16,
+    pub incoming_latency: Duration,
     /// The maximum additional random latency to delay received incoming
     /// messages in milliseconds. This may be added OR subtracted from the
     /// latency determined in the `incoming_latency` property above
-    pub incoming_jitter: u16,
+    pub incoming_jitter: Duration,
     /// The % chance that an incoming packet will be dropped.
     /// Represented as a value between 0 and 1
     pub incoming_loss: f32,
@@ -60,11 +60,11 @@ fn condition_packet<P: Eq>(
     if rng.gen_range(0.0..1.0) <= config.incoming_loss {
         return;
     }
-    let mut latency: i32 = config.incoming_latency.into();
+    let mut latency: i32 = config.incoming_latency.as_millis() as i32;
     // TODO: how can i use the virtual time here?
     let mut packet_timestamp = Instant::now();
-    if config.incoming_jitter > 0 {
-        let jitter: i32 = config.incoming_jitter.into();
+    if config.incoming_jitter > Duration::default() {
+        let jitter: i32 = config.incoming_jitter.as_millis() as i32;
         latency += rng.gen_range(-jitter..jitter);
     }
     if latency > 0 {
@@ -106,7 +106,7 @@ impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketA
 
 impl LinkConditionerConfig {
     /// Creates a new LinkConditionerConfig
-    pub fn new(incoming_latency: u16, incoming_jitter: u16, incoming_loss: f32) -> Self {
+    pub fn new(incoming_latency: Duration, incoming_jitter: Duration, incoming_loss: f32) -> Self {
         LinkConditionerConfig {
             incoming_latency,
             incoming_jitter,
@@ -118,8 +118,8 @@ impl LinkConditionerConfig {
     /// good condition
     pub fn good_condition() -> Self {
         LinkConditionerConfig {
-            incoming_latency: 40,
-            incoming_jitter: 6,
+            incoming_latency: Duration::from_millis(40),
+            incoming_jitter: Duration::from_millis(6),
             incoming_loss: 0.002,
         }
     }
@@ -128,8 +128,8 @@ impl LinkConditionerConfig {
     /// average condition
     pub fn average_condition() -> Self {
         LinkConditionerConfig {
-            incoming_latency: 170,
-            incoming_jitter: 45,
+            incoming_latency: Duration::from_millis(170),
+            incoming_jitter: Duration::from_millis(45),
             incoming_loss: 0.02,
         }
     }
@@ -138,8 +138,8 @@ impl LinkConditionerConfig {
     /// poor condition
     pub fn poor_condition() -> Self {
         LinkConditionerConfig {
-            incoming_latency: 300,
-            incoming_jitter: 84,
+            incoming_latency: Duration::from_millis(300),
+            incoming_jitter: Duration::from_millis(84),
             incoming_loss: 0.04,
         }
     }

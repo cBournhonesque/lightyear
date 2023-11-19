@@ -37,8 +37,8 @@ impl<T: PredictedComponent> ComponentHistory<T> {
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// Returns None
-    pub(crate) fn pop_until_tick(&mut self, tick: Tick) {
-        self.buffer.pop_until(&tick);
+    pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<T> {
+        self.buffer.pop_until(&tick)
     }
 
     // /// Get the value of the component at the specified tick.
@@ -103,10 +103,11 @@ mod tests {
     // }
 }
 
-// TODO: maybe only add component_history for components that got replicated on confirmed?
-//  also we need to copy the components from confirmed to predicted
 // Copy component insert/remove from confirmed to predicted
 // Currently we will just copy every PredictedComponent
+// TODO: add more options:
+//  - copy component and add component history (for rollback)
+//  - copy component to history and don't add component
 pub fn add_component_history<T: PredictedComponent>(
     mut commands: Commands,
     predicted_entities: Query<Entity, Added<Predicted>>,

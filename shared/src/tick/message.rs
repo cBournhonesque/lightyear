@@ -48,10 +48,10 @@ pub struct TimeSyncPongMessage {
     // TODO: these two fields should not be here, because they will be in header
 
     // RELATED TO TICKS
-    /// time where the server switched to the current tick
-    pub server_tick_instant: WrappedTime,
-    /// current server tick
-    pub server_tick: Tick,
+    // /// time where the server switched to the current tick
+    // pub server_tick_instant: WrappedTime,
+    // /// current server tick
+    // pub server_tick: Tick,
 
     // COMPUTE RTT/OFFSET
     /// time where the server received the ping

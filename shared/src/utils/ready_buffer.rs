@@ -8,12 +8,12 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 ///
 /// The most recent item (by associated key) is returned first
 #[derive(Clone, Default)]
-pub struct ReadyBuffer<K: Ord, T: Eq + PartialEq> {
+pub struct ReadyBuffer<K: Ord, T: PartialEq> {
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
 
-impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     pub fn new() -> Self {
         Self {
             heap: BinaryHeap::default(),
@@ -21,7 +21,7 @@ impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
     }
 }
 
-impl<K: Ord, T: Eq + PartialEq> ReadyBuffer<K, T> {
+impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     /// Adds an item to the heap marked by time
     pub fn add_item(&mut self, key: K, item: T) {
         self.heap.push(ItemWithReadyKey { key, item });

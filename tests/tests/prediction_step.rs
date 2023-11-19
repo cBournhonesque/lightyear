@@ -22,7 +22,7 @@ use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystem
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::plugin::events::InputEvent;
 use lightyear_shared::plugin::sets::FixedUpdateSet;
-use lightyear_shared::replication::Replicate;
+use lightyear_shared::replication::{PredictionTarget, Replicate};
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
@@ -43,7 +43,7 @@ fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
     commands.spawn((
         Replicate {
-            should_do_prediction: true,
+            prediction_target: PredictionTarget::All,
             ..Default::default()
         },
         Component1(0),

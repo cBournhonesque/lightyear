@@ -42,12 +42,22 @@ pub struct Replicate {
     pub target: ReplicationTarget,
 
     /// If true, then this entity should have a predicted version on the client
-    // TODO: should we also have a PredictionTarget?
-    pub should_do_prediction: bool,
+    pub prediction_target: PredictionTarget,
     // pub owner:
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates
     //  should we make this configurable?
+}
+
+#[derive(Default, Clone, Copy)]
+pub enum PredictionTarget {
+    #[default]
+    /// This entity is not predicted by any client
+    None,
+    /// This entity is predicted by all clients
+    All,
+    /// This entity is predicted by only one client
+    Only(ClientId),
 }
 
 pub enum Authority {
@@ -71,7 +81,7 @@ impl Default for Replicate {
             actions_channel: ChannelKind::of::<EntityActionsChannel>(),
             updates_channel: ChannelKind::of::<EntityUpdatesChannel>(),
             target: ReplicationTarget::default(),
-            should_do_prediction: false,
+            prediction_target: PredictionTarget::default(),
         }
     }
 }

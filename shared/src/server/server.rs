@@ -8,7 +8,7 @@ use tracing::{debug, debug_span, info, trace_span};
 
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::replication::prediction::ShouldBePredicted;
-use crate::replication::{Replicate, ReplicationSend, ReplicationTarget};
+use crate::replication::{PredictionTarget, Replicate, ReplicationSend, ReplicationTarget};
 use crate::tick::{Tick, TickManaged};
 use crate::transport::{PacketSender, Transport};
 use crate::TimeManager;
@@ -129,6 +129,12 @@ impl<P: Protocol> Server<P> {
                     .get(&self.tick_manager.current_tick());
                 (input, *client_id)
             })
+    }
+
+    // TIME
+
+    pub fn set_base_relative_speed(&mut self, relative_speed: f32) {
+        self.time_manager.base_relative_speed = relative_speed;
     }
 
     // TICK
@@ -381,8 +387,17 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             // if we need to do prediction, send a marker component to indicate that to the client
             let mut components = components.clone();
-            if replicate.should_do_prediction {
-                components.push(P::Components::from(ShouldBePredicted));
+            match replicate.prediction_target {
+                PredictionTarget::All => {
+                    components.push(P::Components::from(ShouldBePredicted));
+                }
+                // we should do prediction for this entity/client pair
+                PredictionTarget::Only(c) => {
+                    if c == client_id {
+                        components.push(P::Components::from(ShouldBePredicted));
+                    }
+                }
+                _ => {}
             }
             connection
                 .base

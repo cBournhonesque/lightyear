@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::{Fixed, Resource, Time, Virtual, World};
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::Client as NetcodeClient;
@@ -31,7 +31,7 @@ pub struct Client<P: Protocol> {
     // events
     events: ConnectionEvents<P>,
     // syncing
-    time_manager: TimeManager,
+    pub(crate) time_manager: TimeManager,
     tick_manager: TickManager,
 }
 
@@ -116,6 +116,25 @@ impl<P: Protocol> Client<P> {
     /// to keep it for rollback)
     pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
         self.connection.input_buffer.buffer.get(&tick).cloned()
+    }
+
+    // TIME
+
+    pub fn set_base_relative_speed(&mut self, relative_speed: f32) {
+        self.time_manager.base_relative_speed = relative_speed;
+    }
+
+    pub(crate) fn update_relative_speed(&mut self, time: &mut Time<Virtual>) {
+        // check if we need to set the relative speed to something else
+        if self.connection.sync_manager.is_synced() {
+            self.connection
+                .sync_manager
+                .update_client_time(&mut self.time_manager, &self.tick_manager);
+            // update bevy's relative speed
+            self.time_manager.update_relative_speed(time);
+            // let relative_speed = time.relative_speed();
+            // info!( relative_speed = ?time.relative_speed(), "client virtual speed");
+        }
     }
 
     // TICK

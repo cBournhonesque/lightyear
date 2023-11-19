@@ -7,9 +7,9 @@ use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: false,
+        enable_replication: true,
         tick: TickConfig {
-            tick_duration: Duration::from_millis(16),
+            tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
         log: LogConfig {
             level: Level::INFO,

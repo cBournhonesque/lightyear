@@ -1,4 +1,5 @@
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
+use tracing::info;
 
 pub use plugin::add_prediction_systems;
 
@@ -80,8 +81,8 @@ pub struct Confirmed {
 
 /// Component that is predicted by the client
 // #[bevy_trait_query::queryable]
-pub trait PredictedComponent: Component + Clone + PartialEq + Eq {}
-impl<T> PredictedComponent for T where T: Component + Clone + PartialEq + Eq {}
+pub trait PredictedComponent: Component + Clone + PartialEq {}
+impl<T> PredictedComponent for T where T: Component + Clone + PartialEq {}
 
 pub trait A {}
 
@@ -117,6 +118,10 @@ pub fn spawn_predicted_entity(
             (Confirmed {
                 predicted: predicted_entity,
             }),
+        );
+        info!(
+            "Spawn predicted entity {:?} for confirmed: {:?}",
+            predicted_entity, confirmed_entity
         );
     }
 }

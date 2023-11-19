@@ -1,6 +1,6 @@
-use bevy::prelude::{Bundle, Color, Component, Deref, DerefMut, Vec2};
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use lightyear_shared::prelude::*;
-use lightyear_shared::replication::Replicate;
+use lightyear_shared::replication::{PredictionTarget, Replicate};
 use lightyear_shared::UserInput;
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +19,10 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: PlayerPosition(position),
             color: PlayerColor(color),
-            replicate: Replicate::default(),
+            replicate: Replicate {
+                prediction_target: PredictionTarget::Only(id),
+                ..default()
+            },
         }
     }
 }
@@ -37,8 +40,11 @@ pub struct PlayerColor(pub(crate) Color);
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
+    #[replication(predicted)]
     PlayerId(PlayerId),
+    #[replication(predicted)]
     PlayerPosition(PlayerPosition),
+    #[replication(predicted)]
     PlayerColor(PlayerColor),
 }
 

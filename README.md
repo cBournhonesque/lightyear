@@ -5,38 +5,42 @@
   - one server: 1 game room per core?
 
 
+PROBLEMS:
+- when the client is disconnected, the server seems to suddenly apply a bunch of inputs at once? is it because the server is behind the client?
+  maybe the server should just get disconnected right away
+- when there are no updates being sent, the last_received_server_tick/time is not updated very frequently, only from pings,
+  in those cases the time sync manager is struggling to be super accurate, so there's a lot of speedup/slowdown
+- completely breaks down when we have 2 clients! Potential causes:
+  - for the first client connected, the predicted/comfirmed get completely out of sync. Which means that rollback is not working anymore?
+  - for the second client, sending inputs seems to move both client cubes
 
-# TODO:
 
-- ClientInputs:
-  - inputs will be sent via a special message
-  - in each packet, we will send the inputs for the last 10-15 frames. Can use the ring buffer?
-    - First: send all inputs for last 15 frames. Along with the tick at which the input was sent
-    - Maybe opt: Only send the inputs that have changed and the tick at which they change?
-  - in the client: we don't send a packet every tick. So what we do is:
-    - during fixedupdate, we store the input for the given tick. Store that input in a ringbuffer containing the input history. (for at least the rollback period)
-    - at the end of the frame, we collect the last 15 ticks of inputs and put them in a packet.
-    - we send that packet via tick-buffered sender, associated with the last client tick
-      - IS THIS CORRECT APPROACH? IT WOULD MEAN THAT WE WOULD READ THAT PACKET ONLY ON THE CURRENT TICK IN THE SERVER, BUT ACTUALLY WE WANT TO READ IT IMMEDIATELY
-        (BECAUSE IT CONTAINS LAST 15 TICKS OF INPUTS, SO CAN HELP FILL GAPS IN INPUTS!)
-      - IT WOULD SEEM THAT WE CAN JUST SEND THE PACKET AS SEQUENCED-UNRELIABLE. (WE DONT NEED TO KNOW THE PACKET TICK BECAUSE IT CONTAINS TICKS)
-        ON THE SERVER WE READ IMMEDIATELY AND WE UPDATE OUR RINGBUFFER OF INPUTS THAT WE CAN FETCH FROM!
-    - during rollback, we can read from the input history
-    - the input history is associated with a connection.
-  - in the server, we receive the inputs, open the packet, and update the entire ringbuffer of inputs?
-    - server is at tick 9. for example we didn't receive the input for tick 10,11; but we receive the packet for tick 12, which contains all the inputs for ticks 10,11,12.
+ROUGH EDGES:
+- users cannot derive traits on ComponentProtocol or MessageProtocol because we add some extra variants to those enums
+- the bitcode/Bytes parts are confusing and make extra copies
+- some slightly weird stuff around the sync manager, and we don't use the server's ping-recv-time/pong-sent-time
+- can have smarter speedup/down for the sync system
+
+- Snapshot-interpolation:
+  - add a component history for server entities
 
 - Prediction:
   - TODO: handle despawns, spawns, component insert/removes
+  - TODO: 2 ways to create predicted entities
+    - server-owned: server creates the confirmed entity, when client receives it, it creates a copy which is a predicted entity -> we have this one
+    - client-owned: client creates the predicted entity. It sends a message to client, which creates the confirmed entity however it wants
+      then when client receives the confirmed entity, it just updates the predicted entity to have a full mapping -> WE DONT HAVE THIS ONE YET
+  - TODO: maybe define different 'modes' for how components of a predicted entity get copied from confirmed to predicted
+    - with_rollback: create a component history and rollback to the confirmed state when needed
+    - copy_once: only copy the component from confirmed to predicted once, and then never again
+    - not_copy: never copy the component from confirmed to predicted
 
 - Replication:
+  - Fix the enable_replication flag, have a better way to enable/disable replication
   - POSSIBLE TODO: send back messages about entity-actions having been received? (we get this for free with reliable channels, but we need to notify the replication manager)
 
 - Message Manager
-  - DONE: add packet fragmentation similar to reliable.io or renet, so that we know how send packets will work
-  - DONE: send acks correctly about which messages have been received?
-  - DONE: basic soak test is working
-  - TODO: unreliable receiver needs to drop fragmented messages that are too old!
+  - TODO: need to handle any messages/components that contain entity handles
   - TODO: run more extensive soak test
 
 
@@ -50,74 +54,18 @@
   - TODO: construct the final Packet from Bytes without using WriteBuffer and ReadBuffer, just concat Bytes to avoid having too many copies
 
 - Channels:
+  - TODO: add channel priority with accumulation. Some channels need infinite priority though (such as pings)
   - TODO: add a tick buffer so that inputs from client arrive on the same corresponding tick in the server.
     - in general the tick buffer can be used to associate an event with a tick, and make sure it is received on the same corresponding tick in remote
 
 - UI:
   - TODO: UI that lets us see which packets are sent at every system update?
 
-- Time:
-  - TODO: run the systems on a FixedSchedule? so that we can control the frequency
-
+- Reflection: 
+  - when can use this?
 
 
 # Tenets
 
 * similar to naia, but tightly integrated with Bevy. No need to wade through WorldProxy, etc.
-* re-uses bevy's change detection
-
-
-* WorldReplication
-  * can insert a `Replicate` component to an entity for it to start getting replicated. Can remove it so that the replication stops.
-  * every component to replicate also derives a `ReplicableComponent` trait
-  * when replication stop, we either delete or not the entity on the client.
-  * can define if we want to replicate a component via a reliable or unreliable channel.
-  * When we replicate a new entity:
-    * all incoming component updates/inserts for that entity are buffered while the entity is waiting to be spawned
-    * if a 'despawn' message is received, the entity is not spawned at all?
-    * when we spawn it, we send an ack back to the server. (or maybe the ack is just part of when we receive the 'spawn' message)
-  * Each component will specify how they are serialized, and we will provide a default efficient serializer.
-    * can also optionally provide a delta-serializer.
-  * We will generate a protocol automatically from:
-    * some bits are reserved for specialized message types
-    * otherwise we assign bits for each replicable component + each message type
-    * Use reflection when possible? or derive_macro to get the protocol
-  * Also need a NetComponentId for serializing components? The number of components serialized is fixed so we can
-    generate a new NetComponentId starting from 0, for each of new component added to the protocol.
-
-* Extra networking features
-  * client prediction
-  * server reconciliation
-  * snapshot interpolation
-
-* Protocol
-  * Only send components that are changed, via bevy's change detection
-  * Delta-compression?
-  * Efficient wire representation
-
-* TODO:
-  * for a given component/message, need to first transform it into something serializable
-  (i.e. convert any entities to NetEntity), and then serialize it with Serde
-  * simplify/clarify packet logic
-    * all entity-packets/component-updates/messages will be PacketType: Data. This should be included automatically in the packet sending code
-  * FLATTEN CODE: less indirection and copying interfaces (for example EntityManager)
-  * Separate code into
-    * Protocol
-      * Channels
-      * Components
-      * Messages
-      * Config
-    * Channels (general channel code)
-    * Entity
-      * net_entity conversion, etc.
-
-
-
-
-
-## Changelog compared to naia 0.14
-
-
-* Remove EntityHandle everywhere and just keep using directly Bevy's Entity
-* Simplify the WorldChannel. Stop keeping track of a host/remote world.
-  * update the entity-channels
+* re-uses a lot of bevy's stuff: time, change-detection, etc.
