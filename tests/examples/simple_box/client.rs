@@ -6,10 +6,13 @@ use lightyear_shared::client::prediction::Predicted;
 use lightyear_shared::client::{Authentication, ClientConfig, InputSystemSet, SyncConfig};
 use lightyear_shared::plugin::events::{InputEvent, MessageEvent};
 use lightyear_shared::plugin::sets::FixedUpdateSet;
-use lightyear_shared::{Client, ClientId, EntitySpawnEvent, IoConfig, TransportConfig};
+use lightyear_shared::{
+    Client, ClientId, EntitySpawnEvent, IoConfig, LinkConditionerConfig, TransportConfig,
+};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::DerefMut;
 use std::str::FromStr;
+use std::time::Duration;
 
 #[derive(Resource, Copy, Clone)]
 pub struct ClientPlugin {
@@ -27,10 +30,16 @@ impl Plugin for ClientPlugin {
             protocol_id: PROTOCOL_ID,
         };
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(50),
+            incoming_jitter: Duration::from_millis(5),
+            incoming_loss: 0.05,
+        };
         let config = ClientConfig {
             shared: shared_config().clone(),
             netcode: Default::default(),
-            io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
+            io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
+                .with_conditioner(link_conditioner),
             ping: lightyear_shared::client::PingConfig::default(),
             sync: SyncConfig::default(),
         };

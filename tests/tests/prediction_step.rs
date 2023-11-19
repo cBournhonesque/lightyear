@@ -124,8 +124,8 @@ fn test_bevy_step_prediction() -> anyhow::Result<()> {
         ..Default::default()
     };
     let link_conditioner = LinkConditionerConfig {
-        incoming_latency: 40,
-        incoming_jitter: 5,
+        incoming_latency: Duration::from_millis(40),
+        incoming_jitter: Duration::from_millis(5),
         incoming_loss: 0.05,
     };
     let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);

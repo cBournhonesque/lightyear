@@ -13,7 +13,7 @@ pub mod some_component {
 
     #[component_protocol(protocol = "MyProtocol")]
     pub enum MyComponentProtocol {
-        #[replication(predicted)]
+        #[prediction(rollback)]
         Component1(Component1),
         Component2(Component2),
     }

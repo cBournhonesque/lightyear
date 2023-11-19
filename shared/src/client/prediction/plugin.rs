@@ -9,18 +9,24 @@ use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::replication::prediction::is_in_rollback;
 use crate::{ComponentProtocol, Protocol};
 
-use super::predicted_history::{add_component_history, update_component_history};
+use super::predicted_history::{
+    add_component_history_to_new_predicted_entity, update_component_history,
+};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
 use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
 
 pub struct PredictionPlugin<P: Protocol> {
+    // always_rollback: bool
+    // rollback_tick_stragegy:
+    // - either we consider that the server sent the entire world state at last_received_server_tick
+    // - or not, and we have to check the oldest tick across all components that don't match
     _marker: PhantomData<P>,
 }
 
 impl<P: Protocol> Default for PredictionPlugin<P> {
     fn default() -> Self {
         Self {
-            _marker: std::marker::PhantomData::default(),
+            _marker: PhantomData::default(),
         }
     }
 }
@@ -57,7 +63,7 @@ pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App)
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
-        (add_component_history::<C>).in_set(PredictionSet::SpawnHistory),
+        (add_component_history_to_new_predicted_entity::<C>).in_set(PredictionSet::SpawnHistory),
     );
     app.add_systems(
         PreUpdate,

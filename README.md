@@ -4,8 +4,10 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
-
 PROBLEMS:
+- SYNC:
+  - still doesn't work too well. Problems with pruned_rtt sometimes
+  - client can be stuck in a bad state; because of rollback or sync?
 - if i wait a bit on the client before sending inputs, the whole thing stays very laggy. Sync bug?
 - TODO: the speedup/slowdown seems to take a lot of ticks before having any noticeable effect, which is strange.
 - when the client is disconnected, the server seems to suddenly apply a bunch of inputs at once? is it because the server is behind the client?
@@ -28,10 +30,17 @@ ROUGH EDGES:
 
 - Prediction:
   - TODO: handle despawns, spawns, component insert/removes
+    - despawns: add a component DESPAWN to the predicted entity (track the tick at which we add that component)
+      we want the user to just be able to use `commands.despawn(entity)` without worrying about what's going on behind the scenes
+      If during rollback we realize it shouldn't be despawning, we remove that component
+      If latest_received_server_tick reaches the tick saved in DESPAWN, that means we won't rollback that despawn, so we actually despawn
+    - component insert: 
+      
   - TODO: 2 ways to create predicted entities
     - server-owned: server creates the confirmed entity, when client receives it, it creates a copy which is a predicted entity -> we have this one
     - client-owned: client creates the predicted entity. It sends a message to client, which creates the confirmed entity however it wants
       then when client receives the confirmed entity, it just updates the predicted entity to have a full mapping -> WE DONT HAVE THIS ONE YET
+     
   - TODO: maybe define different 'modes' for how components of a predicted entity get copied from confirmed to predicted
     - with_rollback: create a component history and rollback to the confirmed state when needed
     - copy_once: only copy the component from confirmed to predicted once, and then never again

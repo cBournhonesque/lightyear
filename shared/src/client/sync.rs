@@ -244,28 +244,29 @@ impl SyncManager {
         // Find the Standard Deviation
         let (offset_stdv, rtt_stdv) = (offset_diff_mean.sqrt(), rtt_diff_mean.sqrt());
 
-        // Get the pruned mean: keep only the stat values inside the standard deviation (mitigation)
-        let pruned_samples = self.sync_stats.buffer.heap.iter().filter(|stat| {
-            let item = &stat.item;
-            let offset_diff = (item.offset_us - offset_mean).abs();
-            let rtt_diff = (item.round_trip_delay_us - rtt_mean).abs();
-            offset_diff <= offset_stdv + f64::EPSILON && rtt_diff <= rtt_stdv + f64::EPSILON
-        });
-        let (mut pruned_offset_mean, mut pruned_rtt_mean, pruned_sample_count) = pruned_samples
-            .fold((0.0, 0.0, 0.0), |acc, stat| {
-                let item = &stat.item;
-                (
-                    acc.0 + item.offset_us,
-                    acc.1 + item.round_trip_delay_us,
-                    acc.2 + 1.0,
-                )
-            });
-        pruned_offset_mean /= pruned_sample_count;
-        pruned_rtt_mean /= pruned_sample_count;
+        // // Get the pruned mean: keep only the stat values inside the standard deviation (mitigation)
+        // let pruned_samples = self.sync_stats.buffer.heap.iter().filter(|stat| {
+        //     let item = &stat.item;
+        //     let offset_diff = (item.offset_us - offset_mean).abs();
+        //     let rtt_diff = (item.round_trip_delay_us - rtt_mean).abs();
+        //     offset_diff <= offset_stdv + 100.0 * f64::EPSILON
+        //         && rtt_diff <= rtt_stdv + 100.0 * f64::EPSILON
+        // });
+        // let (mut pruned_offset_mean, mut pruned_rtt_mean, pruned_sample_count) = pruned_samples
+        //     .fold((0.0, 0.0, 0.0), |acc, stat| {
+        //         let item = &stat.item;
+        //         (
+        //             acc.0 + item.offset_us,
+        //             acc.1 + item.round_trip_delay_us,
+        //             acc.2 + 1.0,
+        //         )
+        //     });
+        // pruned_offset_mean /= pruned_sample_count;
+        // pruned_rtt_mean /= pruned_sample_count;
         // TODO: recompute rtt_stdv from pruned ?
 
         FinalStats {
-            rtt: Duration::from_secs_f64(pruned_rtt_mean / 1000000.0),
+            rtt: Duration::from_secs_f64(rtt_mean / 1000000.0),
             // jitter is based on one-way delay, so we divide by 2
             jitter: Duration::from_secs_f64((rtt_stdv / 2.0) / 1000000.0),
         }

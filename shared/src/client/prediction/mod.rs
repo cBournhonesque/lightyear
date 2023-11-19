@@ -78,11 +78,30 @@ pub struct Confirmed {
 ///
 /// If we need to rollback, currently we only rollback the predicted entity.
 /// TODO: Maybe in the future, we should instead rollback ALL predicted entities ? (similar to rocket league)
+pub enum PredictedComponentMode {
+    /// The component will be copied to the predicted entity and stay synced with rollback
+    Rollback,
+    /// The component will be copied only-once to the predicted entity, and then won't stay in sync
+    CopyOnce,
+}
+
+// /// The component will be copied to the predicted entity and stay synced with rollback
+// pub struct PredictedComponentModeRollback;
+//
+// impl PredictedComponentMode for PredictedComponentModeRollback {}
+//
+// /// The component will be copied only-once to the predicted entity, and then won't stay in sync
+// pub struct PredictedComponentModeCopyOnce;
+//
+// impl PredictedComponentMode for PredictedComponentModeCopyOnce {}
 
 /// Component that is predicted by the client
 // #[bevy_trait_query::queryable]
-pub trait PredictedComponent: Component + Clone + PartialEq {}
-impl<T> PredictedComponent for T where T: Component + Clone + PartialEq {}
+pub trait PredictedComponent: Component + Clone + PartialEq {
+    fn mode() -> PredictedComponentMode;
+}
+
+// impl<T> PredictedComponent for T where T: Component + Clone + PartialEq {}
 
 pub trait A {}
 

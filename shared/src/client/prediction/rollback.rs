@@ -1,8 +1,11 @@
-use bevy::prelude::{EventReader, FixedUpdate, Query, Res, ResMut, Without, World};
+use bevy::prelude::{
+    Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, Without, World,
+};
 use tracing::{error, info, trace_span, warn};
 
+use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::Client;
-use crate::plugin::events::{ComponentInsertEvent, ComponentUpdateEvent};
+use crate::plugin::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
 use crate::Protocol;
 
 use super::predicted_history::ComponentHistory;
@@ -21,6 +24,28 @@ use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
 //
 // }
 
+// rollback table:
+// - confirm exist. rollback if:
+//    - predicted history exists and is different
+//    - predicted history does not exist
+//    To rollback:
+//    - update the predicted component to the confirmed component if it exists
+//    - insert the confirmed component to the predicted entity if it doesn't exist
+// - confirm does not exist. rollback if:
+//    - predicted history exists and doesn't contain Removed
+//    -
+//    To rollback:
+//    - we remove the component from predicted.
+//
+//
+// We need:
+// - Removed because we need to know if the component was removed on predicted, but we have to keep the history for the rest of rollback
+// - To be able to handle missing component histories; (if a component suddenly gets added on confirmed for the first time, it won't exist on predicted, so existed wont have a history)
+//   - BUT WE COULD JUST SPAWN A HISTORY FOR PREDICTED AS SOON AS WE RECEIVE THAT EVENT?
+// - Add ComponentHistory if a component gets added on predicted; so we can start accumulating history for future rollbacks
+// - Add ComponentHistory if a component gets added on confirmed; so we can initiate rollback (if predicted didn't have this component)
+// - We don't really need to remove ComponentHistory. We could try to do it as an optimization later on. For now we just keep them around.
+
 // TODO: it seems pretty suboptimal to have one system per component, refactor to loop through all components
 //  ESPECIALLY BECAUSE WE ROLLBACK EVERYTHING IF ONE COMPONENT IS MISPREDICTED!
 /// Systems that try to see if we should perform rollback for the predicted entity.
@@ -29,9 +54,11 @@ use super::{Confirmed, Predicted, PredictedComponent, Rollback, RollbackState};
 // TODO: do not rollback if client is not time synced
 pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
+    mut commands: Commands,
     client: Res<Client<P>>,
     mut updates: EventReader<ComponentUpdateEvent<C>>,
     mut inserts: EventReader<ComponentInsertEvent<C>>,
+    mut removals: EventReader<ComponentRemoveEvent<C>>,
     // TODO: here we basically snap back the value only for the ComponentHistory components
     //  but we might want to copy the predictive state of some components from Confirmed to Predicted, without caring
     //  about rollback
@@ -44,8 +71,12 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     //  MAYBE A PREDICTION-STATE for each component, similar to prediction history?
 
     // We also snap the value of the component to the server state if we are in rollback
-    mut predicted_query: Query<(&Predicted, &mut C, &mut ComponentHistory<C>), Without<Confirmed>>,
-    confirmed_query: Query<(&C, &Confirmed)>,
+    // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
+    mut predicted_query: Query<
+        (Entity, &Predicted, Option<&mut C>, &mut ComponentHistory<C>),
+        Without<Confirmed>,
+    >,
+    confirmed_query: Query<(Option<&C>, &Confirmed)>,
     mut rollback: ResMut<Rollback>,
 )
 // where
@@ -62,21 +93,32 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     // - History contains the history of what we predicted at the tick
     let latest_server_tick = client.latest_received_server_tick();
 
-    // 1. We want to do a rollback check every time a component got updated/inserted on this frame
-    let updated_confirmed_entities = updates
+    // 1. We want to do a rollback check every time the component got modified (removed/added/updated) on the confirmed entity
+    let confirmed_entity_updates = updates
         .read()
         .map(|event| event.entity())
-        .chain(inserts.read().map(|event| event.entity()));
+        .chain(inserts.read().map(|event| event.entity()))
+        .chain(removals.read().map(|event| event.entity()));
+    // TODO: does this contain duplicates? if so, we should dedup
+
+    // TODO: should we clear these? so that we don't see them again in the next tick?
+    //  or should we just keep track of the last time we ran this system, and what the last_received_server_tick was.
+    //  if the last_received_server_tick didn't change, then no point in redoing the rollback check
+
     // for event in updates.read() {
-    for confirmed_entity in updated_confirmed_entities {
+    for confirmed_entity in confirmed_entity_updates {
         // TODO: get the tick of the update from context of ComponentUpdateEvent if we switch to that
         // let confirmed_entity = event.entity();
         if let Ok((confirmed_component, confirmed)) = confirmed_query.get(*confirmed_entity) {
             // TODO: no need to get the Predicted component because we're not using it right now..
             //  we could use it in the future if we add more state in the Predicted Component
             // 2. Get the predicted entity, and it's history
-            if let Ok((predicted, mut predicted_component, mut predicted_history)) =
-                predicted_query.get_mut(confirmed.predicted)
+            if let Ok((
+                predicted_entity,
+                predicted,
+                mut predicted_component,
+                mut predicted_history,
+            )) = predicted_query.get_mut(confirmed.predicted)
             {
                 // Note: it may seem like an optimization to only compare the history/server-state if we are not sure
                 // that we should rollback (RollbackState::Default)
@@ -86,9 +128,34 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                     // 3.a We are still not sure if we should do rollback. Compare history against confirmed
                     // We rollback if there's no history (newly added predicted entity, or if there is a mismatch)
                     RollbackState::Default => {
+                        // rollback table:
+                        // - confirm exist. rollback if:
+                        //    - predicted history exists and is different
+                        //    - predicted history does not exist
+                        //    To rollback:
+                        //    - update the predicted component to the confirmed component if it exists
+                        //    - insert the confirmed component to the predicted entity if it doesn't exist
+                        // - confirm does not exist. rollback if:
+                        //    - predicted history exists and doesn't contain Removed
+                        //    -
+                        //    To rollback:
+                        //    - we remove the component from predicted.
                         let history_value = predicted_history.pop_until_tick(latest_server_tick);
-                        let should_rollback = history_value
-                            .map_or(true, |history_value| history_value != *confirmed_component);
+                        let should_rollback = confirmed_component.map_or_else(
+                            // TODO: history-value should not be empty here; should we panic if it is?
+                            // confirm does not exist. rollback if history value is not Removed
+                            history_value.map_or(false, |history_value| {
+                                history_value != ComponentState::Removed
+                            }),
+                            // confirm exist. rollback if history value is different
+                            history_value.map_or(true, |history_value| match history_value {
+                                ComponentState::Added(history_value)
+                                | ComponentState::Updated(history_value) => {
+                                    history_value != *confirmed_component
+                                }
+                                ComponentState::Removed => true,
+                            }),
+                        );
                         if should_rollback {
                             // info!(
                             //     "Rollback check: mismatch for component {:?} between predicted and confirmed {:?}", C::name(),
@@ -99,12 +166,42 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                             //  And then maybe we can add an EntityCommands extension that adds a ReplicationBehaviour<C>
 
                             // TODO: WE ACTUALLY DONT NEED TO CLEAR THE HISTORY BECAUSE WE WILL ROLLBACK ANYWAY.
-                            predicted_history.clear();
+                            //   also we popped until the latest_server_tick
+                            // predicted_history.clear();
                             // TODO: WE DON'T NEED TO WRITE THE HISTORY HERE, BECAUSE WE WILL NEVER USE THIS TICK AGAIN NORMALLY!
-                            predicted_history
-                                .buffer
-                                .add_item(latest_server_tick, confirmed_component.clone());
-                            *predicted_component = confirmed_component.clone();
+                            //   actually we do? the latest_server_tick might not change between multiple client ticks
+                            // SAFETY: we know the predicted entity exists
+                            let mut entity_mut = commands.entity(predicted_entity);
+                            confirmed_component.map_or_else(
+                                // confirm does not exist, remove on predicted
+                                || {
+                                    predicted_history
+                                        .buffer
+                                        .add_item(latest_server_tick, ComponentState::Removed);
+                                    entity_mut.remove::<C>();
+                                },
+                                // confirm exist, update or insert on predicted
+                                |confirmed_component| {
+                                    predicted_component.map_or_else(
+                                        || {
+                                            predicted_history.buffer.add_item(
+                                                latest_server_tick,
+                                                ComponentState::Added(confirmed_component.clone()),
+                                            );
+                                            entity_mut.insert(confirmed_component);
+                                        },
+                                        |predicted_component| {
+                                            predicted_history.buffer.add_item(
+                                                latest_server_tick,
+                                                ComponentState::Updated(
+                                                    confirmed_component.clone(),
+                                                ),
+                                            );
+                                            *predicted_component = confirmed_component.clone();
+                                        },
+                                    );
+                                },
+                            );
                             // TODO: try atomic enum update
                             rollback.state = RollbackState::ShouldRollback {
                                 // we already replicated the latest_server_tick state
@@ -113,13 +210,40 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                             };
                         }
                     }
-                    // 3.b We already know we should do rollback, clear the history and snap the predicted history to the server state
+                    // 3.b We already know we should do rollback (because of another entity/component), start the rollback
                     RollbackState::ShouldRollback { .. } => {
-                        predicted_history.clear();
-                        predicted_history
-                            .buffer
-                            .add_item(latest_server_tick, confirmed_component.clone());
-                        *predicted_component = confirmed_component.clone();
+                        // predicted_history.clear();
+
+                        // SAFETY: we know the predicted entity exists
+                        let mut entity_mut = commands.entity(predicted_entity);
+                        confirmed_component.map_or_else(
+                            // confirm does not exist, remove on predicted
+                            || {
+                                predicted_history
+                                    .buffer
+                                    .add_item(latest_server_tick, ComponentState::Removed);
+                                entity_mut.remove::<C>();
+                            },
+                            // confirm exist, update or insert on predicted
+                            |confirmed_component| {
+                                predicted_component.map_or_else(
+                                    || {
+                                        predicted_history.buffer.add_item(
+                                            latest_server_tick,
+                                            ComponentState::Added(confirmed_component.clone()),
+                                        );
+                                        entity_mut.insert(confirmed_component);
+                                    },
+                                    |predicted_component| {
+                                        predicted_history.buffer.add_item(
+                                            latest_server_tick,
+                                            ComponentState::Updated(confirmed_component.clone()),
+                                        );
+                                        *predicted_component = confirmed_component.clone();
+                                    },
+                                );
+                            },
+                        );
                         return;
                     }
                     _ => {
@@ -127,13 +251,13 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                     }
                 }
             } else {
-                // warn!("Predicted entity {:?} was not found", confirmed.predicted);
+                warn!("Predicted entity {:?} was not found", confirmed.predicted);
             }
         } else {
-            /*warn!(
+            warn!(
                 "Confirmed entity from UpdateEvent {:?} was not found",
                 confirmed_entity
-            );*/
+            );
         }
     }
 }

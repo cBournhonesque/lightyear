@@ -11,7 +11,7 @@ struct MacroAttrs {
 }
 
 #[derive(Debug, FromField)]
-#[darling(attributes(replication))]
+#[darling(attributes(prediction))]
 struct FieldReceiver {
     // name of the enum field
     ident: Option<Ident>,
@@ -21,7 +21,9 @@ struct FieldReceiver {
 
     // if True, we want to run client prediction for this component
     #[darling(default)]
-    predicted: bool,
+    rollback: bool,
+    #[darling(default)]
+    copy_once: bool,
 }
 
 pub fn component_protocol_impl(
@@ -69,6 +71,9 @@ pub fn component_protocol_impl(
     );
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
+    // Impls
+    let predicted_component_impl = predicted_component_impl(&received_fields, protocol);
+
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
@@ -101,7 +106,8 @@ pub fn component_protocol_impl(
 
             // TODO: write this behind feature?
             // TODO: possibility to rename this? maybe we should put everything in one crate
-            use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted};
+            use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted, PredictedComponent,
+                PredictedComponentMode};
 
             #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(ComponentBehaviour)]
@@ -115,6 +121,9 @@ pub fn component_protocol_impl(
                 #push_component_events_method
                 #add_prediction_systems_method
             }
+
+            #predicted_component_impl
+
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
             #enum_kind
@@ -240,13 +249,43 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
+fn predicted_component_impl(fields: &Vec<FieldReceiver>, protocol_name: &Ident) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        if field.rollback && field.copy_once {
+            panic!("a component cannot be both rollback and copy_once")
+        }
+        let component_type = &field.ty;
+        if field.rollback {
+            body = quote! {
+                #body
+                impl PredictedComponent for #component_type {
+                    fn mode() -> PredictedComponentMode {
+                        PredictedComponentMode::Rollback
+                    }
+                }
+            };
+        } else if field.copy_once {
+            body = quote! {
+                #body
+                impl PredictedComponent for #component_type {
+                    fn mode() -> PredictedComponentMode {
+                        PredictedComponentMode::CopyOnce
+                    }
+                }
+            };
+        }
+    }
+    body
+}
+
 fn add_prediction_systems_method(
     fields: &Vec<FieldReceiver>,
     protocol_name: &Ident,
 ) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
-        if field.predicted {
+        if field.rollback || field.copy_once {
             let component_type = &field.ty;
             body = quote! {
                 #body

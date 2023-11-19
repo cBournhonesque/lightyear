@@ -52,7 +52,9 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
         None
     }
 
-    /// Pop all items that are older than the provided key, then return the value for the provided key
+    /// Pop all items that are older than the provided key, then return the value for the most recent item
+    /// with a key older or equal to the provided key
+    /// (i.e. if we have keys 1, 4, 6, pop_until(5) will return the value for key 4)
     pub(crate) fn pop_until(&mut self, key: &K) -> Option<T> {
         if self.heap.is_empty() {
             return None;

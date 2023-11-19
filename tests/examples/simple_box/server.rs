@@ -6,9 +6,12 @@ use lightyear_shared::plugin::events::InputEvent;
 use lightyear_shared::plugin::sets::FixedUpdateSet;
 use lightyear_shared::prelude::*;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::{ConnectEvent, DisconnectEvent, IoConfig, TransportConfig};
+use lightyear_shared::{
+    ConnectEvent, DisconnectEvent, IoConfig, LinkConditionerConfig, TransportConfig,
+};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 pub struct ServerPlugin {
     pub(crate) port: u16,
@@ -20,10 +23,16 @@ impl Plugin for ServerPlugin {
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(50),
+            incoming_jitter: Duration::from_millis(5),
+            incoming_loss: 0.05,
+        };
         let config = ServerConfig {
             shared: shared_config().clone(),
             netcode: netcode_config,
-            io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
+            io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
+                .with_conditioner(link_conditioner),
             ping: PingConfig::default(),
         };
         let plugin_config =
