@@ -83,7 +83,7 @@ pub struct SyncManager {
     /// Current best estimates of various networking statistics
     final_stats: FinalStats,
     /// whether the handshake is finalized
-    synced: bool,
+    pub(crate) synced: bool,
 
     // /// sent packet store to track the time we sent each packet
     // sent_packet_store: SentPacketStore,

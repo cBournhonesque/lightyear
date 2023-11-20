@@ -28,6 +28,7 @@ pub enum FixedUpdateSet {
     TickUpdate,
     /// Main loop (with physics, game logic) during FixedUpdate
     Main,
+    MainFlush,
 }
 
 // To fix that we could do:

@@ -48,8 +48,10 @@ fn increment_component(
     }
 }
 
+// Test that if a component gets removed from the predicted entity
+// We are still able to rollback properly (and the rollback re-adds the component to the entity)
 #[test]
-fn test_prediction_remove_add_component() -> anyhow::Result<()> {
+fn test_remove_predicted_component_rollback() -> anyhow::Result<()> {
     let frame_duration = Duration::from_millis(10);
     let tick_duration = Duration::from_millis(10);
     let shared_config = SharedConfig {
@@ -100,7 +102,7 @@ fn test_prediction_remove_add_component() -> anyhow::Result<()> {
     let mut history = ComponentHistory::<Component1>::new();
     history
         .buffer
-        .add_item(Tick(1), ComponentState::Added(Component1(1)));
+        .add_item(Tick(1), ComponentState::Updated(Component1(1)));
     assert_eq!(
         stepper
             .client_app
@@ -119,7 +121,7 @@ fn test_prediction_remove_add_component() -> anyhow::Result<()> {
         &Component1(1)
     );
 
-    // advance five more frames
+    // advance five more frames, so that the component gets removed on predicted
     for i in 0..5 {
         stepper.frame_step();
     }
@@ -133,10 +135,7 @@ fn test_prediction_remove_add_component() -> anyhow::Result<()> {
         .is_none());
     // check that the component history is still there and that the value of the component history is correct
     let mut history = ComponentHistory::<Component1>::new();
-    history
-        .buffer
-        .add_item(Tick(1), ComponentState::Added(Component1(1 as i16)));
-    for i in 2..5 {
+    for i in 1..5 {
         history
             .buffer
             .add_item(Tick(i), ComponentState::Updated(Component1(i as i16)));
@@ -152,7 +151,7 @@ fn test_prediction_remove_add_component() -> anyhow::Result<()> {
     );
 
     // create a rollback situation
-    // TODO: we are not setting duration_since_latest_received_server_tick to 0 during the schedule, so nofallback
+    stepper.client_mut().set_synced();
     stepper
         .client_mut()
         .set_latest_received_server_tick(Tick(3));
@@ -162,9 +161,32 @@ fn test_prediction_remove_add_component() -> anyhow::Result<()> {
         .get_mut::<Component1>(confirmed)
         .unwrap()
         .0 = 1;
-    stepper.frame_step();
+    // update without incrementing time, because we want to force a rollback check
+    stepper.client_app.update();
 
-    // check that we rolled-back even though the component was removed on predicted
+    // check that rollback happened
+    // predicted got the component re-added
+    stepper
+        .client_app
+        .world
+        .get_mut::<Component1>(predicted)
+        .unwrap()
+        .0 = 4;
+    // check that the history is how we expect after rollback
+    let mut history = ComponentHistory::<Component1>::new();
+    for i in 3..7 {
+        history
+            .buffer
+            .add_item(Tick(i), ComponentState::Updated(Component1((i - 2) as i16)));
+    }
+    assert_eq!(
+        stepper
+            .client_app
+            .world
+            .get::<ComponentHistory<Component1>>(predicted)
+            .unwrap(),
+        &history
+    );
 
     Ok(())
 }

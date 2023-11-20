@@ -2,6 +2,7 @@ use bevy::prelude::{
     Added, Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, ResMut,
     With, Without,
 };
+use std::collections::VecDeque;
 use std::ops::Deref;
 
 use crate::client::Client;
@@ -31,12 +32,12 @@ impl<T: PredictedComponent> PartialEq for ComponentHistory<T> {
     }
 }
 
+// TODO: maybe just option<T> ?
 #[derive(Debug, PartialEq, Clone)]
 pub enum ComponentState<T: PredictedComponent> {
-    // the component got just added
-    Added(T),
     // the component got just removed
     Removed,
+    // the component got updated
     Updated(T),
 }
 
@@ -54,6 +55,7 @@ impl<T: PredictedComponent> ComponentHistory<T> {
 
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
+    /// NOTE: Stores the returned value in the provided tick!!!
     /// Returns None
     /// CAREFUL:
     /// the component history will only contain the ticks where the component got updated, and otherwise
@@ -62,7 +64,7 @@ impl<T: PredictedComponent> ComponentHistory<T> {
     pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<ComponentState<T>> {
         self.buffer.pop_until(&tick).map(|item| {
             // TODO: this clone is pretty bad and avoidable. Probably switch to a sequence buffer?
-            self.buffer.add_item(item.key, item.item.clone());
+            self.buffer.add_item(tick, item.item.clone());
             item.item
         })
     }
@@ -243,17 +245,14 @@ pub fn update_component_history<T: PredictedComponent, P: Protocol>(
     };
     // update history if the predicted component changed
     // TODO: potentially change detection does not work during rollback!
+    //  edit: looks like it does
 
     for (component, mut history) in query.iter_mut() {
-        if component.is_changed() && !component.is_added() {
+        // change detection works even when running the schedule for rollback (with no time increase)
+        if component.is_changed() {
             history
                 .buffer
                 .add_item(tick, ComponentState::Updated(component.clone()));
-        }
-        if component.is_added() {
-            history
-                .buffer
-                .add_item(tick, ComponentState::Added(component.clone()));
         }
     }
     for entity in removed_component.read() {

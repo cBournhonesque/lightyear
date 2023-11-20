@@ -250,4 +250,8 @@ impl<P: Protocol> Client<P> {
             .sync_manager
             .duration_since_latest_received_server_tick = Duration::default();
     }
+
+    pub fn set_synced(&mut self) {
+        self.connection.sync_manager.synced = true;
+    }
 }

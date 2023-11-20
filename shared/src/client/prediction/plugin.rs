@@ -14,7 +14,7 @@ use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollba
 use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
 
 pub struct PredictionPlugin<P: Protocol> {
-    // always_rollback: bool
+    always_rollback: bool,
     // rollback_tick_stragegy:
     // - either we consider that the server sent the entire world state at last_received_server_tick
     // - or not, and we have to check the oldest tick across all components that don't match
@@ -24,6 +24,7 @@ pub struct PredictionPlugin<P: Protocol> {
 impl<P: Protocol> Default for PredictionPlugin<P> {
     fn default() -> Self {
         Self {
+            always_rollback: false,
             _marker: PhantomData::default(),
         }
     }
@@ -36,12 +37,18 @@ pub enum PredictionSet {
     // PreUpdatePrediction,
     /// Spawn predicted entities,
     SpawnPrediction,
+    SpawnPredictionFlush,
     /// Add component history for all predicted entities' predicted components
     SpawnHistory,
+    SpawnHistoryFlush,
     /// Check if rollback is needed, potentially clear history and snap prediction histories to server state
     CheckRollback,
+    // we might need a flush because check-rollback might remove/add components.
+    // TODO: a bit confusing, maybe only rollback should do that?
+    CheckRollbackFlush,
     /// Perform rollback
     Rollback,
+    // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
     // FixedUpdate Sets
     /// Increment the rollback tick after the main fixed-update physics loop has run
     IncrementRollbackTick,
@@ -92,34 +99,36 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             (
                 MainSet::Receive,
                 PredictionSet::SpawnPrediction,
+                PredictionSet::SpawnPredictionFlush,
                 PredictionSet::SpawnHistory,
+                PredictionSet::SpawnHistoryFlush,
                 PredictionSet::CheckRollback,
+                PredictionSet::CheckRollbackFlush,
                 PredictionSet::Rollback.run_if(is_in_rollback),
             )
                 .chain(),
-            // (
-            //     PredictionSet::SpawnPrediction.after(MainSet::Receive),
-            //     PredictionSet::SpawnHistory.after(PredictionSet::SpawnPrediction),
-            //     PredictionSet::CheckRollback.after(PredictionSet::SpawnHistory),
-            //     PredictionSet::Rollback
-            //         .after(PredictionSet::CheckRollback)
-            //         .run_if(is_in_rollback),
-            // ),
         );
         app.add_systems(
             PreUpdate,
-            // apply_deferred because we spawn a predicted entity
-            ((spawn_predicted_entity, apply_deferred).chain())
-                .in_set(PredictionSet::SpawnPrediction),
+            (
+                // TODO: we want to run this flushes only if something actually happened in the previous set!
+                //  because running the flush-system is expensive (needs exclusive world access)
+                //  check how I can do this in bevy
+                apply_deferred.in_set(PredictionSet::SpawnPredictionFlush),
+                apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
+                apply_deferred.in_set(PredictionSet::CheckRollbackFlush),
+            ),
+        );
+        app.add_systems(
+            FixedUpdate,
+            (apply_deferred.in_set(FixedUpdateSet::MainFlush),),
+        );
+
+        app.add_systems(
+            PreUpdate,
+            spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
         );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
-        app.add_systems(
-            PreUpdate,
-            // apply deferred because we spawn the PredictedComponent and ComponentHistory
-            (apply_deferred)
-                .after(PredictionSet::SpawnHistory)
-                .before(PredictionSet::CheckRollback),
-        );
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback
         app.add_systems(
@@ -136,29 +145,17 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             FixedUpdate,
             ((
                 FixedUpdateSet::Main,
+                FixedUpdateSet::MainFlush,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
-                .chain()), // (
-                           //     PredictionSet::UpdateHistory
-                           //         .after(FixedUpdateSet::Main),
-                           //     PredictionSet::IncrementRollbackTick
-                           //         .after(PredictionSet::UpdateHistory)
-                           //         .run_if(is_in_rollback),
-                           // ),
+                .chain()),
         );
         // TODO: add apply user inputs? maybe that should be done by the user in their own physics systems!
         //  apply user input should use client_tick normally, but use rollback tick during rollback!
         app.add_systems(
             FixedUpdate,
             (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick)),
-        );
-        // add an apply_deferred to apply any potential entity actions
-        app.add_systems(
-            FixedUpdate,
-            (apply_deferred)
-                .after(FixedUpdateSet::Main)
-                .before(PredictionSet::UpdateHistory),
         );
     }
 }

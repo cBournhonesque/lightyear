@@ -85,6 +85,10 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
 // <P as Protocol>::Components: From<C>,
 {
     if !client.is_synced() || !client.received_new_server_tick() {
+        info!(
+            sync = ?client.is_synced(),
+            received_new_server_tick = ?client.received_new_server_tick(),
+            "Not running rollback check because client is not synced or didn't receive new server tick");
         return;
     }
     // TODO: can just enable bevy spans?
@@ -148,8 +152,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                         // confirm exist. rollback if history value is different
                         Some(c) => {
                             history_value.map_or(true, |history_value| match history_value {
-                                ComponentState::Added(history_value)
-                                | ComponentState::Updated(history_value) => history_value != *c,
+                                ComponentState::Updated(history_value) => history_value != *c,
                                 ComponentState::Removed => true,
                             })
                         }
@@ -167,9 +170,8 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                         //  Added a ReplicationBehaviour<C>.
                         //  And then maybe we can add an EntityCommands extension that adds a ReplicationBehaviour<C>
 
-                        // TODO: WE ACTUALLY DONT NEED TO CLEAR THE HISTORY BECAUSE WE WILL ROLLBACK ANYWAY.
-                        //   also we popped until the latest_server_tick
-                        // predicted_history.clear();
+                        // we need to clear the history so we can write a new one
+                        predicted_history.clear();
                         // TODO: WE DON'T NEED TO WRITE THE HISTORY HERE, BECAUSE WE WILL NEVER USE THIS TICK AGAIN NORMALLY!
                         //   actually we do? the latest_server_tick might not change between multiple client ticks
                         // SAFETY: we know the predicted entity exists
@@ -184,19 +186,15 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                             }
                             // confirm exist, update or insert on predicted
                             Some(c) => {
+                                predicted_history.buffer.add_item(
+                                    latest_server_tick,
+                                    ComponentState::Updated(c.clone()),
+                                );
                                 match predicted_component {
                                     None => {
-                                        predicted_history.buffer.add_item(
-                                            latest_server_tick,
-                                            ComponentState::Added(c.clone()),
-                                        );
                                         entity_mut.insert(c.clone());
                                     }
                                     Some(mut predicted_component) => {
-                                        predicted_history.buffer.add_item(
-                                            latest_server_tick,
-                                            ComponentState::Updated(c.clone()),
-                                        );
                                         *predicted_component = c.clone();
                                     }
                                 };
@@ -212,7 +210,8 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                 }
                 // 3.b We already know we should do rollback (because of another entity/component), start the rollback
                 RollbackState::ShouldRollback { .. } => {
-                    // predicted_history.clear();
+                    // we need to clear the history so we can write a new one
+                    predicted_history.clear();
 
                     // SAFETY: we know the predicted entity exists
                     let mut entity_mut = commands.entity(predicted_entity);
@@ -226,19 +225,14 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
                         }
                         // confirm exist, update or insert on predicted
                         Some(c) => {
+                            predicted_history
+                                .buffer
+                                .add_item(latest_server_tick, ComponentState::Updated(c.clone()));
                             match predicted_component {
                                 None => {
-                                    predicted_history.buffer.add_item(
-                                        latest_server_tick,
-                                        ComponentState::Added(c.clone()),
-                                    );
                                     entity_mut.insert(c.clone());
                                 }
                                 Some(mut predicted_component) => {
-                                    predicted_history.buffer.add_item(
-                                        latest_server_tick,
-                                        ComponentState::Updated(c.clone()),
-                                    );
                                     *predicted_component = c.clone();
                                 }
                             };
