@@ -5,6 +5,7 @@ pub use plugin::add_prediction_systems;
 
 pub use crate::replication::prediction::ShouldBePredicted;
 use crate::tick::Tick;
+pub use predicted_history::{ComponentHistory, ComponentState};
 
 /// This file is dedicated to running Prediction on entities.
 /// On the client side, we run prediction on entities that are owned by the client.
@@ -23,7 +24,7 @@ use crate::tick::Tick;
 /// Marks an entity that is being predicted by the client
 #[derive(Component)]
 pub struct Predicted {
-    confirmed_entity: Entity,
+    pub confirmed_entity: Entity,
     // rollback_state: RollbackState,
 }
 
@@ -50,7 +51,7 @@ pub enum RollbackState {
 /// (this entity is a copy of Predicted that is RTT ticks behind)
 #[derive(Component)]
 pub struct Confirmed {
-    predicted: Entity,
+    pub predicted: Entity,
 }
 
 /// ROLLBACK INSERT: have to do rollback

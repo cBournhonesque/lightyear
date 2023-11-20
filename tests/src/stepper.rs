@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
-use bevy::prelude::{App, PluginGroup, Real, Time};
+use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -50,8 +50,7 @@ impl BevyStepper {
         let protocol_id = 0;
         let private_key = generate_key();
         let client_id = 111;
-        let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
-        let fixed_timestep = Duration::from_millis(10);
+        let frame_duration = frame_duration;
 
         // Setup server
         let mut server_app = App::new();
@@ -125,6 +124,10 @@ impl BevyStepper {
         self.client_app.world.resource::<Client<MyProtocol>>()
     }
 
+    pub fn client_mut(&mut self) -> Mut<Client<MyProtocol>> {
+        self.client_app.world.resource_mut::<Client<MyProtocol>>()
+    }
+
     fn server(&self) -> &Server<MyProtocol> {
         self.server_app.world.resource::<Server<MyProtocol>>()
     }
@@ -144,6 +147,13 @@ impl Step for BevyStepper {
     }
 
     fn tick_step(&mut self) {
-        todo!();
+        self.current_time += self.tick_duration;
+        self.client_app
+            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        self.server_app
+            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        mock_instant::MockClock::advance(self.tick_duration);
+        self.client_app.update();
+        self.server_app.update();
     }
 }

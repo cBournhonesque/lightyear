@@ -9,9 +9,7 @@ use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::replication::prediction::is_in_rollback;
 use crate::{ComponentProtocol, Protocol};
 
-use super::predicted_history::{
-    add_component_history_to_new_predicted_entity, update_component_history,
-};
+use super::predicted_history::{add_component_history, update_component_history};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
 use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
 
@@ -63,7 +61,7 @@ pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App)
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
-        (add_component_history_to_new_predicted_entity::<C>).in_set(PredictionSet::SpawnHistory),
+        (add_component_history::<C, P>).in_set(PredictionSet::SpawnHistory),
     );
     app.add_systems(
         PreUpdate,
@@ -154,6 +152,13 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.add_systems(
             FixedUpdate,
             (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick)),
+        );
+        // add an apply_deferred to apply any potential entity actions
+        app.add_systems(
+            FixedUpdate,
+            (apply_deferred)
+                .after(FixedUpdateSet::Main)
+                .before(PredictionSet::UpdateHistory),
         );
     }
 }

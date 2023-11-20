@@ -7,8 +7,9 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 /// when the key associated with the item is less than or equal to the current key
 ///
 /// The most recent item (by associated key) is returned first
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ReadyBuffer<K: Ord, T: PartialEq> {
+    // TODO: compare performance with a SequenceBuffer of fixed size
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
@@ -55,24 +56,25 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     /// Pop all items that are older than the provided key, then return the value for the most recent item
     /// with a key older or equal to the provided key
     /// (i.e. if we have keys 1, 4, 6, pop_until(5) will return the value for key 4)
-    pub(crate) fn pop_until(&mut self, key: &K) -> Option<T> {
+    pub(crate) fn pop_until(&mut self, key: &K) -> Option<ItemWithReadyKey<K, T>> {
         if self.heap.is_empty() {
             return None;
         }
         let mut val = None;
         loop {
-            if let Some(item_with_key) = self.heap.pop() {
+            if let Some(item_with_key) = self.heap.peek() {
                 // we have a new update that is older than what we want, stop
                 if item_with_key.key > *key {
                     // put back the update in the heap
-                    self.heap.push(item_with_key);
+                    // self.heap.push(item_with_key);
                     break;
-                } else {
-                    val = Some(item_with_key.item);
                 }
             } else {
+                // heap is empty
                 break;
             }
+            // safety: we know that the heap is not empty and that the key is <= the provided key
+            val = self.heap.pop();
         }
         val
     }
@@ -88,7 +90,7 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ItemWithReadyKey<K: Ord, T> {
     pub key: K,
     pub item: T,

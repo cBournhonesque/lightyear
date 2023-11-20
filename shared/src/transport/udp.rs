@@ -151,8 +151,8 @@ mod tests {
         let mut conditioned_server_receiver = ConditionedPacketReceiver::new(
             server_socket,
             &LinkConditionerConfig {
-                incoming_latency: 100,
-                incoming_jitter: 0,
+                incoming_latency: Duration::from_millis(100),
+                incoming_jitter: Duration::from_millis(0),
                 incoming_loss: 0.0,
             },
         );

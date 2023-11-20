@@ -177,7 +177,7 @@ fn strip_attributes(input: &ItemEnum) -> ItemEnum {
             v.path()
                 .segments
                 .first()
-                .map_or(true, |s| s.ident.to_string() != "replication".to_string())
+                .map_or(true, |s| s.ident.to_string() != "prediction".to_string())
         })
     }
     input

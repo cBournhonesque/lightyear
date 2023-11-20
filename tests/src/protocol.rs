@@ -29,7 +29,7 @@ pub struct Component2;
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
-    #[replication(predicted)]
+    #[prediction(rollback)]
     Component1(Component1),
     Component2(Component2),
 }

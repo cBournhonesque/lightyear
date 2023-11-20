@@ -1,4 +1,7 @@
-use bevy::prelude::{Added, Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, ResMut, With, Without};
+use bevy::prelude::{
+    Added, Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, ResMut,
+    With, Without,
+};
 use std::ops::Deref;
 
 use crate::client::Client;
@@ -11,7 +14,7 @@ use super::{
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct ComponentHistory<T: PredictedComponent> {
     // TODO: add a max size for the buffer
     // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
@@ -22,7 +25,13 @@ pub struct ComponentHistory<T: PredictedComponent> {
     pub buffer: ReadyBuffer<Tick, ComponentState<T>>,
 }
 
-#[derive(Debug, PartialEq)]
+impl<T: PredictedComponent> PartialEq for ComponentHistory<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.buffer.heap.iter().eq(other.buffer.heap.iter())
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum ComponentState<T: PredictedComponent> {
     // the component got just added
     Added(T),
@@ -32,7 +41,7 @@ pub enum ComponentState<T: PredictedComponent> {
 }
 
 impl<T: PredictedComponent> ComponentHistory<T> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             buffer: ReadyBuffer::new(),
         }
@@ -46,8 +55,16 @@ impl<T: PredictedComponent> ComponentHistory<T> {
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// Returns None
+    /// CAREFUL:
+    /// the component history will only contain the ticks where the component got updated, and otherwise
+    /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
+    /// get the values for the future ticks
     pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<ComponentState<T>> {
-        self.buffer.pop_until(&tick)
+        self.buffer.pop_until(&tick).map(|item| {
+            // TODO: this clone is pretty bad and avoidable. Probably switch to a sequence buffer?
+            self.buffer.add_item(item.key, item.item.clone());
+            item.item
+        })
     }
 
     // /// Get the value of the component at the specified tick.
@@ -121,77 +138,50 @@ mod tests {
 // TODO: add more options:
 //  - copy component and add component history (for rollback)
 //  - copy component to history and don't add component
-pub fn add_component_history_to_new_predicted_entity<T: PredictedComponent, P: Protocol>(
+pub fn add_component_history<T: PredictedComponent, P: Protocol>(
     mut commands: Commands,
     client: Res<Client<P>>,
-    predicted_entities: Query<(Entity, Ref<T>), Without<ComponentHistory<T>>>,
-    confirmed_entities: Query<(&Confirmed, Ref<T>)>,
+    predicted_entities: Query<(Entity, Option<Ref<T>>), Without<ComponentHistory<T>>>,
+    confirmed_entities: Query<(&Confirmed, Option<Ref<T>>)>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Ok((predicted_entity, predicted_component)) = predicted_entities.get(confirmed_entity.predicted) {
-            // add the component history if we add the component on predicted or confirmed
-            if predicted_component.is_added() || confirmed_component.is_added() {
-                // safety: we know the entity exists
-                let mut predicted_entity_mut = commands.get_entity(predicted_entity).unwrap();
-                // and add the component state
-                // insert an empty history, it will be filled by a rollback (since it starts empty)
-                let mut history = ComponentHistory::<T>::new();
-                history.buffer.add_item(client.tick(), ComponentState::Added(confirmed_component.deref().clone()));
-                match T::mode() {
-                    PredictedComponentMode::Rollback => {
+        if let Ok((predicted_entity, predicted_component)) =
+            predicted_entities.get(confirmed_entity.predicted)
+        {
+            if let Some(predicted_component) = predicted_component {
+                if predicted_component.is_added() {
+                    // safety: we know the entity exists
+                    let mut predicted_entity_mut = commands.get_entity(predicted_entity).unwrap();
 
-                        let bundle = if confirmed_component.is_added() {
-                            // if is_added on confirmed, let's copy
-                            (confirmed_component.deref().clone(), history);
-                        } else {
-                            history
+                    // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
+                    let mut history = ComponentHistory::<T>::new();
+                    match T::mode() {
+                        PredictedComponentMode::Rollback => {
+                            predicted_entity_mut.insert(history);
                         }
-                        predicted_entity_mut.insert(
-                            ComponentHistory::<T>::new(),
-                        );
+                        // we only sync the components once, but we don't do rollback so no need for a component history
+                        PredictedComponentMode::CopyOnce => {}
                     }
-                    _ => {}
                 }
             }
-
-        }
-        if confirmed_component.is_added() {
-            // safety: we know the entity exists
-            let mut predicted_entity_mut = commands.get_entity(confirmed_entity.predicted).unwrap();
-            // and add the component state
-            // insert an empty history, it will be filled by a rollback (since it starts empty)
-            match T::mode() {
-                PredictedComponentMode::Rollback => {
-                    predicted_entity_mut.insert((
-                        confirmed_component.deref().clone(),
-                        ComponentHistory::<T>::new(),
-                    ));
-                }
-                // we only sync the components once, but we don't do rollback so no need for a component history
-                PredictedComponentMode::CopyOnce => {
-                    predicted_entity_mut.insert((confirmed_component.deref().clone(),));
+            if let Some(confirmed_component) = confirmed_component {
+                if confirmed_component.is_added() {
+                    // safety: we know the entity exists
+                    let mut predicted_entity_mut = commands.get_entity(predicted_entity).unwrap();
+                    // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
+                    let mut history = ComponentHistory::<T>::new();
+                    match T::mode() {
+                        PredictedComponentMode::Rollback => {
+                            predicted_entity_mut
+                                .insert((confirmed_component.deref().clone(), history));
+                        }
+                        PredictedComponentMode::CopyOnce => {
+                            // we only sync the components once, but we don't do rollback so no need for a component history
+                            predicted_entity_mut.insert(confirmed_component.deref().clone());
+                        }
+                    }
                 }
             }
-        }
-    }
-}
-
-// This system:
-// - we have an existing predicted entity
-// - we add a new component to the predicted entity
-// - we need to add a corresponding component history (or update it if it exists)
-pub fn add_component_history_to_newly_added_component<T: PredictedComponent>(
-    mut commands: Commands,
-    predicted_entities: Query<(Entity, Option<&ComponentHistory<T>>), Added<T>>,
-) {
-    for (predicted_entity, maybe_history) in predicted_entities.iter() {
-        if let Some(history) = maybe_history {
-            history.buffer.add_item()
-            // safety: we know the entity exists
-            let mut predicted_entity_mut = commands.get_entity(predicted_entity).unwrap();
-            // and add the component state
-            // insert an empty history, it will be filled by a rollback (since it starts empty)
-            predicted_entity_mut.insert(history.clone());
         }
     }
 }
@@ -209,7 +199,6 @@ pub fn add_component_history_to_newly_added_component<T: PredictedComponent>(
 //     })
 // }
 
-
 // 4 cases:
 // - comp is alive in confirmed and predicted: OK
 // - comp is alive in confirmed, but gets removed in pred at some point:
@@ -220,7 +209,6 @@ pub fn add_component_history_to_newly_added_component<T: PredictedComponent>(
 //     - if the component gets added to the predicted but didn't exist in confirmed -> we need to add a history whenever we add the component to predicted!
 //   - we could also just keep the history around, no biggie?
 //
-
 
 // rollback table:
 // - confirm exist. rollback if:
@@ -239,7 +227,7 @@ pub fn add_component_history_to_newly_added_component<T: PredictedComponent>(
 pub fn update_component_history<T: PredictedComponent, P: Protocol>(
     mut query: Query<(Ref<T>, &mut ComponentHistory<T>)>,
     mut removed_component: RemovedComponents<T>,
-    mut removed_entities: Query<&mut ComponentHistory<T>>,
+    mut removed_entities: Query<&mut ComponentHistory<T>, Without<T>>,
     client: Res<Client<P>>,
     rollback: Res<Rollback>,
 ) {
@@ -257,17 +245,15 @@ pub fn update_component_history<T: PredictedComponent, P: Protocol>(
     // TODO: potentially change detection does not work during rollback!
 
     for (component, mut history) in query.iter_mut() {
-        if let Some(component) = component {
-            if component.is_changed() && !component.is_added() {
-                history
-                    .buffer
-                    .add_item(tick, ComponentState::Updated(component.clone()));
-            }
-            if component.is_added() {
-                history
-                    .buffer
-                    .add_item(tick, ComponentState::Added(component.clone()));
-            }
+        if component.is_changed() && !component.is_added() {
+            history
+                .buffer
+                .add_item(tick, ComponentState::Updated(component.clone()));
+        }
+        if component.is_added() {
+            history
+                .buffer
+                .add_item(tick, ComponentState::Added(component.clone()));
         }
     }
     for entity in removed_component.read() {

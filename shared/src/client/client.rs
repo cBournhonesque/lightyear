@@ -147,6 +147,13 @@ impl<P: Protocol> Client<P> {
         self.connection.sync_manager.latest_received_server_tick
     }
 
+    pub fn received_new_server_tick(&self) -> bool {
+        self.connection
+            .sync_manager
+            .duration_since_latest_received_server_tick
+            == Duration::default()
+    }
+
     pub(crate) fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
     }
@@ -235,5 +242,12 @@ impl<P: Protocol> TickManaged for Client<P> {
 impl<P: Protocol> Client<P> {
     pub fn io(&self) -> &Io {
         &self.io
+    }
+
+    pub fn set_latest_received_server_tick(&mut self, tick: Tick) {
+        self.connection.sync_manager.latest_received_server_tick = tick;
+        self.connection
+            .sync_manager
+            .duration_since_latest_received_server_tick = Duration::default();
     }
 }
