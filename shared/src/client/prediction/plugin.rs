@@ -2,19 +2,20 @@ use std::marker::PhantomData;
 
 use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate,
-    SystemSet,
+    Res, SystemSet,
 };
 
 use crate::client::prediction::despawn::{
     remove_component_for_despawn_predicted, remove_despawn_marker,
 };
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use crate::replication::prediction::is_in_rollback;
 use crate::{ComponentProtocol, Protocol};
 
 use super::predicted_history::{add_component_history, update_component_history};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
-use super::{spawn_predicted_entity, PredictedComponent, Rollback, RollbackState};
+use super::{
+    spawn_predicted_entity, PredictedComponent, PredictedComponentMode, Rollback, RollbackState,
+};
 
 pub struct PredictionPlugin<P: Protocol> {
     always_rollback: bool,
@@ -62,6 +63,18 @@ pub enum PredictionSet {
     UpdateHistory,
 }
 
+pub fn should_rollback<C: PredictedComponent>() -> bool {
+    matches!(C::mode(), PredictedComponentMode::Rollback)
+}
+
+/// Returns true if we are doing rollback
+pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
+    match rollback.state {
+        RollbackState::ShouldRollback { .. } => true,
+        _ => false,
+    }
+}
+
 // We want to run prediction:
 // - after we received network events (PreUpdate)
 // - before we run physics FixedUpdate (to not have to redo-them)
@@ -78,13 +91,16 @@ pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App)
     );
     app.add_systems(
         PreUpdate,
-        (client_rollback_check::<C, P>).in_set(PredictionSet::CheckRollback),
+        (client_rollback_check::<C, P>.run_if(should_rollback::<C>))
+            .in_set(PredictionSet::CheckRollback),
     );
     app.add_systems(
         FixedUpdate,
         (
             // we need to run this during fixed update to know accurately the history for each tick
-            update_component_history::<C, P>.in_set(PredictionSet::UpdateHistory)
+            update_component_history::<C, P>
+                .run_if(should_rollback::<C>)
+                .in_set(PredictionSet::UpdateHistory)
         ),
     );
     app.add_systems(

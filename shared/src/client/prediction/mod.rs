@@ -1,6 +1,7 @@
 pub use crate::replication::prediction::ShouldBePredicted;
 use crate::tick::Tick;
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
+use std::fmt::Debug;
 use tracing::info;
 
 pub use commands::{PredictionCommandsExt, PredictionDespawnMarker};
@@ -22,7 +23,7 @@ pub use predicted_history::{ComponentHistory, ComponentState};
 /// - list of all the components that will be re-computed for reconciliation
 
 /// Marks an entity that is being predicted by the client
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Predicted {
     pub confirmed_entity: Entity,
     // TODO: add config about despawn behaviour here:

@@ -5,18 +5,11 @@
   - one server: 1 game room per core?
 
 PROBLEMS:
-- SYNC:
-  - still doesn't work too well. Problems with pruned_rtt sometimes
-  - client can be stuck in a bad state; because of rollback or sync?
-- if i wait a bit on the client before sending inputs, the whole thing stays very laggy. Sync bug?
-- TODO: the speedup/slowdown seems to take a lot of ticks before having any noticeable effect, which is strange.
+- if client 1 DC and then reconnects again, we don't get a new cube.
 - when the client is disconnected, the server seems to suddenly apply a bunch of inputs at once? is it because the server is behind the client?
   maybe the server should just get disconnected right away
 - when there are no updates being sent, the last_received_server_tick/time is not updated very frequently, only from pings,
   in those cases the time sync manager is struggling to be super accurate, so there's a lot of speedup/slowdown
-- completely breaks down when we have 2 clients! Potential causes:
-  - for the first client connected, the predicted/comfirmed get completely out of sync. Which means that rollback is not working anymore?
-  - for the second client, sending inputs seems to move both client cubes
 
 
 ROUGH EDGES:
@@ -68,7 +61,6 @@ ROUGH EDGES:
   - TODO: need to handle any messages/components that contain entity handles
   - TODO: run more extensive soak test
 
-
 - Packet Manager:
   - TODO: Send Keepalive as part of Payload instead of KeepAlive
     - so that we can receive ack bitfields frequently (ack bitfields needed for reliable channels not to resend)
@@ -85,6 +77,10 @@ ROUGH EDGES:
 
 - UI:
   - TODO: UI that lets us see which packets are sent at every system update?
+
+- Metrics/Logs:
+  - add more metrics
+  - think more about log levels. Can we enable sub-level logs via filters? for example enable all prediction logs, etc.
 
 - Reflection: 
   - when can use this?

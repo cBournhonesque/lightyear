@@ -251,6 +251,12 @@ impl<P: Protocol> Client<P> {
             .duration_since_latest_received_server_tick = Duration::default();
     }
 
+    pub fn duration_since_latest_received_server_tick(&self) -> Duration {
+        self.connection
+            .sync_manager
+            .duration_since_latest_received_server_tick
+    }
+
     pub fn set_synced(&mut self) {
         self.connection.sync_manager.synced = true;
     }

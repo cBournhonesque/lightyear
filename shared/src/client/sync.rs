@@ -346,35 +346,38 @@ impl SyncManager {
         .unwrap();
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            // info!(
-            //     ?rtt,
-            //     ?jitter,
-            //     ?current_client_time,
-            //     client_tick = ?tick_manager.current_tick(),
-            //     client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
-            //     ?client_ahead_minimum,
-            //     error_ms = ?error.num_milliseconds(),
-            //     error_margin_time_ms = ?error_margin_time.num_milliseconds(),
-            //     "Too far ahead of server! Slow down!",
-            // );
+            info!(
+                ?rtt,
+                ?jitter,
+                ?current_client_time,
+                latest_received_server_tick = ?self.latest_received_server_tick,
+                client_tick = ?tick_manager.current_tick(),
+                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
+                ?client_ahead_minimum,
+                error_ms = ?error.num_milliseconds(),
+                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
+                "Too far ahead of server! Slow down!",
+            );
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            // info!(
-            //     ?rtt,
-            //     ?jitter,
-            //     ?current_client_time,
-            //     client_tick = ?tick_manager.current_tick(),
-            //     client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
-            //     ?client_ahead_minimum,
-            //     error_ms = ?error.num_milliseconds(),
-            //     error_margin_time_ms = ?error_margin_time.num_milliseconds(),
-            //     "Too far behind of server! Speed up!",
-            // );
+            info!(
+                ?rtt,
+                ?jitter,
+                ?current_client_time,
+                latest_received_server_tick = ?self.latest_received_server_tick,
+                client_tick = ?tick_manager.current_tick(),
+                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
+                ?client_ahead_minimum,
+                error_ms = ?error.num_milliseconds(),
+                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
+                "Too far behind of server! Speed up!",
+            );
             // we are too far behind the server, speed up
-            1.0 / self.config.speedup_factor
+            1.0 * self.config.speedup_factor
         } else {
             // we are within margins
+            info!("good speed");
             1.0
         };
     }
@@ -474,7 +477,8 @@ impl SyncManager {
             ?latency,
             ?self.final_stats.jitter,
             ?client_ideal_tick,
-            ?delta_tick,
+            server_tick = ?self.latest_received_server_tick,
+            client_current_tick = ?tick_manager.current_tick(),
             "Finished syncing!"
         );
         tick_manager.set_tick_to(client_ideal_tick)

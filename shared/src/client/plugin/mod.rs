@@ -9,12 +9,11 @@ use bevy::prelude::{
 use systems::{receive, send};
 
 use crate::client::input::InputPlugin;
-use crate::client::prediction::plugin::PredictionPlugin;
+use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::{Authentication, Client};
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::tick::increment_tick;
-use crate::replication::prediction::is_in_rollback;
 use crate::{
     ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
     ReplicationData, SharedPlugin,

@@ -1,7 +1,8 @@
 use bevy::prelude::{
     Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, Without, World,
 };
-use tracing::{error, info, trace_span, warn};
+use std::fmt::Debug;
+use tracing::{error, info, trace, trace_span, warn};
 
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::Client;
@@ -88,6 +89,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
         info!(
             sync = ?client.is_synced(),
             received_new_server_tick = ?client.received_new_server_tick(),
+            duration_since_last_server_tick = ?client.duration_since_latest_received_server_tick(),
             "Not running rollback check because client is not synced or didn't receive new server tick");
         return;
     }
@@ -101,6 +103,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
 
     // 1. We want to do a rollback check every time the component got modified (removed/added/updated) on the confirmed entity
     // TODO: actually we should just check for rollback if latest_received_server_tick got modified
+    //  because even if server state didn't change, our history did
     // let confirmed_entity_updates = updates
     //     .read()
     //     .map(|event| event.entity())
@@ -112,6 +115,7 @@ pub(crate) fn client_rollback_check<C: PredictedComponent, P: Protocol>(
     //  or should we just keep track of the last time we ran this system, and what the last_received_server_tick was.
     //  if the last_received_server_tick didn't change, then no point in redoing the rollback check
 
+    info!(?latest_server_tick, client_tick = ?client.tick());
     // for event in updates.read() {
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         // TODO: get the tick of the update from context of ComponentUpdateEvent if we switch to that
