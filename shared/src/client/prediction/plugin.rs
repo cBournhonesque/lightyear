@@ -5,6 +5,9 @@ use bevy::prelude::{
     SystemSet,
 };
 
+use crate::client::prediction::despawn::{
+    remove_component_for_despawn_predicted, remove_despawn_marker,
+};
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::replication::prediction::is_in_rollback;
 use crate::{ComponentProtocol, Protocol};
@@ -52,6 +55,9 @@ pub enum PredictionSet {
     // FixedUpdate Sets
     /// Increment the rollback tick after the main fixed-update physics loop has run
     IncrementRollbackTick,
+    /// Set to deal with predicted/confirmed entities getting despawned
+    EntityDespawn,
+    EntityDespawnFlush,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
 }
@@ -80,6 +86,10 @@ pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App)
             // we need to run this during fixed update to know accurately the history for each tick
             update_component_history::<C, P>.in_set(PredictionSet::UpdateHistory)
         ),
+    );
+    app.add_systems(
+        FixedUpdate,
+        remove_component_for_despawn_predicted::<C>.in_set(PredictionSet::EntityDespawn),
     );
 }
 
@@ -121,7 +131,10 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         );
         app.add_systems(
             FixedUpdate,
-            (apply_deferred.in_set(FixedUpdateSet::MainFlush),),
+            (
+                apply_deferred.in_set(FixedUpdateSet::MainFlush),
+                apply_deferred.in_set(PredictionSet::EntityDespawnFlush),
+            ),
         );
 
         app.add_systems(
@@ -146,6 +159,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             ((
                 FixedUpdateSet::Main,
                 FixedUpdateSet::MainFlush,
+                PredictionSet::EntityDespawn,
+                PredictionSet::EntityDespawnFlush,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
@@ -156,6 +171,10 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.add_systems(
             FixedUpdate,
             (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick)),
+        );
+        app.add_systems(
+            FixedUpdate,
+            remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
         );
     }
 }

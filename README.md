@@ -29,19 +29,32 @@ ROUGH EDGES:
   - add a component history for server entities
 
 - Prediction:
-  - TODO: handle despawns, spawns, component insert/removes
-    - despawns: add a component DESPAWN to the predicted entity (track the tick at which we add that component)
-      we want the user to just be able to use `commands.despawn(entity)` without worrying about what's going on behind the scenes
-      If during rollback we realize it shouldn't be despawning, we remove that component
-      If latest_received_server_tick reaches the tick saved in DESPAWN, that means we won't rollback that despawn, so we actually despawn
-    - component insert: 
+  - DONE: handle despawns, spawns, component insert/removes
+    - component insert: DONE
+    - component remove: DONE
+    - despawn:
+      - despawn the predicted entity: DONE
+        - we will remove all its components, but only despawn the actual entity if the confirmed gets despawned
+      - despawn the confirmed entity: DONE
+        - despawn both confirmed and predicted
+      - despawn another entity TODO:
+        - we let the user decide 
+          - in some cases it's ok to let the created entity despawn
+          - in other cases we would like to only despawn that entity if confirm despawns it (for example a common object)
+            -> the user should write their systems so that despawns only happen on the confirmed timeline then
+    - spawn: TODO
+      i.e. we spawn something that depends on the predicted action (like a particle), but actually we rollback,
+      which means that we need to kill the spawned entity. 
+      - either we kill immediately if it doesn't get spawned during rollback
+      - either we let it die naturally; either we fade it out?
+      -> same, the user should write their systems so that spawns only happen on the confirmed timeline
       
   - TODO: 2 ways to create predicted entities
-    - server-owned: server creates the confirmed entity, when client receives it, it creates a copy which is a predicted entity -> we have this one
-    - client-owned: client creates the predicted entity. It sends a message to client, which creates the confirmed entity however it wants
+    - DONE: server-owned: server creates the confirmed entity, when client receives it, it creates a copy which is a predicted entity -> we have this one
+    - TODO: client-owned: client creates the predicted entity. It sends a message to client, which creates the confirmed entity however it wants
       then when client receives the confirmed entity, it just updates the predicted entity to have a full mapping -> WE DONT HAVE THIS ONE YET
      
-  - TODO: maybe define different 'modes' for how components of a predicted entity get copied from confirmed to predicted
+  - DONE: maybe define different 'modes' for how components of a predicted entity get copied from confirmed to predicted
     - with_rollback: create a component history and rollback to the confirmed state when needed
     - copy_once: only copy the component from confirmed to predicted once, and then never again
       - if we don't have this, the color will be reverted to the confirmed color every time we rollback

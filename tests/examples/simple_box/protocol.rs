@@ -40,11 +40,11 @@ pub struct PlayerColor(pub(crate) Color);
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[replication(predicted)]
+    #[prediction(copy_once)]
     PlayerId(PlayerId),
-    #[replication(predicted)]
+    #[prediction(rollback)]
     PlayerPosition(PlayerPosition),
-    #[replication(predicted)]
+    #[prediction(copy_once)]
     PlayerColor(PlayerColor),
 }
 

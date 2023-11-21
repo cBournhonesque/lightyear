@@ -1,10 +1,10 @@
+pub use crate::replication::prediction::ShouldBePredicted;
+use crate::tick::Tick;
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
 use tracing::info;
 
+pub use commands::{PredictionCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
-
-pub use crate::replication::prediction::ShouldBePredicted;
-use crate::tick::Tick;
 pub use predicted_history::{ComponentHistory, ComponentState};
 
 /// This file is dedicated to running Prediction on entities.
@@ -25,6 +25,10 @@ pub use predicted_history::{ComponentHistory, ComponentState};
 #[derive(Component)]
 pub struct Predicted {
     pub confirmed_entity: Entity,
+    // TODO: add config about despawn behaviour here:
+    //  - despawn immediately all components
+    //  - leave the entity alive until the confirmed entity catches up to it and then it gets removed.
+    //    - or do this only for certain components (audio, animation, particles..) -> mode on PredictedComponent
     // rollback_state: RollbackState,
 }
 
@@ -106,6 +110,8 @@ pub trait PredictedComponent: Component + Clone + PartialEq {
 
 pub trait A {}
 
+mod commands;
+mod despawn;
 pub mod plugin;
 mod predicted_history;
 pub(crate) mod rollback;

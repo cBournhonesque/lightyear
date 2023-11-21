@@ -157,6 +157,10 @@ pub fn add_component_history<T: PredictedComponent, P: Protocol>(
 
                     // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
                     let mut history = ComponentHistory::<T>::new();
+                    history.buffer.add_item(
+                        client.tick(),
+                        ComponentState::Updated(predicted_component.deref().clone()),
+                    );
                     match T::mode() {
                         PredictedComponentMode::Rollback => {
                             predicted_entity_mut.insert(history);

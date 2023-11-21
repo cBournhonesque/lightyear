@@ -6,7 +6,7 @@ use bevy::prelude::{Fixed, Resource, Time, Virtual, World};
 use tracing::{info, trace};
 
 use crate::inputs::input_buffer::InputBuffer;
-use crate::netcode::Client as NetcodeClient;
+use crate::netcode::{Client as NetcodeClient, ClientState};
 use crate::netcode::{ConnectToken, Key};
 use crate::tick::{Tick, TickManaged};
 use crate::transport::{PacketReceiver, PacketSender, Transport};
