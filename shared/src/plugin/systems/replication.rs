@@ -58,7 +58,10 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     for event in connect_events.read() {
         let client_id = event.context();
         query.iter().for_each(|(entity, replicate)| {
-            if replicate.target.should_replicate_to(client_id.clone()) {
+            if replicate
+                .replication_target
+                .should_replicate_to(client_id.clone())
+            {
                 sender
                     .entity_spawn(entity, vec![], replicate.deref())
                     .unwrap();
@@ -91,7 +94,10 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
     for event in connect_events.read() {
         let client_id = event.context();
         query.iter().for_each(|(entity, component, replicate)| {
-            if replicate.target.should_replicate_to(client_id.clone()) {
+            if replicate
+                .replication_target
+                .should_replicate_to(client_id.clone())
+            {
                 sender
                     .component_insert(entity, component.clone().into(), replicate)
                     .unwrap();

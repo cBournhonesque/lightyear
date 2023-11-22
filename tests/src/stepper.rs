@@ -7,6 +7,8 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
+use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
+use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
@@ -93,6 +95,8 @@ impl BevyStepper {
                 rtt_smoothing_factor: 0.0,
             },
             sync: SyncConfig::default(),
+            prediction: PredictionConfig::default(),
+            interpolation: InterpolationConfig::default(),
         };
         let plugin_config = lightyear_shared::client::PluginConfig::new(config, protocol(), auth);
         let plugin = lightyear_shared::client::Plugin::new(plugin_config);

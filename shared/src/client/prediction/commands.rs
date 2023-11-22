@@ -39,9 +39,11 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
                 // TODO: if we want the death to be immediate on predicted,
                 //  we should despawn all components immediately (except Predicted and History)
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
-                predicted_entity_to_despawn = Some(confirmed.predicted);
                 // if this is a confirmed entity
                 // despawn both predicted and confirmed
+                if let Some(predicted) = confirmed.predicted {
+                    predicted_entity_to_despawn = Some(predicted);
+                }
                 entity.despawn();
             } else {
                 panic!("this command should only be called for predicted or confirmed entities");

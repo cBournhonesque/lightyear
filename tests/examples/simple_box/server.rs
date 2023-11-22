@@ -91,7 +91,11 @@ pub(crate) fn handle_connections(
             .insert(*client_id, entity.id());
     }
     for disconnection in disconnections.iter() {
-        info!("Client disconnected: {:?}", disconnection.context());
+        let client_id = disconnection.context();
+        info!("Client {:?} disconnected", client_id);
+        if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
+            commands.entity(entity).despawn();
+        }
     }
 }
 

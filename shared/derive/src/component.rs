@@ -10,9 +10,11 @@ struct MacroAttrs {
     protocol: Ident,
 }
 
+const ATTRIBUTES: &'static [&'static str] = &["interpolation", "prediction"];
+
 #[derive(Debug, FromField)]
 #[darling(attributes(prediction))]
-struct FieldReceiver {
+struct PredictionField {
     // name of the enum field
     ident: Option<Ident>,
 
@@ -24,6 +26,25 @@ struct FieldReceiver {
     rollback: bool,
     #[darling(default)]
     copy_once: bool,
+}
+
+#[derive(Debug, FromField)]
+#[darling(attributes(interpolation))]
+struct InterpolationField {
+    // name of the enum field
+    ident: Option<Ident>,
+
+    // type of the field
+    ty: Type,
+
+    #[darling(default)]
+    interpolate: bool,
+    #[darling(default)]
+    sync: bool,
+    #[darling(default)]
+    copy_once: bool,
+    #[darling(default)]
+    lerp: Option<Ident>,
 }
 
 pub fn component_protocol_impl(
@@ -51,13 +72,20 @@ pub fn component_protocol_impl(
     input.variants.push(parse_quote! {
         ShouldBePredicted(ShouldBePredicted)
     });
+    input.variants.push(parse_quote! {
+        ShouldBeInterpolated(ShouldBeInterpolated)
+    });
 
     // Helper Properties
     let fields = get_fields(&input);
     let input_without_attributes = strip_attributes(&input);
 
     // Use darling to parse the attributes for each field
-    let received_fields: Vec<FieldReceiver> = fields
+    let prediction_fields: Vec<PredictionField> = fields
+        .iter()
+        .map(|field| FromField::from_field(&field).unwrap())
+        .collect();
+    let interpolation_fields: Vec<InterpolationField> = fields
         .iter()
         .map(|field| FromField::from_field(&field).unwrap())
         .collect();
@@ -72,13 +100,16 @@ pub fn component_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Impls
-    let predicted_component_impl = predicted_component_impl(&received_fields, protocol);
+    let predicted_component_impl = predicted_component_impl(&prediction_fields, protocol);
+    let interpolated_component_impl = interpolated_component_impl(&interpolation_fields, protocol);
 
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
-    let add_prediction_systems_method = add_prediction_systems_method(&received_fields, protocol);
+    let add_prediction_systems_method = add_prediction_systems_method(&prediction_fields, protocol);
+    let add_interpolation_systems_method =
+        add_interpolation_systems_method(&interpolation_fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -108,6 +139,8 @@ pub fn component_protocol_impl(
             // TODO: possibility to rename this? maybe we should put everything in one crate
             use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted, PredictedComponent,
                 PredictedComponentMode};
+            use #shared_crate_name::client::interpolation::{add_interpolation_systems, ShouldBeInterpolated, InterpolatedComponent,
+                InterpolatedComponentMode, LerpMode};
 
             #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(ComponentBehaviour)]
@@ -120,10 +153,11 @@ pub fn component_protocol_impl(
                 #add_events_method
                 #push_component_events_method
                 #add_prediction_systems_method
+                #add_interpolation_systems_method
             }
 
             #predicted_component_impl
-
+            #interpolated_component_impl
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
             #enum_kind
@@ -174,10 +208,11 @@ fn strip_attributes(input: &ItemEnum) -> ItemEnum {
     for variant in input.variants.iter_mut() {
         // remove all attributes that are used in this macro
         variant.attrs.retain(|v| {
-            v.path()
-                .segments
-                .first()
-                .map_or(true, |s| s.ident.to_string() != "prediction".to_string())
+            v.path().segments.first().map_or(true, |s| {
+                ATTRIBUTES
+                    .iter()
+                    .all(|attr| attr.to_string() != s.ident.to_string())
+            })
         })
     }
     input
@@ -249,7 +284,7 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn predicted_component_impl(fields: &Vec<FieldReceiver>, protocol_name: &Ident) -> TokenStream {
+fn predicted_component_impl(fields: &Vec<PredictionField>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         if field.rollback && field.copy_once {
@@ -280,7 +315,7 @@ fn predicted_component_impl(fields: &Vec<FieldReceiver>, protocol_name: &Ident) 
 }
 
 fn add_prediction_systems_method(
-    fields: &Vec<FieldReceiver>,
+    fields: &Vec<PredictionField>,
     protocol_name: &Ident,
 ) -> TokenStream {
     let mut body = quote! {};
@@ -295,6 +330,84 @@ fn add_prediction_systems_method(
     }
     quote! {
         fn add_prediction_systems(app: &mut App)
+        {
+            #body
+        }
+    }
+}
+
+fn interpolated_component_impl(
+    fields: &Vec<InterpolationField>,
+    protocol_name: &Ident,
+) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        // TODO: check for multiple fields set
+        let component_type = &field.ty;
+        let lerp_mode = if let Some(lerp_fn) = &field.lerp {
+            quote! {
+                fn lerp_mode() -> LerpMode {
+                    LerpMode::Custom(lerm_fn)
+                }
+            }
+        } else {
+            quote! {
+                fn lerp_mode() -> LerpMode {
+                    LerpMode::Linear
+                }
+            }
+        };
+        if field.interpolate {
+            body = quote! {
+                #body
+                impl InterpolatedComponent for #component_type {
+                    fn mode() -> InterpolatedComponentMode {
+                        InterpolatedComponentMode::Interpolate
+                    }
+                    #lerp_mode
+                }
+            };
+        } else if field.sync {
+            body = quote! {
+                #body
+                impl InterpolatedComponent for #component_type {
+                    fn mode() -> InterpolatedComponentMode {
+                        InterpolatedComponentMode::Sync
+                    }
+                    #lerp_mode
+                }
+            };
+        } else if field.copy_once {
+            body = quote! {
+                #body
+                impl InterpolatedComponent for #component_type {
+                    fn mode() -> InterpolatedComponentMode {
+                        InterpolatedComponentMode::CopyOnce
+                    }
+                    #lerp_mode
+                }
+            };
+        }
+    }
+    body
+}
+
+fn add_interpolation_systems_method(
+    fields: &Vec<InterpolationField>,
+    protocol_name: &Ident,
+) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        if field.interpolate || field.sync || field.copy_once {
+            let component_type = &field.ty;
+            body = quote! {
+                #body
+                add_interpolation_systems::<#component_type, #protocol_name>(app);
+            };
+        }
+    }
+    quote! {
+        fn add_interpolation_systems(app: &mut App)
         {
             #body
         }
@@ -341,7 +454,6 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     }
 
     quote! {
-
         impl<'a> From<&'a #enum_name> for #enum_kind_name {
             fn from(value: &'a #enum_name) -> Self {
                 match value {

@@ -1,3 +1,5 @@
+use crate::client::interpolation::plugin::InterpolationConfig;
+use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
 use crate::{IoConfig, SharedConfig};
 
@@ -30,7 +32,10 @@ impl NetcodeConfig {
 pub struct ClientConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
+    // TODO: put IoConfig in shared?
     pub io: IoConfig,
     pub ping: PingConfig,
     pub sync: SyncConfig,
+    pub prediction: PredictionConfig,
+    pub interpolation: InterpolationConfig,
 }

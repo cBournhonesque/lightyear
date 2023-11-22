@@ -17,18 +17,32 @@ use super::{
     spawn_predicted_entity, PredictedComponent, PredictedComponentMode, Rollback, RollbackState,
 };
 
-pub struct PredictionPlugin<P: Protocol> {
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PredictionConfig {
     always_rollback: bool,
+}
+
+pub struct PredictionPlugin<P: Protocol> {
+    config: PredictionConfig,
     // rollback_tick_stragegy:
     // - either we consider that the server sent the entire world state at last_received_server_tick
     // - or not, and we have to check the oldest tick across all components that don't match
     _marker: PhantomData<P>,
 }
 
+impl<P: Protocol> PredictionPlugin<P> {
+    pub(crate) fn new(config: PredictionConfig) -> Self {
+        Self {
+            config,
+            _marker: PhantomData::default(),
+        }
+    }
+}
+
 impl<P: Protocol> Default for PredictionPlugin<P> {
     fn default() -> Self {
         Self {
-            always_rollback: false,
+            config: PredictionConfig::default(),
             _marker: PhantomData::default(),
         }
     }
@@ -147,10 +161,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         );
         app.add_systems(
             FixedUpdate,
-            (
-                apply_deferred.in_set(FixedUpdateSet::MainFlush),
-                apply_deferred.in_set(PredictionSet::EntityDespawnFlush),
-            ),
+            (apply_deferred.in_set(PredictionSet::EntityDespawnFlush),),
         );
 
         app.add_systems(
@@ -182,8 +193,6 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             )
                 .chain()),
         );
-        // TODO: add apply user inputs? maybe that should be done by the user in their own physics systems!
-        //  apply user input should use client_tick normally, but use rollback tick during rollback!
         app.add_systems(
             FixedUpdate,
             (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick)),

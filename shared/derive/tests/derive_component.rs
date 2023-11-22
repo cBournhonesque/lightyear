@@ -15,6 +15,7 @@ pub mod some_component {
     pub enum MyComponentProtocol {
         #[prediction(rollback)]
         Component1(Component1),
+        #[interpolation(sync)]
         Component2(Component2),
     }
 

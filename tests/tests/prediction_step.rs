@@ -22,7 +22,7 @@ use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystem
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::plugin::events::InputEvent;
 use lightyear_shared::plugin::sets::FixedUpdateSet;
-use lightyear_shared::replication::{PredictionTarget, Replicate};
+use lightyear_shared::replication::{NetworkTarget, Replicate};
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::tick::Tick;
 use lightyear_shared::{
@@ -31,8 +31,6 @@ use lightyear_shared::{
 };
 use lightyear_tests::protocol::{protocol, Channel2, Component1, MyInput, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
-use lightyear_tests::tick_once;
-use lightyear_tests::utils::{init_bevy_step, tick};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {
     info!("Connecting to server");
@@ -43,7 +41,7 @@ fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
     commands.spawn((
         Replicate {
-            prediction_target: PredictionTarget::All,
+            prediction_target: NetworkTarget::All,
             ..Default::default()
         },
         Component1(0),

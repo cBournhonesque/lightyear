@@ -38,12 +38,9 @@ fn test_connection_soak() -> anyhow::Result<()> {
     };
     let io_config = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
         LinkConditionerConfig {
-            incoming_latency: 20,
-            incoming_jitter: 10,
+            incoming_latency: Duration::from_millis(20),
+            incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.10,
-            // incoming_latency: 20,
-            // incoming_jitter: 10,
-            // incoming_loss: 0.1,
         },
     );
     let config = ServerConfig {

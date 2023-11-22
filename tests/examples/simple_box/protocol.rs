@@ -1,6 +1,6 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use lightyear_shared::prelude::*;
-use lightyear_shared::replication::{PredictionTarget, Replicate};
+use lightyear_shared::replication::{NetworkTarget, Replicate};
 use lightyear_shared::UserInput;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,7 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                prediction_target: PredictionTarget::Only(id),
+                prediction_target: NetworkTarget::Only(id),
                 ..default()
             },
         }

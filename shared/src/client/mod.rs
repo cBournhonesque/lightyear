@@ -12,12 +12,12 @@ pub mod client;
 mod config;
 mod connection;
 mod events;
-mod interpolation;
 mod ping_manager;
 mod plugin;
 
 // #[cfg(feature = "prediction")]
 mod input;
+pub mod interpolation;
 pub mod prediction;
 mod sent_packet_store;
 mod sync;

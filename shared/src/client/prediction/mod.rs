@@ -21,6 +21,11 @@ pub use predicted_history::{ComponentHistory, ComponentState};
 /// - a buffer of the client inputs for the last RTT ticks
 /// - a buffer of the components' states for the last RTT Ticks?  -> TO CHECK IF THERE WAS A MISPREDICTION AND WE NEED TO REPREDICT
 /// - list of all the components that will be re-computed for reconciliation
+mod commands;
+mod despawn;
+pub mod plugin;
+mod predicted_history;
+pub(crate) mod rollback;
 
 /// Marks an entity that is being predicted by the client
 #[derive(Component, Debug)]
@@ -56,7 +61,8 @@ pub enum RollbackState {
 /// (this entity is a copy of Predicted that is RTT ticks behind)
 #[derive(Component)]
 pub struct Confirmed {
-    pub predicted: Entity,
+    pub predicted: Option<Entity>,
+    pub interpolated: Option<Entity>,
 }
 
 /// ROLLBACK INSERT: have to do rollback
@@ -85,8 +91,10 @@ pub struct Confirmed {
 /// If we need to rollback, currently we only rollback the predicted entity.
 /// TODO: Maybe in the future, we should instead rollback ALL predicted entities ? (similar to rocket league)
 pub enum PredictedComponentMode {
-    /// The component will be copied to the predicted entity and stay synced with rollback
+    /// The component will be copied to the predicted entity and stay synced every tick with rollback
     Rollback,
+    // TODO: add a sync without rollback (just copy the confirmed component to the predicted). For components that don't need
+    //  the whole rollback thing (such as name, ui, etc.) but still need to stay in sync
     /// The component will be copied only-once to the predicted entity, and then won't stay in sync
     CopyOnce,
 }
@@ -107,16 +115,6 @@ pub trait PredictedComponent: Component + Clone + PartialEq {
     fn mode() -> PredictedComponentMode;
 }
 
-// impl<T> PredictedComponent for T where T: Component + Clone + PartialEq {}
-
-pub trait A {}
-
-mod commands;
-mod despawn;
-pub mod plugin;
-mod predicted_history;
-pub(crate) mod rollback;
-
 // What we want to achieve:
 // - client defines a set of components that are predicted.
 // - several cases:
@@ -132,23 +130,33 @@ pub(crate) mod rollback;
 // for now, the easiest option would be to just replicate the entirety of Confirmed ?
 pub fn spawn_predicted_entity(
     mut commands: Commands,
-    confirmed_entities: Query<Entity, Added<ShouldBePredicted>>,
+    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
 ) {
-    for confirmed_entity in confirmed_entities.iter() {
+    for (confirmed_entity, mut confirmed) in confirmed_entities.iter_mut() {
         // spawn a new predicted entity
         let predicted_entity_mut = commands.spawn((Predicted { confirmed_entity }));
         let predicted_entity = predicted_entity_mut.id();
+
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
         let mut confirmed_entity_mut = commands.get_entity(confirmed_entity).unwrap();
-        confirmed_entity_mut.insert(
-            (Confirmed {
-                predicted: predicted_entity,
-            }),
-        );
+        if let Some(mut confirmed) = confirmed {
+            confirmed.predicted = Some(predicted_entity);
+        } else {
+            confirmed_entity_mut.insert(
+                (Confirmed {
+                    predicted: Some(predicted_entity),
+                    interpolated: None,
+                }),
+            );
+        }
         info!(
             "Spawn predicted entity {:?} for confirmed: {:?}",
             predicted_entity, confirmed_entity
         );
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("spawn_predicted_entity", 1);
+        }
     }
 }

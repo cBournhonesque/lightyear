@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use bevy::app::App;
 
+use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
+use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::{
     Authentication, Client, ClientConfig, PingConfig, Plugin, PluginConfig, SyncConfig,
 };
@@ -23,6 +25,8 @@ pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
         sync: SyncConfig::default(),
+        prediction: PredictionConfig::default(),
+        interpolation: InterpolationConfig::default(),
     };
 
     // create lightyear client
@@ -42,6 +46,8 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
         sync: SyncConfig::default(),
+        prediction: PredictionConfig::default(),
+        interpolation: InterpolationConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);
     let plugin = Plugin::new(plugin_config);

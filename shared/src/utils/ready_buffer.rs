@@ -11,6 +11,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 pub struct ReadyBuffer<K: Ord, T: PartialEq> {
     // TODO: compare performance with a SequenceBuffer of fixed size
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
+    /// min heap: we pop the items with smallest key first
     pub heap: BinaryHeap<ItemWithReadyKey<K, T>>,
 }
 
@@ -42,7 +43,7 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
         false
     }
 
-    /// Pops the most recent item from the queue if sufficient time has elapsed
+    /// Pops the top item (with smallest key) from the queue if the key is above the provided `current_key`
     /// (i.e. we are beyond the instant associated with the item)
     pub fn pop_item(&mut self, current_key: &K) -> Option<(K, T)> {
         if self.has_item(current_key) {
@@ -55,7 +56,8 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
 
     /// Pop all items that are older than the provided key, then return the value for the most recent item
     /// with a key older or equal to the provided key
-    /// (i.e. if we have keys 1, 4, 6, pop_until(5) will return the value for key 4)
+    /// (i.e. if we have keys 1, 4, 6, pop_until(5) will pop 1, 4 and return the value for key 4)
+    /// /// (i.e. if we have keys 1, 4, 6, pop_until(4) will pop 1, 4 and return the value for key 4)
     pub(crate) fn pop_until(&mut self, key: &K) -> Option<ItemWithReadyKey<K, T>> {
         if self.heap.is_empty() {
             return None;

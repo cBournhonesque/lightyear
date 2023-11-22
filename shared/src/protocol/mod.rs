@@ -187,6 +187,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub mod tests {
     use bevy::prelude::Component;
 

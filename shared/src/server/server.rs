@@ -8,7 +8,7 @@ use tracing::{debug, debug_span, info, trace_span};
 
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::replication::prediction::ShouldBePredicted;
-use crate::replication::{PredictionTarget, Replicate, ReplicationSend, ReplicationTarget};
+use crate::replication::{NetworkTarget, Replicate, ReplicationSend};
 use crate::tick::{Tick, TickManaged};
 use crate::transport::{PacketSender, Transport};
 use crate::TimeManager;
@@ -169,8 +169,8 @@ impl<P: Protocol> Server<P> {
         replicate: &Replicate,
         f: F,
     ) -> Result<()> {
-        match replicate.target {
-            ReplicationTarget::All => {
+        match replicate.replication_target {
+            NetworkTarget::All => {
                 // TODO: maybe only send stuff when the client is time-synced ?
                 for client_id in self.netcode.connected_client_ids() {
                     let connection = self
@@ -180,7 +180,7 @@ impl<P: Protocol> Server<P> {
                     f(client_id, replicate, connection)?;
                 }
             }
-            ReplicationTarget::AllExcept(client_id) => {
+            NetworkTarget::AllExcept(client_id) => {
                 for client_id in self
                     .netcode
                     .connected_client_ids()
@@ -193,13 +193,14 @@ impl<P: Protocol> Server<P> {
                     f(client_id, replicate, connection)?;
                 }
             }
-            ReplicationTarget::Only(client_id) => {
+            NetworkTarget::Only(client_id) => {
                 let connection = self
                     .user_connections
                     .get_mut(&client_id)
                     .expect("client not found");
                 f(client_id, replicate, connection)?;
             }
+            NetworkTarget::None => {}
         }
         Ok(())
     }
@@ -388,11 +389,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             // if we need to do prediction, send a marker component to indicate that to the client
             let mut components = components.clone();
             match replicate.prediction_target {
-                PredictionTarget::All => {
+                NetworkTarget::All => {
                     components.push(P::Components::from(ShouldBePredicted));
                 }
                 // we should do prediction for this entity/client pair
-                PredictionTarget::Only(c) => {
+                NetworkTarget::Only(c) => {
                     if c == client_id {
                         components.push(P::Components::from(ShouldBePredicted));
                     }

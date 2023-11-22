@@ -19,6 +19,7 @@ use crate::{
 };
 
 mod entity_map;
+pub mod interpolation;
 pub mod manager;
 pub mod prediction;
 
@@ -39,10 +40,13 @@ pub struct Replicate {
     // pub channel: ChannelKind,
     pub actions_channel: ChannelKind,
     pub updates_channel: ChannelKind,
-    pub target: ReplicationTarget,
 
-    /// If true, then this entity should have a predicted version on the client
-    pub prediction_target: PredictionTarget,
+    /// Which clients should this entity be replicated to
+    pub replication_target: NetworkTarget,
+    /// Which clients should predict this entity
+    pub prediction_target: NetworkTarget,
+    /// Which clients should interpolated this entity
+    pub interpolation_target: NetworkTarget,
     // pub owner:
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates
@@ -50,13 +54,16 @@ pub struct Replicate {
 }
 
 #[derive(Default, Clone, Copy)]
-pub enum PredictionTarget {
+/// NetworkTarget indicated which clients should receive some message or update
+pub enum NetworkTarget {
     #[default]
-    /// This entity is not predicted by any client
+    /// Message sent to no client
     None,
-    /// This entity is predicted by all clients
+    /// Message sent to all clients except for one
+    AllExcept(ClientId),
+    /// Message sent to all clients
     All,
-    /// This entity is predicted by only one client
+    /// Message sent to only one client
     Only(ClientId),
 }
 
@@ -80,32 +87,21 @@ impl Default for Replicate {
         Self {
             actions_channel: ChannelKind::of::<EntityActionsChannel>(),
             updates_channel: ChannelKind::of::<EntityUpdatesChannel>(),
-            target: ReplicationTarget::default(),
-            prediction_target: PredictionTarget::default(),
+            replication_target: NetworkTarget::All,
+            prediction_target: NetworkTarget::None,
+            interpolation_target: NetworkTarget::None,
         }
     }
 }
 
-// TODO: we would also like to be able to indicate how a component gets replicated (which channel; reliably or not, etc.)
-
-#[derive(Default, Clone, Copy)]
-pub enum ReplicationTarget {
-    #[default]
-    /// Broadcast updates to all clients
-    All,
-    /// Broadcast updates to all clients except the one specified
-    AllExcept(ClientId),
-    /// Send updates only to one specific client
-    Only(ClientId),
-}
-
-impl ReplicationTarget {
+impl NetworkTarget {
     /// Return true if we should replicate to the specified client
     pub fn should_replicate_to(&self, client_id: ClientId) -> bool {
         match &self {
-            ReplicationTarget::All => true,
-            ReplicationTarget::AllExcept(id) => *id != client_id,
-            ReplicationTarget::Only(id) => *id == client_id,
+            NetworkTarget::All => true,
+            NetworkTarget::AllExcept(id) => *id != client_id,
+            NetworkTarget::Only(id) => *id == client_id,
+            NetworkTarget::None => false,
         }
     }
 }

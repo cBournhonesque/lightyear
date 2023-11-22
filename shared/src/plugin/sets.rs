@@ -16,6 +16,7 @@ pub enum MainSet {
     ///
     /// Runs in `PreUpdate`.
     Receive,
+    ReceiveFlush,
     /// Systems that send data (buffer any data to be sent, and send any buffered packets)
     ///
     /// Runs in `PostUpdate`.

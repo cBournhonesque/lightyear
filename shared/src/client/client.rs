@@ -22,6 +22,8 @@ use super::connection::Connection;
 pub struct Client<P: Protocol> {
     // Io
     io: Io,
+    //config
+    config: ClientConfig,
     // netcode
     netcode: crate::netcode::Client,
     // connection
@@ -63,6 +65,7 @@ impl Authentication {
 
 impl<P: Protocol> Client<P> {
     pub fn new(config: ClientConfig, auth: Authentication, protocol: P) -> Self {
+        let config_clone = config.clone();
         let token = auth.get_token().expect("could not generate token");
         let token_bytes = token.try_into_bytes().unwrap();
         let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
@@ -72,6 +75,7 @@ impl<P: Protocol> Client<P> {
         let connection = Connection::new(protocol.channel_registry(), config.sync);
         Self {
             io,
+            config: config_clone,
             protocol,
             netcode,
             connection,
@@ -259,5 +263,19 @@ impl<P: Protocol> Client<P> {
 
     pub fn set_synced(&mut self) {
         self.connection.sync_manager.synced = true;
+    }
+}
+
+// Functions related to Interpolation (maybe make it a trait)?
+impl<P: Protocol> Client<P> {
+    pub(crate) fn interpolated_tick(&self) -> Tick {
+        let tick_delta = self.config.interpolation.delay.tick_delta(
+            self.config.shared.tick.tick_duration,
+            // TODO: the fact that we have this means that we should have config that defines
+            //  how often client sends packets to server and vice-versa
+            //  then we can have a timer, and check at every frame/fixed-update if we need to send packets
+            // self.config.shared.tick.server_update_rate,
+        );
+        self.tick() - tick_delta
     }
 }

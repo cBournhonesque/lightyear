@@ -25,8 +25,6 @@ use lightyear_shared::{
 };
 use lightyear_tests::protocol::{protocol, Channel2, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
-use lightyear_tests::tick_once;
-use lightyear_tests::utils::{init_bevy_step, tick};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {
     info!("Connecting to server");

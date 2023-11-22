@@ -50,6 +50,8 @@ pub trait ComponentProtocol:
     );
 
     fn add_prediction_systems(app: &mut App);
+
+    fn add_interpolation_systems(app: &mut App);
 }
 
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type

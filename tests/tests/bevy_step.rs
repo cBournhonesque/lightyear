@@ -25,8 +25,6 @@ use lightyear_shared::{
 };
 use lightyear_tests::protocol::{protocol, Channel2, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
-use lightyear_tests::tick_once;
-use lightyear_tests::utils::{init_bevy_step, tick};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {
     info!("Connecting to server");
@@ -50,8 +48,8 @@ fn test_bevy_step() -> anyhow::Result<()> {
         ..default()
     };
     let link_conditioner = LinkConditionerConfig {
-        incoming_latency: 45,
-        incoming_jitter: 3,
+        incoming_latency: Duration::from_millis(45),
+        incoming_jitter: Duration::from_millis(3),
         incoming_loss: 0.0,
     };
     let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);

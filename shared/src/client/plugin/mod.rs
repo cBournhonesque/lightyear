@@ -18,6 +18,7 @@ use crate::{
     ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
     ReplicationData, SharedPlugin,
 };
+use bevy::prelude::IntoSystemSetConfigs;
 
 use super::config::ClientConfig;
 
@@ -73,12 +74,23 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 config: config.client_config.shared.clone(),
             })
             .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(PredictionPlugin::<P>::default())
+            .add_plugins(PredictionPlugin::<P>::new(
+                config.client_config.prediction.clone(),
+            ))
             // RESOURCES //
             .insert_resource(client)
             .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, MainSet::Receive)
+            .configure_sets(
+                FixedUpdate,
+                (
+                    FixedUpdateSet::TickUpdate,
+                    FixedUpdateSet::Main,
+                    FixedUpdateSet::MainFlush,
+                )
+                    .chain(),
+            )
             .configure_sets(PostUpdate, MainSet::Send)
             // EVENTS //
             .add_event::<ConnectEvent>()
@@ -87,17 +99,23 @@ impl<P: Protocol> PluginType for Plugin<P> {
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
-                (receive::<P>, apply_deferred).in_set(MainSet::Receive),
+                (
+                    (receive::<P>).in_set(MainSet::Receive),
+                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                ),
             )
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
             //  maybe TickManager should be a separate resource not contained in Client/Server?
             //  and runs Update in PreUpdate before the client/server systems
             .add_systems(
                 FixedUpdate,
-                increment_tick::<Client<P>>
-                    .in_set(FixedUpdateSet::TickUpdate)
-                    // run if there is no rollback resource, or if we are not in rollback
-                    .run_if((not(resource_exists::<Rollback>())).or_else(not(is_in_rollback))),
+                (
+                    increment_tick::<Client<P>>
+                        .in_set(FixedUpdateSet::TickUpdate)
+                        // run if there is no rollback resource, or if we are not in rollback
+                        .run_if((not(resource_exists::<Rollback>())).or_else(not(is_in_rollback))),
+                    apply_deferred.in_set(FixedUpdateSet::MainFlush),
+                ),
             )
             .add_systems(PostUpdate, send::<P>.in_set(MainSet::Send));
     }
