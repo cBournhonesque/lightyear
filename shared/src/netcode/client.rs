@@ -24,6 +24,7 @@ const RECV_BUF_SIZE: usize = 256 * 1024;
 const SEND_BUF_SIZE: usize = 256 * 1024;
 
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
+
 /// Configuration for a client.
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a server when the clients wants to disconnect.

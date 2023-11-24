@@ -1,18 +1,18 @@
-use crate::client::components::Confirmed;
-use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::{Interpolated, InterpolatedComponent};
-use crate::tick::Tick;
-use crate::utils::ready_buffer::ItemWithReadyKey;
-use crate::{Client, Protocol, ReadyBuffer};
+use std::ops::Deref;
+
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
-use std::ops::Deref;
 use tracing::{error, info};
 
-/// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
+use crate::client::components::Confirmed;
+use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::interpolation::interpolate::InterpolateStatus;
+use crate::client::interpolation::Interpolated;
+use crate::tick::Tick;
+use crate::{Client, Protocol, ReadyBuffer};
 
+/// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]
 pub struct ConfirmedHistory<T: SyncComponent> {
     // TODO: here we can use a sequence buffer. We won't store more than a couple

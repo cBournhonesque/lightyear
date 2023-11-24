@@ -1,13 +1,11 @@
-use bevy::prelude::{
-    Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, Without, World,
-};
 use std::fmt::Debug;
+
+use bevy::prelude::{Commands, Entity, FixedUpdate, Query, Res, ResMut, Without, World};
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::Client;
-use crate::plugin::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
 use crate::Protocol;
 
 use super::predicted_history::PredictionHistory;

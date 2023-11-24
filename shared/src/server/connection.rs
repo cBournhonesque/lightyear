@@ -8,7 +8,6 @@ use crate::connection::events::IterMessageEvent;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::packet::packet_manager::Payload;
-use crate::server::config::PacketConfig;
 use crate::{
     ChannelKind, ChannelRegistry, ConnectionEvents, InputMessage, PingChannel, PingMessage,
     Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,

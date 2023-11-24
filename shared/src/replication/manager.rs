@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use bevy::prelude::{Entity, World};
-use tracing::{debug, debug_span, trace_span};
+use tracing::{debug, trace_span};
 
 use crate::connection::ProtocolMessage;
 use crate::replication::entity_map::EntityMap;
 use crate::replication::{Replicate, ReplicationMessage};
-use crate::{ChannelKind, ComponentBehaviour, ComponentKindBehaviour, Protocol, ReplicationData};
+use crate::{ChannelKind, ComponentBehaviour, ComponentKindBehaviour, Protocol};
 
 // TODO: maybe store additional information about the entity?
 //  (e.g. the value of the replicate component)?

@@ -299,7 +299,7 @@ mod tests {
                     channel_kind_1.clone(),
                     vec![MessageAck {
                         message_id: MessageId(0),
-                        fragment_id: None
+                        fragment_id: None,
                     }]
                 )])
             )])

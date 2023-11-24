@@ -1,9 +1,8 @@
-use bevy::prelude::{
-    Added, Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, ResMut,
-    With, Without,
-};
-use std::collections::VecDeque;
 use std::ops::Deref;
+
+use bevy::prelude::{
+    Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, With, Without,
+};
 use tracing::error;
 
 use crate::client::components::SyncComponent;
@@ -14,7 +13,6 @@ use crate::{Protocol, ReadyBuffer};
 use super::{ComponentSyncMode, Confirmed, Predicted, Rollback, RollbackState};
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
-
 #[derive(Component, Debug)]
 pub struct PredictionHistory<T: SyncComponent> {
     // TODO: add a max size for the buffer

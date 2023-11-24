@@ -3,19 +3,15 @@ use std::time::Duration;
 use anyhow::Result;
 use tracing::info;
 
-use crate::client::config::PacketConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
-use crate::packet::packet::PacketId;
-use crate::packet::packet_manager::Payload;
 use crate::tick::Tick;
 use crate::{
     ChannelKind, ChannelRegistry, PingChannel, Protocol, ReadBuffer, SyncMessage, TickManager,
     TimeManager,
 };
 
-use super::ping_manager::PingConfig;
 use super::sync::SyncManager;
 
 // TODO: this layer of indirection is annoying, is there a better way?

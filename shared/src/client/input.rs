@@ -28,6 +28,7 @@ pub struct CurrentInput<T: UserInput> {
     //  or would that be encoded as a combination?
     input: T,
 }
+
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
         // EVENT

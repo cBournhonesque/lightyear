@@ -6,8 +6,6 @@ use bevy::prelude::{
     PreUpdate,
 };
 
-use super::systems::{receive, send};
-
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::replication::add_replication_send_systems;
 use crate::plugin::systems::tick::increment_tick;
@@ -16,10 +14,11 @@ use crate::server::systems::is_ready_to_send;
 use crate::server::Server;
 use crate::{
     ClientId, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
-    Protocol, ReplicationData, ReplicationSend, ReplicationSet, SharedPlugin,
+    Protocol, ReplicationData, ReplicationSet, SharedPlugin,
 };
 
 use super::config::ServerConfig;
+use super::systems::{receive, send};
 
 pub struct PluginConfig<P: Protocol> {
     server_config: ServerConfig,
@@ -35,6 +34,7 @@ impl<P: Protocol> PluginConfig<P> {
         }
     }
 }
+
 pub struct Plugin<P: Protocol> {
     // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference
     // in build()

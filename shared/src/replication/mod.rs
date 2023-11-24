@@ -9,8 +9,6 @@ use bitcode::__private::Serialize;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
-use lightyear_derive::ChannelInternal;
-
 use crate::channel::channel::EntityActionsChannel;
 use crate::netcode::ClientId;
 use crate::{

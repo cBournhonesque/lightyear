@@ -194,7 +194,9 @@ impl ConnectionCache {
         self.time += delta_ms;
     }
 }
+
 pub type Callback<Ctx> = Box<dyn FnMut(ClientId, &mut Ctx) + Send + Sync + 'static>;
+
 /// Configuration for a server.
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
@@ -225,6 +227,7 @@ pub struct ServerConfig<Ctx> {
     on_connect: Option<Callback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
 }
+
 impl Default for ServerConfig<()> {
     fn default() -> Self {
         Self {

@@ -1,12 +1,12 @@
+use std::collections::HashMap;
+
+use bevy::prelude::{Commands, EventReader, Query, RemovedComponents, ResMut, Resource};
+
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::client::interpolation::InterpolatedComponent;
-use crate::client::prediction::Predicted;
-use crate::plugin::events::{ComponentRemoveEvent, EntityDespawnEvent};
+use crate::plugin::events::ComponentRemoveEvent;
 use crate::Entity;
-use bevy::prelude::{Commands, EventReader, Query, RemovedComponents, ResMut, Resource, With};
-use std::collections::HashMap;
 
 // Despawn logic:
 // - despawning a predicted client entity:

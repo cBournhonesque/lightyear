@@ -1,11 +1,12 @@
+use std::marker::PhantomData;
+
+use bevy::ecs::system::{Command, EntityCommands};
+use bevy::prelude::{Commands, Component, Query, With};
+
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::prediction::Predicted;
-use crate::plugin::events::EntityDespawnEvent;
 use crate::tick::Tick;
 use crate::{Client, Entity, Protocol, World};
-use bevy::ecs::system::{Command, EntityCommands};
-use bevy::prelude::{Commands, Component, EventReader, Query, With};
-use std::marker::PhantomData;
 
 // Despawn logic:
 // - despawning a predicted client entity:

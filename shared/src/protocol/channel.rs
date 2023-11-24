@@ -34,6 +34,7 @@ pub struct ChannelRegistry {
     pub(in crate::protocol) name_map: HashMap<ChannelKind, String>,
     built: bool,
 }
+
 impl ChannelRegistry {
     pub fn new() -> Self {
         Self {

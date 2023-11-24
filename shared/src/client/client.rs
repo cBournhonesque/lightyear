@@ -2,12 +2,11 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::Result;
-use bevy::prelude::{Fixed, Resource, Time, Virtual, World};
-use tracing::{info, trace};
+use bevy::prelude::{Resource, Time, Virtual, World};
+use tracing::trace;
 
-use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::inputs::input_buffer::InputBuffer;
-use crate::netcode::{Client as NetcodeClient, ClientState};
+use crate::netcode::Client as NetcodeClient;
 use crate::netcode::{ConnectToken, Key};
 use crate::tick::{Tick, TickManaged};
 use crate::transport::{PacketReceiver, PacketSender, Transport};

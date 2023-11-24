@@ -113,7 +113,6 @@ pub(crate) struct MessageAck {
 //     pub(crate) id: Option<MessageId>,
 //     message: P,
 // }
-
 #[derive(Debug, PartialEq)]
 pub enum MessageContainer {
     Single(SingleData),
@@ -300,6 +299,7 @@ impl FragmentData {
         }
     }
 }
+
 impl MessageContainer {
     pub(crate) fn message_id(&self) -> Option<MessageId> {
         match &self {

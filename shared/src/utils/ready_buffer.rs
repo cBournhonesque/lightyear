@@ -124,9 +124,10 @@ impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
 mod tests {
     use std::time::Duration;
 
-    use crate::tick::Tick;
     use mock_instant::Instant;
     use mock_instant::MockClock;
+
+    use crate::tick::Tick;
 
     use super::*;
 

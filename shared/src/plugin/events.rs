@@ -34,6 +34,7 @@ impl<Ctx> DisconnectEvent<Ctx> {
         &self.0
     }
 }
+
 // TODO: for server
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {

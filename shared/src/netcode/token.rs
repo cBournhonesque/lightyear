@@ -184,7 +184,8 @@ impl ConnectTokenPrivate {
 }
 
 impl Bytes for ConnectTokenPrivate {
-    const SIZE: usize = 1024; // always padded to 1024 bytes
+    const SIZE: usize = 1024;
+    // always padded to 1024 bytes
     type Error = io::Error;
     fn write_to(&self, buf: &mut impl io::Write) -> Result<(), io::Error> {
         buf.write_u64::<LittleEndian>(self.client_id)?;
@@ -443,7 +444,8 @@ impl ConnectToken {
 }
 
 impl Bytes for ConnectToken {
-    const SIZE: usize = 2048; // always padded to 2048 bytes
+    const SIZE: usize = 2048;
+    // always padded to 2048 bytes
     type Error = InvalidTokenError;
     fn write_to(&self, buf: &mut impl io::Write) -> Result<(), Self::Error> {
         buf.write_all(&self.version_info)?;
@@ -507,6 +509,7 @@ impl Bytes for ConnectToken {
         })
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,7 +3,6 @@ use std::time::Duration;
 use bevy::prelude::{Res, Timer};
 use bevy::time::TimerMode;
 use bitvec::macros::internal::funty::Fundamental;
-use chrono::Duration as ChronoDuration;
 use tracing::{debug, info, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;

@@ -1,6 +1,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use bevy::prelude::IntoSystemSetConfigs;
 use bevy::prelude::{
     apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
@@ -18,7 +19,6 @@ use crate::{
     ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
     ReplicationData, SharedPlugin,
 };
-use bevy::prelude::IntoSystemSetConfigs;
 
 use super::config::ClientConfig;
 
@@ -37,6 +37,7 @@ impl<P: Protocol> PluginConfig<P> {
         }
     }
 }
+
 pub struct Plugin<P: Protocol> {
     // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference
     // in build()

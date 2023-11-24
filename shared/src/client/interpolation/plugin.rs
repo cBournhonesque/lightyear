@@ -1,17 +1,17 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
+use bevy::prelude::{
+    apply_deferred, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate, SystemSet,
+};
+
 use crate::client::components::SyncComponent;
 use crate::client::interpolation::despawn::{
     despawn_interpolated, removed_components, InterpolationMapping,
 };
 use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
+use crate::plugin::sets::MainSet;
 use crate::{ComponentProtocol, Protocol};
-use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    PreUpdate, Res, SystemSet, Update,
-};
 
 use super::interpolation_history::{add_component_history, apply_confirmed_update};
 use super::{spawn_interpolated_entity, InterpolatedComponent};
@@ -58,7 +58,6 @@ impl InterpolationDelay {
 /// How much behind the client time the interpolated entities are
 /// This will be converted to a tick
 /// This should be
-
 #[derive(Clone)]
 pub struct InterpolationConfig {
     /// How much behind the client time the interpolated entities are

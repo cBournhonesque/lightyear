@@ -137,7 +137,7 @@ mod tests {
             Some(SingleData {
                 id: Some(MessageId(0)),
                 tick: None,
-                bytes: message_bytes.clone()
+                bytes: message_bytes.clone(),
             })
         );
         Ok(())

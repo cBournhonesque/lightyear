@@ -12,7 +12,7 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = { version = "2.0", features = ["full"]}
+syn = { version = "2.0", features = ["full"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = "1.0.75"
 darling = "0.20"
@@ -20,9 +20,9 @@ darling = "0.20"
 
 
 [dev-dependencies]
-lightyear_shared =  { path = ".." }
+lightyear_shared = { path = ".." }
 enum-as-inner = "0.6.0"
-bevy = { version = "0.12", default-features = false}
+bevy = { version = "0.12", default-features = false }
 enum_delegate = "0.2"
 derive_more = { version = "0.99", features = ["add", "mul"] }
 

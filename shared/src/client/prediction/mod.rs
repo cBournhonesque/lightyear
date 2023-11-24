@@ -1,13 +1,15 @@
-pub use crate::replication::prediction::ShouldBePredicted;
-use crate::tick::Tick;
-use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
 use std::fmt::Debug;
+
+use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
 use tracing::info;
 
-use crate::client::components::{ComponentSyncMode, Confirmed};
 pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
+
+use crate::client::components::{ComponentSyncMode, Confirmed};
+pub use crate::replication::prediction::ShouldBePredicted;
+use crate::tick::Tick;
 
 /// This file is dedicated to running Prediction on entities.
 /// On the client side, we run prediction on entities that are owned by the client.

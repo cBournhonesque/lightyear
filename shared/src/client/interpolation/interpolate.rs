@@ -1,10 +1,11 @@
+use bevy::prelude::{Component, Query, ResMut};
+use tracing::{info, warn};
+
 use crate::client::components::SyncComponent;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::client::interpolation::{Interpolated, InterpolatedComponent};
+use crate::client::interpolation::InterpolatedComponent;
 use crate::tick::Tick;
 use crate::{Client, Protocol};
-use bevy::prelude::{Component, Entity, Query, Res, ResMut};
-use tracing::{info, warn};
 
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?

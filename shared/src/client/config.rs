@@ -1,8 +1,9 @@
+use std::time::Duration;
+
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
 use crate::{IoConfig, SharedConfig};
-use std::time::Duration;
 
 use super::ping_manager::PingConfig;
 

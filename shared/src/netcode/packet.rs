@@ -43,6 +43,7 @@ pub enum Error {
 trait WriteSequence {
     fn write_sequence(&mut self, sequence: u64) -> Result<(), io::Error>;
 }
+
 trait ReadSequence {
     fn read_sequence(&mut self, sequence_len: usize) -> Result<u64, io::Error>;
 }
@@ -156,11 +157,13 @@ impl Bytes for RequestPacket {
 }
 
 pub struct DeniedPacket {}
+
 impl DeniedPacket {
     pub fn create() -> Packet<'static> {
         Packet::Denied(DeniedPacket {})
     }
 }
+
 impl Bytes for DeniedPacket {
     type Error = io::Error;
     fn write_to(&self, _writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
@@ -176,6 +179,7 @@ pub struct ChallengePacket {
     pub sequence: u64,
     pub token: [u8; ChallengeToken::SIZE],
 }
+
 impl ChallengePacket {
     pub fn create(sequence: u64, token_bytes: [u8; ChallengeToken::SIZE]) -> Packet<'static> {
         Packet::Challenge(ChallengePacket {
@@ -205,6 +209,7 @@ pub struct ResponsePacket {
     pub sequence: u64,
     pub token: [u8; ChallengeToken::SIZE],
 }
+
 impl ResponsePacket {
     pub fn create(sequence: u64, token_bytes: [u8; ChallengeToken::SIZE]) -> Packet<'static> {
         Packet::Response(ResponsePacket {
@@ -213,6 +218,7 @@ impl ResponsePacket {
         })
     }
 }
+
 impl Bytes for ResponsePacket {
     type Error = io::Error;
     fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
@@ -232,11 +238,13 @@ impl Bytes for ResponsePacket {
 pub struct KeepAlivePacket {
     pub client_id: ClientId,
 }
+
 impl KeepAlivePacket {
     pub fn create(client_id: ClientId) -> Packet<'static> {
         Packet::KeepAlive(KeepAlivePacket { client_id })
     }
 }
+
 impl Bytes for KeepAlivePacket {
     type Error = io::Error;
     fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
@@ -253,6 +261,7 @@ impl Bytes for KeepAlivePacket {
 pub struct PayloadPacket<'p> {
     pub buf: &'p [u8],
 }
+
 impl PayloadPacket<'_> {
     pub fn create(buf: &[u8]) -> Packet {
         Packet::Payload(PayloadPacket { buf })
@@ -260,11 +269,13 @@ impl PayloadPacket<'_> {
 }
 
 pub struct DisconnectPacket {}
+
 impl DisconnectPacket {
     pub fn create() -> Packet<'static> {
         Packet::Disconnect(Self {})
     }
 }
+
 impl Bytes for DisconnectPacket {
     type Error = io::Error;
     fn write_to(&self, _writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {

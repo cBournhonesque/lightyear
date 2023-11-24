@@ -1,5 +1,4 @@
 use bevy::prelude::{App, Fixed, Plugin, Time};
-use tracing::Level;
 
 use config::SharedConfig;
 pub use replication::ReplicationData;

@@ -19,6 +19,7 @@ pub trait PacketSender {
     /// Send data on the socket to the remote address
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()>;
 }
+
 pub trait PacketReceiver {
     /// Receive a packet from the socket. Returns the data read and the origin.
     ///

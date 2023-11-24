@@ -1,7 +1,8 @@
-use crate::TickConfig;
-use bevy::a11y::accesskit::Role::Log;
 use std::time::Duration;
+
 use tracing::Level;
+
+use crate::TickConfig;
 
 #[derive(Clone)]
 pub struct SharedConfig {

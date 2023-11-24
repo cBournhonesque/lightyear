@@ -1,10 +1,11 @@
+use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual};
+use tracing::{debug, trace};
+
 use crate::connection::events::IterEntitySpawnEvent;
 use crate::{
     Client, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
     Protocol, World,
 };
-use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual};
-use tracing::{debug, info, trace};
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");

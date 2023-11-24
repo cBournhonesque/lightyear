@@ -9,6 +9,7 @@ use crate::{BitSerializable, ReadBuffer, SequenceBuffer, WriteBuffer};
 
 // TODO: should we request that a user input is a message?
 pub trait UserInput: BitSerializable + Clone + Eq + PartialEq + Send + Sync + 'static {}
+
 impl UserInput for () {}
 
 // OPTION 1: could do something similar to the prediction history (ready buffer and we don't include the gaps).

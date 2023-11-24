@@ -1,18 +1,20 @@
-mod despawn;
-mod interpolate;
-mod interpolation_history;
-pub mod plugin;
+use std::ops::{Add, Mul};
 
-pub use crate::replication::interpolation::ShouldBeInterpolated;
+use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut};
+use tracing::info;
+
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_lerp_systems};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::despawn::InterpolationMapping;
-use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut};
-use std::ops::{Add, Mul};
-use tracing::info;
+pub use crate::replication::interpolation::ShouldBeInterpolated;
+
+mod despawn;
+mod interpolate;
+mod interpolation_history;
+pub mod plugin;
 
 /// This module handles doing snapshot interpolations for entities controlled by other clients.
 ///

@@ -19,6 +19,7 @@ pub enum Error {
     #[error("failed to generate key: {0}")]
     GenerateKey(chacha20poly1305::aead::rand_core::Error),
 }
+
 /// A 32-byte array, used as a key for encrypting and decrypting packets and connect tokens.
 pub type Key = [u8; PRIVATE_KEY_BYTES];
 pub type Result<T> = std::result::Result<T, Error>;
@@ -40,6 +41,7 @@ pub fn generate_key() -> Key {
     OsRng.fill_bytes(&mut key);
     key
 }
+
 /// The fallible version of [`generate_key`](fn.generate_key.html).
 ///
 /// Returns an error if the underlying RNG fails (highly unlikely).
