@@ -58,7 +58,7 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
     /// with a key older or equal to the provided key
     /// (i.e. if we have keys 1, 4, 6, pop_until(5) will pop 1, 4 and return the value for key 4)
     /// /// (i.e. if we have keys 1, 4, 6, pop_until(4) will pop 1, 4 and return the value for key 4)
-    pub(crate) fn pop_until(&mut self, key: &K) -> Option<ItemWithReadyKey<K, T>> {
+    pub(crate) fn pop_until(&mut self, key: &K) -> Option<(K, T)> {
         if self.heap.is_empty() {
             return None;
         }
@@ -76,7 +76,7 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
                 break;
             }
             // safety: we know that the heap is not empty and that the key is <= the provided key
-            val = self.heap.pop();
+            val = self.heap.pop().map(|item| (item.key, item.item));
         }
         val
     }
@@ -161,16 +161,16 @@ mod tests {
         // check when we try to access an exact tick
         buffer.add_item(Tick(1), 1);
         buffer.add_item(Tick(2), 2);
-        assert_eq!(buffer.pop_until(&Tick(2)), Some(2));
+        assert_eq!(buffer.pop_until(&Tick(2)), Some((Tick(2), 2)));
         // check that we cleared older ticks
         assert!(buffer.is_empty());
 
         // check when we try to access a value in-between ticks
         buffer.add_item(Tick(1), 1);
         buffer.add_item(Tick(3), 3);
-        assert_eq!(buffer.pop_until(&Tick(2)), Some(1));
+        assert_eq!(buffer.pop_until(&Tick(2)), Some((Tick(1), 1)));
         assert_eq!(buffer.len(), 1);
-        assert_eq!(buffer.pop_until(&Tick(4)), Some(3));
+        assert_eq!(buffer.pop_until(&Tick(4)), Some((Tick(3), 3)));
         assert!(buffer.is_empty());
 
         // check when we try to access a value before any ticks

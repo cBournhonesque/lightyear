@@ -5,21 +5,35 @@ use bevy::prelude::{
     Res, SystemSet,
 };
 
+use crate::client::components::SyncComponent;
 use crate::client::prediction::despawn::{
     remove_component_for_despawn_predicted, remove_despawn_marker,
 };
+use crate::client::prediction::predicted_history::update_prediction_history;
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::{ComponentProtocol, Protocol};
 
-use super::predicted_history::{add_component_history, update_component_history};
+use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
-use super::{
-    spawn_predicted_entity, PredictedComponent, PredictedComponentMode, Rollback, RollbackState,
-};
+use super::{spawn_predicted_entity, ComponentSyncMode, Rollback, RollbackState};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PredictionConfig {
+    /// If true, we completely disable the prediction plugin
+    disable: bool,
     always_rollback: bool,
+}
+
+impl PredictionConfig {
+    pub fn disable(mut self, disable: bool) -> Self {
+        self.disable = disable;
+        self
+    }
+
+    pub fn always_rollback(mut self, always_rollback: bool) -> Self {
+        self.always_rollback = always_rollback;
+        self
+    }
 }
 
 pub struct PredictionPlugin<P: Protocol> {
@@ -77,8 +91,8 @@ pub enum PredictionSet {
     UpdateHistory,
 }
 
-pub fn should_rollback<C: PredictedComponent>() -> bool {
-    matches!(C::mode(), PredictedComponentMode::Rollback)
+pub fn should_rollback<C: SyncComponent>() -> bool {
+    matches!(C::mode(), ComponentSyncMode::Full)
 }
 
 /// Returns true if we are doing rollback
@@ -97,22 +111,24 @@ pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
 //   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
 //  the tick we rollback to would not be the current client tick ?
 
-pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App) {
+pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
-        (add_component_history::<C, P>).in_set(PredictionSet::SpawnHistory),
-    );
-    app.add_systems(
-        PreUpdate,
-        (client_rollback_check::<C, P>.run_if(should_rollback::<C>))
-            .in_set(PredictionSet::CheckRollback),
+        (
+            (add_component_history::<C, P>).in_set(PredictionSet::SpawnHistory),
+            // for SyncMode::Simple, just copy the confirmed components
+            (apply_confirmed_update::<C, P>).in_set(PredictionSet::CheckRollback),
+            // for SyncMode::Full, we need to check if we need to rollback
+            (client_rollback_check::<C, P>.run_if(should_rollback::<C>))
+                .in_set(PredictionSet::CheckRollback),
+        ),
     );
     app.add_systems(
         FixedUpdate,
         (
             // we need to run this during fixed update to know accurately the history for each tick
-            update_component_history::<C, P>
+            update_prediction_history::<C, P>
                 .run_if(should_rollback::<C>)
                 .in_set(PredictionSet::UpdateHistory)
         ),
@@ -125,6 +141,9 @@ pub fn add_prediction_systems<C: PredictedComponent, P: Protocol>(app: &mut App)
 
 impl<P: Protocol> Plugin for PredictionPlugin<P> {
     fn build(&self, app: &mut App) {
+        if self.config.disable {
+            return;
+        }
         P::Components::add_prediction_systems(app);
 
         // RESOURCES

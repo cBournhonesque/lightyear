@@ -1,7 +1,8 @@
+use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::interpolation_history::ComponentHistory;
+use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::InterpolatedComponent;
-use crate::client::prediction::{Confirmed, Predicted, PredictedComponent};
+use crate::client::prediction::Predicted;
 use crate::plugin::events::{ComponentRemoveEvent, EntityDespawnEvent};
 use crate::Entity;
 use bevy::prelude::{Commands, EventReader, Query, RemovedComponents, ResMut, Resource, With};
@@ -17,7 +18,7 @@ use std::collections::HashMap;
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 /// Mapping from confirmed entities to interpolated entities
 /// Needed to despawn interpolated entities when the confirmed entity gets despawned
 pub struct InterpolationMapping {
@@ -25,7 +26,7 @@ pub struct InterpolationMapping {
 }
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
-pub(crate) fn removed_components<C: InterpolatedComponent>(
+pub(crate) fn removed_components<C: SyncComponent>(
     mut commands: Commands,
     mut events: EventReader<ComponentRemoveEvent<C>>,
     query: Query<&Confirmed>,
@@ -35,7 +36,7 @@ pub(crate) fn removed_components<C: InterpolatedComponent>(
             if let Some(interpolated) = confirmed.interpolated {
                 if let Some(mut entity) = commands.get_entity(interpolated) {
                     entity.remove::<C>();
-                    entity.remove::<ComponentHistory<C>>();
+                    entity.remove::<ConfirmedHistory<C>>();
                     entity.remove::<InterpolateStatus<C>>();
                 }
             }

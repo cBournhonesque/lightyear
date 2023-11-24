@@ -1,4 +1,5 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
+use derive_more::{Add, Mul};
 use lightyear_shared::prelude::*;
 use lightyear_shared::replication::{NetworkTarget, Replicate};
 use lightyear_shared::UserInput;
@@ -20,7 +21,9 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                prediction_target: NetworkTarget::Only(id),
+                prediction_target: NetworkTarget::None,
+                // prediction_target: NetworkTarget::Only(id),
+                // interpolation_target: NetworkTarget::AllExcept(id),
                 ..default()
             },
         }
@@ -32,7 +35,7 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
 pub struct PlayerPosition(Vec2);
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -40,11 +43,11 @@ pub struct PlayerColor(pub(crate) Color);
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[prediction(copy_once)]
+    #[sync(once)]
     PlayerId(PlayerId),
-    #[prediction(rollback)]
+    #[sync(simple)]
     PlayerPosition(PlayerPosition),
-    #[prediction(copy_once)]
+    #[sync(once)]
     PlayerColor(PlayerColor),
 }
 

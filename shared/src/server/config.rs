@@ -1,5 +1,6 @@
 use crate::netcode::Key;
 use crate::{IoConfig, SharedConfig};
+use std::time::Duration;
 
 use super::ping_manager::PingConfig;
 
@@ -34,8 +35,32 @@ impl NetcodeConfig {
 }
 
 #[derive(Clone)]
+pub struct PacketConfig {
+    /// how often do we send packets to the each client?
+    /// (the minimum is once per frame)
+    pub(crate) packet_send_interval: Duration,
+}
+
+impl Default for PacketConfig {
+    fn default() -> Self {
+        Self {
+            packet_send_interval: Duration::from_millis(100),
+        }
+    }
+}
+
+impl PacketConfig {
+    pub fn with_packet_send_interval(mut self, packet_send_interval: Duration) -> Self {
+        self.packet_send_interval = packet_send_interval;
+        self
+    }
+}
+
+#[derive(Clone)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
+    // TODO: maybe regroup packet/netcode/io into ConnectionConfig?
+    pub packet: PacketConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
     pub ping: PingConfig,

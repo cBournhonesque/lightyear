@@ -1,11 +1,10 @@
-use bevy::prelude::{Events, Fixed, Mut, ResMut, Time, Virtual, World};
-use tracing::{debug, trace};
-
-use crate::client::Client;
 use crate::connection::events::IterEntitySpawnEvent;
 use crate::{
-    ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
+    Client, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
+    Protocol, World,
 };
+use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual};
+use tracing::{debug, info, trace};
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
@@ -26,7 +25,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             // update connection sync state
             client.update(time.delta(), fixed_time.overstep()).unwrap();
 
-            // after the sync manager ran, possibly update the client's time
+            // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
             client.update_relative_speed(&mut time);
 
             // buffer packets into message managers
@@ -64,6 +63,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                 // Update component events (updates, inserts, removes)
                 P::Components::push_component_events(world, &mut events);
             }
+            trace!("finished recv");
         });
     });
 }
@@ -72,4 +72,8 @@ pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
     trace!("Send packets to server");
     // send buffered packets to io
     client.send_packets().unwrap();
+}
+
+pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {
+    client.is_ready_to_send()
 }

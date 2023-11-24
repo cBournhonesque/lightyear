@@ -1,4 +1,5 @@
 use bevy::prelude::Component;
+use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
 use lightyear_shared::channel::channel::ReliableSettings;
@@ -21,17 +22,23 @@ pub enum MyMessageProtocol {
 }
 
 // Components
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Component1(pub i16);
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+pub struct Component1(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Component2;
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+pub struct Component2(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+pub struct Component3(pub f32);
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
-    #[prediction(rollback)]
+    #[sync(full)]
     Component1(Component1),
+    #[sync(simple)]
     Component2(Component2),
+    #[sync(once)]
+    Component3(Component3),
 }
 
 // Inputs

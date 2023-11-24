@@ -6,12 +6,13 @@ use bevy::prelude::{
     PreUpdate,
 };
 
-use systems::{receive, send};
+use super::systems::{receive, send};
 
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::replication::add_replication_send_systems;
 use crate::plugin::systems::tick::increment_tick;
 use crate::server::input::InputPlugin;
+use crate::server::systems::is_ready_to_send;
 use crate::server::Server;
 use crate::{
     ClientId, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
@@ -19,9 +20,6 @@ use crate::{
 };
 
 use super::config::ServerConfig;
-
-mod schedules;
-mod systems;
 
 pub struct PluginConfig<P: Protocol> {
     server_config: ServerConfig,
@@ -78,12 +76,15 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .configure_sets(PreUpdate, MainSet::Receive)
             .configure_sets(
                 PostUpdate,
-                (
+                ((
                     ReplicationSet::SendEntityUpdates,
-                    ReplicationSet::SendComponentUpdates.after(ReplicationSet::SendEntityUpdates),
-                    MainSet::Send.after(ReplicationSet::SendComponentUpdates),
-                ),
+                    ReplicationSet::SendComponentUpdates,
+                    MainSet::SendPackets,
+                )
+                    .chain())
+                .in_set(MainSet::Send),
             )
+            .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
             // EVENTS //
             .add_event::<ConnectEvent<ClientId>>()
             .add_event::<DisconnectEvent<ClientId>>()
@@ -96,6 +97,6 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 FixedUpdate,
                 increment_tick::<Server<P>>.in_set(FixedUpdateSet::TickUpdate),
             )
-            .add_systems(PostUpdate, send::<P>.in_set(MainSet::Send));
+            .add_systems(PostUpdate, send::<P>.in_set(MainSet::SendPackets));
     }
 }

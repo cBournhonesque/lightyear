@@ -5,6 +5,7 @@ use anyhow::Result;
 use bevy::prelude::{Fixed, Resource, Time, Virtual, World};
 use tracing::{info, trace};
 
+use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::{Client as NetcodeClient, ClientState};
 use crate::netcode::{ConnectToken, Key};
@@ -80,7 +81,7 @@ impl<P: Protocol> Client<P> {
             netcode,
             connection,
             events: ConnectionEvents::new(),
-            time_manager: TimeManager::new(),
+            time_manager: TimeManager::new(config.packet.packet_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
         }
     }
@@ -123,6 +124,10 @@ impl<P: Protocol> Client<P> {
     }
 
     // TIME
+
+    pub fn is_ready_to_send(&self) -> bool {
+        self.time_manager.is_ready_to_send()
+    }
 
     pub fn set_base_relative_speed(&mut self, relative_speed: f32) {
         self.time_manager.base_relative_speed = relative_speed;
@@ -230,7 +235,8 @@ impl<P: Protocol> Client<P> {
     /// Receive packets from the transport layer and buffer them with the message manager
     pub fn recv_packets(&mut self) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
-            self.connection.recv_packet(&mut reader)?;
+            self.connection
+                .recv_packet(&mut reader, &self.tick_manager)?;
         }
         Ok(())
     }
@@ -268,14 +274,16 @@ impl<P: Protocol> Client<P> {
 
 // Functions related to Interpolation (maybe make it a trait)?
 impl<P: Protocol> Client<P> {
-    pub(crate) fn interpolated_tick(&self) -> Tick {
-        let tick_delta = self.config.interpolation.delay.tick_delta(
-            self.config.shared.tick.tick_duration,
-            // TODO: the fact that we have this means that we should have config that defines
-            //  how often client sends packets to server and vice-versa
-            //  then we can have a timer, and check at every frame/fixed-update if we need to send packets
-            // self.config.shared.tick.server_update_rate,
-        );
-        self.tick() - tick_delta
+    // TODO: how to mock this in tests?
+    // TODO: actually we shouldn't use interpolation ticks, but use times directly, so we can take into account the overstep properly?
+    pub(crate) fn interpolated_tick(&mut self) -> Tick {
+        self.connection
+            .sync_manager
+            .update_estimated_interpolated_tick(
+                &self.config.interpolation.delay,
+                &self.tick_manager,
+                &self.time_manager,
+            );
+        self.connection.sync_manager.estimated_interpolation_tick
     }
 }

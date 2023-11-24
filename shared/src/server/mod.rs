@@ -6,7 +6,7 @@ pub use ping_manager::PingConfig;
 pub use plugin::{Plugin, PluginConfig};
 pub use server::Server;
 
-mod config;
+pub mod config;
 mod connection;
 mod events;
 mod input;
@@ -14,4 +14,6 @@ pub(crate) mod io;
 mod ping_manager;
 mod plugin;
 mod server;
+
+mod systems;
 // mod tick_manager;

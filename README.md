@@ -18,19 +18,14 @@ ROUGH EDGES:
 - the bitcode/Bytes parts are confusing and make extra copies
 - some slightly weird stuff around the sync manager, and we don't use the server's ping-recv-time/pong-sent-time
 - can have smarter speedup/down for the sync system
+- interpolation:
+  - right now every component needs to derive Add/Mul
+  - how do get the current_interpolation_time? it's basically server-receive-time - interpolation_delay.
+    - do we compute server-receive-time by just incrementing by 1 at every tick, and making sure that interpolation_delay is greater than 1 tick?
 
-- Snapshot-interpolation:
-  - add a component history for server entities
 
 - Prediction:
-  - DONE: handle despawns, spawns, component insert/removes
-    - component insert: DONE
-    - component remove: DONE
-    - despawn:
-      - despawn the predicted entity: DONE
-        - we will remove all its components, but only despawn the actual entity if the confirmed gets despawned
-      - despawn the confirmed entity: DONE
-        - despawn both confirmed and predicted
+  - TODO: handle despawns, spawns
       - despawn another entity TODO:
         - we let the user decide 
           - in some cases it's ok to let the created entity despawn
@@ -48,18 +43,13 @@ ROUGH EDGES:
     - TODO: client-owned: client creates the predicted entity. It sends a message to client, which creates the confirmed entity however it wants
       then when client receives the confirmed entity, it just updates the predicted entity to have a full mapping -> WE DONT HAVE THIS ONE YET
      
-  - DONE: maybe define different 'modes' for how components of a predicted entity get copied from confirmed to predicted
-    - with_rollback: create a component history and rollback to the confirmed state when needed
-    - copy_once: only copy the component from confirmed to predicted once, and then never again
-      - if we don't have this, the color will be reverted to the confirmed color every time we rollback
-    - not_copy: never copy the component from confirmed to predicted
-
 - Replication:
   - Fix the enable_replication flag, have a better way to enable/disable replication
   - POSSIBLE TODO: send back messages about entity-actions having been received? (we get this for free with reliable channels, but we need to notify the replication manager)
 
 - Message Manager
   - TODO: need to handle any messages/components that contain entity handles
+    - lookup bevy's entity-mapper
   - TODO: run more extensive soak test
 
 - Packet Manager:
@@ -84,8 +74,7 @@ ROUGH EDGES:
   - think more about log levels. Can we enable sub-level logs via filters? for example enable all prediction logs, etc.
 
 - Reflection: 
-  - when can use this?
-
+  - when can we use this?
 
 # Tenets
 

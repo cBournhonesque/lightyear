@@ -4,19 +4,19 @@ use bevy::prelude::{
 };
 use std::collections::VecDeque;
 use std::ops::Deref;
+use tracing::error;
 
+use crate::client::components::SyncComponent;
 use crate::client::Client;
 use crate::tick::Tick;
 use crate::{Protocol, ReadyBuffer};
 
-use super::{
-    Confirmed, Predicted, PredictedComponent, PredictedComponentMode, Rollback, RollbackState,
-};
+use super::{ComponentSyncMode, Confirmed, Predicted, Rollback, RollbackState};
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
 
 #[derive(Component, Debug)]
-pub struct ComponentHistory<T: PredictedComponent> {
+pub struct PredictionHistory<T: SyncComponent> {
     // TODO: add a max size for the buffer
     // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
     // We can afford to use a ReadyBuffer because we will get server updates with monotically increasing ticks
@@ -26,22 +26,26 @@ pub struct ComponentHistory<T: PredictedComponent> {
     pub buffer: ReadyBuffer<Tick, ComponentState<T>>,
 }
 
-impl<T: PredictedComponent> PartialEq for ComponentHistory<T> {
+impl<T: SyncComponent> PartialEq for PredictionHistory<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.buffer.heap.iter().eq(other.buffer.heap.iter())
+        let mut self_history: Vec<_> = self.buffer.heap.iter().collect();
+        let mut other_history: Vec<_> = other.buffer.heap.iter().collect();
+        self_history.sort_by_key(|item| item.key);
+        other_history.sort_by_key(|item| item.key);
+        self_history.eq(&other_history)
     }
 }
 
 // TODO: maybe just option<T> ?
 #[derive(Debug, PartialEq, Clone)]
-pub enum ComponentState<T: PredictedComponent> {
+pub enum ComponentState<T: SyncComponent> {
     // the component got just removed
     Removed,
     // the component got updated
     Updated(T),
 }
 
-impl<T: PredictedComponent> ComponentHistory<T> {
+impl<T: SyncComponent> PredictionHistory<T> {
     pub fn new() -> Self {
         Self {
             buffer: ReadyBuffer::new(),
@@ -56,16 +60,16 @@ impl<T: PredictedComponent> ComponentHistory<T> {
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// NOTE: Stores the returned value in the provided tick!!!
-    /// Returns None
+    ///
     /// CAREFUL:
     /// the component history will only contain the ticks where the component got updated, and otherwise
     /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
     /// get the values for the future ticks
     pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<ComponentState<T>> {
-        self.buffer.pop_until(&tick).map(|item| {
+        self.buffer.pop_until(&tick).map(|(tick, state)| {
             // TODO: this clone is pretty bad and avoidable. Probably switch to a sequence buffer?
-            self.buffer.add_item(tick, item.item.clone());
-            item.item
+            self.buffer.add_item(tick, state.clone());
+            state
         })
     }
 
@@ -140,10 +144,10 @@ mod tests {
 // TODO: add more options:
 //  - copy component and add component history (for rollback)
 //  - copy component to history and don't add component
-pub fn add_component_history<T: PredictedComponent, P: Protocol>(
+pub fn add_component_history<T: SyncComponent, P: Protocol>(
     mut commands: Commands,
     client: Res<Client<P>>,
-    predicted_entities: Query<(Entity, Option<Ref<T>>), Without<ComponentHistory<T>>>,
+    predicted_entities: Query<(Entity, Option<Ref<T>>), Without<PredictionHistory<T>>>,
     confirmed_entities: Query<(&Confirmed, Option<Ref<T>>)>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
@@ -156,17 +160,17 @@ pub fn add_component_history<T: PredictedComponent, P: Protocol>(
                             commands.get_entity(predicted_entity).unwrap();
 
                         // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                        let mut history = ComponentHistory::<T>::new();
+                        let mut history = PredictionHistory::<T>::new();
                         history.buffer.add_item(
                             client.tick(),
                             ComponentState::Updated(predicted_component.deref().clone()),
                         );
                         match T::mode() {
-                            PredictedComponentMode::Rollback => {
+                            ComponentSyncMode::Full => {
                                 predicted_entity_mut.insert(history);
                             }
-                            // we only sync the components once, but we don't do rollback so no need for a component history
-                            PredictedComponentMode::CopyOnce => {}
+                            // we don't do prediction/rollback so no need for a prediction history
+                            _ => {}
                         }
                     }
                 }
@@ -176,13 +180,13 @@ pub fn add_component_history<T: PredictedComponent, P: Protocol>(
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();
                         // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                        let mut history = ComponentHistory::<T>::new();
+                        let mut history = PredictionHistory::<T>::new();
                         match T::mode() {
-                            PredictedComponentMode::Rollback => {
+                            ComponentSyncMode::Full => {
                                 predicted_entity_mut
                                     .insert((confirmed_component.deref().clone(), history));
                             }
-                            PredictedComponentMode::CopyOnce => {
+                            _ => {
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(confirmed_component.deref().clone());
                             }
@@ -232,10 +236,10 @@ pub fn add_component_history<T: PredictedComponent, P: Protocol>(
 //    - we remove the component from predicted.
 
 /// After one fixed-update tick, we record the predicted component history for the current tick
-pub fn update_component_history<T: PredictedComponent, P: Protocol>(
-    mut query: Query<(Ref<T>, &mut ComponentHistory<T>)>,
+pub fn update_prediction_history<T: SyncComponent, P: Protocol>(
+    mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
     mut removed_component: RemovedComponents<T>,
-    mut removed_entities: Query<&mut ComponentHistory<T>, Without<T>>,
+    mut removed_entities: Query<&mut PredictionHistory<T>, Without<T>>,
     client: Res<Client<P>>,
     rollback: Res<Rollback>,
 ) {
@@ -245,14 +249,10 @@ pub fn update_component_history<T: PredictedComponent, P: Protocol>(
         RollbackState::Default => client.tick(),
         // if in rollback, we are recording the history for the current rollback tick
         RollbackState::ShouldRollback { current_tick } => current_tick,
-        RollbackState::DidRollback => {
-            panic!("Should not be recording history after rollback")
-        }
     };
     // update history if the predicted component changed
     // TODO: potentially change detection does not work during rollback!
     //  edit: looks like it does
-
     for (component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback (with no time increase)
         if component.is_changed() {
@@ -264,6 +264,43 @@ pub fn update_component_history<T: PredictedComponent, P: Protocol>(
     for entity in removed_component.read() {
         if let Ok(mut history) = removed_entities.get_mut(entity) {
             history.buffer.add_item(tick, ComponentState::Removed);
+        }
+    }
+}
+
+/// When we receive a server update, we might want to apply it to the predicted entity
+pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
+    client: Res<Client<P>>,
+    mut predicted_entities: Query<
+        (&mut T),
+        (
+            Without<PredictionHistory<T>>,
+            Without<Confirmed>,
+            With<Predicted>,
+        ),
+    >,
+    confirmed_entities: Query<(&Confirmed, Ref<T>)>,
+) {
+    let latest_server_tick = client.latest_received_server_tick();
+    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed_entity.predicted {
+            if confirmed_component.is_changed() {
+                if let Ok(mut predicted_component) = predicted_entities.get_mut(p) {
+                    match T::mode() {
+                        ComponentSyncMode::Full => {
+                            error!(
+                                "The predicted entity {:?} should have a ComponentHistory",
+                                p
+                            );
+                        }
+                        // for sync-components, we just match the confirmed component
+                        ComponentSyncMode::Simple => {
+                            *predicted_component = confirmed_component.deref().clone();
+                        }
+                        ComponentSyncMode::Once => {}
+                    }
+                }
+            }
         }
     }
 }

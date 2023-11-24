@@ -1,17 +1,20 @@
+use crate::client::components::Confirmed;
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::{InterpolatedComponent, InterpolatedComponentMode};
-use crate::client::prediction::Confirmed;
+use crate::client::interpolation::{Interpolated, InterpolatedComponent};
 use crate::tick::Tick;
 use crate::utils::ready_buffer::ItemWithReadyKey;
 use crate::{Client, Protocol, ReadyBuffer};
-use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, Without};
+use bevy::prelude::{
+    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
+};
 use std::ops::Deref;
-use tracing::error;
+use tracing::{error, info};
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 
 #[derive(Component, Debug)]
-pub struct ComponentHistory<T: InterpolatedComponent> {
+pub struct ConfirmedHistory<T: SyncComponent> {
     // TODO: here we can use a sequence buffer. We won't store more than a couple
 
     // TODO: add a max size for the buffer
@@ -24,13 +27,13 @@ pub struct ComponentHistory<T: InterpolatedComponent> {
 }
 
 // mostly used for tests
-impl<T: InterpolatedComponent> PartialEq for ComponentHistory<T> {
+impl<T: SyncComponent> PartialEq for ConfirmedHistory<T> {
     fn eq(&self, other: &Self) -> bool {
         self.buffer.heap.iter().eq(other.buffer.heap.iter())
     }
 }
 
-impl<T: InterpolatedComponent> ComponentHistory<T> {
+impl<T: SyncComponent> ConfirmedHistory<T> {
     pub fn new() -> Self {
         Self {
             buffer: ReadyBuffer::new(),
@@ -42,7 +45,11 @@ impl<T: InterpolatedComponent> ComponentHistory<T> {
         self.buffer = ReadyBuffer::new();
     }
 
-    pub(crate) fn pop_next(&mut self) -> Option<(Tick, T)> {
+    pub(crate) fn peek(&mut self) -> Option<(Tick, &T)> {
+        self.buffer.heap.peek().map(|item| (item.key, &item.item))
+    }
+
+    pub(crate) fn pop(&mut self) -> Option<(Tick, T)> {
         self.buffer.heap.pop().map(|item| (item.key, item.item))
     }
 
@@ -55,17 +62,15 @@ impl<T: InterpolatedComponent> ComponentHistory<T> {
     /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
     /// get the values for the future ticks
     pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<(Tick, T)> {
-        self.buffer
-            .pop_until(&tick)
-            .map(|item| (item.key, item.item))
+        self.buffer.pop_until(&tick)
     }
 }
 
 // TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
-pub(crate) fn add_component_history<T: InterpolatedComponent, P: Protocol>(
+pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
     mut commands: Commands,
-    client: Res<Client<P>>,
-    interpolated_entities: Query<Entity, Without<ComponentHistory<T>>>,
+    mut client: ResMut<Client<P>>,
+    interpolated_entities: Query<Entity, Without<ConfirmedHistory<T>>>,
     confirmed_entities: Query<(&Confirmed, Ref<T>)>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
@@ -76,9 +81,10 @@ pub(crate) fn add_component_history<T: InterpolatedComponent, P: Protocol>(
                     let mut interpolated_entity_mut =
                         commands.get_entity(interpolated_entity).unwrap();
                     // insert history
-                    let mut history = ComponentHistory::<T>::new();
+                    let mut history = ConfirmedHistory::<T>::new();
                     match T::mode() {
-                        InterpolatedComponentMode::Interpolate => {
+                        ComponentSyncMode::Full => {
+                            info!("spawn interpolation history");
                             interpolated_entity_mut.insert((
                                 confirmed_component.deref().clone(),
                                 history,
@@ -90,6 +96,7 @@ pub(crate) fn add_component_history<T: InterpolatedComponent, P: Protocol>(
                             ));
                         }
                         _ => {
+                            info!("copy interpolation component");
                             interpolated_entity_mut.insert(confirmed_component.deref().clone());
                         }
                     }
@@ -99,11 +106,14 @@ pub(crate) fn add_component_history<T: InterpolatedComponent, P: Protocol>(
     }
 }
 
-/// When we receive a server update, we need to store it in the component history,
+/// When we receive a server update, we need to store it in the confirmed history,
 /// or update the interpolated component directly if InterpolatedComponentMode::Sync
-pub(crate) fn update_component_history<T: InterpolatedComponent, P: Protocol>(
+pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
     client: Res<Client<P>>,
-    mut interpolated_entities: Query<(&mut T, Option<&mut ComponentHistory<T>>)>,
+    mut interpolated_entities: Query<
+        (&mut T, Option<&mut ConfirmedHistory<T>>),
+        (With<Interpolated>, Without<Confirmed>),
+    >,
     confirmed_entities: Query<(&Confirmed, Ref<T>)>,
 ) {
     let latest_server_tick = client.latest_received_server_tick();
@@ -114,7 +124,7 @@ pub(crate) fn update_component_history<T: InterpolatedComponent, P: Protocol>(
                     interpolated_entities.get_mut(p)
                 {
                     match T::mode() {
-                        InterpolatedComponentMode::Interpolate => {
+                        ComponentSyncMode::Full => {
                             if let Some(mut history) = history_option {
                                 history.buffer.add_item(
                                     latest_server_tick,
@@ -128,10 +138,10 @@ pub(crate) fn update_component_history<T: InterpolatedComponent, P: Protocol>(
                             }
                         }
                         // for sync-components, we just match the confirmed component
-                        InterpolatedComponentMode::Sync => {
+                        ComponentSyncMode::Simple => {
                             *interpolated_component = confirmed_component.deref().clone();
                         }
-                        InterpolatedComponentMode::CopyOnce => {}
+                        ComponentSyncMode::Once => {}
                     }
                 }
             }

@@ -43,7 +43,7 @@ impl Plugin for ServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
-        app.add_systems(Update, (handle_connections, send_message));
+        app.add_systems(Update, (handle_connections, send_message, log_confirmed));
     }
 }
 
@@ -77,7 +77,7 @@ pub(crate) fn handle_connections(
         let client_id = connection.context();
         info!("New connection from client: {:?}", client_id);
         // Generate pseudo random color from client id.
-        let h = ((client_id % 360) as f32) / 360.0;
+        let h = (((client_id * 30) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
         let entity = commands.spawn(PlayerBundle::new(
@@ -96,6 +96,16 @@ pub(crate) fn handle_connections(
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+pub(crate) fn log_confirmed(server: Res<Server<MyProtocol>>, confirmed: Query<(&PlayerPosition)>) {
+    for pos in confirmed.iter() {
+        info!(
+            "interpolated pos: {:?}, server tick: {:?}",
+            pos,
+            server.tick()
+        );
     }
 }
 

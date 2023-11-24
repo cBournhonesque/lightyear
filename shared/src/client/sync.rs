@@ -1,17 +1,23 @@
 use std::time::Duration;
 
-use bevy::prelude::Timer;
+use bevy::prelude::{Res, Timer};
 use bevy::time::TimerMode;
 use bitvec::macros::internal::funty::Fundamental;
 use chrono::Duration as ChronoDuration;
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 
+use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
 use crate::tick::Tick;
 use crate::{
-    PingId, PingStore, ReadyBuffer, TickManager, TimeManager, TimeSyncPingMessage,
-    TimeSyncPongMessage, WrappedTime,
+    Client, PingId, PingStore, Protocol, ReadyBuffer, TickManager, TimeManager,
+    TimeSyncPingMessage, TimeSyncPongMessage, WrappedTime,
 };
+
+/// Run condition to run systems only if the client is synced
+pub fn client_is_synced<P: Protocol>(client: Res<Client<P>>) -> bool {
+    client.is_synced()
+}
 
 #[derive(Clone, Debug)]
 pub struct SyncConfig {
@@ -35,6 +41,9 @@ pub struct SyncConfig {
     // TODO: instead of constant speedup_factor, the speedup should be linear w.r.t the offset
     /// By how much should we speed up the simulation to make ticks stay in sync with server?
     pub speedup_factor: f32,
+
+    // Integration
+    current_server_time_smoothing: f32,
 }
 
 impl Default for SyncConfig {
@@ -45,9 +54,17 @@ impl Default for SyncConfig {
             sync_ping_interval: Duration::from_millis(100),
             handshake_pings: 10,
             stats_buffer_duration: Duration::from_secs(2),
-            error_margin: 1.0,
-            speedup_factor: 1.05,
+            error_margin: 1.5,
+            speedup_factor: 1.03,
+            current_server_time_smoothing: 0.0,
         }
+    }
+}
+
+impl SyncConfig {
+    pub fn speedup_factor(mut self, speedup_factor: f32) -> Self {
+        self.speedup_factor = speedup_factor;
+        self
     }
 }
 
@@ -85,8 +102,8 @@ pub struct SyncManager {
     /// whether the handshake is finalized
     pub(crate) synced: bool,
 
-    // /// sent packet store to track the time we sent each packet
-    // sent_packet_store: SentPacketStore,
+    // time
+    current_server_time: WrappedTime,
 
     // ticks
     // TODO: see if this is correct; should we instead attach the tick on every update message?
@@ -94,6 +111,7 @@ pub struct SyncManager {
     /// This is not updated every tick, but only when we receive a packet from the server.
     /// (usually every frame)
     pub(crate) latest_received_server_tick: Tick,
+    pub(crate) estimated_interpolation_tick: Tick,
     pub(crate) duration_since_latest_received_server_tick: Duration,
 }
 
@@ -138,9 +156,12 @@ impl SyncManager {
             sync_stats: SyncStatsBuffer::new(),
             final_stats: FinalStats::default(),
             synced: false,
+            // time
+            current_server_time: WrappedTime::default(),
             // sent_packet_store: SentPacketStore::default(),
             // start at -1 so that any first ping is more recent
             latest_received_server_tick: Tick(0),
+            estimated_interpolation_tick: Tick(0),
             duration_since_latest_received_server_tick: Duration::default(),
         }
     }
@@ -272,45 +293,15 @@ impl SyncManager {
         }
     }
 
-    // TODO:
-    // - on client, when we send a packet, we record its instant
-    //   when we receive a packet, we check its acks. if the ack is one of the packets we sent, we use that
-    //   to update our RTT estimate
-    // TODO: when we receive a packet on the client, we check the acks and we learn when the packet
-
-    /// current server time from server's point of view (using server tick)
-    fn current_server_time(&self, tick_manager: &TickManager) -> WrappedTime {
-        WrappedTime::from_duration(
-            self.latest_received_server_tick.0 as u32 * tick_manager.config.tick_duration
-                + self.duration_since_latest_received_server_tick
-                + self.rtt() / 2,
-        )
-    }
-
-    /// time at which the server would receive a packet we send now
-    fn predicted_server_receive_time(&self, tick_manager: &TickManager) -> WrappedTime {
-        self.current_server_time(tick_manager) + self.rtt() / 2
-    }
-
-    /// how far ahead of the server should I be?
-    fn client_ahead_minimum(&self, tick_manager: &TickManager) -> Duration {
-        self.config.jitter_multiple_margin as u32 * self.jitter()
-            + self.config.tick_margin as u32 * tick_manager.config.tick_duration
-    }
-
-    // TODO: only run when there's a change? (new server tick received or new ping received)
-    /// Update the client time ("upstream-throttle"): speed-up or down depending on the
-    pub(crate) fn update_client_time(
-        &mut self,
-        time_manager: &mut TimeManager,
+    /// Compute the current client time; we will make sure that the client tick is ahead of the server tick
+    /// Even if it is wrapped around.
+    /// (i.e. if client tick is 1, and server tick is 65535, we act as if the client tick was 65537)
+    /// This is because we have 2 distinct entities with wrapping: Ticks and WrappedTime
+    pub(crate) fn current_client_time(
+        &self,
         tick_manager: &TickManager,
-    ) {
-        let rtt = self.rtt();
-        let jitter = self.jitter();
-        // The objective of update-client-time is to make sure the client packets for tick T arrive on server before server reaches tick T
-        // but not too far ahead
-        let overstep = time_manager.overstep();
-
+        time_manager: &TimeManager,
+    ) -> WrappedTime {
         // NOTE: careful! We know that client tick should always be ahead of server tick.
         //  let's assume that this is the case after we did tick syncing
         //  so if we are behind, that means that the client tick wrapped around.
@@ -321,14 +312,111 @@ impl SyncManager {
         if (self.latest_received_server_tick.0 as i32 - client_tick_raw) > i16::MAX as i32 - 1000 {
             client_tick_raw = client_tick_raw + u16::MAX as i32;
         }
-        let current_client_time = WrappedTime::from_duration(
-            tick_manager.config.tick_duration * client_tick_raw as u32 + overstep,
-        );
+        WrappedTime::from_duration(
+            tick_manager.config.tick_duration * client_tick_raw as u32 + time_manager.overstep(),
+        )
+    }
 
-        // current server time from server's point of view (using server tick)
-        let current_server_time = self.current_server_time(tick_manager);
+    // TODO:
+    // - on client, when we send a packet, we record its instant
+    //   when we receive a packet, we check its acks. if the ack is one of the packets we sent, we use that
+    //   to update our RTT estimate
+    // TODO: when we receive a packet on the client, we check the acks and we learn when the packet
+
+    /// current server time from server's point of view (using server tick)
+    pub(crate) fn current_server_time(&self) -> WrappedTime {
+        // TODO: instead of just using the latest_received_server_tick, there should be some sort
+        //  of integration/smoothing
+        self.current_server_time
+    }
+
+    /// Everytime we receive a new server update:
+    /// Update the estimated current server time, computed from the time elapsed since the
+    /// latest received server tick, and our estimate of the RTT
+    pub(crate) fn update_current_server_time(&mut self, tick_manager: &TickManager) {
+        let new_current_server_time_estimate = WrappedTime::from_duration(
+            self.latest_received_server_tick.0 as u32 * tick_manager.config.tick_duration
+                + self.duration_since_latest_received_server_tick
+                + self.rtt() / 2,
+        );
+        if self.current_server_time == WrappedTime::default() {
+            self.current_server_time = new_current_server_time_estimate;
+        } else {
+            self.current_server_time = self.current_server_time
+                * self.config.current_server_time_smoothing
+                + new_current_server_time_estimate
+                    * (1.0 - self.config.current_server_time_smoothing);
+        }
+    }
+
+    /// time at which the server would receive a packet we send now
+    fn predicted_server_receive_time(&self) -> WrappedTime {
+        self.current_server_time() + self.rtt() / 2
+    }
+
+    /// how far ahead of the server should I be?
+    fn client_ahead_minimum(&self, tick_manager: &TickManager) -> Duration {
+        self.config.jitter_multiple_margin as u32 * self.jitter()
+            + self.config.tick_margin as u32 * tick_manager.config.tick_duration
+    }
+
+    /// Estimated tick at which we are receiving server packets
+    /// (useful for interpolation)
+    pub(crate) fn update_estimated_interpolated_tick(
+        &mut self,
+        delay: &InterpolationDelay,
+        tick_manager: &TickManager,
+        time_manager: &TimeManager,
+    ) {
+        let client_time = self.current_client_time(tick_manager, time_manager);
+        let new_interpolation_tick = match delay {
+            // use durations as much as possible and convert to ticks at the end
+            InterpolationDelay::Delay(delay) => {
+                let server_time = self.current_server_time();
+                let interpolation_time = server_time - *delay;
+                let delta = client_time - interpolation_time;
+                let delta_tick = (delta.num_microseconds().unwrap()
+                    / tick_manager.config.tick_duration.as_micros() as i64)
+                    as u16;
+                tick_manager.current_tick() - delta_tick
+            }
+            InterpolationDelay::Ticks(interpolation_delta_tick) => {
+                let predicted_server_receive_time = self.predicted_server_receive_time();
+                let delta_time = client_time - predicted_server_receive_time;
+                let delta_tick = (delta_time.num_microseconds().unwrap()
+                    / tick_manager.config.tick_duration.as_micros() as i64)
+                    as u16;
+                tick_manager.current_tick() - (delta_tick + interpolation_delta_tick)
+            } // TODO: the fact that we have this means that we should have config that defines
+              //  how often client sends packets to server and vice-versa
+              //  then we can have a timer, and check at every frame/fixed-update if we need to send packets
+        };
+        if new_interpolation_tick > self.estimated_interpolation_tick {
+            self.estimated_interpolation_tick = new_interpolation_tick;
+        }
+    }
+
+    pub(crate) fn estimated_interpolated_tick(&self) -> Tick {
+        self.estimated_interpolation_tick
+    }
+
+    // TODO: only run when there's a change? (new server tick received or new ping received)
+
+    /// Update the client time ("upstream-throttle"): speed-up or down depending on the
+    /// The objective of update-client-time is to make sure the client packets for tick T arrive on server before server reaches tick T
+    /// but not too far ahead
+    pub(crate) fn update_client_time(
+        &mut self,
+        time_manager: &mut TimeManager,
+        tick_manager: &TickManager,
+    ) {
+        let rtt = self.rtt();
+        let jitter = self.jitter();
+        // current client time
+        let current_client_time = self.current_client_time(tick_manager, time_manager);
         // time at which the server would receive a packet we send now
-        let predicted_server_receive_time = self.predicted_server_receive_time(tick_manager);
+        // (or time at which the server's packet would arrive on the client, computed using server tick)
+        let predicted_server_receive_time = self.predicted_server_receive_time();
 
         // how far ahead of the server am I?
         let client_ahead_delta = current_client_time - predicted_server_receive_time;
@@ -346,7 +434,7 @@ impl SyncManager {
         .unwrap();
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_client_time,
@@ -361,7 +449,7 @@ impl SyncManager {
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_client_time,
@@ -377,7 +465,7 @@ impl SyncManager {
             1.0 * self.config.speedup_factor
         } else {
             // we are within margins
-            info!("good speed");
+            trace!("good speed");
             1.0
         };
     }
@@ -463,8 +551,8 @@ impl SyncManager {
         // self.ping_store.clear();
 
         // Compute how many ticks the client must be compared to server
-        let client_ideal_time = self.predicted_server_receive_time(tick_manager)
-            + self.client_ahead_minimum(tick_manager);
+        let client_ideal_time =
+            self.predicted_server_receive_time() + self.client_ahead_minimum(tick_manager);
         let client_ideal_tick = Tick(
             (client_ideal_time.elapsed_us_wrapped
                 / tick_manager.config.tick_duration.as_micros() as u32) as u16,

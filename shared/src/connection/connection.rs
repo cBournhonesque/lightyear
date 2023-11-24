@@ -1,8 +1,9 @@
 use anyhow::Result;
-use bevy::prelude::{Entity, World};
+use bevy::prelude::{Entity, Timer, TimerMode, World};
 use bitcode::__private::Serialize;
 use serde::Deserialize;
-use tracing::{trace, trace_span};
+use std::time::Duration;
+use tracing::{info, trace, trace_span};
 
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message_manager::MessageManager;
@@ -103,6 +104,7 @@ impl<P: Protocol> Connection<P> {
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.message_manager.update(time_manager, tick_manager);
     }
+
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
         #[cfg(feature = "metrics")]
         {
@@ -257,6 +259,10 @@ impl<P: Protocol> Connection<P> {
 
     /// Send packets that are ready to be sent
     pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<Payload>> {
+        // if !self.is_ready_to_send() {
+        //     info!("Not ready to send packets");
+        //     return Ok(vec![]);
+        // }
         self.message_manager
             .send_packets(tick_manager.current_tick())
     }

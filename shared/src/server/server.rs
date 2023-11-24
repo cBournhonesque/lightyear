@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use bevy::prelude::{Resource, World};
 use tracing::{debug, debug_span, info, trace_span};
 
+use crate::client::interpolation::ShouldBeInterpolated;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::replication::prediction::ShouldBePredicted;
 use crate::replication::{NetworkTarget, Replicate, ReplicationSend};
@@ -75,7 +76,7 @@ impl<P: Protocol> Server<P> {
             user_connections: HashMap::new(),
             protocol,
             events: ServerEvents::new(),
-            time_manager: TimeManager::new(),
+            time_manager: TimeManager::new(config.packet.packet_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
         }
     }
@@ -132,6 +133,10 @@ impl<P: Protocol> Server<P> {
     }
 
     // TIME
+
+    pub fn is_ready_to_send(&self) -> bool {
+        self.time_manager.is_ready_to_send()
+    }
 
     pub fn set_base_relative_speed(&mut self, relative_speed: f32) {
         self.time_manager.base_relative_speed = relative_speed;
@@ -310,6 +315,7 @@ impl<P: Protocol> Server<P> {
                     }
                     SyncMessage::Pong(_) => {}
                     SyncMessage::TimeSyncPing(ping) => {
+                        // TODO: we should actually add the send-time in the send
                         connection
                             .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
                             .unwrap();
@@ -346,7 +352,9 @@ impl<P: Protocol> Server<P> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for mut packet_byte in connection.base.send_packets(&self.tick_manager)? {
+            for mut packet_byte in
+                connection.send_packets(&self.time_manager, &self.tick_manager)?
+            {
                 self.netcode
                     .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
             }
@@ -386,27 +394,18 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                                   connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            // if we need to do prediction, send a marker component to indicate that to the client
             let mut components = components.clone();
-            match replicate.prediction_target {
-                NetworkTarget::All => {
-                    components.push(P::Components::from(ShouldBePredicted));
-                }
-                // we should do prediction for this entity/client pair
-                NetworkTarget::Only(c) => {
-                    if c == client_id {
-                        components.push(P::Components::from(ShouldBePredicted));
-                    }
-                }
-                _ => {}
+
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if replicate.prediction_target.should_send_to(&client_id) {
+                components.push(P::Components::from(ShouldBePredicted));
+            }
+            if replicate.interpolation_target.should_send_to(&client_id) {
+                components.push(P::Components::from(ShouldBeInterpolated));
             }
             connection
                 .base
                 .buffer_spawn_entity(entity, components, replicate.actions_channel)
-            // if replicate.should_do_prediction {
-            //     connection.base.buffer_component_insert(entity, , replicate.channel)
-            //
-            // }
         };
         self.apply_replication(replicate, buffer_message)
     }

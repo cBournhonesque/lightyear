@@ -1,4 +1,4 @@
-use bevy::prelude::{Events, Mut, ResMut, Time, World};
+use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
 use tracing::{debug, trace};
 
 use crate::connection::events::IterEntitySpawnEvent;
@@ -77,4 +77,8 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     server.prepare_replicate_send();
     // send buffered packets to io
     server.send_packets().unwrap();
+}
+
+pub(crate) fn is_ready_to_send<P: Protocol>(server: Res<Server<P>>) -> bool {
+    server.is_ready_to_send()
 }

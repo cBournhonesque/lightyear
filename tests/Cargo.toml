@@ -30,6 +30,7 @@ tracing-subscriber = "0.3.17"
 log = "0.4.20"
 bevy = { version = "0.12", features = ["bevy_core_pipeline"] }
 rand = "0.8.5"
+derive_more = { version = "0.99", features = ["add", "mul"] }
 
 mock_instant = "0.3"
 

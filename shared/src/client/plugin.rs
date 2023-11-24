@@ -6,11 +6,11 @@ use bevy::prelude::{
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
-use systems::{receive, send};
-
 use crate::client::input::InputPlugin;
+use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
+use crate::client::systems::{is_ready_to_send, receive, send};
 use crate::client::{Authentication, Client};
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::tick::increment_tick;
@@ -22,15 +22,12 @@ use bevy::prelude::IntoSystemSetConfigs;
 
 use super::config::ClientConfig;
 
-mod systems;
-
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
     protocol: P,
     auth: Authentication,
 }
 
-// TODO: put all this in ClientConfig?
 impl<P: Protocol> PluginConfig<P> {
     pub fn new(client_config: ClientConfig, protocol: P, auth: Authentication) -> Self {
         PluginConfig {
@@ -77,6 +74,9 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .add_plugins(PredictionPlugin::<P>::new(
                 config.client_config.prediction.clone(),
             ))
+            .add_plugins(InterpolationPlugin::<P>::new(
+                config.client_config.interpolation.clone(),
+            ))
             // RESOURCES //
             .insert_resource(client)
             .init_resource::<ReplicationData>()
@@ -91,7 +91,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 )
                     .chain(),
             )
-            .configure_sets(PostUpdate, MainSet::Send)
+            .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
             // EVENTS //
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()

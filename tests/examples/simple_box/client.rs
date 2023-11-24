@@ -2,15 +2,20 @@ use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, Play
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use lightyear_shared::client::components::Confirmed;
+use lightyear_shared::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
+use lightyear_shared::client::interpolation::{ConfirmedHistory, Interpolated};
+use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::prediction::Predicted;
-use lightyear_shared::client::{Authentication, ClientConfig, InputSystemSet, SyncConfig};
+use lightyear_shared::client::{
+    client_is_synced, Authentication, ClientConfig, InputSystemSet, SyncConfig,
+};
 use lightyear_shared::plugin::events::{InputEvent, MessageEvent};
 use lightyear_shared::plugin::sets::FixedUpdateSet;
 use lightyear_shared::{
     Client, ClientId, EntitySpawnEvent, IoConfig, LinkConditionerConfig, TransportConfig,
 };
 use std::net::{Ipv4Addr, SocketAddr};
-use std::ops::DerefMut;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -32,8 +37,8 @@ impl Plugin for ClientPlugin {
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(50),
-            incoming_jitter: Duration::from_millis(5),
-            incoming_loss: 0.05,
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.00,
         };
         let config = ClientConfig {
             shared: shared_config().clone(),
@@ -42,6 +47,11 @@ impl Plugin for ClientPlugin {
                 .with_conditioner(link_conditioner),
             ping: lightyear_shared::client::PingConfig::default(),
             sync: SyncConfig::default(),
+            prediction: PredictionConfig::default(),
+            // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
+            interpolation: InterpolationConfig::default().with_delay(InterpolationDelay::Delay(
+                Duration::from_secs_f32(10.0 / 60.0),
+            )),
         };
         let plugin_config =
             lightyear_shared::client::PluginConfig::new(config, MyProtocol::default(), auth);
@@ -60,6 +70,9 @@ impl Plugin for ClientPlugin {
                 receive_message1,
                 receive_entity_spawn,
                 handle_predicted_spawn,
+                handle_interpolated_spawn,
+                log_interpolated,
+                log_confirmed,
             ),
         );
     }
@@ -158,5 +171,35 @@ pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
         color.0.set_s(0.2);
+    }
+}
+
+// When the predicted copy of the client-owned entity is spawned, do stuff
+// - assign it a different saturation
+// - keep track of it in the Global resource
+pub(crate) fn handle_interpolated_spawn(
+    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+) {
+    for mut color in interpolated.iter_mut() {
+        info!("SPAWNED INTERPOLATION");
+        color.0.set_s(0.2);
+    }
+}
+
+pub(crate) fn log_confirmed(client: Res<Client<MyProtocol>>, confirmed: Query<(&PlayerPosition)>) {
+    for pos in confirmed.iter() {
+        info!(
+            "interpolated pos: {:?}, client tick: {:?}",
+            pos,
+            client.tick()
+        );
+    }
+}
+
+pub(crate) fn log_interpolated(
+    interpolated: Query<(&PlayerPosition, &ConfirmedHistory<PlayerPosition>), With<Interpolated>>,
+) {
+    for (pos, history) in interpolated.iter() {
+        info!("interpolated pos: {:?}, history: {:?}", pos, history);
     }
 }

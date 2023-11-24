@@ -10,27 +10,11 @@ struct MacroAttrs {
     protocol: Ident,
 }
 
-const ATTRIBUTES: &'static [&'static str] = &["interpolation", "prediction"];
+const ATTRIBUTES: &'static [&'static str] = &["sync"];
 
 #[derive(Debug, FromField)]
-#[darling(attributes(prediction))]
-struct PredictionField {
-    // name of the enum field
-    ident: Option<Ident>,
-
-    // type of the field
-    ty: Type,
-
-    // if True, we want to run client prediction for this component
-    #[darling(default)]
-    rollback: bool,
-    #[darling(default)]
-    copy_once: bool,
-}
-
-#[derive(Debug, FromField)]
-#[darling(attributes(interpolation))]
-struct InterpolationField {
+#[darling(attributes(sync))]
+struct SyncField {
     // name of the enum field
     ident: Option<Ident>,
 
@@ -38,13 +22,53 @@ struct InterpolationField {
     ty: Type,
 
     #[darling(default)]
-    interpolate: bool,
+    full: bool,
     #[darling(default)]
-    sync: bool,
+    simple: bool,
     #[darling(default)]
-    copy_once: bool,
+    once: bool,
+
     #[darling(default)]
     lerp: Option<Ident>,
+}
+
+impl SyncField {
+    fn get_mode_tokens(&self) -> TokenStream {
+        let mut tokens = quote! {};
+        if self.full {
+            tokens = quote! {
+                ComponentSyncMode::Full
+            };
+        } else if self.simple {
+            tokens = quote! {
+                ComponentSyncMode::Simple
+            };
+        } else if self.once {
+            tokens = quote! {
+                ComponentSyncMode::Once
+            };
+        }
+        tokens
+    }
+
+    fn check_is_valid(&self) {
+        let mut count = 0;
+        if self.full {
+            count += 1;
+        }
+        if self.simple {
+            count += 1;
+        }
+        if self.once {
+            count += 1;
+        }
+        if count != 1 {
+            panic!(
+                "The field {:?} cannot have multiple sync attributes set at the same time",
+                self
+            );
+        }
+    }
 }
 
 pub fn component_protocol_impl(
@@ -81,14 +105,14 @@ pub fn component_protocol_impl(
     let input_without_attributes = strip_attributes(&input);
 
     // Use darling to parse the attributes for each field
-    let prediction_fields: Vec<PredictionField> = fields
+    let sync_fields: Vec<SyncField> = fields
         .iter()
+        .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("sync")))
         .map(|field| FromField::from_field(&field).unwrap())
         .collect();
-    let interpolation_fields: Vec<InterpolationField> = fields
-        .iter()
-        .map(|field| FromField::from_field(&field).unwrap())
-        .collect();
+    for field in &sync_fields {
+        field.check_is_valid();
+    }
 
     // Names
     let enum_name = &input.ident;
@@ -100,16 +124,13 @@ pub fn component_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Impls
-    let predicted_component_impl = predicted_component_impl(&prediction_fields, protocol);
-    let interpolated_component_impl = interpolated_component_impl(&interpolation_fields, protocol);
+    let sync_component_impl = sync_component_impl(&sync_fields, protocol);
 
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
-    let add_prediction_systems_method = add_prediction_systems_method(&prediction_fields, protocol);
-    let add_interpolation_systems_method =
-        add_interpolation_systems_method(&interpolation_fields, protocol);
+    let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -137,10 +158,10 @@ pub fn component_protocol_impl(
 
             // TODO: write this behind feature?
             // TODO: possibility to rename this? maybe we should put everything in one crate
-            use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted, PredictedComponent,
-                PredictedComponentMode};
-            use #shared_crate_name::client::interpolation::{add_interpolation_systems, ShouldBeInterpolated, InterpolatedComponent,
-                InterpolatedComponentMode, LerpMode};
+            use #shared_crate_name::client::components::{ComponentSyncMode, SyncComponent};
+            use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted};
+            use #shared_crate_name::client::interpolation::{add_interpolation_systems, add_lerp_systems, ShouldBeInterpolated,
+                InterpolatedComponent, LerpMode};
 
             #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(ComponentBehaviour)]
@@ -152,12 +173,10 @@ pub fn component_protocol_impl(
                 #add_systems_method
                 #add_events_method
                 #push_component_events_method
-                #add_prediction_systems_method
-                #add_interpolation_systems_method
+                #add_sync_systems_method
             }
 
-            #predicted_component_impl
-            #interpolated_component_impl
+            #sync_component_impl
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
             #enum_kind
@@ -284,132 +303,72 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn predicted_component_impl(fields: &Vec<PredictionField>, protocol_name: &Ident) -> TokenStream {
+fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
-        if field.rollback && field.copy_once {
-            panic!("a component cannot be both rollback and copy_once")
-        }
         let component_type = &field.ty;
-        if field.rollback {
-            body = quote! {
-                #body
-                impl PredictedComponent for #component_type {
-                    fn mode() -> PredictedComponentMode {
-                        PredictedComponentMode::Rollback
+        let mode = field.get_mode_tokens();
+        body = quote! {
+            #body
+            impl SyncComponent for #component_type {
+                fn mode() -> ComponentSyncMode {
+                    #mode
+                }
+            }
+        };
+        if field.full {
+            let lerp_mode = if let Some(lerp_fn) = &field.lerp {
+                quote! {
+                    fn lerp_mode() -> LerpMode<#component_type> {
+                        LerpMode::Custom(lerm_fn)
+                    }
+                }
+            } else {
+                quote! {
+                    fn lerp_mode() -> LerpMode<#component_type> {
+                        LerpMode::Linear
                     }
                 }
             };
-        } else if field.copy_once {
             body = quote! {
                 #body
-                impl PredictedComponent for #component_type {
-                    fn mode() -> PredictedComponentMode {
-                        PredictedComponentMode::CopyOnce
-                    }
+                impl InterpolatedComponent for #component_type {
+                    #lerp_mode
                 }
-            };
+            }
         }
     }
     body
 }
 
-fn add_prediction_systems_method(
-    fields: &Vec<PredictionField>,
-    protocol_name: &Ident,
-) -> TokenStream {
-    let mut body = quote! {};
+fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
+    let mut prediction_body = quote! {};
+    let mut interpolation_body = quote! {};
     for field in fields {
-        if field.rollback || field.copy_once {
-            let component_type = &field.ty;
-            body = quote! {
-                #body
-                add_prediction_systems::<#component_type, #protocol_name>(app);
+        let component_type = &field.ty;
+        prediction_body = quote! {
+            #prediction_body
+            add_prediction_systems::<#component_type, #protocol_name>(app);
+        };
+        interpolation_body = quote! {
+            #interpolation_body
+            add_interpolation_systems::<#component_type, #protocol_name>(app);
+        };
+        if field.full {
+            interpolation_body = quote! {
+                #interpolation_body
+                add_lerp_systems::<#component_type, #protocol_name>(app);
             };
         }
     }
     quote! {
         fn add_prediction_systems(app: &mut App)
         {
-            #body
+            #prediction_body
         }
-    }
-}
-
-fn interpolated_component_impl(
-    fields: &Vec<InterpolationField>,
-    protocol_name: &Ident,
-) -> TokenStream {
-    let mut body = quote! {};
-    for field in fields {
-        // TODO: check for multiple fields set
-        let component_type = &field.ty;
-        let lerp_mode = if let Some(lerp_fn) = &field.lerp {
-            quote! {
-                fn lerp_mode() -> LerpMode {
-                    LerpMode::Custom(lerm_fn)
-                }
-            }
-        } else {
-            quote! {
-                fn lerp_mode() -> LerpMode {
-                    LerpMode::Linear
-                }
-            }
-        };
-        if field.interpolate {
-            body = quote! {
-                #body
-                impl InterpolatedComponent for #component_type {
-                    fn mode() -> InterpolatedComponentMode {
-                        InterpolatedComponentMode::Interpolate
-                    }
-                    #lerp_mode
-                }
-            };
-        } else if field.sync {
-            body = quote! {
-                #body
-                impl InterpolatedComponent for #component_type {
-                    fn mode() -> InterpolatedComponentMode {
-                        InterpolatedComponentMode::Sync
-                    }
-                    #lerp_mode
-                }
-            };
-        } else if field.copy_once {
-            body = quote! {
-                #body
-                impl InterpolatedComponent for #component_type {
-                    fn mode() -> InterpolatedComponentMode {
-                        InterpolatedComponentMode::CopyOnce
-                    }
-                    #lerp_mode
-                }
-            };
-        }
-    }
-    body
-}
-
-fn add_interpolation_systems_method(
-    fields: &Vec<InterpolationField>,
-    protocol_name: &Ident,
-) -> TokenStream {
-    let mut body = quote! {};
-    for field in fields {
-        if field.interpolate || field.sync || field.copy_once {
-            let component_type = &field.ty;
-            body = quote! {
-                #body
-                add_interpolation_systems::<#component_type, #protocol_name>(app);
-            };
-        }
-    }
-    quote! {
         fn add_interpolation_systems(app: &mut App)
         {
-            #body
+            #interpolation_body
         }
     }
 }

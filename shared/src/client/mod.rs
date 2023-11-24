@@ -6,19 +6,17 @@ pub use config::ClientConfig;
 pub use input::InputSystemSet;
 pub use ping_manager::PingConfig;
 pub use plugin::{Plugin, PluginConfig};
-pub use sync::SyncConfig;
+pub use sync::{client_is_synced, SyncConfig};
 
 pub mod client;
-mod config;
+pub mod components;
+pub mod config;
 mod connection;
 mod events;
-mod ping_manager;
-mod plugin;
-
-// #[cfg(feature = "prediction")]
 mod input;
 pub mod interpolation;
+mod ping_manager;
+mod plugin;
 pub mod prediction;
-mod sent_packet_store;
 mod sync;
-// mod tick_manager;
+mod systems;

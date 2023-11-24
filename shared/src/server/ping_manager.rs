@@ -45,6 +45,9 @@ pub struct PingManager {
     /// Timer to send regular pings to clients
     ping_timer: Timer,
     sent_pings: PingStore,
+    /// We received time-sync pongs; we keep track that we will have to send pongs back when we can
+    /// (when the connection's send_timer is ready)
+    pongs_to_send: Vec<TimeSyncPingMessage>,
 }
 
 impl PingManager {
@@ -57,6 +60,7 @@ impl PingManager {
             jitter_ms_average,
             ping_timer: Timer::new(ping_config.ping_interval_ms, TimerMode::Repeating),
             sent_pings: PingStore::new(),
+            pongs_to_send: Vec::new(),
         }
     }
 
@@ -145,6 +149,10 @@ impl PingManager {
                 metrics::increment_gauge!("jitter_ms_average", self.jitter_ms_average as f64);
             }
         }
+    }
+
+    pub(crate) fn client_pings_pending_pong(&mut self) -> Vec<TimeSyncPingMessage> {
+        std::mem::take(&mut self.pongs_to_send)
     }
 }
 

@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use tracing::info;
 
+use crate::client::config::PacketConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
@@ -63,11 +65,17 @@ impl<P: Protocol> Connection<P> {
         }
     }
 
-    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<()> {
+    pub fn recv_packet(
+        &mut self,
+        reader: &mut impl ReadBuffer,
+        tick_manager: &TickManager,
+    ) -> Result<()> {
         let tick = self.base.recv_packet(reader)?;
-        if tick > self.sync_manager.latest_received_server_tick {
+        info!("Recv server packet with tick: {:?}", tick);
+        if tick >= self.sync_manager.latest_received_server_tick {
             self.sync_manager.latest_received_server_tick = tick;
             self.sync_manager.duration_since_latest_received_server_tick = Duration::default();
+            self.sync_manager.update_current_server_time(tick_manager);
         }
         Ok(())
     }

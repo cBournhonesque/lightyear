@@ -1,21 +1,22 @@
 pub mod some_component {
     use bevy::prelude::Component;
+    use derive_more::{Add, Mul};
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};
     use lightyear_shared::{protocolize, Message};
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-    pub struct Component1(pub u8);
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
+    pub struct Component1(pub f32);
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-    pub struct Component2(pub u32);
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
+    pub struct Component2(pub f32);
 
     #[component_protocol(protocol = "MyProtocol")]
     pub enum MyComponentProtocol {
-        #[prediction(rollback)]
+        #[sync(full)]
         Component1(Component1),
-        #[interpolation(sync)]
+        #[sync(simple)]
         Component2(Component2),
     }
 
@@ -45,7 +46,7 @@ mod tests {
 
     #[test]
     fn test_component_derive() -> anyhow::Result<()> {
-        let component1: MyComponentProtocol = MyComponentProtocol::Component1(Component1(1));
+        let component1: MyComponentProtocol = MyComponentProtocol::Component1(Component1(1.0));
         let mut writer = WriteWordBuffer::with_capacity(10);
         component1.encode(&mut writer)?;
         let bytes = writer.finish_write();

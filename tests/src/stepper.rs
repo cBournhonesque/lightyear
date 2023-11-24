@@ -7,10 +7,12 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
+use lightyear_shared::client as lightyear_client;
 use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
 use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
 use lightyear_shared::netcode::generate_key;
+use lightyear_shared::server as lightyear_server;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::{IoConfig, LinkConditionerConfig, SharedConfig, TransportConfig};
 
@@ -39,6 +41,9 @@ pub struct BevyStepper {
 impl BevyStepper {
     pub fn new(
         shared_config: SharedConfig,
+        sync_config: SyncConfig,
+        prediction_config: PredictionConfig,
+        interpolation_config: InterpolationConfig,
         conditioner: LinkConditionerConfig,
         frame_duration: Duration,
     ) -> Self {
@@ -62,6 +67,8 @@ impl BevyStepper {
             .with_key(private_key);
         let config = ServerConfig {
             shared: shared_config.clone(),
+            packet: lightyear_server::config::PacketConfig::default()
+                .with_packet_send_interval(Duration::from_millis(0)),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(conditioner.clone()),
@@ -83,6 +90,8 @@ impl BevyStepper {
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let config = ClientConfig {
             shared: shared_config.clone(),
+            packet: lightyear_client::config::PacketConfig::default()
+                .with_packet_send_interval(Duration::from_millis(0)),
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(conditioner.clone()),
@@ -94,9 +103,9 @@ impl BevyStepper {
                 jitter_ms_initial_estimate: Default::default(),
                 rtt_smoothing_factor: 0.0,
             },
-            sync: SyncConfig::default(),
-            prediction: PredictionConfig::default(),
-            interpolation: InterpolationConfig::default(),
+            sync: sync_config,
+            prediction: prediction_config,
+            interpolation: interpolation_config,
         };
         let plugin_config = lightyear_shared::client::PluginConfig::new(config, protocol(), auth);
         let plugin = lightyear_shared::client::Plugin::new(plugin_config);

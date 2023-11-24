@@ -1,7 +1,7 @@
-use bevy::prelude::{Fixed, Time, Virtual};
+use bevy::prelude::{Fixed, Time, Timer, TimerMode, Virtual};
 use std::cmp::Ordering;
 use std::fmt::Formatter;
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use std::time::Duration;
 
 use bitcode::{Decode, Encode};
@@ -21,17 +21,31 @@ pub struct TimeManager {
     /// Should we speedup or slowdown the simulation to sync the ticks?
     /// >1.0 = speedup, <1.0 = slowdown
     pub(crate) sync_relative_speed: f32,
+    /// Timer to keep track on we send the next update
+    send_timer: Option<Timer>,
 }
 
 impl TimeManager {
-    pub fn new() -> Self {
+    pub fn new(send_interval: Duration) -> Self {
+        let send_timer = if send_interval == Duration::default() {
+            None
+        } else {
+            Some(Timer::new(send_interval, TimerMode::Repeating))
+        };
         Self {
             wrapped_time: WrappedTime::new(0),
             overstep: Duration::default(),
             delta: Duration::default(),
             base_relative_speed: 1.0,
             sync_relative_speed: 1.0,
+            send_timer,
         }
+    }
+
+    pub(crate) fn is_ready_to_send(&self) -> bool {
+        self.send_timer
+            .as_ref()
+            .map_or(true, |timer| timer.finished())
     }
 
     pub fn delta(&self) -> Duration {
@@ -58,6 +72,9 @@ impl TimeManager {
         self.wrapped_time += delta;
         // set the overstep to the overstep of fixed_time
         self.overstep = overstep;
+        self.send_timer.as_mut().map(|mut timer| {
+            timer.tick(delta);
+        });
     }
 
     // pub fn subtract_millis(&mut self, offset_ms: u32) {
@@ -110,6 +127,7 @@ impl WrappedTime {
 
     pub fn from_duration(elapsed_wrapped: Duration) -> Self {
         // TODO: check cast?
+        // I think this has wrapping behaviour
         let elapsed_us_wrapped = elapsed_wrapped.as_micros() as u32;
         Self { elapsed_us_wrapped }
     }
@@ -229,6 +247,16 @@ impl Add<Duration> for WrappedTime {
     }
 }
 
+impl Add for WrappedTime {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            elapsed_us_wrapped: self.elapsed_us_wrapped.wrapping_add(rhs.elapsed_us_wrapped),
+        }
+    }
+}
+
 impl Add<ChronoDuration> for WrappedTime {
     type Output = Self;
 
@@ -256,6 +284,16 @@ impl AddAssign<Duration> for WrappedTime {
     }
 }
 
+impl Mul<f32> for WrappedTime {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            elapsed_us_wrapped: ((self.elapsed_us_wrapped as f32) * rhs) as u32,
+        }
+    }
+}
+
 impl From<Duration> for WrappedTime {
     fn from(value: Duration) -> Self {
         Self::from_duration(value)
@@ -265,5 +303,17 @@ impl From<Duration> for WrappedTime {
 impl From<WrappedTime> for Duration {
     fn from(value: WrappedTime) -> Self {
         value.to_duration()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::WrappedTime;
+
+    #[test]
+    fn test_mul() {
+        let a = WrappedTime::new(u32::MAX);
+        let b = a * 2.0;
+        assert_eq!(b.elapsed_us_wrapped, u32::MAX);
     }
 }

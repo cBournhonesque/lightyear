@@ -4,11 +4,12 @@ mod interpolation_history;
 pub mod plugin;
 
 pub use crate::replication::interpolation::ShouldBeInterpolated;
-pub use plugin::add_interpolation_systems;
+pub use interpolate::InterpolateStatus;
+pub use interpolation_history::ConfirmedHistory;
+pub use plugin::{add_interpolation_systems, add_lerp_systems};
 
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::interpolation::despawn::InterpolationMapping;
-use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::prediction::Confirmed;
 use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut};
 use std::ops::{Add, Mul};
 use tracing::info;
@@ -30,11 +31,11 @@ use tracing::info;
 
 // TODO: maybe merge this with PredictedComponent?
 //  basically it is a HistoryComponent. And we can have modes for Prediction or Interpolation
-pub trait InterpolatedComponent:
-    Component + Clone + PartialEq + Sized + Mul<f32, Output = Self> + Add<Self, Output = Self> + Sized
-{
-    fn mode() -> InterpolatedComponentMode;
 
+// TODO: only require the Add/Mul bounds if we're using the linear lerp function
+pub trait InterpolatedComponent:
+    SyncComponent + Mul<f32, Output = Self> + Add<Self, Output = Self> + Sized
+{
     /// Which interpolation function to use
     /// By default, it will be a linear interpolation
     fn lerp_mode() -> LerpMode<Self>;
@@ -47,6 +48,7 @@ pub trait InterpolatedComponent:
     }
 }
 
+#[derive(Debug)]
 pub enum LerpMode<C: InterpolatedComponent> {
     Linear,
     // TODO: change this to a trait object?
@@ -63,20 +65,6 @@ pub struct Interpolated {
     //  - leave the entity alive until the confirmed entity catches up to it and then it gets removed.
     //    - or do this only for certain components (audio, animation, particles..) -> mode on PredictedComponent
     // rollback_state: RollbackState,
-}
-
-pub enum InterpolatedComponentMode {
-    /// The component will be interpolated every tick between the last two confirmed states received
-    /// Useful mostly for components that are updated every tick (physics)
-    Interpolate,
-
-    /// The component will be synced from the confirmed to the interpolated entity at every server update
-    /// Useful for components that don't need to be updated every tick,  
-    Sync,
-
-    /// The component will be copied only-once to the interpolate entity, and then won't stay in sync
-    /// Useful for long-lived components that rarely get updated (name, color, etc.)
-    CopyOnce,
 }
 
 pub fn spawn_interpolated_entity(
@@ -111,7 +99,7 @@ pub fn spawn_interpolated_entity(
         );
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("spawn_interpolated_entity", 1);
+            metrics::increment_counter!("spawn_interpolated_entity");
         }
     }
 }

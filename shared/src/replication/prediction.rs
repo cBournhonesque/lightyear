@@ -1,10 +1,5 @@
-use bevy::prelude::{Component, Res};
-use bitcode::__private::Serialize;
-use serde::Deserialize;
-
-use crate::client::prediction::{
-    PredictedComponent, PredictedComponentMode, Rollback, RollbackState,
-};
+use bevy::prelude::Component;
+use serde::{Deserialize, Serialize};
 
 // TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
 //  that's pretty dangerous because it's now hard for the user to derive new traits.

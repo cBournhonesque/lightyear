@@ -5,6 +5,7 @@ use bevy::prelude::{App, Component, EntityWorldMut, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use crate::client::interpolation::ShouldBeInterpolated;
 use crate::connection::events::{
     EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
@@ -25,6 +26,7 @@ pub trait ComponentProtocol:
     + Send
     + Sync
     + From<ShouldBePredicted>
+    + From<ShouldBeInterpolated>
 {
     type Protocol: Protocol;
 
@@ -50,7 +52,6 @@ pub trait ComponentProtocol:
     );
 
     fn add_prediction_systems(app: &mut App);
-
     fn add_interpolation_systems(app: &mut App);
 }
 

@@ -7,6 +7,8 @@ use tracing::trace;
 use crate::connection::events::IterMessageEvent;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
+use crate::packet::packet_manager::Payload;
+use crate::server::config::PacketConfig;
 use crate::{
     ChannelKind, ChannelRegistry, ConnectionEvents, InputMessage, PingChannel, PingMessage,
     Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
@@ -110,5 +112,20 @@ impl<P: Protocol> Connection<P> {
         let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPong(pong_message));
         let channel = ChannelKind::of::<PingChannel>();
         self.base.message_manager.buffer_send(message, channel)
+    }
+
+    pub fn send_packets(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<Vec<Payload>> {
+        if time_manager.is_ready_to_send() {
+            // prepare the time-sync-pong messages with the correct send time
+            self.ping_manager
+                .client_pings_pending_pong()
+                .into_iter()
+                .try_for_each(|ping| self.buffer_sync_pong(time_manager, tick_manager, ping))?;
+        }
+        self.base.send_packets(tick_manager)
     }
 }

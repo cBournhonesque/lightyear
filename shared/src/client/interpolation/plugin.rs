@@ -1,17 +1,20 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
+use crate::client::components::SyncComponent;
+use crate::client::interpolation::despawn::{
+    despawn_interpolated, removed_components, InterpolationMapping,
+};
 use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::{ComponentProtocol, Protocol};
 use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate,
-    Res, SystemSet,
+    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
+    PreUpdate, Res, SystemSet, Update,
 };
 
-use super::interpolation_history::{add_component_history, update_component_history};
-use super::{spawn_interpolated_entity, InterpolatedComponent, InterpolatedComponentMode};
+use super::interpolation_history::{add_component_history, apply_confirmed_update};
+use super::{spawn_interpolated_entity, InterpolatedComponent};
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
 #[derive(Clone)]
@@ -62,8 +65,8 @@ pub struct InterpolationConfig {
     /// This will be converted to a tick
     /// This should be
     pub(crate) delay: InterpolationDelay,
-    /// How long are we keeping the history of the confirmed entities so we can interpolate between them?
-    interpolation_buffer_size: Duration,
+    // How long are we keeping the history of the confirmed entities so we can interpolate between them?
+    // pub(crate) interpolation_buffer_size: Duration,
 }
 
 impl Default for InterpolationConfig {
@@ -71,8 +74,15 @@ impl Default for InterpolationConfig {
         Self {
             delay: InterpolationDelay::default(),
             // TODO: change
-            interpolation_buffer_size: Duration::from_millis(100),
+            // interpolation_buffer_size: Duration::from_millis(100),
         }
+    }
+}
+
+impl InterpolationConfig {
+    pub fn with_delay(mut self, delay: InterpolationDelay) -> Self {
+        self.delay = delay;
+        self
     }
 }
 
@@ -81,6 +91,15 @@ pub struct InterpolationPlugin<P: Protocol> {
 
     // minimum_snapshots
     _marker: PhantomData<P>,
+}
+
+impl<P: Protocol> InterpolationPlugin<P> {
+    pub(crate) fn new(config: InterpolationConfig) -> Self {
+        Self {
+            config,
+            _marker: PhantomData::default(),
+        }
+    }
 }
 
 impl<P: Protocol> Default for InterpolationPlugin<P> {
@@ -118,7 +137,7 @@ pub enum InterpolationSet {
 //   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
 //  the tick we rollback to would not be the current client tick ?
 
-pub fn add_interpolation_systems<C: InterpolatedComponent, P: Protocol>(app: &mut App) {
+pub fn add_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
@@ -126,9 +145,8 @@ pub fn add_interpolation_systems<C: InterpolatedComponent, P: Protocol>(app: &mu
             (add_component_history::<C, P>).in_set(InterpolationSet::SpawnHistory),
             (removed_components::<C>).in_set(InterpolationSet::Despawn),
             (
-                update_component_history::<C, P>,
+                apply_confirmed_update::<C, P>,
                 update_interpolate_status::<C, P>,
-                interpolate::<C>,
             )
                 .chain()
                 .in_set(InterpolationSet::Interpolate),
@@ -136,12 +154,24 @@ pub fn add_interpolation_systems<C: InterpolatedComponent, P: Protocol>(app: &mu
     );
 }
 
+// We add the interpolate system in different function because we don't want the non
+// ComponentSyncMode::Full components to need the InterpolatedComponent bounds (in particular Add/Mul)
+pub fn add_lerp_systems<C: InterpolatedComponent, P: Protocol>(app: &mut App) {
+    app.add_systems(
+        PreUpdate,
+        (interpolate::<C>
+            .after(update_interpolate_status::<C, P>)
+            .in_set(InterpolationSet::Interpolate),),
+    );
+}
+
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
         P::Components::add_interpolation_systems(app);
 
-        // PreUpdate systems:
-        // 1. Receive confirmed entities, add Confirmed and Predicted components
+        // RESOURCES
+        app.init_resource::<InterpolationMapping>();
+        // SETS
         app.configure_sets(
             PreUpdate,
             (
@@ -152,14 +182,17 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
                 InterpolationSet::SpawnHistoryFlush,
                 InterpolationSet::Despawn,
                 InterpolationSet::DespawnFlush,
+                // TODO: maybe run in a schedule in-between FixedUpdate and Update?
+                //  or maybe run during PostUpdate?
                 InterpolationSet::Interpolate,
             )
                 .chain(),
         );
+        // SYSTEMS
         app.add_systems(
             PreUpdate,
             (
-                // TODO: we want to run this flushes only if something actually happened in the previous set!
+                // TODO: we want to run these flushes only if something actually happened in the previous set!
                 //  because running the flush-system is expensive (needs exclusive world access)
                 //  check how I can do this in bevy
                 apply_deferred.in_set(InterpolationSet::SpawnInterpolationFlush),
@@ -167,7 +200,6 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
                 apply_deferred.in_set(InterpolationSet::DespawnFlush),
             ),
         );
-
         app.add_systems(
             PreUpdate,
             (

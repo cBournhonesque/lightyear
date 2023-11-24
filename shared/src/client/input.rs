@@ -99,17 +99,14 @@ fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::I
 fn write_input_event<P: Protocol>(
     mut client: ResMut<Client<P>>,
     mut input_events: EventWriter<InputEvent<P::Input>>,
-    rollback: Res<Rollback>,
+    rollback: Option<Res<Rollback>>,
 ) {
-    let tick = match rollback.state {
+    let tick = rollback.map_or(client.tick(), |rollback| match rollback.state {
         RollbackState::Default => client.tick(),
         RollbackState::ShouldRollback {
             current_tick: rollback_tick,
         } => rollback_tick,
-        _ => {
-            unreachable!()
-        }
-    };
+    });
     input_events.send(InputEvent::new(client.get_input(tick).clone(), ()));
 }
 

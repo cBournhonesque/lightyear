@@ -1,7 +1,8 @@
 use crate::protocol::*;
 use bevy::prelude::*;
+use lightyear_shared::client::client_is_synced;
 use lightyear_shared::plugin::config::LogConfig;
-use lightyear_shared::{SharedConfig, TickConfig};
+use lightyear_shared::{Client, SharedConfig, TickConfig};
 use std::time::Duration;
 use tracing::Level;
 
@@ -51,7 +52,16 @@ pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &I
 
 /// System that draws the boxed of the player positions.
 /// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
+pub(crate) fn draw_boxes(
+    mut gizmos: Gizmos,
+    players: Query<(&PlayerPosition, &PlayerColor)>,
+    client: Option<Res<Client<MyProtocol>>>,
+) {
+    if let Some(client) = client {
+        if !client.is_synced() {
+            return;
+        }
+    }
     for (position, color) in &players {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),

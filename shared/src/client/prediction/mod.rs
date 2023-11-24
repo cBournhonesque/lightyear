@@ -4,9 +4,10 @@ use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
 use std::fmt::Debug;
 use tracing::info;
 
-pub use commands::{PredictionCommandsExt, PredictionDespawnMarker};
+use crate::client::components::{ComponentSyncMode, Confirmed};
+pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
-pub use predicted_history::{ComponentHistory, ComponentState};
+pub use predicted_history::{ComponentState, PredictionHistory};
 
 /// This file is dedicated to running Prediction on entities.
 /// On the client side, we run prediction on entities that are owned by the client.
@@ -21,7 +22,6 @@ pub use predicted_history::{ComponentHistory, ComponentState};
 /// - a buffer of the client inputs for the last RTT ticks
 /// - a buffer of the components' states for the last RTT Ticks?  -> TO CHECK IF THERE WAS A MISPREDICTION AND WE NEED TO REPREDICT
 /// - list of all the components that will be re-computed for reconciliation
-mod commands;
 mod despawn;
 pub mod plugin;
 mod predicted_history;
@@ -54,65 +54,6 @@ pub enum RollbackState {
         // tick we are setting (to record history)k
         current_tick: Tick,
     },
-    DidRollback,
-}
-
-/// Marks an entity that contains the server-updates that are received from the Server
-/// (this entity is a copy of Predicted that is RTT ticks behind)
-#[derive(Component)]
-pub struct Confirmed {
-    pub predicted: Option<Entity>,
-    pub interpolated: Option<Entity>,
-}
-
-/// ROLLBACK INSERT: have to do rollback
-
-/// ROLLBACK SPAWN
-
-/// ROLLBACK UPDATE:
-/// WHEN WE RECEIVE PACKETS FROM SERVER
-///
-/// We receive packets from the server. The packet from the server will include the latest tick that the server has processed.
-/// In a given client render-frame, We might receive server packets for different components of the same entity, but with different server ticks.
-/// For each of these components, we compare against what we had in our recorded history.
-///
-/// The Confirmed entity has all latest updates applied
-///
-/// 2 options:
-/// - for each component, we compare the predicted history at the update tick for that component with the confirmed entity (server's version of the component at the update tick).
-///   if mismatch, we must rollback at least from that tick. We rollback from the earliest tick across all components
-/// - for each component, we compare the predicted history at the latest server tick received across the confirmed entity (server's version at latest server tick).
-///   if mismatch, we must rollback to the latest server tick.
-///
-/// - one solution would be to include all the component updates for a given entity in the same message. (which should be what is happening? we are aggregating all updates).
-/// let's go with option 2 then
-///
-///
-/// If we need to rollback, currently we only rollback the predicted entity.
-/// TODO: Maybe in the future, we should instead rollback ALL predicted entities ? (similar to rocket league)
-pub enum PredictedComponentMode {
-    /// The component will be copied to the predicted entity and stay synced every tick with rollback
-    Rollback,
-    // TODO: add a sync without rollback (just copy the confirmed component to the predicted). For components that don't need
-    //  the whole rollback thing (such as name, ui, etc.) but still need to stay in sync
-    /// The component will be copied only-once to the predicted entity, and then won't stay in sync
-    CopyOnce,
-}
-
-// /// The component will be copied to the predicted entity and stay synced with rollback
-// pub struct PredictedComponentModeRollback;
-//
-// impl PredictedComponentMode for PredictedComponentModeRollback {}
-//
-// /// The component will be copied only-once to the predicted entity, and then won't stay in sync
-// pub struct PredictedComponentModeCopyOnce;
-//
-// impl PredictedComponentMode for PredictedComponentModeCopyOnce {}
-
-/// Component that is predicted by the client
-// #[bevy_trait_query::queryable]
-pub trait PredictedComponent: Component + Clone + PartialEq {
-    fn mode() -> PredictedComponentMode;
 }
 
 // What we want to achieve:
@@ -156,7 +97,7 @@ pub fn spawn_predicted_entity(
         );
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("spawn_predicted_entity", 1);
+            metrics::increment_counter!("spawn_predicted_entity");
         }
     }
 }

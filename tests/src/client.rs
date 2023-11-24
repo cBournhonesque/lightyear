@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use bevy::app::App;
 
+use lightyear_shared::client::config::PacketConfig;
 use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
 use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::{
@@ -21,6 +22,7 @@ pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
+        packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(0)),
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
@@ -42,6 +44,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
+        packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(0)),
         netcode: Default::default(),
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),

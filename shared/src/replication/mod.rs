@@ -67,6 +67,17 @@ pub enum NetworkTarget {
     Only(ClientId),
 }
 
+impl NetworkTarget {
+    pub(crate) fn should_send_to(&self, client_id: &ClientId) -> bool {
+        match self {
+            NetworkTarget::All => true,
+            NetworkTarget::AllExcept(id) => id != client_id,
+            NetworkTarget::Only(id) => id == client_id,
+            NetworkTarget::None => false,
+        }
+    }
+}
+
 pub enum Authority {
     Client,
     Server,

@@ -15,7 +15,9 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::{Authentication, Client, ClientConfig};
+use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
+use lightyear_shared::client::prediction::plugin::PredictionConfig;
+use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::replication::Replicate;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, ServerConfig};
@@ -52,7 +54,14 @@ fn test_bevy_step() -> anyhow::Result<()> {
         incoming_jitter: Duration::from_millis(3),
         incoming_loss: 0.0,
     };
-    let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);
+    let mut stepper = BevyStepper::new(
+        shared_config,
+        SyncConfig::default(),
+        PredictionConfig::default(),
+        InterpolationConfig::default(),
+        link_conditioner,
+        frame_duration,
+    );
 
     // add systems
     stepper.client_app.add_systems(Startup, client_init);
@@ -65,7 +74,7 @@ fn test_bevy_step() -> anyhow::Result<()> {
     assert_eq!(stepper.client().tick(), Tick(3));
 
     // check that time sync works
-    for i in 0..60 {
+    for i in 0..400 {
         stepper.frame_step();
     }
 
