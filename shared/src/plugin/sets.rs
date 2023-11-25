@@ -16,6 +16,12 @@ pub enum MainSet {
     /// Runs in `PreUpdate`.
     Receive,
     ReceiveFlush,
+
+    /// Runs once per frame, update sync (client only)
+    Sync,
+    /// Runs once per frame, clears events (server only)
+    ClearEvents,
+
     /// Systems that send data (buffer any data to be sent, and send any buffered packets)
     ///
     /// Runs in `PostUpdate`.

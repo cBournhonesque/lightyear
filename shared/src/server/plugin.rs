@@ -10,7 +10,7 @@ use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::replication::add_replication_send_systems;
 use crate::plugin::systems::tick::increment_tick;
 use crate::server::input::InputPlugin;
-use crate::server::systems::is_ready_to_send;
+use crate::server::systems::{clear_events, is_ready_to_send};
 use crate::server::Server;
 use crate::{
     ClientId, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
@@ -84,6 +84,7 @@ impl<P: Protocol> PluginType for Plugin<P> {
                     .chain())
                 .in_set(MainSet::Send),
             )
+            .configure_sets(PostUpdate, MainSet::ClearEvents)
             .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
             // EVENTS //
             .add_event::<ConnectEvent<ClientId>>()
@@ -97,6 +98,12 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 FixedUpdate,
                 increment_tick::<Server<P>>.in_set(FixedUpdateSet::TickUpdate),
             )
-            .add_systems(PostUpdate, send::<P>.in_set(MainSet::SendPackets));
+            .add_systems(
+                PostUpdate,
+                (
+                    send::<P>.in_set(MainSet::SendPackets),
+                    clear_events::<P>.in_set(MainSet::ClearEvents),
+                ),
+            );
     }
 }

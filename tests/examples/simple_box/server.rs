@@ -26,12 +26,12 @@ impl Plugin for ServerPlugin {
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(50),
-            incoming_jitter: Duration::from_millis(5),
-            incoming_loss: 0.05,
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.00,
         };
         let config = ServerConfig {
             shared: shared_config().clone(),
-            packet: PacketConfig::default().with_packet_send_interval(Duration::default()),
+            packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(100)),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(link_conditioner),
@@ -92,7 +92,7 @@ pub(crate) fn handle_connections(
             .client_id_to_entity_id
             .insert(*client_id, entity.id());
     }
-    for disconnection in disconnections.iter() {
+    for disconnection in disconnections.read() {
         let client_id = disconnection.context();
         info!("Client {:?} disconnected", client_id);
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
@@ -103,11 +103,11 @@ pub(crate) fn handle_connections(
 
 pub(crate) fn log_confirmed(server: Res<Server<MyProtocol>>, confirmed: Query<(&PlayerPosition)>) {
     for pos in confirmed.iter() {
-        info!(
-            "interpolated pos: {:?}, server tick: {:?}",
-            pos,
-            server.tick()
-        );
+        // info!(
+        //     "interpolated pos: {:?}, server tick: {:?}",
+        //     pos,
+        //     server.tick()
+        // );
     }
 }
 

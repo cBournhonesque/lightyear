@@ -1,6 +1,7 @@
 use bevy::prelude::Resource;
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 use lightyear_derive::MessageInternal;
 
@@ -8,7 +9,10 @@ use crate::tick::Tick;
 use crate::{BitSerializable, ReadBuffer, SequenceBuffer, WriteBuffer};
 
 // TODO: should we request that a user input is a message?
-pub trait UserInput: BitSerializable + Clone + Eq + PartialEq + Send + Sync + 'static {}
+pub trait UserInput:
+    BitSerializable + Clone + Eq + PartialEq + Send + Sync + Debug + 'static
+{
+}
 
 impl UserInput for () {}
 
@@ -35,6 +39,7 @@ enum InputData<T: UserInput> {
     Input(T),
 }
 
+// TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
@@ -42,6 +47,19 @@ pub struct InputMessage<T: UserInput> {
     end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     inputs: Vec<InputData<T>>,
+}
+
+impl<T: UserInput> InputMessage<T> {
+    pub fn is_empty(&self) -> bool {
+        if self.inputs.len() == 0 {
+            return true;
+        }
+        let mut iter = self.inputs.iter();
+        if iter.next().unwrap() == &InputData::Absent {
+            return iter.all(|x| x == &InputData::SameAsPrecedent);
+        }
+        false
+    }
 }
 
 impl<T: UserInput> Default for InputBuffer<T> {
@@ -86,6 +104,7 @@ impl<T: UserInput> InputBuffer<T> {
     }
 
     // Convert the last N ticks up to end_tick included into a compressed message that we can send to the server
+    // Return None if the last N inputs are all Absent
     pub(crate) fn create_message(&self, end_tick: Tick, num_ticks: u16) -> InputMessage<T> {
         let mut inputs = Vec::new();
         let mut current_tick = end_tick;

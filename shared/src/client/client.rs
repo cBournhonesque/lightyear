@@ -85,6 +85,10 @@ impl<P: Protocol> Client<P> {
         }
     }
 
+    pub fn config(&self) -> &ClientConfig {
+        &self.config
+    }
+
     pub fn local_addr(&self) -> SocketAddr {
         self.io.local_addr()
     }
@@ -162,16 +166,11 @@ impl<P: Protocol> Client<P> {
             == Duration::default()
     }
 
-    pub(crate) fn increment_tick(&mut self) {
-        self.tick_manager.increment_tick();
-    }
-
     // REPLICATION
 
     /// Maintain connection with server, queues up any packet received from the server
     pub fn update(&mut self, delta: Duration, overstep: Duration) -> Result<()> {
         self.time_manager.update(delta, overstep);
-        // self.tick_manager.update(delta);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 
         // only start the connection (sending messages, sending pings, starting sync, etc.)
@@ -182,6 +181,20 @@ impl<P: Protocol> Client<P> {
         }
 
         Ok(())
+    }
+
+    /// Update the sync manager.
+    /// We run this at PostUpdate because:
+    /// - client prediction time is computed from ticks, which haven't been updated yet at PreUpdate
+    /// - server prediction time is computed from time, which has been update via delta
+    /// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
+    /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
+    pub fn sync_update(&mut self) {
+        if self.netcode.is_connected() {
+            self.connection
+                .sync_manager
+                .update(&mut self.time_manager, &mut self.tick_manager);
+        }
     }
 
     /// Send a message to the server
@@ -210,11 +223,12 @@ impl<P: Protocol> Client<P> {
                     panic!("only client sends time sync messages to server")
                 }
                 SyncMessage::TimeSyncPong(pong) => {
-                    self.connection.sync_manager.process_pong(
-                        &pong,
-                        &mut self.time_manager,
-                        &mut self.tick_manager,
-                    );
+                    self.connection.sync_manager.buffer_pong(pong);
+                    // self.connection.sync_manager.process_pong(
+                    //     &pong,
+                    //     &mut self.time_manager,
+                    //     &mut self.tick_manager,
+                    // );
                 }
             }
         }
@@ -237,7 +251,7 @@ impl<P: Protocol> Client<P> {
     pub fn recv_packets(&mut self) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
             self.connection
-                .recv_packet(&mut reader, &self.tick_manager)?;
+                .recv_packet(&mut reader, &self.time_manager, &self.tick_manager)?;
         }
         Ok(())
     }

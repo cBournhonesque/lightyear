@@ -151,6 +151,10 @@ impl PingManager {
         }
     }
 
+    pub(crate) fn buffer_sync_ping(&mut self, ping: TimeSyncPingMessage) {
+        self.pongs_to_send.push(ping)
+    }
+
     pub(crate) fn client_pings_pending_pong(&mut self) -> Vec<TimeSyncPingMessage> {
         std::mem::take(&mut self.pongs_to_send)
     }
@@ -172,7 +176,7 @@ mod tests {
         };
         let mut ping_manager = PingManager::new(&ping_config);
         // let tick_config = TickConfig::new(Duration::from_millis(16));
-        let mut time_manager = TimeManager::new();
+        let mut time_manager = TimeManager::new(Duration::default());
 
         assert!(!ping_manager.should_send_ping());
         let delta = Duration::from_millis(100);

@@ -69,14 +69,15 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
 // or do additional send stuff here
 pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
-    // clear all events
-    server.clear_events();
-
     trace!("Send packets to clients");
     // finalize any packets that are needed for replication
     server.prepare_replicate_send();
     // send buffered packets to io
     server.send_packets().unwrap();
+}
+
+pub(crate) fn clear_events<P: Protocol>(mut server: ResMut<Server<P>>) {
+    server.clear_events();
 }
 
 pub(crate) fn is_ready_to_send<P: Protocol>(server: Res<Server<P>>) -> bool {

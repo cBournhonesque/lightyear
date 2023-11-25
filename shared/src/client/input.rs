@@ -5,7 +5,7 @@ use bevy::prelude::{
 use tracing::trace;
 
 use crate::client::prediction::{Rollback, RollbackState};
-use crate::client::Client;
+use crate::client::{client_is_synced, Client};
 use crate::plugin::events::InputEvent;
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::{App, InputChannel, Protocol, UserInput};
@@ -37,16 +37,22 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         app.configure_sets(
             FixedUpdate,
             (
-                InputSystemSet::BufferInputs.after(FixedUpdateSet::TickUpdate),
-                InputSystemSet::WriteInputEvent
-                    .before(FixedUpdateSet::Main)
-                    .after(InputSystemSet::BufferInputs),
-                InputSystemSet::ClearInputEvent.after(FixedUpdateSet::Main),
-            ),
+                FixedUpdateSet::TickUpdate,
+                InputSystemSet::BufferInputs,
+                InputSystemSet::WriteInputEvent,
+                FixedUpdateSet::Main,
+                InputSystemSet::ClearInputEvent,
+            )
+                .chain(),
         );
         app.configure_sets(
             PostUpdate,
-            InputSystemSet::PrepareInputMessage.before(MainSet::Send),
+            // we send inputs only every send_interval
+            (
+                InputSystemSet::SendInputMessage.in_set(MainSet::Send),
+                MainSet::SendPackets,
+            )
+                .chain(),
         );
 
         // SYSTEMS
@@ -60,7 +66,9 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         );
         app.add_systems(
             PostUpdate,
-            prepare_input_message::<P>.in_set(InputSystemSet::PrepareInputMessage),
+            prepare_input_message::<P>
+                .in_set(InputSystemSet::SendInputMessage)
+                .run_if(client_is_synced::<P>),
         );
     }
 }
@@ -75,7 +83,7 @@ pub enum InputSystemSet {
     /// System Set to clear the input events (otherwise bevy clears events every frame, not every tick)
     ClearInputEvent,
     /// System Set to prepare the input message
-    PrepareInputMessage,
+    SendInputMessage,
 }
 
 // /// Runs at the start of every FixedUpdate schedule
@@ -118,8 +126,25 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     // TODO: instead of 15, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
-    let message = client.get_input_buffer().create_message(client.tick(), 15);
-    client.buffer_send::<InputChannel, _>(message);
+
+    // we send redundant inputs, so that if a packet is lost, we can still recover
+    let num_tick = (client.config().packet.packet_send_interval.as_micros()
+        / client.config().shared.tick.tick_duration.as_micros())
+        + 1;
+    let redundancy = 3;
+    let message_len = (redundancy * num_tick) as u16;
+    // TODO: we can either:
+    //  - buffer an input message at every tick, and not require that much redundancy
+    //  - buffer an input every frame; and require some redundancy (number of tick per frame)
+    //  - or buffer an input only when we are sending, and require more redundancy
+    // let message_len = 20 as u16;
+    let message = client
+        .get_input_buffer()
+        .create_message(client.tick(), message_len);
+    // all inputs are absent
+    if !message.is_empty() {
+        client.buffer_send::<InputChannel, _>(message);
+    }
 }
 
 // on the client:

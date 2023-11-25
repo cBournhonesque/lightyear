@@ -44,7 +44,7 @@ impl Plugin for ClientPlugin {
         let config = ClientConfig {
             shared: shared_config().clone(),
             netcode: Default::default(),
-            packet: PacketConfig::default().with_packet_send_interval(Duration::default()),
+            packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(0)),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(link_conditioner),
             ping: lightyear_shared::client::PingConfig::default(),
@@ -190,11 +190,7 @@ pub(crate) fn handle_interpolated_spawn(
 
 pub(crate) fn log_confirmed(client: Res<Client<MyProtocol>>, confirmed: Query<(&PlayerPosition)>) {
     for pos in confirmed.iter() {
-        info!(
-            "interpolated pos: {:?}, client tick: {:?}",
-            pos,
-            client.tick()
-        );
+        // info!("confirmed pos: {:?}, client tick: {:?}", pos, client.tick());
     }
 }
 
@@ -202,6 +198,6 @@ pub(crate) fn log_interpolated(
     interpolated: Query<(&PlayerPosition, &ConfirmedHistory<PlayerPosition>), With<Interpolated>>,
 ) {
     for (pos, history) in interpolated.iter() {
-        info!("interpolated pos: {:?}, history: {:?}", pos, history);
+        // info!("interpolated pos: {:?}, history: {:?}", pos, history);
     }
 }

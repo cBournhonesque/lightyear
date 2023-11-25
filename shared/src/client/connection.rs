@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossbeam_channel::tick;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::client::sync::SyncConfig;
 use crate::connection::ProtocolMessage;
@@ -45,7 +45,7 @@ impl<P: Protocol> Connection<P> {
 
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.base.update(time_manager, tick_manager);
-        self.sync_manager.update(time_manager);
+        // self.sync_manager.update(time_manager);
     }
 
     fn buffer_sync_ping(
@@ -80,13 +80,18 @@ impl<P: Protocol> Connection<P> {
     pub fn recv_packet(
         &mut self,
         reader: &mut impl ReadBuffer,
+        time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) -> Result<()> {
         let tick = self.base.recv_packet(reader)?;
-        info!("Recv server packet with tick: {:?}", tick);
+        debug!("Recv server packet with tick: {:?}", tick);
         if tick >= self.sync_manager.latest_received_server_tick {
             self.sync_manager.latest_received_server_tick = tick;
+            // TODO: add 'received_new_server_tick' ?
+            // we probably actually physically received the packet some time between our last `receive` and now.
+            // Let's add delta / 2 as a compromise
             self.sync_manager.duration_since_latest_received_server_tick = Duration::default();
+            // self.sync_manager.duration_since_latest_received_server_tick = time_manager.delta() / 2;
             self.sync_manager.update_current_server_time(tick_manager);
         }
         Ok(())

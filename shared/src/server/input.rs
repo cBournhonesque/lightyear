@@ -54,11 +54,12 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         app.configure_sets(
             FixedUpdate,
             (
-                InputSystemSet::WriteInputEvents
-                    .before(FixedUpdateSet::Main)
-                    .after(FixedUpdateSet::TickUpdate),
-                InputSystemSet::ClearInputEvents.after(FixedUpdateSet::Main),
-            ),
+                FixedUpdateSet::TickUpdate,
+                InputSystemSet::WriteInputEvents,
+                FixedUpdateSet::Main,
+                InputSystemSet::ClearInputEvents,
+            )
+                .chain(),
         );
 
         // insert the input buffer resource
@@ -70,12 +71,7 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             FixedUpdate,
             bevy::ecs::event::event_update_system::<InputEvent<P::Input, ClientId>>
                 .in_set(InputSystemSet::ClearInputEvents),
-            // clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvents),
         );
-
-        //right after receive, update the input buffer for each connection
-        // FIXED UPDATE SYSTEM THAT CONSUMES INPUT FROM BUFFER! -> LET USER WRITE THAT
-        // how does the user consume from buffer? provide a function in Server that returns the (inputs of all clients for the given tick)?
     }
 }
 
@@ -96,22 +92,6 @@ fn write_input_event<P: Protocol>(
 fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::Input, ClientId>>) {
     input_events.clear();
 }
-
-// TODO: do it directly when receiving the message, not in a system
-// After receiving messages, we update the input buffer for each connection by reading the InputMessage
-// pub fn update_input_buffer<P: Protocol>(
-//     mut server: ResMut<Server<P>>,
-//     mut input_messages: EventReader<MessageEvent<InputMessage<P::Input>, ClientId>>,
-// ) {
-//     if !input_messages.is_empty() {
-//         let _span = info_span!("update_input_buffer");
-//         for input_message in input_messages.read() {
-//             let client_id = input_message.context();
-//             let input_message = input_message.message();
-//             server.update_inputs(input_message, client_id);
-//         }
-//     }
-// }
 
 // on the client:
 // - FixedUpdate: before physics but after increment tick,

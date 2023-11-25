@@ -68,7 +68,7 @@ impl BevyStepper {
         let config = ServerConfig {
             shared: shared_config.clone(),
             packet: lightyear_server::config::PacketConfig::default()
-                .with_packet_send_interval(Duration::from_millis(0)),
+                .with_packet_send_interval(Duration::from_millis(100)),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(conditioner.clone()),

@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear_shared::client::client_is_synced;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear_shared::plugin::config::LogConfig;
 use lightyear_shared::{Client, SharedConfig, TickConfig};
 use std::time::Duration;
@@ -24,6 +24,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, draw_boxes);
     }
 }
@@ -69,33 +70,5 @@ pub(crate) fn draw_boxes(
             Vec2::ONE * 50.0,
             color.0,
         );
-    }
-}
-
-/// Input system: for now, lets server move the Player entity, and the components
-/// should get replicated
-///
-pub(crate) fn input_system(
-    mut player: Query<(Entity, &mut PlayerPosition)>,
-    input: Res<Input<KeyCode>>,
-    mut commands: Commands,
-) {
-    if let Ok((entity, mut position)) = player.get_single_mut() {
-        const MOVE_SPEED: f32 = 10.0;
-        if input.pressed(KeyCode::Right) {
-            position.x += MOVE_SPEED;
-        }
-        if input.pressed(KeyCode::Left) {
-            position.x -= MOVE_SPEED;
-        }
-        if input.pressed(KeyCode::Up) {
-            position.y += MOVE_SPEED;
-        }
-        if input.pressed(KeyCode::Down) {
-            position.y -= MOVE_SPEED;
-        }
-        if input.pressed(KeyCode::D) {
-            commands.entity(entity).despawn();
-        }
     }
 }

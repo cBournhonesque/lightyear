@@ -11,7 +11,7 @@ use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
-use crate::client::systems::{is_ready_to_send, receive, send};
+use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
 use crate::client::{Authentication, Client};
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::plugin::systems::tick::increment_tick;
@@ -92,7 +92,10 @@ impl<P: Protocol> PluginType for Plugin<P> {
                 )
                     .chain(),
             )
-            .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
+            .configure_sets(
+                PostUpdate,
+                (MainSet::Send.run_if(is_ready_to_send::<P>), MainSet::Sync),
+            )
             // EVENTS //
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()
@@ -118,6 +121,13 @@ impl<P: Protocol> PluginType for Plugin<P> {
                     apply_deferred.in_set(FixedUpdateSet::MainFlush),
                 ),
             )
-            .add_systems(PostUpdate, send::<P>.in_set(MainSet::Send));
+            // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+            .add_systems(
+                PostUpdate,
+                (
+                    send::<P>.in_set(MainSet::Send),
+                    sync_update::<P>.in_set(MainSet::Sync),
+                ),
+            );
     }
 }

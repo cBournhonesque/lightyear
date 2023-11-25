@@ -26,9 +26,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             // update connection sync state
             client.update(time.delta(), fixed_time.overstep()).unwrap();
 
-            // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-            client.update_relative_speed(&mut time);
-
             // buffer packets into message managers
             client.recv_packets().unwrap();
             // receive packets from message managers
@@ -77,4 +74,15 @@ pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
 
 pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {
     client.is_ready_to_send()
+}
+
+pub(crate) fn sync_update<P: Protocol>(world: &mut World) {
+    world.resource_scope(|world, mut client: Mut<Client<P>>| {
+        world.resource_scope(|world, mut time: Mut<Time<Virtual>>| {
+            // Handle pongs, update RTT estimates, update client's speed
+            client.sync_update();
+            // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
+            client.update_relative_speed(&mut time);
+        })
+    })
 }

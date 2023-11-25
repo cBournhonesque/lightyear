@@ -90,10 +90,6 @@ impl<P: Protocol> Server<P> {
         self.io.local_addr()
     }
 
-    // pub fn client_id(&self, addr: SocketAddr) -> Option<ClientId> {
-    //     self.netcode.client_ids()
-    // }
-
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.netcode.client_ids()
     }
@@ -277,15 +273,18 @@ impl<P: Protocol> Server<P> {
 
         // handle connections
         for client_id in self.context.connections.try_iter() {
-            #[cfg(feature = "metrics")]
-            metrics::increment_gauge!("connected_clients", 1.0);
+            // TODO: do we need a mutex around this?
+            if !self.user_connections.contains_key(&client_id) {
+                #[cfg(feature = "metrics")]
+                metrics::increment_gauge!("connected_clients", 1.0);
 
-            let client_addr = self.netcode.client_addr(client_id).unwrap();
-            debug!("New connection from {} (id: {})", client_addr, client_id);
-            let mut connection =
-                Connection::new(self.protocol.channel_registry(), &self.config.ping);
-            connection.base.events.push_connection();
-            self.user_connections.insert(client_id, connection);
+                let client_addr = self.netcode.client_addr(client_id).unwrap();
+                info!("New connection from {} (id: {})", client_addr, client_id);
+                let mut connection =
+                    Connection::new(self.protocol.channel_registry(), &self.config.ping);
+                connection.base.events.push_connection();
+                self.user_connections.insert(client_id, connection);
+            }
         }
 
         // handle disconnections
@@ -316,9 +315,12 @@ impl<P: Protocol> Server<P> {
                     SyncMessage::Pong(_) => {}
                     SyncMessage::TimeSyncPing(ping) => {
                         // TODO: we should actually add the send-time in the send
-                        connection
-                            .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
-                            .unwrap();
+                        connection.ping_manager.buffer_sync_ping(ping);
+                        // connection
+                        //     .ping_manager
+                        //     .connection
+                        //     .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
+                        //     .unwrap();
                     }
                     SyncMessage::TimeSyncPong(_) => {
                         panic!("only the server sends time-sync-pong messages")

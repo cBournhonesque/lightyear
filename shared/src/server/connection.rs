@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::World;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::connection::events::IterMessageEvent;
 use crate::connection::ProtocolMessage;
@@ -49,6 +49,7 @@ impl<P: Protocol> Connection<P> {
                 .map(|(input_message, _)| input_message)
                 .collect();
             for input_message in input_messages {
+                // info!("Received input message: {:?}", input_message);
                 // for (input_message, _) in self.into_iter_messages::<InputMessage<P::Input>>() {
                 self.input_buffer.update_from_message(&input_message);
             }

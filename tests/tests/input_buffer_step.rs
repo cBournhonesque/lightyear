@@ -17,7 +17,9 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet};
+use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
+use lightyear_shared::client::prediction::plugin::PredictionConfig;
+use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet, SyncConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::plugin::events::InputEvent;
 use lightyear_shared::plugin::sets::FixedUpdateSet;
@@ -82,7 +84,7 @@ fn server_read_input(
 }
 
 #[test]
-fn test_bevy_step() -> anyhow::Result<()> {
+fn test_input_step() -> anyhow::Result<()> {
     let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
     let shared_config = SharedConfig {
@@ -95,7 +97,14 @@ fn test_bevy_step() -> anyhow::Result<()> {
         incoming_jitter: Duration::from_millis(0),
         incoming_loss: 0.0,
     };
-    let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);
+    let mut stepper = BevyStepper::new(
+        shared_config,
+        SyncConfig::default(),
+        PredictionConfig::default(),
+        InterpolationConfig::default(),
+        link_conditioner,
+        frame_duration,
+    );
 
     // add systems
     stepper.client_app.add_systems(Startup, client_init);
@@ -112,7 +121,7 @@ fn test_bevy_step() -> anyhow::Result<()> {
         .add_systems(FixedUpdate, server_read_input.in_set(FixedUpdateSet::Main));
 
     // tick a bit, and check the input buffer received on server
-    for i in 0..200 {
+    for i in 0..400 {
         stepper.frame_step();
     }
 

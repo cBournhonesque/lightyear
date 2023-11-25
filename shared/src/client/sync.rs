@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::prelude::{Res, Timer};
-use bevy::time::TimerMode;
+use bevy::time::{Stopwatch, TimerMode};
 use bitvec::macros::internal::funty::Fundamental;
 use tracing::{debug, info, trace};
 
@@ -51,11 +51,11 @@ impl Default for SyncConfig {
             jitter_multiple_margin: 3,
             tick_margin: 1,
             sync_ping_interval: Duration::from_millis(100),
-            handshake_pings: 10,
+            handshake_pings: 7,
             stats_buffer_duration: Duration::from_secs(2),
-            error_margin: 1.5,
+            error_margin: 1.0,
             speedup_factor: 1.03,
-            current_server_time_smoothing: 0.0,
+            current_server_time_smoothing: 0.1,
         }
     }
 }
@@ -87,11 +87,13 @@ pub struct SyncManager {
 
     // pings
     /// Timer to send regular pings to server
-    ping_timer: Timer,
+    ping_timer: Stopwatch,
     /// ping store to track which time sync pings we sent
     ping_store: PingStore,
     /// ping id corresponding to the most recent pong received
     most_recent_received_ping: PingId,
+    /// We hold the pongs we received (we receive them at PreUpdate but we want to handle them at PostUpdate)
+    pong_buffer: Vec<TimeSyncPongMessage>,
 
     // stats
     /// Buffer to store the stats of the last
@@ -112,6 +114,7 @@ pub struct SyncManager {
     pub(crate) latest_received_server_tick: Tick,
     pub(crate) estimated_interpolation_tick: Tick,
     pub(crate) duration_since_latest_received_server_tick: Duration,
+    pub(crate) new_latest_received_server_tick: bool,
 }
 
 /// The final stats that we care about
@@ -148,20 +151,21 @@ impl SyncManager {
         Self {
             config: config.clone(),
             // pings
-            ping_timer: Timer::new(config.sync_ping_interval.clone(), TimerMode::Repeating),
+            ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),
             most_recent_received_ping: PingId(u16::MAX - 1),
+            pong_buffer: vec![],
             // sync
             sync_stats: SyncStatsBuffer::new(),
             final_stats: FinalStats::default(),
             synced: false,
             // time
             current_server_time: WrappedTime::default(),
-            // sent_packet_store: SentPacketStore::default(),
-            // start at -1 so that any first ping is more recent
+            // server tick
             latest_received_server_tick: Tick(0),
             estimated_interpolation_tick: Tick(0),
             duration_since_latest_received_server_tick: Duration::default(),
+            new_latest_received_server_tick: false,
         }
     }
 
@@ -173,10 +177,18 @@ impl SyncManager {
         self.final_stats.jitter
     }
 
-    pub(crate) fn update(&mut self, time_manager: &TimeManager) {
+    pub(crate) fn update(
+        &mut self,
+        time_manager: &mut TimeManager,
+        tick_manager: &mut TickManager,
+    ) {
         self.ping_timer.tick(time_manager.delta());
         self.duration_since_latest_received_server_tick += time_manager.delta();
         self.current_server_time += time_manager.delta();
+
+        for pong in std::mem::take(&mut self.pong_buffer) {
+            self.process_pong(&pong, time_manager, tick_manager);
+        }
 
         if self.synced {
             // TODO: the buffer duration should depend on loss rate!
@@ -193,6 +205,10 @@ impl SyncManager {
         }
     }
 
+    pub(crate) fn buffer_pong(&mut self, pong: TimeSyncPongMessage) {
+        self.pong_buffer.push(pong);
+    }
+
     pub(crate) fn is_synced(&self) -> bool {
         self.synced
     }
@@ -204,7 +220,7 @@ impl SyncManager {
         tick_manager: &TickManager,
     ) -> Option<TimeSyncPingMessage> {
         // TODO: should we have something to start sending a sync ping right away? (so we don't wait for initial timer)
-        if self.ping_timer.finished() {
+        if self.ping_timer.elapsed() > self.config.sync_ping_interval {
             self.ping_timer.reset();
 
             let ping_id = self
@@ -426,7 +442,7 @@ impl SyncManager {
         .unwrap();
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            debug!(
+            info!(
                 ?rtt,
                 ?jitter,
                 ?current_client_time,
@@ -441,7 +457,7 @@ impl SyncManager {
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            debug!(
+            info!(
                 ?rtt,
                 ?jitter,
                 ?current_client_time,
@@ -527,13 +543,17 @@ impl SyncManager {
     // Compute the final RTT/offset and set the client tick accordingly
     pub fn finalize(&mut self, time_manager: &mut TimeManager, tick_manager: &mut TickManager) {
         self.final_stats = self.compute_stats();
+        // recompute the current server time (using the rtt we just computed)
+        self.update_current_server_time(tick_manager);
 
         // Compute how many ticks the client must be compared to server
         let client_ideal_time =
             self.predicted_server_receive_time() + self.client_ahead_minimum(tick_manager);
+        // we add 1 to get the div_ceil
         let client_ideal_tick = Tick(
             (client_ideal_time.elapsed_us_wrapped
-                / tick_manager.config.tick_duration.as_micros() as u32) as u16,
+                / tick_manager.config.tick_duration.as_micros() as u32) as u16
+                + 1,
         );
 
         let delta_tick = client_ideal_tick - tick_manager.current_tick();
@@ -563,7 +583,7 @@ mod tests {
     fn test_send_pings() {
         let config = SyncConfig::default();
         let mut sync_manager = SyncManager::new(config);
-        let mut time_manager = TimeManager::new();
+        let mut time_manager = TimeManager::new(Duration::default());
         let mut tick_manager = TickManager::from_config(TickConfig {
             tick_duration: Duration::from_millis(50),
         });
