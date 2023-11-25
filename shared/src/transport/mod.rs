@@ -6,6 +6,7 @@ use crate::ReadBuffer;
 
 pub(crate) mod conditioner;
 pub(crate) mod io;
+pub(crate) mod local;
 pub(crate) mod udp;
 
 pub trait Transport: PacketReceiver + PacketSender {

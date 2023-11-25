@@ -1,11 +1,13 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use crossbeam_channel::tick;
 use tracing::info;
 
 use crate::client::sync::SyncConfig;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
+use crate::packet::packet_manager::Payload;
 use crate::tick::Tick;
 use crate::{
     ChannelKind, ChannelRegistry, PingChannel, Protocol, ReadBuffer, SyncMessage, TickManager,
@@ -44,9 +46,13 @@ impl<P: Protocol> Connection<P> {
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.base.update(time_manager, tick_manager);
         self.sync_manager.update(time_manager);
-        // TODO: maybe prepare ping?
-        // self.ping_manager.update(delta);
+    }
 
+    fn buffer_sync_ping(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<()> {
         // client send pings to estimate rtt
         if let Some(sync_ping) = self
             .sync_manager
@@ -54,11 +60,21 @@ impl<P: Protocol> Connection<P> {
         {
             let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPing(sync_ping));
             let channel = ChannelKind::of::<PingChannel>();
-            self.base
-                .message_manager
-                .buffer_send(message, channel)
-                .unwrap();
+            self.base.message_manager.buffer_send(message, channel)?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn send_packets(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<Vec<Payload>> {
+        // prepare pings as close as possible to sending so that ticks are correct
+        if time_manager.is_ready_to_send() {
+            self.buffer_sync_ping(time_manager, tick_manager)?;
+        }
+        self.base.send_packets(&tick_manager)
     }
 
     pub fn recv_packet(

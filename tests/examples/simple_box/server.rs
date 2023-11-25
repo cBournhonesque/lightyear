@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use lightyear_shared::plugin::events::InputEvent;
 use lightyear_shared::plugin::sets::FixedUpdateSet;
 use lightyear_shared::prelude::*;
+use lightyear_shared::server::config::PacketConfig;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
 use lightyear_shared::{
     ConnectEvent, DisconnectEvent, IoConfig, LinkConditionerConfig, TransportConfig,
@@ -30,6 +31,7 @@ impl Plugin for ServerPlugin {
         };
         let config = ServerConfig {
             shared: shared_config().clone(),
+            packet: PacketConfig::default().with_packet_send_interval(Duration::default()),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(link_conditioner),

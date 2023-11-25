@@ -224,7 +224,9 @@ impl<P: Protocol> Client<P> {
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
-        let packet_bytes = self.connection.base.send_packets(&self.tick_manager)?;
+        let packet_bytes = self
+            .connection
+            .send_packets(&self.time_manager, &self.tick_manager)?;
         for mut packet_byte in packet_bytes {
             self.netcode.send(packet_byte.as_slice(), &mut self.io)?;
         }

@@ -156,7 +156,11 @@ impl Step for BevyStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         mock_instant::MockClock::advance(self.frame_duration);
         self.client_app.update();
+        // TODO: maybe for testing use a local io via channels?
+        // sleep a bit to make sure that local io receives the packets
+        std::thread::sleep(Duration::from_millis(10));
         self.server_app.update();
+        std::thread::sleep(Duration::from_millis(10));
     }
 
     fn tick_step(&mut self) {

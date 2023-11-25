@@ -3,6 +3,7 @@ use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear_shared::client::components::Confirmed;
+use lightyear_shared::client::config::PacketConfig;
 use lightyear_shared::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
 use lightyear_shared::client::interpolation::{ConfirmedHistory, Interpolated};
 use lightyear_shared::client::prediction::plugin::PredictionConfig;
@@ -43,6 +44,7 @@ impl Plugin for ClientPlugin {
         let config = ClientConfig {
             shared: shared_config().clone(),
             netcode: Default::default(),
+            packet: PacketConfig::default().with_packet_send_interval(Duration::default()),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(link_conditioner),
             ping: lightyear_shared::client::PingConfig::default(),

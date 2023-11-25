@@ -176,6 +176,7 @@ impl SyncManager {
     pub(crate) fn update(&mut self, time_manager: &TimeManager) {
         self.ping_timer.tick(time_manager.delta());
         self.duration_since_latest_received_server_tick += time_manager.delta();
+        self.current_server_time += time_manager.delta();
 
         if self.synced {
             // TODO: the buffer duration should depend on loss rate!
@@ -211,16 +212,11 @@ impl SyncManager {
                 .push_new(time_manager.current_time().clone());
 
             // TODO: for rtt purposes, we could just send a ping that has no tick info
-            // PingMessage::new(ping_id, time_manager.current_tick())
             return Some(TimeSyncPingMessage {
                 id: ping_id,
                 tick: tick_manager.current_tick(),
                 ping_received_time: None,
             });
-
-            // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
-            // let channel = ChannelKind::of::<DefaultUnreliableChannel>();
-            // connection.message_manager.buffer_send(message, channel)
         }
         None
     }
@@ -316,12 +312,6 @@ impl SyncManager {
         )
     }
 
-    // TODO:
-    // - on client, when we send a packet, we record its instant
-    //   when we receive a packet, we check its acks. if the ack is one of the packets we sent, we use that
-    //   to update our RTT estimate
-    // TODO: when we receive a packet on the client, we check the acks and we learn when the packet
-
     /// current server time from server's point of view (using server tick)
     pub(crate) fn current_server_time(&self) -> WrappedTime {
         // TODO: instead of just using the latest_received_server_tick, there should be some sort
@@ -338,6 +328,9 @@ impl SyncManager {
                 + self.duration_since_latest_received_server_tick
                 + self.rtt() / 2,
         );
+        // instead of just using the latest_received_server_tick, there should be some sort
+        // of integration/smoothing
+        // (in case the latest server tick is wildly off-base)
         if self.current_server_time == WrappedTime::default() {
             self.current_server_time = new_current_server_time_estimate;
         } else {
@@ -529,25 +522,11 @@ impl SyncManager {
         }
     }
 
+    // Update internal time using offset so that times are synced.
     // This happens when a necessary # of handshake pongs have been recorded
     // Compute the final RTT/offset and set the client tick accordingly
     pub fn finalize(&mut self, time_manager: &mut TimeManager, tick_manager: &mut TickManager) {
         self.final_stats = self.compute_stats();
-
-        // Update internal time using offset so that times are synced.
-        // TODO: should we sync client/server time, or should we set client time to server_time + tick_delta?
-        // TODO: does this algorithm work when client time is slowed/sped-up?
-
-        // negative offset: client time (11am) is ahead of server time (10am)
-        // positive offset: server time (11am) is ahead of client time (10am)
-        // info!("Apply offset to client time: {}ms", pruned_offset_mean);
-
-        // time_manager.set_current_time(
-        //     time_manager.current_time() + ChronoDuration::milliseconds(pruned_offset_mean as i64),
-        // );
-
-        // Clear out outstanding pings
-        // self.ping_store.clear();
 
         // Compute how many ticks the client must be compared to server
         let client_ideal_time =
@@ -563,6 +542,7 @@ impl SyncManager {
         info!(
             ?latency,
             ?self.final_stats.jitter,
+            ?delta_tick,
             ?client_ideal_tick,
             server_tick = ?self.latest_received_server_tick,
             client_current_tick = ?tick_manager.current_tick(),

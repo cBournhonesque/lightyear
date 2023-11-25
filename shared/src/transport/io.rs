@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use metrics;
 
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
+use crate::transport::local::LocalChannel;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::UdpSocket;
 
@@ -20,6 +21,7 @@ pub struct Io {
 #[derive(Clone)]
 pub enum TransportConfig {
     UdpSocket(SocketAddr),
+    LocalChannel,
 }
 
 #[derive(Clone)]
@@ -54,6 +56,18 @@ impl Io {
                     receiver = Box::new(ConditionedPacketReceiver::new(socket, conditioner));
                 } else {
                     receiver = Box::new(socket);
+                }
+                Ok(Self::new(local_addr, sender, receiver))
+            }
+            TransportConfig::LocalChannel => {
+                let channel = LocalChannel::new();
+                let local_addr = channel.local_addr();
+                let sender = Box::new(channel.clone());
+                let receiver: Box<dyn PacketReceiver + Send + Sync>;
+                if let Some(conditioner) = &config.conditioner {
+                    receiver = Box::new(ConditionedPacketReceiver::new(channel, conditioner));
+                } else {
+                    receiver = Box::new(channel);
                 }
                 Ok(Self::new(local_addr, sender, receiver))
             }
