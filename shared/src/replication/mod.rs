@@ -6,6 +6,7 @@
 use anyhow::Result;
 use bevy::prelude::{Component, Entity, Resource};
 use bitcode::__private::Serialize;
+use lightyear_derive::MessageInternal;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
@@ -119,8 +120,8 @@ impl NetworkTarget {
 //  better to not add trait bounds on structs directly anyway
 
 #[cfg_attr(feature = "debug", derive(Debug))]
-#[derive(Serialize, Deserialize, Clone)]
-pub enum ReplicationMessage<C, K> {
+#[derive(MessageInternal, Serialize, Deserialize, Clone)]
+pub enum ReplicationMessage<C: ComponentProtocol, K: ComponentProtocolKind> {
     // reliable
     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
     SpawnEntity(Entity, Vec<C>),

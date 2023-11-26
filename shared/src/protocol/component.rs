@@ -11,7 +11,7 @@ use crate::connection::events::{
 };
 use crate::replication::prediction::ShouldBePredicted;
 use crate::serialize::writer::WriteBuffer;
-use crate::{BitSerializable, Protocol, ReplicationSend};
+use crate::{BitSerializable, Message, Protocol, ReplicationSend};
 
 // client writes an Enum containing all their message type
 // each message must derive message
@@ -19,14 +19,7 @@ use crate::{BitSerializable, Protocol, ReplicationSend};
 // that big enum will implement MessageProtocol via a proc macro
 // TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
 pub trait ComponentProtocol:
-    BitSerializable
-    + Serialize
-    + DeserializeOwned
-    + ComponentBehaviour
-    + Send
-    + Sync
-    + From<ShouldBePredicted>
-    + From<ShouldBeInterpolated>
+    Message + ComponentBehaviour + From<ShouldBePredicted> + From<ShouldBeInterpolated>
 {
     type Protocol: Protocol;
 
@@ -69,15 +62,11 @@ impl<T: Component> ComponentBehaviour for T {
 }
 
 pub trait ComponentProtocolKind:
-    BitSerializable
-    + Serialize
-    + DeserializeOwned
+    Message
     + PartialEq
     + Eq
     + Hash
     + Debug
-    + Send
-    + Sync
     + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
     + ComponentKindBehaviour
 {

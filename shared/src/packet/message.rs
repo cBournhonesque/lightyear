@@ -4,6 +4,7 @@ use bevy::prelude::Event;
 use bitcode::encoding::{Fixed, Gamma};
 use bitcode::{Decode, Encode};
 use bytes::Bytes;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::connection::events::EventContext;
@@ -369,7 +370,8 @@ impl MessageContainer {
 // }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + Named {
+pub trait Message: BitSerializable + EventContext + Clone + Named {
+    // fn mode() -> SerializationMode<Self>;
     // /// Get the MessageKind for the message
     // fn kind(&self) -> MessageKind;
 
@@ -381,7 +383,15 @@ pub trait Message: EventContext + Named {
     // fn encode(&self, buffer: &mut dyn Write) -> anyhow::Result<&[u8]>;
 }
 
-// dyn_clone::clone_trait_object!(Message);
+// #[derive(Debug, PartialEq)]
+// pub enum SerializationMode<M: Message> {
+//     /// Serialize the message using the serde::Serialize/Deserialize traits
+//     Serde,
+//     /// Serialize the message using the bitcode::Encode/Decode traits
+//     Bitcode,
+//     /// Custom serialization function: you will need to implement BitSerializable yourself
+//     Custom,
+// }
 
 #[cfg(test)]
 mod tests {

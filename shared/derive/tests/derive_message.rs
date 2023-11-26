@@ -1,5 +1,6 @@
 pub mod some_message {
     use bevy::prelude::Component;
+    use bitcode::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};
@@ -8,11 +9,12 @@ pub mod some_message {
     #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Message, Encode, Decode, Debug, PartialEq, Clone)]
+    #[serialize(bitcode)]
+    #[bitcode_hint(gamma)]
     pub struct Message2(pub u32);
 
-    // #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-    // #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Debug, PartialEq)]
     #[message_protocol(protocol = "MyProtocol")]
     // #[derive(EnumAsInner)]
     pub enum MyMessageProtocol {
@@ -55,6 +57,8 @@ mod tests {
         let mut reader = ReadWordBuffer::start_read(bytes);
         let copy = MyMessageProtocol::decode(&mut reader)?;
         assert_eq!(message1, copy);
+
+        // check that message 2 is encoded with bitcode
 
         Ok(())
     }

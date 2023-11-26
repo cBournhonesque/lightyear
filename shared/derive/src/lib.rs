@@ -34,13 +34,13 @@ pub fn channel_derive_internal(input: proc_macro::TokenStream) -> proc_macro::To
 
 // Message
 
-#[proc_macro_derive(Message)]
+#[proc_macro_derive(Message, attributes(serialize))]
 pub fn message_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { lightyear_shared };
     message_impl(input, shared_crate_name)
 }
 
-#[proc_macro_derive(MessageInternal)]
+#[proc_macro_derive(MessageInternal, attributes(serialize))]
 pub fn message_derive_internal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { crate };
     message_impl(input, shared_crate_name)

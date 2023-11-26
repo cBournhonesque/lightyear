@@ -25,6 +25,7 @@ enum-as-inner = "0.6.0"
 bevy = { version = "0.12", default-features = false }
 enum_delegate = "0.2"
 derive_more = { version = "0.99", features = ["add", "mul"] }
+bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = ["serde"] }
 
 
 

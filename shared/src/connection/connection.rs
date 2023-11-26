@@ -1,6 +1,7 @@
 use anyhow::Result;
 use bevy::prelude::{Entity, World};
-use bitcode::__private::Serialize;
+use bitcode::encoding::Gamma;
+use lightyear_derive::MessageInternal;
 use serde::Deserialize;
 use tracing::{trace, trace_span};
 
@@ -11,7 +12,10 @@ use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
 use crate::tick::message::SyncMessage;
 use crate::tick::Tick;
-use crate::{ChannelKind, ChannelRegistry, Named, Protocol, ReadBuffer, TickManager, TimeManager};
+use crate::{
+    ChannelKind, ChannelRegistry, Named, Protocol, ReadBuffer, TickManager, TimeManager,
+    WriteBuffer,
+};
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
 // because prior to calling message_manager.recv() we don't know if the packet is a message or a replication event
@@ -27,7 +31,9 @@ pub struct Connection<P: Protocol> {
 }
 
 #[cfg_attr(feature = "debug", derive(Debug))]
-#[derive(Serialize, Deserialize, Clone)]
+// #[derive(MessageInternal, Serialize, Deserialize, Clone)]
+#[derive(MessageInternal, Clone)]
+#[serialize(nested)]
 pub enum ProtocolMessage<P: Protocol> {
     Message(P::Message),
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),

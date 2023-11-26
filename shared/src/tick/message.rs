@@ -1,10 +1,12 @@
+use bitcode::{Decode, Encode};
+use lightyear_derive::MessageInternal;
 use serde::{Deserialize, Serialize};
 
 use crate::tick::ping_store::PingId;
 use crate::tick::Tick;
 use crate::WrappedTime;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug)]
 pub struct PingMessage {
     pub id: PingId,
     // tick of the host
@@ -18,7 +20,7 @@ impl PingMessage {
 }
 
 // TODO: could distinguish between sync and simple pong?
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug)]
 pub struct PongMessage {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
@@ -31,7 +33,7 @@ pub struct PongMessage {
 }
 
 // ping sent from client to server to establish time sync
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TimeSyncPingMessage {
     pub id: PingId,
     // tick of the host
@@ -41,7 +43,7 @@ pub struct TimeSyncPingMessage {
 }
 
 /// pong sent from server to client to establish time sync
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug)]
 pub struct TimeSyncPongMessage {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
@@ -63,7 +65,8 @@ pub struct TimeSyncPongMessage {
     // pub tick_speedup_potential: f32,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(MessageInternal, Encode, Decode, Serialize, Deserialize, Clone, Debug)]
+#[serialize(bitcode)]
 pub enum SyncMessage {
     Ping(PingMessage),
     Pong(PongMessage),

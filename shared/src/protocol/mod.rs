@@ -1,3 +1,4 @@
+use enum_dispatch::enum_dispatch;
 use std::fmt::Debug;
 
 use bevy::prelude::App;
@@ -18,7 +19,6 @@ pub(crate) mod message;
 pub(crate) mod registry;
 
 // TODO: how to make components or messages or inputs optional? Just by having an implementation for () ?
-// TODO: maybe make input part of the protocol as well?
 pub trait Protocol: Send + Sync + Clone + 'static {
     type Input: UserInput;
     type Message: MessageProtocol<Protocol = Self>;
@@ -161,8 +161,10 @@ macro_rules! protocolize {
 
 }
 
+// TODO: cannot use enum_delegate because it does not support generics or supertraits at the moment
 /// Something that can be serialized bit by bit
-pub trait BitSerializable: Clone {
+#[enum_dispatch]
+pub trait BitSerializable {
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()>;
 
     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
@@ -170,22 +172,24 @@ pub trait BitSerializable: Clone {
         Self: Sized;
 }
 
-// TODO: allow for either decode/encode directly, or use serde if we add an attribute with_serde?
-impl<T> BitSerializable for T
-where
-    T: Serialize + DeserializeOwned + Clone,
-{
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
-        writer.serialize(self)
-    }
-
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
-        reader.deserialize::<Self>()
-    }
-}
+//
+// // TODO: allow for either decode/encode directly, or use serde if we add an attribute with_serde?
+// impl<T> BitSerializable for T
+// where
+//     T: Serialize + DeserializeOwned + Clone,
+// {
+//     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+//         writer.serialize(self)
+//     }
+//
+//     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         reader.deserialize::<Self>()
+//     }
+// }
+//
 
 #[cfg(test)]
 pub mod tests {

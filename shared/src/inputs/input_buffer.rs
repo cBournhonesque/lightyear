@@ -1,5 +1,6 @@
 use bevy::prelude::Resource;
 use bitcode::{Decode, Encode};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -8,15 +9,30 @@ use tracing::info;
 use lightyear_derive::MessageInternal;
 
 use crate::tick::Tick;
-use crate::{BitSerializable, ReadBuffer, SequenceBuffer, WriteBuffer};
+use crate::{BitSerializable, Message, Named, ReadBuffer, SequenceBuffer, WriteBuffer};
 
 // TODO: should we request that a user input is a message?
-pub trait UserInput:
-    BitSerializable + Clone + Eq + PartialEq + Send + Sync + Debug + 'static
-{
+pub trait UserInput: Message + Serialize + DeserializeOwned + Eq + PartialEq + Debug {}
+
+impl Named for () {
+    fn name(&self) -> String {
+        "Empty".to_string()
+    }
 }
 
-impl UserInput for () {}
+impl Message for () {}
+impl BitSerializable for () {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
+}
 
 // OPTION 1: could do something similar to the prediction history (ready buffer and we don't include the gaps).
 //  but seems less optimized and overly complicated
@@ -40,17 +56,18 @@ pub struct InputBuffer<T: UserInput> {
 // TODO: add encode directive to encode even more efficiently
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-enum InputData<T: UserInput> {
+enum InputData<T> {
     Absent,
     SameAsPrecedent,
     Input(T),
 }
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
-#[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
+// #[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, MessageInternal)]
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<T: UserInput> {
+pub struct InputMessage<T> {
     end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     inputs: Vec<InputData<T>>,

@@ -17,7 +17,7 @@ pub use channel::channel::{
     PingChannel, ReliableSettings,
 };
 pub use client::Client;
-pub use connection::{Connection, ConnectionEvents};
+pub use connection::{Connection, ConnectionEvents, EventContext};
 pub use inputs::input_buffer::{InputMessage, UserInput};
 pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
 pub use netcode::ClientId;

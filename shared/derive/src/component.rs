@@ -16,7 +16,7 @@ const ATTRIBUTES: &'static [&'static str] = &["sync"];
 #[darling(attributes(sync))]
 struct SyncField {
     // name of the enum field
-    ident: Option<Ident>,
+    // ident: Option<Ident>,
 
     // type of the field
     ty: Type,
