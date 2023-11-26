@@ -40,7 +40,7 @@ impl<P: Protocol> Connection<P> {
 
     /// Add an input for the given tick
     pub fn add_input(&mut self, input: P::Input, tick: Tick) {
-        self.input_buffer.buffer.push(&tick, input);
+        self.input_buffer.set(tick, Some(input));
     }
 
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {

@@ -12,6 +12,7 @@ use crate::tick::{Tick, TickManaged};
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use crate::{
     Channel, ChannelKind, ConnectionEvents, Message, SyncMessage, TickManager, TimeManager,
+    WrappedTime,
 };
 use crate::{Io, Protocol};
 
@@ -80,7 +81,7 @@ impl<P: Protocol> Client<P> {
             netcode,
             connection,
             events: ConnectionEvents::new(),
-            time_manager: TimeManager::new(config.packet.packet_send_interval),
+            time_manager: TimeManager::new(config.shared.client_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
         }
     }
@@ -120,10 +121,14 @@ impl<P: Protocol> Client<P> {
         &self.connection.input_buffer
     }
 
+    pub fn get_mut_input_buffer(&mut self) -> &mut InputBuffer<P::Input> {
+        &mut self.connection.input_buffer
+    }
+
     /// Get a cloned version of the input (we might not want to pop from the buffer because we want
     /// to keep it for rollback)
     pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
-        self.connection.input_buffer.buffer.get(&tick).cloned()
+        self.connection.input_buffer.get(tick).cloned()
     }
 
     // TIME
@@ -141,7 +146,7 @@ impl<P: Protocol> Client<P> {
         if self.connection.sync_manager.is_synced() {
             self.connection
                 .sync_manager
-                .update_client_time(&mut self.time_manager, &self.tick_manager);
+                .update_prediction_time(&mut self.time_manager, &self.tick_manager);
             // update bevy's relative speed
             self.time_manager.update_relative_speed(time);
             // let relative_speed = time.relative_speed();
@@ -191,9 +196,12 @@ impl<P: Protocol> Client<P> {
     /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
     pub fn sync_update(&mut self) {
         if self.netcode.is_connected() {
-            self.connection
-                .sync_manager
-                .update(&mut self.time_manager, &mut self.tick_manager);
+            self.connection.sync_manager.update(
+                &mut self.time_manager,
+                &mut self.tick_manager,
+                &self.config.interpolation.delay,
+                self.config.shared.server_send_interval,
+            );
         }
     }
 
@@ -289,16 +297,21 @@ impl<P: Protocol> Client<P> {
 
 // Functions related to Interpolation (maybe make it a trait)?
 impl<P: Protocol> Client<P> {
-    // TODO: how to mock this in tests?
-    // TODO: actually we shouldn't use interpolation ticks, but use times directly, so we can take into account the overstep properly?
-    pub(crate) fn interpolated_tick(&mut self) -> Tick {
+    pub(crate) fn interpolation_tick(&self) -> Tick {
         self.connection
             .sync_manager
-            .update_estimated_interpolated_tick(
-                &self.config.interpolation.delay,
-                &self.tick_manager,
-                &self.time_manager,
-            );
-        self.connection.sync_manager.estimated_interpolation_tick
+            .interpolation_tick(&self.tick_manager)
     }
+    // // TODO: how to mock this in tests?
+    // // TODO: actually we shouldn't use interpolation ticks, but use times directly, so we can take into account the overstep properly?
+    // pub(crate) fn interpolated_tick(&mut self) -> Tick {
+    //     self.connection
+    //         .sync_manager
+    //         .update_estimated_interpolated_tick(
+    //             &self.config.interpolation.delay,
+    //             &self.tick_manager,
+    //             &self.time_manager,
+    //         );
+    //     self.connection.sync_manager.estimated_interpolation_tick
+    // }
 }

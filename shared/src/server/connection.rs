@@ -50,8 +50,7 @@ impl<P: Protocol> Connection<P> {
                 .collect();
             for input_message in input_messages {
                 // info!("Received input message: {:?}", input_message);
-                // for (input_message, _) in self.into_iter_messages::<InputMessage<P::Input>>() {
-                self.input_buffer.update_from_message(&input_message);
+                self.input_buffer.update_from_message(input_message);
             }
         }
         events

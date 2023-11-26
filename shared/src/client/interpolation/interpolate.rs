@@ -1,7 +1,7 @@
 use bevy::prelude::{Component, Query, ResMut};
 use tracing::{info, warn};
 
-use crate::client::components::SyncComponent;
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::InterpolatedComponent;
 use crate::tick::Tick;
@@ -25,10 +25,13 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     mut client: ResMut<Client<P>>,
     mut query: Query<(&mut C, &mut InterpolateStatus<C>, &mut ConfirmedHistory<C>)>,
 ) {
+    if C::mode() != ComponentSyncMode::Full {
+        return;
+    }
     if !client.is_synced() {
         return;
     }
-    let current_interpolate_tick = client.interpolated_tick();
+    let current_interpolate_tick = client.interpolation_tick();
     for (mut component, mut status, mut history) in query.iter_mut() {
         let mut start = status.start.take();
         let mut end = status.end.take();
@@ -85,7 +88,7 @@ pub(crate) fn interpolate<C: InterpolatedComponent>(
     for (mut component, status) in query.iter_mut() {
         match (&status.start, &status.end) {
             (Some((start_tick, start_value)), Some((end_tick, end_value))) => {
-                info!(?start_tick, ?end_tick, "doing interpolation!");
+                // info!(?start_tick, ?end_tick, "doing interpolation!");
                 if start_tick != end_tick {
                     let t =
                         (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;

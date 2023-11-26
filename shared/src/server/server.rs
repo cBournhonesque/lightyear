@@ -76,7 +76,7 @@ impl<P: Protocol> Server<P> {
             user_connections: HashMap::new(),
             protocol,
             events: ServerEvents::new(),
-            time_manager: TimeManager::new(config.packet.packet_send_interval),
+            time_manager: TimeManager::new(config.shared.server_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
         }
     }
@@ -109,24 +109,23 @@ impl<P: Protocol> Server<P> {
             .map(|(client_id, connection)| {
                 let input = connection
                     .input_buffer
-                    .buffer
-                    .remove(&self.tick_manager.current_tick());
+                    .pop(self.tick_manager.current_tick());
                 (input, *client_id)
             })
     }
 
-    /// Get the inputs for all clients for the given tick
-    pub fn get_inputs(&mut self) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
-        self.user_connections
-            .iter_mut()
-            .map(|(client_id, connection)| {
-                let input = connection
-                    .input_buffer
-                    .buffer
-                    .get(&self.tick_manager.current_tick());
-                (input, *client_id)
-            })
-    }
+    // /// Get the inputs for all clients for the given tick
+    // pub fn get_inputs(&mut self) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
+    //     self.user_connections
+    //         .iter_mut()
+    //         .map(|(client_id, connection)| {
+    //             let input = connection
+    //                 .input_buffer
+    //                 .buffer
+    //                 .get(&self.tick_manager.current_tick());
+    //             (input, *client_id)
+    //         })
+    // }
 
     // TIME
 

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
@@ -56,8 +57,8 @@ impl PacketConfig {
 #[derive(Clone)]
 pub struct ClientConfig {
     pub shared: SharedConfig,
-    pub packet: PacketConfig,
     pub netcode: NetcodeConfig,
+    pub input: InputConfig,
     // TODO: put IoConfig in shared?
     pub io: IoConfig,
     pub ping: PingConfig,

@@ -105,6 +105,8 @@ pub struct SyncManager {
 
     // time
     current_server_time: WrappedTime,
+    pub(crate) interpolation_time: WrappedTime,
+    interpolation_speed_ratio: f32,
 
     // ticks
     // TODO: see if this is correct; should we instead attach the tick on every update message?
@@ -146,6 +148,8 @@ impl SyncStatsBuffer {
     }
 }
 
+// TODO:
+// split into Ping/pong manager, PredictionTime Manager, InterpolationTime Manager, StatsManager
 impl SyncManager {
     pub fn new(config: SyncConfig) -> Self {
         Self {
@@ -161,6 +165,8 @@ impl SyncManager {
             synced: false,
             // time
             current_server_time: WrappedTime::default(),
+            interpolation_time: WrappedTime::default(),
+            interpolation_speed_ratio: 1.0,
             // server tick
             latest_received_server_tick: Tick(0),
             estimated_interpolation_tick: Tick(0),
@@ -181,16 +187,30 @@ impl SyncManager {
         &mut self,
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
+        interpolation_delay: &InterpolationDelay,
+        server_update_rate: Duration,
     ) {
         self.ping_timer.tick(time_manager.delta());
         self.duration_since_latest_received_server_tick += time_manager.delta();
         self.current_server_time += time_manager.delta();
+        self.interpolation_time += time_manager.delta().mul_f32(self.interpolation_speed_ratio);
 
         for pong in std::mem::take(&mut self.pong_buffer) {
-            self.process_pong(&pong, time_manager, tick_manager);
+            if self.process_pong(&pong, time_manager, tick_manager) {
+                info!("Received enough pongs to finalize handshake");
+                self.synced = true;
+                self.finalize(time_manager, tick_manager);
+                self.interpolation_time = self.interpolation_objective(
+                    interpolation_delay,
+                    server_update_rate,
+                    tick_manager,
+                )
+            }
         }
 
         if self.synced {
+            self.update_interpolation_time(interpolation_delay, server_update_rate, tick_manager);
+
             // TODO: the buffer duration should depend on loss rate!
             // clear stats that are older than a threshold, such as 2 seconds
             let oldest_time = time_manager.current_time() - self.config.stats_buffer_duration;
@@ -308,7 +328,7 @@ impl SyncManager {
     /// Even if it is wrapped around.
     /// (i.e. if client tick is 1, and server tick is 65535, we act as if the client tick was 65537)
     /// This is because we have 2 distinct entities with wrapping: Ticks and WrappedTime
-    pub(crate) fn current_client_time(
+    pub(crate) fn current_prediction_time(
         &self,
         tick_manager: &TickManager,
         time_manager: &TimeManager,
@@ -368,52 +388,72 @@ impl SyncManager {
             + self.config.tick_margin as u32 * tick_manager.config.tick_duration
     }
 
-    /// Estimated tick at which we are receiving server packets
-    /// (useful for interpolation)
-    pub(crate) fn update_estimated_interpolated_tick(
-        &mut self,
-        delay: &InterpolationDelay,
-        tick_manager: &TickManager,
-        time_manager: &TimeManager,
-    ) {
-        let client_time = self.current_client_time(tick_manager, time_manager);
-        let new_interpolation_tick = match delay {
-            // use durations as much as possible and convert to ticks at the end
-            InterpolationDelay::Delay(delay) => {
-                let server_time = self.current_server_time();
-                let interpolation_time = server_time - *delay;
-                let delta = client_time - interpolation_time;
-                let delta_tick = (delta.num_microseconds().unwrap()
-                    / tick_manager.config.tick_duration.as_micros() as i64)
-                    as u16;
-                tick_manager.current_tick() - delta_tick
-            }
-            InterpolationDelay::Ticks(interpolation_delta_tick) => {
-                let predicted_server_receive_time = self.predicted_server_receive_time();
-                let delta_time = client_time - predicted_server_receive_time;
-                let delta_tick = (delta_time.num_microseconds().unwrap()
-                    / tick_manager.config.tick_duration.as_micros() as i64)
-                    as u16;
-                tick_manager.current_tick() - (delta_tick + interpolation_delta_tick)
-            } // TODO: the fact that we have this means that we should have config that defines
-              //  how often client sends packets to server and vice-versa
-              //  then we can have a timer, and check at every frame/fixed-update if we need to send packets
-        };
-        if new_interpolation_tick > self.estimated_interpolation_tick {
-            self.estimated_interpolation_tick = new_interpolation_tick;
-        }
-    }
-
     pub(crate) fn estimated_interpolated_tick(&self) -> Tick {
         self.estimated_interpolation_tick
     }
 
+    pub(crate) fn interpolation_objective(
+        &self,
+        // TODO: make interpolation delay part of SyncConfig?
+        interpolation_delay: &InterpolationDelay,
+        // TODO: should we get this via an estimate?
+        server_update_rate: Duration,
+        tick_manager: &TickManager,
+    ) -> WrappedTime {
+        // We want the interpolation time to be just a little bit behind the latest server time
+        // We add `duration_since_latest_received_server_tick` because we receive them intermittently
+        // TODO: maybe integrate?
+        let objective_time = WrappedTime::from_duration(
+            self.latest_received_server_tick.0 as u32 * tick_manager.config.tick_duration
+                + self.duration_since_latest_received_server_tick,
+        );
+        // how much we want interpolation time to be behind the latest received server tick?
+        // TODO: use a specified config margin + add std of time_between_server_updates?
+        let objective_delta =
+            chrono::Duration::from_std(interpolation_delay.to_duration(server_update_rate))
+                .unwrap();
+        return objective_time - objective_delta;
+    }
+
+    pub(crate) fn interpolation_tick(&self, tick_manager: &TickManager) -> Tick {
+        Tick(
+            (self.interpolation_time.elapsed_us_wrapped
+                / tick_manager.config.tick_duration.as_micros() as u32) as u16,
+        )
+    }
+
     // TODO: only run when there's a change? (new server tick received or new ping received)
+
+    // TODO: change name to make it clear that we might modify speed
+    pub(crate) fn update_interpolation_time(
+        &mut self,
+        // TODO: make interpolation delay part of SyncConfig?
+        interpolation_delay: &InterpolationDelay,
+        // TODO: should we get this via an estimate?
+        server_update_rate: Duration,
+        tick_manager: &TickManager,
+    ) {
+        // for interpolation time, we don't need to use ticks (because we only need interpolation at the end
+        // of the frame, not during the FixedUpdate schedule)
+        let objective_time =
+            self.interpolation_objective(interpolation_delay, server_update_rate, tick_manager);
+        let delta = objective_time - self.interpolation_time;
+
+        let error_margin = chrono::Duration::milliseconds(10);
+        if delta > error_margin {
+            // interpolation time is too far behind, speed-up!
+            self.interpolation_speed_ratio = 1.0 * self.config.speedup_factor;
+        } else if delta < -error_margin {
+            self.interpolation_speed_ratio = 1.0 / self.config.speedup_factor;
+        } else {
+            self.interpolation_speed_ratio = 1.0;
+        }
+    }
 
     /// Update the client time ("upstream-throttle"): speed-up or down depending on the
     /// The objective of update-client-time is to make sure the client packets for tick T arrive on server before server reaches tick T
     /// but not too far ahead
-    pub(crate) fn update_client_time(
+    pub(crate) fn update_prediction_time(
         &mut self,
         time_manager: &mut TimeManager,
         tick_manager: &TickManager,
@@ -421,13 +461,13 @@ impl SyncManager {
         let rtt = self.rtt();
         let jitter = self.jitter();
         // current client time
-        let current_client_time = self.current_client_time(tick_manager, time_manager);
+        let current_prediction_time = self.current_prediction_time(tick_manager, time_manager);
         // time at which the server would receive a packet we send now
         // (or time at which the server's packet would arrive on the client, computed using server tick)
         let predicted_server_receive_time = self.predicted_server_receive_time();
 
         // how far ahead of the server am I?
-        let client_ahead_delta = current_client_time - predicted_server_receive_time;
+        let client_ahead_delta = current_prediction_time - predicted_server_receive_time;
         // how far ahead of the server should I be?
         let client_ahead_minimum = self.client_ahead_minimum(tick_manager);
 
@@ -442,10 +482,10 @@ impl SyncManager {
         .unwrap();
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
-                ?current_client_time,
+                ?current_prediction_time,
                 latest_received_server_tick = ?self.latest_received_server_tick,
                 client_tick = ?tick_manager.current_tick(),
                 client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
@@ -457,10 +497,10 @@ impl SyncManager {
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
-                ?current_client_time,
+                ?current_prediction_time,
                 latest_received_server_tick = ?self.latest_received_server_tick,
                 client_tick = ?tick_manager.current_tick(),
                 client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
@@ -485,13 +525,14 @@ impl SyncManager {
         pong: &TimeSyncPongMessage,
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
-    ) {
+    ) -> bool {
         trace!("Received time sync pong: {:?}", pong);
         let client_received_time = time_manager.current_time();
 
         let Some(ping_sent_time) = self.ping_store.remove(pong.ping_id) else {
             // received a ping that we were not supposed to get
-            return;
+            panic!("Received a ping that we were not supposed to get!");
+            // return false;
         };
 
         // only update values for the most recent pongs received
@@ -529,13 +570,16 @@ impl SyncManager {
             );
 
             // finalize if we have enough pongs
-            if !self.synced && self.sync_stats.buffer.len() >= self.config.handshake_pings as usize
-            {
-                info!("received enough pongs to finalize handshake");
-                self.synced = true;
-                self.finalize(time_manager, tick_manager);
-            }
+            return !self.synced
+                && self.sync_stats.buffer.len() >= self.config.handshake_pings as usize;
+            // if !self.synced && self.sync_stats.buffer.len() >= self.config.handshake_pings as usize
+            // {
+            //     info!("received enough pongs to finalize handshake");
+            //     self.synced = true;
+            //     self.finalize(time_manager, tick_manager);
+            // }
         }
+        return false;
     }
 
     // Update internal time using offset so that times are synced.
@@ -587,6 +631,8 @@ mod tests {
         let mut tick_manager = TickManager::from_config(TickConfig {
             tick_duration: Duration::from_millis(50),
         });
+        let interpolation_delay = InterpolationDelay::default();
+        let server_update_rate = Duration::default();
 
         assert!(!sync_manager.is_synced());
         assert_eq!(
@@ -596,7 +642,12 @@ mod tests {
 
         let delta = Duration::from_millis(100);
         time_manager.update(delta, Duration::default());
-        sync_manager.update(&time_manager);
+        sync_manager.update(
+            &mut time_manager,
+            &mut tick_manager,
+            &interpolation_delay,
+            server_update_rate,
+        );
 
         // send pings
         assert_eq!(
@@ -609,7 +660,12 @@ mod tests {
         );
         let delta = Duration::from_millis(60);
         time_manager.update(delta, Duration::default());
-        sync_manager.update(&time_manager);
+        sync_manager.update(
+            &mut time_manager,
+            &mut tick_manager,
+            &interpolation_delay,
+            server_update_rate,
+        );
 
         // ping timer hasn't gone off yet, send nothing
         assert_eq!(
@@ -617,7 +673,12 @@ mod tests {
             None
         );
         time_manager.update(delta, Duration::default());
-        sync_manager.update(&time_manager);
+        sync_manager.update(
+            &mut time_manager,
+            &mut tick_manager,
+            &interpolation_delay,
+            server_update_rate,
+        );
         tick_manager.set_tick_to(Tick(2));
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
@@ -630,7 +691,12 @@ mod tests {
 
         let delta = Duration::from_millis(100);
         time_manager.update(delta, Duration::default());
-        sync_manager.update(&time_manager);
+        sync_manager.update(
+            &mut time_manager,
+            &mut tick_manager,
+            &interpolation_delay,
+            server_update_rate,
+        );
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
             Some(TimeSyncPingMessage {

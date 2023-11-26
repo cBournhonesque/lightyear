@@ -22,11 +22,11 @@ pub enum InterpolationDelay {
     /// How much behind the client time the interpolated entities are
     /// This should be big enough that even if one server packet is loss
     Delay(Duration),
-    /// How much behind the client entity the interpolated entity is in terms of ticks
-    Ticks(u16),
-    // /// The interpolation delay is a ratio of the update-rate from the server
-    // /// Currently the server sends updates every frame, so the delay will be a ratio of the frame-rate
-    // Ratio(f32),
+    // How much behind the client entity the interpolated entity is in terms of ticks
+    // Ticks(u16),
+    // The interpolation delay is a ratio of the update-rate from the server
+    // Currently the server sends updates every frame, so the delay will be a ratio of the frame-rate
+    Ratio(f32),
 }
 
 impl Default for InterpolationDelay {
@@ -36,23 +36,27 @@ impl Default for InterpolationDelay {
 }
 
 impl InterpolationDelay {
-    // TODO: figure out how to not need to pass the arguments if we don't need them
-    /// Compute how many ticks the interpolated entity is behind compared to the current entity
-    pub(crate) fn tick_delta(
-        &self,
-        tick_duration: Duration,
-        // server_update_rate: Duration,
-    ) -> u16 {
+    /// How much behind the latest server update we want the interpolation time to be
+    pub(crate) fn to_duration(&self, server_update_rate: Duration) -> Duration {
         match self {
-            InterpolationDelay::Delay(delay) => {
-                (delay.as_secs_f64() / tick_duration.as_secs_f64()).ceil() as u16
-            }
-            InterpolationDelay::Ticks(ticks) => *ticks,
-            // InterpolationDelay::Ratio(ratio) => (server_update_rate.mul_f32(*ratio).as_secs_f64()
-            //     / tick_duration.as_secs_f64())
-            // .ceil() as usize,
+            InterpolationDelay::Delay(delay) => *delay,
+            InterpolationDelay::Ratio(ratio) => server_update_rate.mul_f32(*ratio),
         }
     }
+
+    // /// Compute how many ticks the interpolated entity is behind compared to the current entity
+    // // TODO: figure out how to not need to pass the arguments if we don't need them
+    // pub(crate) fn tick_delta(&self, tick_duration: Duration, server_update_rate: Duration) -> u16 {
+    //     match self {
+    //         InterpolationDelay::Delay(delay) => {
+    //             (delay.as_secs_f64() / tick_duration.as_secs_f64()).ceil() as u16
+    //         }
+    //         // InterpolationDelay::Ticks(ticks) => *ticks,
+    //         InterpolationDelay::Ratio(ratio) => (server_update_rate.mul_f32(*ratio).as_secs_f64()
+    //             / tick_duration.as_secs_f64())
+    //         .ceil() as usize,
+    //     }
+    // }
 }
 
 /// How much behind the client time the interpolated entities are

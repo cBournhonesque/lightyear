@@ -10,7 +10,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use lightyear_shared::client as lightyear_client;
 use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
 use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
+use lightyear_shared::client::{Authentication, Client, ClientConfig, InputConfig, SyncConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::server as lightyear_server;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
@@ -67,8 +67,6 @@ impl BevyStepper {
             .with_key(private_key);
         let config = ServerConfig {
             shared: shared_config.clone(),
-            packet: lightyear_server::config::PacketConfig::default()
-                .with_packet_send_interval(Duration::from_millis(100)),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(conditioner.clone()),
@@ -90,8 +88,7 @@ impl BevyStepper {
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let config = ClientConfig {
             shared: shared_config.clone(),
-            packet: lightyear_client::config::PacketConfig::default()
-                .with_packet_send_interval(Duration::from_millis(0)),
+            input: InputConfig::default(),
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(conditioner.clone()),

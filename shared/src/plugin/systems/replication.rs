@@ -4,7 +4,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs,
     PostUpdate, Query, Ref, RemovedComponents, ResMut,
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::replication::{DespawnTracker, Replicate, ReplicationSend};
 use crate::{ClientId, IntoKind, ReplicationData};
@@ -115,6 +115,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
         }
         // only update components that were not newly added ?
         if component.is_changed() && !component.is_added() {
+            info!("COMPONENT CHANGED");
             sender
                 .entity_update_single_component(entity, component.clone().into(), replicate)
                 .unwrap();

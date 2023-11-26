@@ -10,13 +10,41 @@ use crate::plugin::events::InputEvent;
 use crate::plugin::sets::{FixedUpdateSet, MainSet};
 use crate::{App, InputChannel, Protocol, UserInput};
 
+#[derive(Debug, Clone)]
+pub struct InputConfig {
+    /// How many consecutive packets lossed do we want to handle?
+    /// This is used to compute the redundancy of the input messages.
+    /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
+    ///  for the 3 last packets.
+    packet_redundancy: u16,
+}
+
+impl Default for InputConfig {
+    fn default() -> Self {
+        InputConfig {
+            packet_redundancy: 10,
+        }
+    }
+}
+
 pub struct InputPlugin<P: Protocol> {
+    config: InputConfig,
     _marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> InputPlugin<P> {
+    fn new(config: InputConfig) -> Self {
+        Self {
+            config,
+            _marker: std::marker::PhantomData::default(),
+        }
+    }
 }
 
 impl<P: Protocol> Default for InputPlugin<P> {
     fn default() -> Self {
         Self {
+            config: InputConfig::default(),
             _marker: std::marker::PhantomData::default(),
         }
     }
@@ -121,18 +149,20 @@ fn write_input_event<P: Protocol>(
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
+    let current_tick = client.tick();
     // TODO: the number of messages should be in SharedConfig
-    trace!(tick = ?client.tick(), "prepare_input_message");
+    trace!(tick = ?current_tick, "prepare_input_message");
     // TODO: instead of 15, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
 
     // we send redundant inputs, so that if a packet is lost, we can still recover
-    let num_tick = (client.config().packet.packet_send_interval.as_micros()
+    let num_tick = ((client.config().shared.client_send_interval.as_micros()
         / client.config().shared.tick.tick_duration.as_micros())
-        + 1;
-    let redundancy = 3;
-    let message_len = (redundancy * num_tick) as u16;
+        + 1) as u16;
+    let redundancy = client.config().input.packet_redundancy;
+    // let redundancy = 3;
+    let message_len = redundancy * num_tick;
     // TODO: we can either:
     //  - buffer an input message at every tick, and not require that much redundancy
     //  - buffer an input every frame; and require some redundancy (number of tick per frame)
@@ -145,6 +175,10 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     if !message.is_empty() {
         client.buffer_send::<InputChannel, _>(message);
     }
+    // delete old input values
+    client
+        .get_mut_input_buffer()
+        .pop(current_tick - (message_len + 1));
 }
 
 // on the client:

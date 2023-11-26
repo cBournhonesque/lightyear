@@ -26,7 +26,6 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
-        packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(0)),
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
@@ -47,7 +46,6 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
-        packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(0)),
         netcode: netcode_config,
         io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),

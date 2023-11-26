@@ -25,13 +25,12 @@ impl Plugin for ServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(50),
+            incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.00,
         };
         let config = ServerConfig {
             shared: shared_config().clone(),
-            packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(100)),
             netcode: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(link_conditioner),
@@ -122,12 +121,12 @@ pub(crate) fn movement(
         let client_id = input.context();
         if input.input().is_some() {
             let input = input.input().as_ref().unwrap();
-            // info!(
-            //     "Receiving input: {:?} from client: {:?} on tick: {:?}",
-            //     input,
-            //     client_id,
-            //     server.tick()
-            // );
+            info!(
+                "Receiving input: {:?} from client: {:?} on tick: {:?}",
+                input,
+                client_id,
+                server.tick()
+            );
             // TODO: on the server-side maintain a map from client_id to entity_id
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(mut position) = position_query.get_mut(*player_entity) {

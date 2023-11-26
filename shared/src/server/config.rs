@@ -61,7 +61,6 @@ impl PacketConfig {
 pub struct ServerConfig {
     pub shared: SharedConfig,
     // TODO: maybe regroup packet/netcode/io into ConnectionConfig?
-    pub packet: PacketConfig,
     pub netcode: NetcodeConfig,
     pub io: IoConfig,
     pub ping: PingConfig,

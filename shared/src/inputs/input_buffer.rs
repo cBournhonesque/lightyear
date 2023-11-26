@@ -1,7 +1,9 @@
 use bevy::prelude::Resource;
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fmt::Debug;
+use tracing::info;
 
 use lightyear_derive::MessageInternal;
 
@@ -26,8 +28,13 @@ const INPUT_BUFFER_SIZE: usize = 128;
 
 #[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserInput> {
-    pub buffer: SequenceBuffer<Tick, T, INPUT_BUFFER_SIZE>,
+    // TODO: just use VecDeque? (easier..)
+    // pub buffer: SequenceBuffer<Tick, T, INPUT_BUFFER_SIZE>,
+    pub buffer: VecDeque<Option<T>>,
     // TODO: maybe keep track of the start?
+    // only the values between start_tick and end_tick are valid
+    pub start_tick: Tick,
+    // pub end_tick: Tick,
 }
 
 // TODO: add encode directive to encode even more efficiently
@@ -65,39 +72,99 @@ impl<T: UserInput> InputMessage<T> {
 impl<T: UserInput> Default for InputBuffer<T> {
     fn default() -> Self {
         Self {
-            buffer: SequenceBuffer::new(),
+            // buffer: SequenceBuffer::new(),
+            buffer: VecDeque::new(),
+            start_tick: Tick(0),
+            // end_tick: Tick(0),
         }
     }
 }
 
 impl<T: UserInput> InputBuffer<T> {
+    // pub(crate) fn remove(&mut self, tick: Tick) -> Option<T> {
+    //     if tick < self.start_tick || tick > self.end_tick {
+    //         return None;
+    //     }
+    //     self.buffer.remove(&tick)
+    // }
+
+    /// Remove all the inputs that are older than the given tick, then return the input
+    /// for the given tick
+    pub(crate) fn pop(&mut self, tick: Tick) -> Option<T> {
+        if tick < self.start_tick {
+            return None;
+        }
+        if tick > self.start_tick + (self.buffer.len() as i16 - 1) {
+            // pop everything
+            self.buffer = VecDeque::new();
+            self.start_tick = tick + 1;
+            return None;
+        }
+        // info!(
+        //     "buffer: {:?}. start_tick: {:?}, tick: {:?}",
+        //     self.buffer, self.start_tick, tick
+        // );
+        self.start_tick = tick + 1;
+        for _ in 0..(tick - self.start_tick) {
+            self.buffer.pop_front();
+        }
+        self.buffer.pop_front().unwrap()
+    }
+
+    pub(crate) fn get(&self, tick: Tick) -> Option<&T> {
+        if tick < self.start_tick || tick > self.start_tick + (self.buffer.len() as i16 - 1) {
+            return None;
+        }
+        self.buffer
+            .get((tick.0 - self.start_tick.0) as usize)
+            .unwrap()
+            .as_ref()
+    }
+
+    pub(crate) fn set(&mut self, tick: Tick, value: Option<T>) {
+        // cannot set lower values than start_tick
+        if tick < self.start_tick {
+            return;
+        }
+        let end_tick = self.start_tick + (self.buffer.len() as i16 - 1);
+        if tick > end_tick {
+            for _ in 0..(tick - end_tick - 1) {
+                self.buffer.push_back(None);
+            }
+            self.buffer.push_back(value);
+            return;
+        }
+        // safety: we are guaranteed that the tick is in the buffer
+        *self
+            .buffer
+            .get_mut((tick - self.start_tick) as usize)
+            .unwrap() = value;
+    }
+
     /// We received a new input message from the user, and use it to update the input buffer
     /// TODO: should we keep track of which inputs in the input buffer are absent and only update those?
     ///  The current tick is the current server tick, no need to update the buffer for ticks that are older than that
-    pub(crate) fn update_from_message(&mut self, message: &InputMessage<T>) {
+    pub(crate) fn update_from_message(&mut self, message: InputMessage<T>) {
         let message_start_tick = Tick(message.end_tick.0) - message.inputs.len() as u16 + 1;
+        let mut prev_value = None;
 
-        // // the input message is too old, don't do anything
-        // if current_tick > message.end_tick {
-        //     return;
-        // }
-        // let start_tick = message_start_tick.max(current_tick);
-
-        for (delta, input) in message.inputs.iter().enumerate() {
+        for (delta, input) in message.inputs.into_iter().enumerate() {
             let tick = message_start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
-                    self.buffer.remove(&tick);
+                    prev_value = None;
+                    self.set(tick, None);
                 }
                 InputData::SameAsPrecedent => {
-                    let prev_tick = tick - 1;
-                    let prev_value = self.buffer.get(&prev_tick).cloned();
-                    if let Some(v) = prev_value.or_else(|| self.buffer.remove(&tick)) {
-                        self.buffer.push(&tick, v);
-                    }
+                    self.set(tick, prev_value.clone());
                 }
                 InputData::Input(input) => {
-                    self.buffer.push(&tick, input.clone());
+                    prev_value = Some(input);
+                    if self.get(tick) == prev_value.as_ref() {
+                        continue;
+                    } else {
+                        self.set(tick, prev_value.clone());
+                    }
                 }
             }
         }
@@ -111,8 +178,7 @@ impl<T: UserInput> InputBuffer<T> {
         // start with the first value
         let start_tick = Tick(end_tick.0) - num_ticks + 1;
         inputs.push(
-            self.buffer
-                .get(&start_tick)
+            self.get(start_tick)
                 .map_or(InputData::Absent, |input| InputData::Input(input.clone())),
         );
         // keep track of the previous value to avoid sending the same value multiple times
@@ -121,8 +187,7 @@ impl<T: UserInput> InputBuffer<T> {
             let tick = start_tick + Tick(delta);
             // safe because we keep pushing elements
             let value = self
-                .buffer
-                .get(&tick)
+                .get(tick)
                 .map_or(InputData::Absent, |input| InputData::Input(input.clone()));
             // safe before prev_value_idx is always present
             if inputs.get(prev_value_idx).unwrap() == &value {
@@ -143,12 +208,32 @@ mod tests {
     impl UserInput for usize {}
 
     #[test]
+    fn test_get_set_pop() {
+        let mut input_buffer = InputBuffer::default();
+
+        input_buffer.set(Tick(4), Some(0));
+        input_buffer.set(Tick(6), Some(1));
+        input_buffer.set(Tick(7), Some(1));
+
+        assert_eq!(input_buffer.get(Tick(4)), Some(&0));
+        assert_eq!(input_buffer.get(Tick(5)), None);
+        assert_eq!(input_buffer.get(Tick(6)), Some(&1));
+        assert_eq!(input_buffer.get(Tick(8)), None);
+
+        assert_eq!(input_buffer.pop(Tick(5)), None);
+        assert_eq!(input_buffer.start_tick, Tick(6));
+        assert_eq!(input_buffer.pop(Tick(7)), Some(1));
+        assert_eq!(input_buffer.start_tick, Tick(8));
+        assert_eq!(input_buffer.buffer.len(), 0);
+    }
+
+    #[test]
     fn test_create_message() {
         let mut input_buffer = InputBuffer::default();
 
-        input_buffer.buffer.push(&Tick(4), 0);
-        input_buffer.buffer.push(&Tick(6), 1);
-        input_buffer.buffer.push(&Tick(7), 1);
+        input_buffer.set(Tick(4), Some(0));
+        input_buffer.set(Tick(6), Some(1));
+        input_buffer.set(Tick(7), Some(1));
 
         let message = input_buffer.create_message(Tick(10), 8);
         assert_eq!(
@@ -186,15 +271,15 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        input_buffer.update_from_message(&message);
+        input_buffer.update_from_message(message);
 
-        assert_eq!(input_buffer.buffer.get(&Tick(20)), None);
-        assert_eq!(input_buffer.buffer.get(&Tick(19)), None);
-        assert_eq!(input_buffer.buffer.get(&Tick(18)), None);
-        assert_eq!(input_buffer.buffer.get(&Tick(17)), Some(&1));
-        assert_eq!(input_buffer.buffer.get(&Tick(16)), Some(&1));
-        assert_eq!(input_buffer.buffer.get(&Tick(15)), None);
-        assert_eq!(input_buffer.buffer.get(&Tick(14)), Some(&0));
-        assert_eq!(input_buffer.buffer.get(&Tick(13)), None);
+        assert_eq!(input_buffer.get(Tick(20)), None);
+        assert_eq!(input_buffer.get(Tick(19)), None);
+        assert_eq!(input_buffer.get(Tick(18)), None);
+        assert_eq!(input_buffer.get(Tick(17)), Some(&1));
+        assert_eq!(input_buffer.get(Tick(16)), Some(&1));
+        assert_eq!(input_buffer.get(Tick(15)), None);
+        assert_eq!(input_buffer.get(Tick(14)), Some(&0));
+        assert_eq!(input_buffer.get(Tick(13)), None);
     }
 }

@@ -21,9 +21,9 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                prediction_target: NetworkTarget::None,
-                // prediction_target: NetworkTarget::Only(id),
-                // interpolation_target: NetworkTarget::AllExcept(id),
+                // prediction_target: NetworkTarget::None,
+                prediction_target: NetworkTarget::Only(id),
+                interpolation_target: NetworkTarget::AllExcept(id),
                 ..default()
             },
         }
@@ -45,7 +45,7 @@ pub struct PlayerColor(pub(crate) Color);
 pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),
-    #[sync(simple)]
+    #[sync(full)]
     PlayerPosition(PlayerPosition),
     #[sync(once)]
     PlayerColor(PlayerColor),
@@ -75,6 +75,13 @@ pub struct Direction {
     pub(crate) left: bool,
     pub(crate) right: bool,
 }
+
+impl Direction {
+    pub(crate) fn is_none(&self) -> bool {
+        !self.up && !self.down && !self.left && !self.right
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Inputs {
     Direction(Direction),

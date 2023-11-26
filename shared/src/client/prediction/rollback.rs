@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use bevy::prelude::{Commands, Entity, FixedUpdate, Query, Res, ResMut, Without, World};
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::client::components::{Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::Client;
 use crate::Protocol;
@@ -89,6 +89,10 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
 // where
 // <P as Protocol>::Components: From<C>,
 {
+    // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
+    if C::mode() != ComponentSyncMode::Full {
+        return;
+    }
     if !client.is_synced() || !client.received_new_server_tick() {
         trace!(
             sync = ?client.is_synced(),

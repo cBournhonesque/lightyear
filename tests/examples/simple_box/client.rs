@@ -2,14 +2,14 @@ use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, Play
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear_shared::client::components::Confirmed;
+use lightyear_shared::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use lightyear_shared::client::config::PacketConfig;
 use lightyear_shared::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
 use lightyear_shared::client::interpolation::{ConfirmedHistory, Interpolated};
 use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::prediction::Predicted;
 use lightyear_shared::client::{
-    client_is_synced, Authentication, ClientConfig, InputSystemSet, SyncConfig,
+    client_is_synced, Authentication, ClientConfig, InputConfig, InputSystemSet, SyncConfig,
 };
 use lightyear_shared::plugin::events::{InputEvent, MessageEvent};
 use lightyear_shared::plugin::sets::FixedUpdateSet;
@@ -37,23 +37,22 @@ impl Plugin for ClientPlugin {
         };
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(50),
+            incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.00,
         };
         let config = ClientConfig {
             shared: shared_config().clone(),
+            input: InputConfig::default(),
             netcode: Default::default(),
-            packet: PacketConfig::default().with_packet_send_interval(Duration::from_millis(0)),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(link_conditioner),
             ping: lightyear_shared::client::PingConfig::default(),
             sync: SyncConfig::default(),
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
-            interpolation: InterpolationConfig::default().with_delay(InterpolationDelay::Delay(
-                Duration::from_secs_f32(10.0 / 60.0),
-            )),
+            interpolation: InterpolationConfig::default()
+                .with_delay(InterpolationDelay::Ratio(2.0)),
         };
         let plugin_config =
             lightyear_shared::client::PluginConfig::new(config, MyProtocol::default(), auth);
@@ -134,16 +133,22 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     }
     // TODO: should we only send an input if it's not all NIL?
     // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
-    client.add_input(Inputs::Direction(input));
+    if !input.is_none() {
+        client.add_input(Inputs::Direction(input));
+    }
 }
 
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 pub(crate) fn movement(
+    // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
+    if PlayerPosition::mode() != ComponentSyncMode::Full {
+        return;
+    }
     for input in input_reader.read() {
         if input.input().is_some() {
             let input = input.input().as_ref().unwrap();

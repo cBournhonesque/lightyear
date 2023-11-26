@@ -17,8 +17,10 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
+use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
+use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::prediction::Predicted;
-use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet};
+use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet, SyncConfig};
 use lightyear_shared::netcode::generate_key;
 use lightyear_shared::plugin::events::InputEvent;
 use lightyear_shared::plugin::sets::FixedUpdateSet;
@@ -44,7 +46,7 @@ fn server_init(mut commands: Commands) {
             prediction_target: NetworkTarget::All,
             ..Default::default()
         },
-        Component1(0),
+        Component1(0.0),
     ));
 }
 
@@ -66,7 +68,7 @@ fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
 // - Server: used to update components (which will be replicated)
 // - Client: used for client-prediction/rollback
 fn shared_behaviour(component1: &mut Component1, input: &MyInput) {
-    component1.0 += input.0;
+    component1.0 += input.0 as f32;
 }
 
 // The client input only gets applied to predicted entities
@@ -126,7 +128,14 @@ fn test_bevy_step_prediction() -> anyhow::Result<()> {
         incoming_jitter: Duration::from_millis(5),
         incoming_loss: 0.05,
     };
-    let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);
+    let mut stepper = BevyStepper::new(
+        shared_config,
+        SyncConfig::default(),
+        PredictionConfig::default(),
+        InterpolationConfig::default(),
+        link_conditioner,
+        frame_duration,
+    );
 
     // add systems
     stepper.client_app.add_systems(Startup, client_init);

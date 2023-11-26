@@ -9,6 +9,7 @@ PROBLEMS:
   - DONE: why are we still behind server-time right after we run finalize? SOLVED!!! (needed to update server_time() in finalize after computing RTT))
   - sync only works if we send client updates every frame. Otherwise we need to take a LOT more margin on the server
     to make sure that client packets arrive on time. -> MAKE SYNC COMPATIBLE WITH CLIENT UPDATE_INTERVAL (ADD UPDATE_INTERVAL TO MARGIN?)
+  - SOMETHIGN PROBABLY BREAKS BECAUSE OF THE WRAPPING OF TICK AND WRAPPED-TIME
 - if client 1 DC and then reconnects again, we don't get a new cube.
 - when the client is disconnected, the server seems to suddenly apply a bunch of inputs at once? is it because the server is behind the client?
   Is it because we have a rolling buffer of inputs?

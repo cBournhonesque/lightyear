@@ -91,7 +91,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                                 InterpolateStatus::<T> {
                                     start: None,
                                     end: None,
-                                    current: client.interpolated_tick(),
+                                    current: client.interpolation_tick(),
                                 },
                             ));
                         }

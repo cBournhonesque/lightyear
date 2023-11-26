@@ -76,7 +76,7 @@ pub enum PredictionSet {
     /// Check if rollback is needed, potentially clear history and snap prediction histories to server state
     CheckRollback,
     // we might need a flush because check-rollback might remove/add components.
-    // TODO: a bit confusing, maybe only rollback should do that?
+    // TODO: a bit confusing that check rollback needs a flush. It's because check-rollback applies the initial rollback state, maybe only rollback should do that?
     CheckRollbackFlush,
     /// Perform rollback
     Rollback,
