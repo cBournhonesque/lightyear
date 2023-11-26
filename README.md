@@ -6,22 +6,17 @@
 
 PROBLEMS:
 - SYNC:
-  - DONE: why are we still behind server-time right after we run finalize? SOLVED!!! (needed to update server_time() in finalize after computing RTT))
   - sync only works if we send client updates every frame. Otherwise we need to take a LOT more margin on the server
     to make sure that client packets arrive on time. -> MAKE SYNC COMPATIBLE WITH CLIENT UPDATE_INTERVAL (ADD UPDATE_INTERVAL TO MARGIN?)
-  - SOMETHIGN PROBABLY BREAKS BECAUSE OF THE WRAPPING OF TICK AND WRAPPED-TIME
+  - SOMETHIGN PROBABLY BREAKS BECAUSE OF THE WRAPPING OF TICK AND WRAPPED-TIME, THINK ABOUT HOW IT WORKS
 - if client 1 DC and then reconnects again, we don't get a new cube.
-- when the client is disconnected, the server seems to suddenly apply a bunch of inputs at once? is it because the server is behind the client?
-  Is it because we have a rolling buffer of inputs?
-  maybe the server should just get disconnected right away
-  - it looks like disconnects events are not being received?
-- when there are no updates being sent, the last_received_server_tick/time is not updated very frequently, only from pings,
-  in those cases the time sync manager is struggling to be super accurate, so there's a lot of speedup/slowdown
+- it looks like disconnects events are not being received?
 
 
 ROUGH EDGES:
 - users cannot derive traits on ComponentProtocol or MessageProtocol because we add some extra variants to those enums
 - the bitcode/Bytes parts are confusing and make extra copies
+- users cannot specify how they serialize messages/components
 - some slightly weird stuff around the sync manager
 - can have smarter speedup/down for the sync system
 
@@ -77,8 +72,3 @@ ROUGH EDGES:
 
 - Reflection: 
   - when can we use this?
-
-# Tenets
-
-* similar to naia, but tightly integrated with Bevy. No need to wade through WorldProxy, etc.
-* re-uses a lot of bevy's stuff: time, change-detection, etc.

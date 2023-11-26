@@ -70,7 +70,7 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
 pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
     mut commands: Commands,
     mut client: ResMut<Client<P>>,
-    interpolated_entities: Query<Entity, Without<ConfirmedHistory<T>>>,
+    interpolated_entities: Query<Entity, (Without<ConfirmedHistory<T>>, With<Interpolated>)>,
     confirmed_entities: Query<(&Confirmed, Ref<T>)>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {

@@ -104,10 +104,10 @@ impl<T: UserInput> InputBuffer<T> {
         //     "buffer: {:?}. start_tick: {:?}, tick: {:?}",
         //     self.buffer, self.start_tick, tick
         // );
-        self.start_tick = tick + 1;
         for _ in 0..(tick - self.start_tick) {
             self.buffer.pop_front();
         }
+        self.start_tick = tick + 1;
         self.buffer.pop_front().unwrap()
     }
 

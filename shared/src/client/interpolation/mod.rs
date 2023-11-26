@@ -44,7 +44,7 @@ pub trait InterpolatedComponent:
 
     fn lerp(start: Self, other: Self, t: f32) -> Self {
         match Self::lerp_mode() {
-            LerpMode::Linear => start * t + other * (1.0 - t),
+            LerpMode::Linear => start * (1.0 - t) + other * t,
             LerpMode::Custom(lerp) => lerp(start, other, t),
         }
     }
