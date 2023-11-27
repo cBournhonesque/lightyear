@@ -6,7 +6,7 @@
 
 - [Tutorial](./tutorial/title.md)
   - [Setup](./tutorial/setup.md)
-  - [Client](./tutorial/client.md)
+  - [Client](./tutorial/build_client_server)
   - [Server](./tutorial/server.md)
   - [Game](./tutorial/game.md)
 

@@ -4,10 +4,10 @@ use bevy::prelude::{
 };
 use tracing::trace;
 
+use crate::client::events::InputEvent;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::{client_is_synced, Client};
-use crate::plugin::events::InputEvent;
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
+use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::{App, InputChannel, Protocol, UserInput};
 
 #[derive(Debug, Clone)]

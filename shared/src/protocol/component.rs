@@ -64,7 +64,10 @@ pub trait ComponentBehaviour {
 
 impl<T: Component> ComponentBehaviour for T {
     fn insert(self, entity: &mut EntityWorldMut) {
+        // only insert if the entity didn't have the component
+        // if entity.get::<T>().is_none() {
         entity.insert(self);
+        // }
     }
 }
 

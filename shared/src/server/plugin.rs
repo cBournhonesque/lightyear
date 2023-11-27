@@ -6,15 +6,16 @@ use bevy::prelude::{
     PreUpdate,
 };
 
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use crate::plugin::systems::replication::add_replication_send_systems;
-use crate::plugin::systems::tick::increment_tick;
+use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::input::InputPlugin;
 use crate::server::systems::{clear_events, is_ready_to_send};
 use crate::server::Server;
+use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::systems::replication::add_replication_send_systems;
+use crate::shared::systems::tick::increment_tick;
 use crate::{
-    ClientId, ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol,
-    Protocol, ReplicationData, ReplicationSet, SharedPlugin,
+    ClientId, ComponentProtocol, MessageProtocol, Protocol, ReplicationData, ReplicationSet,
+    SharedPlugin,
 };
 
 use super::config::ServerConfig;
@@ -87,9 +88,10 @@ impl<P: Protocol> PluginType for Plugin<P> {
             .configure_sets(PostUpdate, MainSet::ClearEvents)
             .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
             // EVENTS //
-            .add_event::<ConnectEvent<ClientId>>()
-            .add_event::<DisconnectEvent<ClientId>>()
-            .add_event::<EntitySpawnEvent<ClientId>>()
+            .add_event::<ConnectEvent>()
+            .add_event::<DisconnectEvent>()
+            .add_event::<EntitySpawnEvent>()
+            .add_event::<EntityDespawnEvent>()
             // SYSTEMS //
             .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin

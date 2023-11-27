@@ -7,17 +7,17 @@ use bevy::prelude::{
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
+use crate::client::events::{ConnectEvent, DisconnectEvent};
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
 use crate::client::{Authentication, Client};
-use crate::plugin::sets::{FixedUpdateSet, MainSet};
-use crate::plugin::systems::tick::increment_tick;
+use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::systems::tick::increment_tick;
 use crate::{
-    ComponentProtocol, ConnectEvent, DisconnectEvent, EntitySpawnEvent, MessageProtocol, Protocol,
-    ReplicationData, SharedPlugin,
+    ComponentProtocol, EntitySpawnEvent, MessageProtocol, Protocol, ReplicationData, SharedPlugin,
 };
 
 use super::config::ClientConfig;

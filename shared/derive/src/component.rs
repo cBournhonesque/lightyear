@@ -149,12 +149,12 @@ pub fn component_protocol_impl(
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable,
                 ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, IntoKind, PostUpdate, Protocol,
                 ComponentKindBehaviour, ReplicationSet, ReplicationSend};
-            use #shared_crate_name::plugin::systems::replication::add_per_component_replication_send_systems;
+            use #shared_crate_name::shared::systems::replication::add_per_component_replication_send_systems;
             use #shared_crate_name::connection::events::{EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
-            use #shared_crate_name::plugin::systems::events::{
+            use #shared_crate_name::shared::systems::events::{
                 push_component_insert_events, push_component_remove_events, push_component_update_events,
             };
-            use #shared_crate_name::plugin::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
+            use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
 
             // TODO: write this behind feature?
             // TODO: possibility to rename this? maybe we should put everything in one crate

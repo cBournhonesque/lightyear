@@ -7,8 +7,9 @@ use bevy::prelude::{
 use tracing::{debug, info};
 
 use crate::replication::{DespawnTracker, Replicate, ReplicationSend};
+use crate::shared::events::ConnectEvent;
 use crate::{ClientId, IntoKind, ReplicationData};
-use crate::{ConnectEvent, Protocol, ReplicationSet};
+use crate::{Protocol, ReplicationSet};
 
 // TODO: make this more generic so that we can run it on both server and client
 //  client might want to replicate some things to server?
@@ -50,6 +51,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
     // try doing entity spawn whenever replicate gets added
     query: Query<(Entity, Ref<Replicate>)>,
+    // TODO: use Ctx instead of ClientId so that this can be used on both client and server
     mut connect_events: EventReader<ConnectEvent<ClientId>>,
     // query: Query<(Entity, &Replicate)>,
     mut sender: ResMut<R>,
@@ -85,6 +87,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 /// and ComponentUpdates otherwise
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, Ref<C>, &Replicate)>,
+    // TODO: use Ctx instead of ClientId so that this can be used on both client and server
     mut connect_events: EventReader<ConnectEvent<ClientId>>,
     mut sender: ResMut<R>,
 ) where

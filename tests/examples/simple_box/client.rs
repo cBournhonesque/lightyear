@@ -11,8 +11,8 @@ use lightyear_shared::client::prediction::Predicted;
 use lightyear_shared::client::{
     client_is_synced, Authentication, ClientConfig, InputConfig, InputSystemSet, SyncConfig,
 };
-use lightyear_shared::plugin::events::{InputEvent, MessageEvent};
-use lightyear_shared::plugin::sets::FixedUpdateSet;
+use lightyear_shared::shared::events::{InputEvent, MessageEvent};
+use lightyear_shared::shared::sets::FixedUpdateSet;
 use lightyear_shared::{
     Client, ClientId, EntitySpawnEvent, IoConfig, LinkConditionerConfig, TransportConfig,
 };
@@ -150,8 +150,7 @@ pub(crate) fn movement(
         return;
     }
     for input in input_reader.read() {
-        if input.input().is_some() {
-            let input = input.input().as_ref().unwrap();
+        if let Some(input) = input.input() {
             for mut position in position_query.iter_mut() {
                 shared_movement_behaviour(&mut position, input);
             }

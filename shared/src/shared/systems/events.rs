@@ -4,7 +4,7 @@ use crate::connection::events::{
     EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterMessageEvent,
 };
-use crate::plugin::events::{
+use crate::shared::events::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
 };
 use crate::{IntoKind, Message, Protocol};

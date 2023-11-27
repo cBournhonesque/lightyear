@@ -2,10 +2,11 @@ use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
 use tracing::{debug, trace};
 
 use crate::connection::events::IterEntitySpawnEvent;
-use crate::plugin::events::EntitySpawnEvent;
 use crate::replication::ReplicationSend;
+use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::server::Server;
-use crate::{ClientId, ConnectEvent, DisconnectEvent, MessageProtocol, Protocol};
+use crate::shared::events::EntitySpawnEvent;
+use crate::{ClientId, MessageProtocol, Protocol};
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");
@@ -32,9 +33,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
             // Connection / Disconnection events
             if server.events.has_connections() {
-                let mut connect_event_writer = world
-                    .get_resource_mut::<Events<ConnectEvent<ClientId>>>()
-                    .unwrap();
+                let mut connect_event_writer =
+                    world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
                 for client_id in server.events.iter_connections() {
                     debug!("Client connected event: {}", client_id);
                     connect_event_writer.send(ConnectEvent::new(client_id));
@@ -42,9 +42,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             }
 
             if server.events.has_disconnections() {
-                let mut connect_event_writer = world
-                    .get_resource_mut::<Events<DisconnectEvent<ClientId>>>()
-                    .unwrap();
+                let mut connect_event_writer =
+                    world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
                 for client_id in server.events.iter_disconnections() {
                     debug!("Client connected event: {}", client_id);
                     connect_event_writer.send(DisconnectEvent::new(client_id));

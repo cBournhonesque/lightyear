@@ -178,19 +178,12 @@ impl<P: Protocol> ReplicationManager<P> {
                 ReplicationMessage::InsertComponent(entity, component) => {
                     let kind: P::ComponentKinds = (&component).into();
                     debug!(?entity, ?kind, "Received InsertComponent");
-                    if let Some(local_entity) = self.entity_map.get_local(entity) {
-                        if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
-                            // TODO: convert the component into inner
-                            //  maybe for each
-                            component.insert(&mut entity_mut);
-                        } else {
-                            debug!("Could not insert component because local entity {:?} was not found", local_entity);
-                        }
-                    }
-                    debug!(
-                        "Could not insert component because remote entity {:?} was not found",
-                        entity
-                    );
+                    // it's possible that we received InsertComponent before the entity actually exists.
+                    // In that case, we need to spawn the entity first.
+                    let mut local_entity_mut =
+                        self.entity_map.get_by_remote_or_spawn(world, entity);
+                    // TODO: maybe check if the component already exists?
+                    component.insert(&mut local_entity_mut);
                 }
                 ReplicationMessage::RemoveComponent(entity, component_kind) => {
                     debug!(?entity, ?component_kind, "Received RemoveComponent");
@@ -212,6 +205,7 @@ impl<P: Protocol> ReplicationManager<P> {
                         .map(|c| c.into())
                         .collect::<Vec<P::ComponentKinds>>();
                     debug!(?entity, ?kinds, "Received entity update");
+                    // if the entity does not exist, create it
                     let mut local_entity_mut =
                         self.entity_map.get_by_remote_or_spawn(world, entity);
                     // TODO: keep track of the components inserted?

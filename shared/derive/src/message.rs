@@ -103,8 +103,8 @@ pub fn message_protocol_impl(
             use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable, MessageBehaviour,
                 MessageProtocol, MessageKind, Named};
             use #shared_crate_name::connection::events::{EventContext, IterMessageEvent};
-            use #shared_crate_name::plugin::systems::events::push_message_events;
-            use #shared_crate_name::plugin::events::MessageEvent;
+            use #shared_crate_name::shared::systems::events::push_message_events;
+            use #shared_crate_name::shared::events::MessageEvent;
             use #shared_crate_name::{InputMessage, UserInput, Protocol};
 
 

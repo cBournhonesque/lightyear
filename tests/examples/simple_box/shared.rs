@@ -1,7 +1,7 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use lightyear_shared::plugin::config::LogConfig;
+use lightyear_shared::shared::config::LogConfig;
 use lightyear_shared::{Client, SharedConfig, TickConfig};
 use std::time::Duration;
 use tracing::Level;
@@ -58,13 +58,13 @@ pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &I
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
     players: Query<(&PlayerPosition, &PlayerColor)>,
-    client: Option<Res<Client<MyProtocol>>>,
+    // client: Option<Res<Client<MyProtocol>>>,
 ) {
-    if let Some(client) = client {
-        if !client.is_synced() {
-            return;
-        }
-    }
+    // if let Some(client) = client {
+    //     if !client.is_synced() {
+    //         return;
+    //     }
+    // }
     for (position, color) in &players {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),

@@ -1,8 +1,9 @@
+use bevy::prelude::Component;
 use std::collections::HashMap;
 
 use crate::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
 use crate::netcode::ClientId;
-use crate::{ConnectionEvents, Entity, Message, PingMessage, PongMessage, Protocol};
+use crate::{ConnectionEvents, Entity, Message, PingMessage, PongMessage, Protocol, UserInput};
 
 pub struct ServerEvents<P: Protocol> {
     // TODO: cannot include connection/disconnection directly into ConnectionEvents, because we remove
@@ -253,6 +254,16 @@ impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
 //         !events.disconnects.is_empty()
 //     }
 // }
+
+pub type ConnectEvent = crate::shared::events::ConnectEvent<ClientId>;
+pub type DisconnectEvent = crate::shared::events::DisconnectEvent<ClientId>;
+pub type InputEvent<I> = crate::shared::events::InputEvent<I, ClientId>;
+pub type EntitySpawnEvent = crate::shared::events::EntitySpawnEvent<ClientId>;
+pub type EntityDespawnEvent = crate::shared::events::EntityDespawnEvent<ClientId>;
+pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, ClientId>;
+pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, ClientId>;
+pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, ClientId>;
+pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ClientId>;
 
 #[cfg(test)]
 mod tests {

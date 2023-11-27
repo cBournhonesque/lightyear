@@ -12,7 +12,7 @@ pub mod client;
 pub mod components;
 pub mod config;
 mod connection;
-mod events;
+pub mod events;
 mod input;
 pub mod interpolation;
 mod ping_manager;

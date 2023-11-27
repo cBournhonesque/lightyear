@@ -5,7 +5,7 @@ use bevy::prelude::{Commands, EventReader, Query, RemovedComponents, ResMut, Res
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::plugin::events::ComponentRemoveEvent;
+use crate::shared::events::ComponentRemoveEvent;
 use crate::Entity;
 
 // Despawn logic:

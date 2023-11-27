@@ -2,7 +2,7 @@ use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use derive_more::{Add, Mul};
 use lightyear_shared::prelude::*;
 use lightyear_shared::replication::{NetworkTarget, Replicate};
-use lightyear_shared::UserInput;
+use lightyear_shared::{Protocol, UserInput};
 use serde::{Deserialize, Serialize};
 
 // Player
@@ -91,9 +91,20 @@ pub enum Inputs {
 
 impl UserInput for Inputs {}
 
+// Protocol
+
 protocolize! {
     Self = MyProtocol,
     Message = Messages,
     Component = Components,
     Input = Inputs,
+}
+
+pub(crate) fn protocol() -> MyProtocol {
+    let mut protocol = MyProtocol::default();
+    protocol.add_channel::<Channel1>(ChannelSettings {
+        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+        direction: ChannelDirection::Bidirectional,
+    });
+    protocol
 }

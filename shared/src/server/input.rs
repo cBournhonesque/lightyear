@@ -3,9 +3,9 @@ use bevy::prelude::{
     SystemSet,
 };
 
-use crate::plugin::events::InputEvent;
-use crate::plugin::sets::FixedUpdateSet;
 use crate::server::Server;
+use crate::shared::events::InputEvent;
+use crate::shared::sets::FixedUpdateSet;
 use crate::ClientId;
 use crate::{App, Protocol};
 

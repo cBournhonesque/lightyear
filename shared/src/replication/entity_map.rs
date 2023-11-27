@@ -36,10 +36,7 @@ impl EntityMap {
         match self.remote_to_local.entry(remote_entity) {
             Entry::Occupied(entry) => world.entity_mut(*entry.get()),
             Entry::Vacant(entry) => {
-                // TODO: why could this happen?
-                // - new connection; all existing entity are transmitted
-                // - entity got despawned on client while this update was being transmitted, in which case we don't want to respawn.
-                let local_entity = world.spawn(Replicate::default());
+                let local_entity = world.spawn_empty();
                 entry.insert(local_entity.id());
                 self.local_to_remote
                     .insert(local_entity.id(), remote_entity);

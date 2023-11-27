@@ -10,7 +10,7 @@ use crate::client::interpolation::despawn::{
     despawn_interpolated, removed_components, InterpolationMapping,
 };
 use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
-use crate::plugin::sets::MainSet;
+use crate::shared::sets::MainSet;
 use crate::{ComponentProtocol, Protocol};
 
 use super::interpolation_history::{add_component_history, apply_confirmed_update};

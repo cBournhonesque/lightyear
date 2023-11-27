@@ -23,10 +23,6 @@ pub use lightyear_derive::{component_protocol, message_protocol, Channel, Messag
 pub use netcode::ClientId;
 pub use packet::message::{Message, MessageContainer};
 pub use packet::message_manager::MessageManager;
-pub use plugin::config::SharedConfig;
-pub use plugin::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
-pub use plugin::sets::{MainSet, ReplicationSet};
-pub use plugin::{ReplicationData, SharedPlugin};
 pub use protocol::channel::{ChannelKind, ChannelRegistry};
 pub use protocol::component::{
     ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind, IntoKind,
@@ -38,6 +34,11 @@ pub use serialize::reader::ReadBuffer;
 pub use serialize::wordbuffer::reader::ReadWordBuffer;
 pub use serialize::wordbuffer::writer::WriteWordBuffer;
 pub use serialize::writer::WriteBuffer;
+pub use shared::config::SharedConfig;
+pub use shared::events::EntitySpawnEvent;
+pub use shared::plugin::SharedPlugin;
+pub use shared::sets::{MainSet, ReplicationSet};
+pub use shared::ReplicationData;
 pub use tick::manager::{TickConfig, TickManager};
 pub use tick::message::{
     PingMessage, PongMessage, SyncMessage, TimeSyncPingMessage, TimeSyncPongMessage,
@@ -71,11 +72,11 @@ pub mod connection;
 pub mod inputs;
 pub mod netcode;
 pub mod packet;
-pub mod plugin;
 pub mod protocol;
 pub mod replication;
 pub mod serialize;
 pub mod server;
+pub mod shared;
 pub mod tick;
 pub mod transport;
 pub mod utils;
