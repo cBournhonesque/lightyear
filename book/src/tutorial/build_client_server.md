@@ -45,31 +45,31 @@ The `ClientConfig` object lets us configure the client. There are a lot of param
 but for this demo we will mostly use the defaults.
 
 ```rust,noplayground
-    pub fn shared_config() -> SharedConfig {
-        SharedConfig {
-            server_send_interval: Duration::from_millis(100),
-            tick: TickConfig {
-                tick_duration: Duration::from_secs_f64(1.0 / 64.0),
-            },
-            log: LogConfig {
-                level: Level::INFO,
-                filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn"
-                    .to_string(),
-            },
-            ..Default::default()
-        }
-    }
-    let link_conditioner = LinkConditionerConfig {
-        incoming_latency: Duration::from_millis(100),
-        incoming_jitter: Duration::from_millis(0),
-        incoming_loss: 0.00,
-    };
-    let config = ClientConfig {
-        shared: shared_config().clone(),
-        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
-            .with_conditioner(link_conditioner),
+pub fn shared_config() -> SharedConfig {
+    SharedConfig {
+        server_send_interval: Duration::from_millis(100),
+        tick: TickConfig {
+            tick_duration: Duration::from_secs_f64(1.0 / 64.0),
+        },
+        log: LogConfig {
+            level: Level::INFO,
+            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn"
+                .to_string(),
+        },
         ..Default::default()
-    };
+    }
+}
+let link_conditioner = LinkConditionerConfig {
+    incoming_latency: Duration::from_millis(100),
+    incoming_jitter: Duration::from_millis(0),
+    incoming_loss: 0.00,
+};
+let config = ClientConfig {
+    shared: shared_config().clone(),
+    io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
+        .with_conditioner(link_conditioner),
+    ..Default::default()
+};
 ```
 
 There are 2 things we will change:

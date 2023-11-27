@@ -1,17 +1,20 @@
 use std::time::Duration;
 
-use bevy::prelude::{Res, Timer};
-use bevy::time::{Stopwatch, TimerMode};
+use bevy::prelude::Res;
+use bevy::time::Stopwatch;
 use bitvec::macros::internal::funty::Fundamental;
 use tracing::{debug, info, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;
+use crate::client::Client;
 use crate::packet::packet::PacketId;
+use crate::protocol::Protocol;
+use crate::tick::manager::TickManager;
+use crate::tick::message::{TimeSyncPingMessage, TimeSyncPongMessage};
+use crate::tick::ping_store::{PingId, PingStore};
+use crate::tick::time::{TimeManager, WrappedTime};
 use crate::tick::Tick;
-use crate::{
-    Client, PingId, PingStore, Protocol, ReadyBuffer, TickManager, TimeManager,
-    TimeSyncPingMessage, TimeSyncPongMessage, WrappedTime,
-};
+use crate::utils::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
 pub fn client_is_synced<P: Protocol>(client: Res<Client<P>>) -> bool {
@@ -618,8 +621,8 @@ impl SyncManager {
 
 #[cfg(test)]
 mod tests {
+    use crate::tick::manager::TickConfig;
     use crate::tick::Tick;
-    use crate::{TickConfig, WrappedTime};
 
     use super::*;
 

@@ -1,1 +1,0 @@
-# Tick sync

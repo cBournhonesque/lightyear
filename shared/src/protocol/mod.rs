@@ -2,15 +2,16 @@ use std::fmt::Debug;
 
 use bevy::prelude::App;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+use crate::channel::builder::{Channel, ChannelSettings};
+use crate::inputs::UserInput;
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
 use crate::protocol::message::MessageProtocol;
 use crate::replication::ReplicationSend;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::{Channel, ChannelSettings, UserInput};
 
 pub(crate) mod channel;
 pub(crate) mod component;
@@ -40,17 +41,13 @@ macro_rules! protocolize {
         Input = $input:ty,
         Crate = $shared_crate_name:ident,
     ) => {
-        use $shared_crate_name::paste;
+        use $shared_crate_name::_reexport::paste;
         paste! {
         mod [<$protocol:lower _module>] {
             use super::*;
-            use $shared_crate_name::{
-                App, Channel, ChannelRegistry, ChannelSettings, ComponentProtocol, ComponentProtocolKind,
-                ComponentKindBehaviour, IntoKind, Entity, MessageProtocol, Protocol, ReplicationSend, ReliableSettings,
-                ChannelDirection, ChannelMode
-            };
-            // TODO: use prelude?
-            use $shared_crate_name::{DefaultUnorderedUnreliableChannel, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel, TickBufferChannel};
+            use bevy::prelude::*;
+            use $shared_crate_name::prelude::*;
+            use $shared_crate_name::_reexport::*;
 
             #[derive(Debug, Clone)]
             pub struct $protocol {
@@ -195,7 +192,7 @@ pub mod tests {
         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
     };
 
-    use crate::{ChannelDirection, ChannelMode, Message, ReliableSettings};
+    use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
 
     use super::*;
 
@@ -219,7 +216,7 @@ pub mod tests {
     // TODO: because we add ShouldBePredicted to the enum, we cannot derive stuff for the enum anymore!
     //  is it a problem? we could pass the derives through an attribute macro ...
     // #[derive(Debug, PartialEq)]
-    #[component_protocol_internal(protocol = MyProtocol)]
+    #[component_protocol_internal(protocol = "MyProtocol")]
     pub enum MyComponentsProtocol {
         Component1(Component1),
     }

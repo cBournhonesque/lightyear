@@ -10,8 +10,9 @@ use crate::client::prediction::despawn::{
     remove_component_for_despawn_predicted, remove_despawn_marker,
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
+use crate::protocol::component::ComponentProtocol;
+use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::{ComponentProtocol, Protocol};
 
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};

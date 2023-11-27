@@ -6,10 +6,12 @@ use bevy::prelude::{
 };
 use tracing::{debug, info};
 
+use crate::netcode::ClientId;
+use crate::protocol::component::IntoKind;
+use crate::protocol::Protocol;
 use crate::replication::{DespawnTracker, Replicate, ReplicationSend};
 use crate::shared::events::ConnectEvent;
-use crate::{ClientId, IntoKind, ReplicationData};
-use crate::{Protocol, ReplicationSet};
+use crate::shared::{ReplicationData, ReplicationSet};
 
 // TODO: make this more generic so that we can run it on both server and client
 //  client might want to replicate some things to server?

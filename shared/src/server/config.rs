@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use crate::netcode::Key;
-use crate::{IoConfig, SharedConfig};
+use crate::shared::config::SharedConfig;
+use crate::transport::io::IoConfig;
 
 use super::ping_manager::PingConfig;
 

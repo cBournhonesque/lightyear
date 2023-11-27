@@ -1,4 +1,5 @@
-use crate::{ConnectionEvents, Protocol, UserInput};
+use crate::connection::events::ConnectionEvents;
+use crate::protocol::Protocol;
 
 pub struct ClientEvents<P: Protocol> {
     // cannot include connection/disconnection directly into ConnectionEvents, because we remove

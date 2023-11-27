@@ -4,13 +4,8 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use lightyear_shared::client::config::PacketConfig;
-use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::{
-    Authentication, Client, ClientConfig, InputConfig, PingConfig, Plugin, PluginConfig, SyncConfig,
-};
-use lightyear_shared::{IoConfig, SharedConfig, TickConfig, TransportConfig};
+use lightyear_shared::prelude::client::*;
+use lightyear_shared::prelude::*;
 
 use crate::protocol::{protocol, MyProtocol};
 

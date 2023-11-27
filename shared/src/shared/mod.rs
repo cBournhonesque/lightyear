@@ -1,6 +1,5 @@
-use bevy::prelude::{App, Fixed, Plugin, Time};
+use bevy::prelude::Plugin;
 
-use config::SharedConfig;
 pub use replication::ReplicationData;
 pub use sets::ReplicationSet;
 

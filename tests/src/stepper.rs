@@ -8,13 +8,14 @@ use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear_shared::client as lightyear_client;
-use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::{Authentication, Client, ClientConfig, InputConfig, SyncConfig};
 use lightyear_shared::netcode::generate_key;
+use lightyear_shared::prelude::client::{
+    Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
+    SyncConfig,
+};
+use lightyear_shared::prelude::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
+use lightyear_shared::prelude::*;
 use lightyear_shared::server as lightyear_server;
-use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::{IoConfig, LinkConditionerConfig, SharedConfig, TransportConfig};
 
 use crate::protocol::{protocol, MyProtocol};
 

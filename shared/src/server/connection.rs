@@ -2,23 +2,25 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::World;
-use tracing::{info, trace};
+use tracing::trace;
 
+use crate::channel::builder::PingChannel;
 use crate::connection::events::IterMessageEvent;
-use crate::connection::ProtocolMessage;
-use crate::inputs::input_buffer::InputBuffer;
+use crate::connection::{ConnectionEvents, ProtocolMessage};
+use crate::inputs::input_buffer::{InputBuffer, InputMessage};
 use crate::packet::packet_manager::Payload;
-use crate::{
-    ChannelKind, ChannelRegistry, ConnectionEvents, InputMessage, PingChannel, PingMessage,
-    Protocol, SyncMessage, TickManager, TimeManager, TimeSyncPingMessage,
-};
+use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+use crate::protocol::Protocol;
+use crate::tick::manager::TickManager;
+use crate::tick::message::{PingMessage, SyncMessage, TimeSyncPingMessage};
+use crate::tick::time::TimeManager;
 
 use super::ping_manager::{PingConfig, PingManager};
 
 // TODO: this layer of indirection is annoying, is there a better way?
 //  maybe just pass the inner connection to ping_manager? (but harder to test)
 pub struct Connection<P: Protocol> {
-    pub(crate) base: crate::Connection<P>,
+    pub(crate) base: crate::connection::Connection<P>,
 
     pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) ping_manager: PingManager,
@@ -27,7 +29,7 @@ pub struct Connection<P: Protocol> {
 impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
         Self {
-            base: crate::Connection::new(channel_registry),
+            base: crate::connection::Connection::new(channel_registry),
             input_buffer: InputBuffer::default(),
             ping_manager: PingManager::new(ping_config),
         }

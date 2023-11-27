@@ -5,7 +5,8 @@ use anyhow::anyhow;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageContainer, MessageId, SingleData};
-use crate::{TickManager, TimeManager, WrappedTime};
+use crate::tick::manager::TickManager;
+use crate::tick::time::{TimeManager, WrappedTime};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 

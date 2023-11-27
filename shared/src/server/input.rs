@@ -1,13 +1,13 @@
 use bevy::prelude::{
-    EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, ResMut,
-    SystemSet,
+    App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    ResMut, SystemSet,
 };
 
+use crate::netcode::ClientId;
+use crate::protocol::Protocol;
 use crate::server::Server;
 use crate::shared::events::InputEvent;
 use crate::shared::sets::FixedUpdateSet;
-use crate::ClientId;
-use crate::{App, Protocol};
 
 // - ClientInputs:
 // - inputs will be sent via a special message

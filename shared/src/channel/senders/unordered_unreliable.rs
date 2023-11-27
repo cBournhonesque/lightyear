@@ -5,8 +5,8 @@ use bytes::Bytes;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
-use crate::protocol::BitSerializable;
-use crate::{TickManager, TimeManager};
+use crate::tick::manager::TickManager;
+use crate::tick::time::TimeManager;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
@@ -69,7 +69,7 @@ impl ChannelSend for UnorderedUnreliableSender {
     // not necessary for an unreliable sender (all the buffered messages can be sent)
     fn collect_messages_to_send(&mut self) {}
 
-    fn notify_message_delivered(&mut self, message_ack: &MessageAck) {}
+    fn notify_message_delivered(&mut self, _: &MessageAck) {}
 
     fn has_messages_to_send(&self) -> bool {
         !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()

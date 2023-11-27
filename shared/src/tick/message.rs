@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::tick::ping_store::PingId;
+use crate::tick::time::WrappedTime;
 use crate::tick::Tick;
-use crate::WrappedTime;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PingMessage {

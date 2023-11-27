@@ -1,5 +1,4 @@
-pub mod channel;
-
+pub mod builder;
 pub(crate) mod receivers;
 pub(crate) mod senders;
 

@@ -4,7 +4,8 @@ use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
-use crate::{IoConfig, SharedConfig};
+use crate::shared::config::SharedConfig;
+use crate::transport::io::IoConfig;
 
 use super::ping_manager::PingConfig;
 

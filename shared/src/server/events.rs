@@ -1,9 +1,13 @@
-use bevy::prelude::Component;
 use std::collections::HashMap;
 
+use bevy::prelude::{Component, Entity};
+
 use crate::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
+use crate::connection::ConnectionEvents;
 use crate::netcode::ClientId;
-use crate::{ConnectionEvents, Entity, Message, PingMessage, PongMessage, Protocol, UserInput};
+use crate::packet::message::Message;
+use crate::protocol::Protocol;
+use crate::tick::message::{PingMessage, PongMessage};
 
 pub struct ServerEvents<P: Protocol> {
     // TODO: cannot include connection/disconnection directly into ConnectionEvents, because we remove
@@ -267,10 +271,10 @@ pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ClientId>;
 
 #[cfg(test)]
 mod tests {
+    use crate::protocol::channel::ChannelKind;
     use crate::protocol::tests::{
         Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
     };
-    use crate::{ChannelKind, ClientId};
 
     use super::*;
 

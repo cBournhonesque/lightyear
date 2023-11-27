@@ -4,7 +4,7 @@ pub mod some_component {
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};
-    use lightyear_shared::{protocolize, Message};
+    use lightyear_shared::prelude::*;
 
     #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
     pub struct Component1(pub f32);
@@ -37,10 +37,12 @@ pub mod some_component {
 
 #[cfg(test)]
 mod tests {
-    use lightyear_shared::BitSerializable;
-    use lightyear_shared::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
-
     use crate::some_component::MyComponentProtocol;
+    use lightyear_shared::protocol::BitSerializable;
+    use lightyear_shared::serialize::reader::ReadBuffer;
+    use lightyear_shared::serialize::wordbuffer::reader::ReadWordBuffer;
+    use lightyear_shared::serialize::wordbuffer::writer::WriteWordBuffer;
+    use lightyear_shared::serialize::writer::WriteBuffer;
 
     use super::some_component::*;
 

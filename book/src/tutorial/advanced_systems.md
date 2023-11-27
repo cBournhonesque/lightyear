@@ -23,7 +23,7 @@ the entity will appear to stutter.
 In lightyear, this is enabled by setting a `prediction_target` on the `Replicate` component, which lets you specify
 which clients will predict the entity.
 
-If prediction is enabled for a client, the client will spawn a local copy of the entity along with a marker component called `Predicted`.
+If prediction is enabled for an entity, the client will spawn a local copy of the entity along with a marker component called `Predicted`.
 The entity that is directly replicated from the server will have a marker component called `Confirmed` (because it is only updated when we receive a new server update packet).
 
 The `Predicted` entity lives on a different timeline than the `Confirmed` entity: it lives a few ticks in the future (at least 1 RTT), enough ticks
@@ -113,7 +113,65 @@ move immediately when you send an input on the client.
 
 ## Entity interpolation
 
-Client-side prediction works well for entities that we predict
+Client-side prediction works well for entities that the player predicts, but what about entities that are not controlled by the player?
+There are two solutions to make updates smooth for those entities:
+- predict them as well, but there might be much bigger mis-predictions because we don't have access to other player's inputs
+- display those entities slightly behind the 'Confirmed' entity, and interpolate between the last two confirmed states
+
+The second approach is called 'interpolation', and is the one we will use in this tutorial.
+
+In lightyear, this is enabled by setting an `interpolation_target` on the `Replicate` component, which lets you specify
+which clients will predict the entity.
+
+```rust,noplayground
+impl PlayerBundle {
+    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+        Self {
+            id: PlayerId(id),
+            position: PlayerPosition(position),
+            color: PlayerColor(color),
+            replicate: Replicate {
+                // Enable prediction!
+                prediction_target: NetworkTarget::Only(id),
+                // Enable interpolation!
+                interpolation_target: NetworkTarget::AllExcept(id),
+                ..default()
+            },
+        }
+    }
+}
+```
+
+This time we interpolate for entities that are not controlled by the player, so we use `NetworkTarget::AllExcept(id)`.
+
+If interpolation is enabled for an entity, the client will spawn a local copy of the entity along with a marker component called `Interpolated`.
+The entity that is directly replicated from the server will have a marker component called `Confirmed` (because it is only updated when we receive a new server update packet).
+
+The `Interpolated` entity lives on a different timeline than the `Confirmed` entity: it lives a few ticks in the past.
+We want it to live slightly in the past so that we always have at least 2 confirmed states to interpolate between.
+
+You can set the interpolation delay in the `InterpolationConfig`; you can either set the delay as milliseconds or as a multiple of the server's packet_send_interval.
+For example if the server sends packets every 10ms, we can set the ratio to 3.0 to have a delay of 10ms * 3 = 30ms. This means that even if we lose 2 packets, we should still be able
+to run interpolation.
+
+Later on, I plan to add a setting that chooses a good delay based on the jitter/packet-loss of the connection.
+
+```rust,noplayground
+InterpolationConfig::default()
+    .with_delay(InterpolationDelay::Ratio(2.0)),
+```
+
+And that's it!
+The `ComponentSyncMode::Full` mode is required on a component to run interpolation.
+
+Now if you run a server and two clients, each player should see the other's player slightly in the past, but with movements that are interpolated smoothly between server updates.
+
+
+
+## Conclusion
+
+We have now covered the basics of lightyear, and you should be able to build a server-authoritative multiplayer game
+with client-side prediction and entity interpolation!
 
 
 

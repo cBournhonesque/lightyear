@@ -1,25 +1,27 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use crossbeam_channel::tick;
-use tracing::{debug, info};
+use tracing::debug;
 
+use crate::channel::builder::PingChannel;
 use crate::client::sync::SyncConfig;
 use crate::connection::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::packet::packet_manager::Payload;
+use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+use crate::protocol::Protocol;
+use crate::serialize::reader::ReadBuffer;
+use crate::tick::manager::TickManager;
+use crate::tick::message::SyncMessage;
+use crate::tick::time::TimeManager;
 use crate::tick::Tick;
-use crate::{
-    ChannelKind, ChannelRegistry, PingChannel, Protocol, ReadBuffer, SyncMessage, TickManager,
-    TimeManager,
-};
 
 use super::sync::SyncManager;
 
 // TODO: this layer of indirection is annoying, is there a better way?
 //  maybe just pass the inner connection to ping_manager? (but harder to test)
 pub struct Connection<P: Protocol> {
-    pub(crate) base: crate::Connection<P>,
+    pub(crate) base: crate::connection::Connection<P>,
 
     // pub(crate) ping_manager: PingManager,
     pub(crate) input_buffer: InputBuffer<P::Input>,
@@ -31,7 +33,7 @@ impl<P: Protocol> Connection<P> {
     // NOTE: looks like we're using SyncManager on the client, and PingManager on the server
     pub fn new(channel_registry: &ChannelRegistry, sync_config: SyncConfig) -> Self {
         Self {
-            base: crate::Connection::new(channel_registry),
+            base: crate::connection::Connection::new(channel_registry),
             // ping_manager: PingManager::new(ping_config),
             input_buffer: InputBuffer::default(),
             sync_manager: SyncManager::new(sync_config),

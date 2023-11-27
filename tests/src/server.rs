@@ -5,14 +5,9 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use lightyear_shared::netcode::Key;
-use lightyear_shared::server::config::PacketConfig;
-use lightyear_shared::server::{
-    NetcodeConfig, PingConfig, Plugin, PluginConfig, Server, ServerConfig,
-};
-use lightyear_shared::{IoConfig, SharedConfig, TickConfig, TransportConfig};
-
 use crate::protocol::{protocol, MyProtocol};
+use lightyear_shared::prelude::server::*;
+use lightyear_shared::prelude::*;
 
 pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProtocol>> {
     // create udp-socket based io

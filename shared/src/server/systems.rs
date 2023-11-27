@@ -2,11 +2,13 @@ use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
 use tracing::{debug, trace};
 
 use crate::connection::events::IterEntitySpawnEvent;
+use crate::netcode::ClientId;
+use crate::protocol::message::MessageProtocol;
+use crate::protocol::Protocol;
 use crate::replication::ReplicationSend;
 use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::server::Server;
 use crate::shared::events::EntitySpawnEvent;
-use crate::{ClientId, MessageProtocol, Protocol};
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");

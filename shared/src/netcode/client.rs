@@ -6,8 +6,10 @@ use std::{
 
 use tracing::{debug, error, info, trace};
 
+use crate::serialize::reader::ReadBuffer;
+use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender};
-use crate::{Io, ReadBuffer, ReadWordBuffer};
 
 use super::{
     bytes::Bytes,
@@ -486,7 +488,6 @@ impl<Ctx> Client<Ctx> {
     }
 
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
-        let mut buf = [0u8; MAX_PACKET_SIZE];
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         while let Some((buf, addr)) = io.recv().map_err(Error::from)? {
             self.recv_packet(buf, now, addr)?;

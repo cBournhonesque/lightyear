@@ -5,21 +5,23 @@ use anyhow::{anyhow, Context};
 use bitcode::read::Read;
 use tracing::trace;
 
-use crate::channel::channel::ChannelContainer;
+use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet::{Packet, PacketId};
 use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
+use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::protocol::Protocol;
+use crate::protocol::{BitSerializable, Protocol};
 use crate::serialize::reader::ReadBuffer;
+use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+use crate::serialize::wordbuffer::writer::WriteWordBuffer;
+use crate::serialize::writer::WriteBuffer;
+use crate::tick::manager::TickManager;
+use crate::tick::time::TimeManager;
 use crate::tick::Tick;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crate::{
-    BitSerializable, Channel, ChannelKind, ChannelRegistry, ReadWordBuffer, TickManager,
-    TimeManager, WriteBuffer, WriteWordBuffer,
-};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
@@ -230,15 +232,13 @@ mod tests {
 
     use lightyear_derive::ChannelInternal;
 
-    use crate::channel::channel::ReliableSettings;
-    use crate::packet::message::{MessageAck, MessageId};
-    use crate::packet::packet::{PacketId, FRAGMENT_SIZE};
-    use crate::tick::Tick;
-    use crate::transport::Transport;
-    use crate::{
-        ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings,
-        MessageManager, Protocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
+    use crate::channel::builder::{
+        ChannelDirection, ChannelMode, ChannelSettings, ReliableSettings,
     };
+    use crate::packet::message::MessageId;
+    use crate::packet::packet::FRAGMENT_SIZE;
+
+    use super::*;
 
     // Messages
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

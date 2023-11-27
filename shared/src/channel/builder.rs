@@ -12,8 +12,7 @@ use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
 use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
-use crate::protocol::BitSerializable;
-use crate::TypeNamed;
+use crate::utils::named::TypeNamed;
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel

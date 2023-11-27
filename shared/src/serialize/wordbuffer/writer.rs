@@ -38,11 +38,10 @@ impl WriteBuffer for WriteWordBuffer {
         let with_gamma = OnlyGammaEncode::<T>(t);
         with_gamma
             .encode(Fixed, &mut self.writer)
-            .context("error serializing");
+            .context("error serializing")
         // if self.overflowed() {
         //     bail!("buffer overflowed")
         // }
-        Ok(())
     }
 
     fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()> {

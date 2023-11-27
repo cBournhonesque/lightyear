@@ -16,7 +16,7 @@ pub trait WrappedId {
 // TODO: we don't want serialize this with gamma!
 macro_rules! wrapping_id {
     ($struct_name:ident) => {
-        use crate::paste;
+        use crate::_reexport::paste;
         paste! {
         mod [<$struct_name:lower _module>] {
             use bitcode::{Decode, Encode};

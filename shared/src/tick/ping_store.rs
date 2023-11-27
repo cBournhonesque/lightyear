@@ -34,8 +34,4 @@ impl PingStore {
     pub fn remove(&mut self, ping_id: PingId) -> Option<WrappedTime> {
         self.buffer.remove(&ping_id)
     }
-
-    pub fn clear(&mut self) {
-        self.buffer.clear()
-    }
 }

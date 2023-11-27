@@ -239,13 +239,13 @@ impl FragmentData {
         // TODO: be able to just concat the bytes to the buffer?
         if self.is_last_fragment() {
             /// writing the slice includes writing the length of the slice
-            writer.encode(self.bytes.as_ref(), Fixed);
+            writer.encode(self.bytes.as_ref(), Fixed)?;
             // writer.serialize(&self.bytes.to_vec());
             // writer.serialize(&self.fragment_message_bytes.as_ref());
         } else {
             let bytes_array: [u8; FRAGMENT_SIZE] = self.bytes.as_ref().try_into().unwrap();
             // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
-            writer.encode(&bytes_array, Fixed);
+            writer.encode(&bytes_array, Fixed)?;
         }
         let num_bits_written = writer.num_bits_written() - num_bits_before;
         Ok(num_bits_written)

@@ -3,11 +3,12 @@ use std::iter;
 
 use bevy::prelude::{Component, Entity, Event};
 
-use crate::protocol::message::MessageKind;
-use crate::{
-    Channel, ChannelKind, IntoKind, Message, MessageBehaviour, PingMessage, PongMessage, Protocol,
-    SyncMessage,
-};
+use crate::packet::message::Message;
+use crate::protocol::channel::ChannelKind;
+use crate::protocol::component::IntoKind;
+use crate::protocol::message::{MessageBehaviour, MessageKind};
+use crate::protocol::Protocol;
+use crate::tick::message::{PingMessage, PongMessage, SyncMessage};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug)]

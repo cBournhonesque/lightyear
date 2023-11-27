@@ -4,8 +4,9 @@ use tracing::{info, warn};
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::InterpolatedComponent;
+use crate::client::Client;
+use crate::protocol::Protocol;
 use crate::tick::Tick;
-use crate::{Client, Protocol};
 
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?

@@ -1,10 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use anyhow::Context;
-use bitcode::buffer::BufferTrait;
 use bitcode::encoding::Gamma;
-use bitcode::read::Read;
-use bitcode::write::Write;
 
 use crate::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
@@ -14,7 +11,7 @@ use crate::packet::packet::{
 };
 use crate::packet::packet_type::PacketType;
 use crate::protocol::registry::NetId;
-use crate::protocol::{BitSerializable, Protocol};
+use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;

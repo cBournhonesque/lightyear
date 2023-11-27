@@ -9,9 +9,10 @@ use crate::client::interpolation::ShouldBeInterpolated;
 use crate::connection::events::{
     EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
+use crate::protocol::{BitSerializable, Protocol};
 use crate::replication::prediction::ShouldBePredicted;
+use crate::replication::ReplicationSend;
 use crate::serialize::writer::WriteBuffer;
-use crate::{BitSerializable, Protocol, ReplicationSend};
 
 // client writes an Enum containing all their message type
 // each message must derive message

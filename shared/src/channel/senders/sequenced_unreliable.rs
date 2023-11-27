@@ -5,8 +5,8 @@ use bytes::Bytes;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
-use crate::protocol::BitSerializable;
-use crate::{TickManager, TimeManager};
+use crate::tick::manager::TickManager;
+use crate::tick::time::TimeManager;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Same as UnorderedUnreliableSender, but includes ordering information

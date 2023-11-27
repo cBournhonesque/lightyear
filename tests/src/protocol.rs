@@ -2,11 +2,7 @@ use bevy::prelude::Component;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
-use lightyear_shared::channel::channel::ReliableSettings;
-use lightyear_shared::{component_protocol, message_protocol};
-use lightyear_shared::{protocolize, Channel, Message};
-use lightyear_shared::{ChannelDirection, ChannelMode, ChannelSettings};
-use lightyear_shared::{Protocol, UserInput};
+use lightyear_shared::prelude::*;
 
 // Messages
 #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]

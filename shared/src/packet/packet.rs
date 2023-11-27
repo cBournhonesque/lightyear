@@ -1,9 +1,5 @@
+use bitcode::encoding::{Fixed, Gamma};
 use std::collections::{BTreeMap, HashMap};
-
-use bitcode::__private::Gamma;
-use bitcode::encoding::Fixed;
-use bitcode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
 use crate::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
@@ -380,15 +376,15 @@ mod tests {
     use bitcode::encoding::Gamma;
     use bytes::Bytes;
 
+    use super::*;
+    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
     use lightyear_derive::ChannelInternal;
 
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketManager;
-    use crate::{
-        BitSerializable, ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry,
-        ChannelSettings, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
-    };
+    use crate::prelude::{ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings};
+    use crate::protocol::channel::ChannelKind;
 
     #[derive(ChannelInternal)]
     struct Channel1;

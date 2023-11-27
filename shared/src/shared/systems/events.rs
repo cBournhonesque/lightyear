@@ -4,10 +4,12 @@ use crate::connection::events::{
     EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     IterMessageEvent,
 };
+use crate::packet::message::Message;
+use crate::protocol::component::IntoKind;
+use crate::protocol::Protocol;
 use crate::shared::events::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
 };
-use crate::{IntoKind, Message, Protocol};
 
 // TODO: would it be easier to have this be a system?
 

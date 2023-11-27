@@ -9,12 +9,10 @@ use bitcode::__private::Serialize;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
-use crate::channel::channel::EntityActionsChannel;
+use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
-use crate::{
-    BitSerializable, Channel, ChannelKind, ComponentProtocol, ComponentProtocolKind,
-    EntityUpdatesChannel, Protocol, ReadBuffer, WriteBuffer,
-};
+use crate::protocol::channel::ChannelKind;
+use crate::protocol::Protocol;
 
 mod entity_map;
 pub mod interpolation;

@@ -3,12 +3,12 @@ use std::collections::{BTreeMap, HashSet};
 
 use bytes::Bytes;
 
-use crate::channel::channel::ReliableSettings;
+use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
-use crate::protocol::BitSerializable;
-use crate::{TickManager, TimeManager, WrappedTime};
+use crate::tick::manager::TickManager;
+use crate::tick::time::{TimeManager, WrappedTime};
 
 pub struct FragmentAck {
     data: FragmentData,
@@ -248,13 +248,10 @@ mod tests {
 
     use bytes::Bytes;
 
-    use crate::channel::channel::ReliableSettings;
+    use crate::channel::builder::ReliableSettings;
     use crate::packet::message::SingleData;
-    use crate::WrappedTime;
 
-    use super::ChannelSend;
-    use super::MessageId;
-    use super::ReliableSender;
+    use super::*;
 
     #[test]
     fn test_reliable_sender_internals() {

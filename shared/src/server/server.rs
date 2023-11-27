@@ -3,17 +3,23 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bevy::prelude::{Resource, World};
+use bevy::prelude::{Entity, Resource, World};
 use tracing::{debug, debug_span, info, trace_span};
 
+use crate::channel::builder::Channel;
 use crate::client::interpolation::ShouldBeInterpolated;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
+use crate::packet::message::Message;
+use crate::protocol::channel::ChannelKind;
+use crate::protocol::Protocol;
 use crate::replication::prediction::ShouldBePredicted;
 use crate::replication::{NetworkTarget, Replicate, ReplicationSend};
+use crate::tick::manager::TickManager;
+use crate::tick::message::SyncMessage;
+use crate::tick::time::TimeManager;
 use crate::tick::{Tick, TickManaged};
+use crate::transport::io::Io;
 use crate::transport::{PacketSender, Transport};
-use crate::TimeManager;
-use crate::{Channel, ChannelKind, Entity, Io, Message, Protocol, SyncMessage, TickManager};
 
 use super::config::ServerConfig;
 use super::connection::Connection;

@@ -144,24 +144,19 @@ pub fn component_protocol_impl(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use #shared_crate_name::{enum_delegate};
+            use #shared_crate_name::_reexport::*;
+            use #shared_crate_name::prelude::*;
+            use #shared_crate_name::prelude::client::*;
             use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut, World};
-            use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable,
-                ComponentProtocol, ComponentBehaviour, ComponentProtocolKind, IntoKind, PostUpdate, Protocol,
-                ComponentKindBehaviour, ReplicationSet, ReplicationSend};
             use #shared_crate_name::shared::systems::replication::add_per_component_replication_send_systems;
             use #shared_crate_name::connection::events::{EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
             use #shared_crate_name::shared::systems::events::{
                 push_component_insert_events, push_component_remove_events, push_component_update_events,
             };
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
-
-            // TODO: write this behind feature?
-            // TODO: possibility to rename this? maybe we should put everything in one crate
-            use #shared_crate_name::client::components::{ComponentSyncMode, SyncComponent};
             use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted};
             use #shared_crate_name::client::interpolation::{add_interpolation_systems, add_lerp_systems, ShouldBeInterpolated,
-                InterpolatedComponent, LerpMode};
+                InterpolatedComponent};
 
             #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(ComponentBehaviour)]
@@ -191,7 +186,7 @@ pub fn component_protocol_impl(
             impl ComponentKindBehaviour for #enum_kind_name {
                 #remove_method
             }
-            // TODO: we don't need to implement for now because we get it for free from Serialize + Deserialize
+            // TODO: we don't need to implement for now because we get it for free from Serialize + Deserialize + Clone
             // impl BitSerializable for #enum_name {
             //     #encode_method
             //     #decode_method

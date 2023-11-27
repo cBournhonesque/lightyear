@@ -9,8 +9,10 @@ use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::Interpolated;
+use crate::client::Client;
+use crate::protocol::Protocol;
 use crate::tick::Tick;
-use crate::{Client, Protocol, ReadyBuffer};
+use crate::utils::ReadyBuffer;
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]

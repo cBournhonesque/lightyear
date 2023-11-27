@@ -5,16 +5,20 @@ use anyhow::Result;
 use bevy::prelude::{Resource, Time, Virtual, World};
 use tracing::trace;
 
+use crate::channel::builder::Channel;
+use crate::connection::ConnectionEvents;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::Client as NetcodeClient;
 use crate::netcode::{ConnectToken, Key};
+use crate::packet::message::Message;
+use crate::protocol::channel::ChannelKind;
+use crate::protocol::Protocol;
+use crate::tick::manager::TickManager;
+use crate::tick::message::SyncMessage;
+use crate::tick::time::TimeManager;
 use crate::tick::{Tick, TickManaged};
+use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crate::{
-    Channel, ChannelKind, ConnectionEvents, Message, SyncMessage, TickManager, TimeManager,
-    WrappedTime,
-};
-use crate::{Io, Protocol};
 
 use super::config::ClientConfig;
 use super::connection::Connection;

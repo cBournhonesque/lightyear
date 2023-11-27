@@ -6,7 +6,7 @@ use tracing::trace;
 
 use crate::packet::message::{FragmentData, MessageId, SingleData};
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::{BitSerializable, ReadBuffer, WrappedTime};
+use crate::tick::time::WrappedTime;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 pub struct FragmentReceiver {

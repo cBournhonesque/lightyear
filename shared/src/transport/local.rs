@@ -1,9 +1,10 @@
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crossbeam_channel::{Receiver, Sender};
-use std::collections::VecDeque;
 /// Purely local io for testing
 /// Messages are sent via channels
 use std::net::SocketAddr;
+
+use crossbeam_channel::{Receiver, Sender};
+
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
@@ -55,7 +56,7 @@ impl PacketReceiver for LocalChannel {
 impl PacketSender for LocalChannel {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
         self.send
-            .try_send(payload.clone().to_vec())
+            .try_send(payload.to_vec())
             .map_err(|e| std::io::Error::other("error sending packet"))
     }
 }

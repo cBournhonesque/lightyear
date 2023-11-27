@@ -9,8 +9,8 @@ use metrics;
 
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::LocalChannel;
+use crate::transport::udp::UdpSocket;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-use crate::UdpSocket;
 
 pub struct Io {
     local_addr: SocketAddr,

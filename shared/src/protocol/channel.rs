@@ -1,10 +1,10 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use crate::channel::channel::{Channel, ChannelBuilder, ChannelSettings};
+use crate::channel::builder::ChannelContainer;
+use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::BitSerializable;
-use crate::ChannelContainer;
 
 /// ChannelKind - internal wrapper around the type of the channel
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]

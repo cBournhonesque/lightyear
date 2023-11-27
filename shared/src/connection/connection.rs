@@ -7,11 +7,16 @@ use tracing::{trace, trace_span};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
+use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+use crate::protocol::Protocol;
 use crate::replication::manager::ReplicationManager;
 use crate::replication::ReplicationMessage;
+use crate::serialize::reader::ReadBuffer;
+use crate::tick::manager::TickManager;
 use crate::tick::message::SyncMessage;
+use crate::tick::time::TimeManager;
 use crate::tick::Tick;
-use crate::{ChannelKind, ChannelRegistry, Named, Protocol, ReadBuffer, TickManager, TimeManager};
+use crate::utils::named::Named;
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
 // because prior to calling message_manager.recv() we don't know if the packet is a message or a replication event
@@ -194,13 +199,11 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Finalize any messages that we need to send for replication
-    pub fn prepare_replication_send(&mut self) {
+    pub fn prepare_replication_send(&mut self) -> Result<()> {
         self.replication_manager
             .prepare_send()
             .into_iter()
-            .for_each(|(channel, message)| {
-                self.message_manager.buffer_send(message, channel);
-            })
+            .try_for_each(|(channel, message)| self.message_manager.buffer_send(message, channel))
     }
 
     pub fn buffer_update_entity(
@@ -223,14 +226,14 @@ impl<P: Protocol> Connection<P> {
         world: &mut World,
         time_manager: &TimeManager,
     ) -> ConnectionEvents<P> {
-        trace_span!("receive").entered();
+        let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
                 .message_manager
                 .channel_registry
                 .name(&channel_kind)
                 .unwrap_or("unknown");
-            trace_span!("channel", channel = channel_name).entered();
+            let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");

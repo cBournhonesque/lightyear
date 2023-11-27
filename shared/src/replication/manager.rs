@@ -4,9 +4,11 @@ use bevy::prelude::{Entity, World};
 use tracing::{debug, trace_span};
 
 use crate::connection::ProtocolMessage;
+use crate::protocol::channel::ChannelKind;
+use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
+use crate::protocol::Protocol;
 use crate::replication::entity_map::EntityMap;
 use crate::replication::{Replicate, ReplicationMessage};
-use crate::{ChannelKind, ComponentBehaviour, ComponentKindBehaviour, Protocol};
 
 // TODO: maybe store additional information about the entity?
 //  (e.g. the value of the replicate component)?

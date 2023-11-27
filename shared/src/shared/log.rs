@@ -174,7 +174,7 @@ impl Plugin for LogPlugin {
 
         // let logger_already_set = LogTracer::init().is_err();
         // let subscriber_already_set =
-        tracing::subscriber::set_global_default(finished_subscriber).is_err();
+        let _ = tracing::subscriber::set_global_default(finished_subscriber).is_err();
         //
         // match (logger_already_set, subscriber_already_set) {
         //     (true, true) => warn!(

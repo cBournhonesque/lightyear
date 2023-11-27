@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use tracing::Level;
 
-use crate::TickConfig;
+use crate::tick::manager::TickConfig;
 
 #[derive(Clone)]
 pub struct SharedConfig {

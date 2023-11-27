@@ -30,9 +30,8 @@ pub fn message_impl(
     // Methods
     let gen = quote! {
         mod #module_name {
-            use super::#struct_name;
-            use #shared_crate_name::{Message, Named};
-            use #shared_crate_name::UserInput;
+            use super::*;
+            use #shared_crate_name::prelude::*;
 
             impl #impl_generics Message for #struct_name #type_generics #where_clause {}
 
@@ -99,13 +98,11 @@ pub fn message_protocol_impl(
             use super::*;
             use serde::{Serialize, Deserialize};
             use bevy::prelude::{App, World};
-            use #shared_crate_name::{enum_delegate, EnumAsInner};
-            use #shared_crate_name::{ReadBuffer, WriteBuffer, BitSerializable, MessageBehaviour,
-                MessageProtocol, MessageKind, Named};
+            use #shared_crate_name::_reexport::*;
+            use #shared_crate_name::prelude::*;
             use #shared_crate_name::connection::events::{EventContext, IterMessageEvent};
             use #shared_crate_name::shared::systems::events::push_message_events;
             use #shared_crate_name::shared::events::MessageEvent;
-            use #shared_crate_name::{InputMessage, UserInput, Protocol};
 
 
             #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

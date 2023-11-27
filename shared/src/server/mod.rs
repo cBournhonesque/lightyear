@@ -11,7 +11,7 @@ mod connection;
 pub mod events;
 mod input;
 pub(crate) mod io;
-mod ping_manager;
+pub mod ping_manager;
 mod plugin;
 mod server;
 
