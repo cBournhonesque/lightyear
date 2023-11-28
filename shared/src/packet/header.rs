@@ -20,7 +20,7 @@ pub(crate) struct PacketHeader {
     last_ack_packet_id: PacketId,
     /// Bitfield of the last 32 packet ids before `ack_id`
     /// (this means that in total we send acks for 33 packet-ids)
-    /// See more information at: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
+    /// See more information at: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
     ack_bitfield: u32,
     /// Current tick
     pub(crate) tick: Tick,
@@ -47,7 +47,7 @@ const ACK_BITFIELD_SIZE: u8 = 32;
 const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
-/// For more information: https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/
+/// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
 #[derive(Default)]
 pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.

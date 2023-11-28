@@ -44,7 +44,6 @@ pub(crate) mod registry;
 ///#[derive(Message, Serialize, Deserialize, Clone, PartialEq)]
 ///pub struct Message1(pub String);
 ///
-///#[derive(PartialEq)]
 ///#[message_protocol(protocol = "MyProtocol")]
 ///pub enum MyMessageProtocol {
 ///    Message1(Message1),
@@ -53,7 +52,6 @@ pub(crate) mod registry;
 ///#[derive(Component, Serialize, Deserialize, Clone, PartialEq)]
 ///pub struct Component1;
 ///
-///#[derive(PartialEq)]
 ///#[component_protocol(protocol = "MyProtocol")]
 ///pub enum MyComponentsProtocol {
 ///    Component1(Component1),

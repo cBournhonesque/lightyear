@@ -1,6 +1,6 @@
 //! Handles dealing with inputs (keyboard presses, mouse clicks) sent from a player (client) to server
 
-/// Defines an [`InputBuffer`] buffer to store the inputs of a player for each tick
+/// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;
 
 /// Defines the bevy plugin that handles inputs

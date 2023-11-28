@@ -18,11 +18,11 @@ pub mod plugin;
 /// Module to handle replicating entities and components from server to client
 pub mod replication;
 
-/// Bevy [`bevy::prelude::SystemSet`] that are shared between the server and client
+/// Bevy [`SystemSet`](bevy::prelude::SystemSet) that are shared between the server and client
 pub mod sets;
 
 // TODO: refactor this out
-/// Bevy [`bevy::prelude::System`] that are shared between the server and client
+/// Bevy [`System`](bevy::prelude::System) that are shared between the server and client
 pub mod systems;
 
 /// Module to handle the [`tick_manager::Tick`], a sequence number incremented at each [`bevy::prelude::FixedUpdate`] schedule run

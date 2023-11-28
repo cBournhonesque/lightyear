@@ -89,7 +89,7 @@ pub struct ChannelSettings {
 
 #[derive(Clone, Debug, PartialEq)]
 /// ChannelMode specifies how packets are sent and received
-/// See more information: http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html
+/// See more information [here](http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
 pub enum ChannelMode {
     /// Packets may arrive out-of-order, or not at all
     UnorderedUnreliable,

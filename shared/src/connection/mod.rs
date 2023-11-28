@@ -1,8 +1,8 @@
-/// Defines a [`ConnectionEvents`](ConnectionEvents) struct that is used to store all events that are received from a [`Connection`](Connection)
+/// Defines a [`ConnectionEvents`] struct that is used to store all events that are received from a [`Connection`]
 // only public for proc macro
 pub mod events;
 
-/// Provides a [`ProtocolMessage`](ProtocolMessage) enum that is a wrapper around all the possible messages that can be sent over the network
+/// Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible messages that can be sent over the network
 pub(crate) mod message;
 
 use crate::_reexport::PingChannel;
