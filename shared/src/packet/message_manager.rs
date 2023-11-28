@@ -12,7 +12,7 @@ use crate::packet::packet::{Packet, PacketId};
 use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::protocol::{BitSerializable, Protocol};
+use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
@@ -62,7 +62,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Buffer a message to be sent on this connection
     pub fn buffer_send(&mut self, message: M, channel_kind: ChannelKind) -> anyhow::Result<()> {
-        let mut channel = self
+        let channel = self
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;

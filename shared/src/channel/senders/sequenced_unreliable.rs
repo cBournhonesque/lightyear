@@ -69,7 +69,7 @@ impl ChannelSend for SequencedUnreliableSender {
     // not necessary for an unreliable sender (all the buffered messages can be sent)
     fn collect_messages_to_send(&mut self) {}
 
-    fn notify_message_delivered(&mut self, message_ack: &MessageAck) {}
+    fn notify_message_delivered(&mut self, _message_ack: &MessageAck) {}
 
     fn has_messages_to_send(&self) -> bool {
         !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()

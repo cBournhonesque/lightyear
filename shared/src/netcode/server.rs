@@ -717,7 +717,7 @@ impl<Ctx> Server<Ctx> {
     fn recv_packets(
         &mut self,
         sender: &mut impl PacketSender,
-        mut receiver: &mut impl PacketReceiver,
+        receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {

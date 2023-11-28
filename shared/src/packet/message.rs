@@ -1,12 +1,10 @@
 use std::fmt::Debug;
 
 use bitcode::encoding::{Fixed, Gamma};
-use bitcode::{Decode, Encode};
 use bytes::Bytes;
 
 use crate::connection::events::EventContext;
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::tick::Tick;
@@ -236,7 +234,7 @@ impl FragmentData {
         writer.encode(&self.num_fragments, Gamma)?;
         // TODO: be able to just concat the bytes to the buffer?
         if self.is_last_fragment() {
-            /// writing the slice includes writing the length of the slice
+            // writing the slice includes writing the length of the slice
             writer.encode(self.bytes.as_ref(), Fixed)?;
             // writer.serialize(&self.bytes.to_vec());
             // writer.serialize(&self.fragment_message_bytes.as_ref());
@@ -257,7 +255,7 @@ impl FragmentData {
         let tick = reader.decode::<Option<Tick>>(Fixed)?;
         let fragment_id = reader.decode::<FragmentIndex>(Gamma)?;
         let num_fragments = reader.decode::<FragmentIndex>(Gamma)?;
-        let mut bytes: Bytes;
+        let bytes: Bytes;
         if fragment_id == num_fragments - 1 {
             // let num_bytes = reader.decode::<usize>(Gamma)?;
             // let num_bytes_non_zero = std::num::NonZeroUsize::new(num_bytes)
@@ -287,14 +285,6 @@ impl FragmentData {
 
     pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id == self.num_fragments - 1
-    }
-
-    fn num_fragment_bytes(&self) -> usize {
-        if self.is_last_fragment() {
-            self.bytes.len()
-        } else {
-            FRAGMENT_SIZE
-        }
     }
 }
 

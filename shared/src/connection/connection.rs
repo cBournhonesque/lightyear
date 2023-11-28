@@ -16,7 +16,6 @@ use crate::tick::manager::TickManager;
 use crate::tick::message::SyncMessage;
 use crate::tick::time::TimeManager;
 use crate::tick::Tick;
-use crate::utils::named::Named;
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
 // because prior to calling message_manager.recv() we don't know if the packet is a message or a replication event

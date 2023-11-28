@@ -140,7 +140,7 @@ impl BitSerializable for SinglePacket {
 
         // check channel continue bit to see if there are more channels
         while continue_read_channel {
-            let mut channel_id = reader.decode::<NetId>(Gamma)?;
+            let channel_id = reader.decode::<NetId>(Gamma)?;
             let mut messages = Vec::new();
 
             // are there messages for this channel?
@@ -223,7 +223,7 @@ impl BitSerializable for FragmentedPacket {
     where
         Self: Sized,
     {
-        let mut channel_id = reader.decode::<NetId>(Gamma)?;
+        let channel_id = reader.decode::<NetId>(Gamma)?;
         let fragment = FragmentData::decode(reader)?;
         let is_single_packet = reader.decode::<bool>(Fixed)?;
         let packet = if is_single_packet {

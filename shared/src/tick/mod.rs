@@ -9,7 +9,7 @@ pub(crate) mod message;
 pub(crate) mod ping_store;
 pub(crate) mod time;
 
-/// Internal id that tracks the Tick value for the server and the client
+// Internal id that tracks the Tick value for the server and the client
 wrapping_id!(Tick);
 
 pub trait TickManaged: Resource {

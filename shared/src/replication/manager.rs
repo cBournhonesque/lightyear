@@ -76,9 +76,9 @@ impl<P: Protocol> ReplicationManager<P> {
 
     pub(crate) fn send_component_remove(
         &mut self,
-        entity: Entity,
-        component: P::ComponentKinds,
-        channel: ChannelKind,
+        _entity: Entity,
+        _component: P::ComponentKinds,
+        _channel: ChannelKind,
     ) {
         todo!()
     }
@@ -107,7 +107,7 @@ impl<P: Protocol> ReplicationManager<P> {
         messages
     }
 
-    pub(crate) fn send_entity_update(&mut self, entity: Entity, replicate: Replicate) -> bool {
+    pub(crate) fn send_entity_update(&mut self, entity: Entity, _replicate: Replicate) -> bool {
         // if we have already sent the Spawn Entity, don't do it again
         if self.remote_entity_status.get(&entity).is_some() {
             return false;
@@ -141,7 +141,7 @@ impl<P: Protocol> ReplicationManager<P> {
 
     /// Apply any replication messages to the world
     pub(crate) fn apply_world(&mut self, world: &mut World, message: ProtocolMessage<P>) {
-        let span = trace_span!("Apply received replication message to world").entered();
+        let _span = trace_span!("Apply received replication message to world").entered();
         match message {
             ProtocolMessage::Replication(replication) => match replication {
                 ReplicationMessage::SpawnEntity(entity, components) => {
@@ -174,7 +174,7 @@ impl<P: Protocol> ReplicationManager<P> {
                     //  or should we send the message right away and let the receiver handle the ordering?
                     //  (what if they receive despawn before spawn?)
 
-                    if let Some(local_entity) = self.entity_map.remove_by_remote(entity) {
+                    if let Some(_local_entity) = self.entity_map.remove_by_remote(entity) {
                         world.despawn(entity);
                     }
                 }

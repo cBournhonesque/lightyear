@@ -47,7 +47,7 @@ impl ReadBuffer for ReadWordBuffer {
     // }
 
     fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {
-        self.with_dependent_mut(|buffer, reader| {
+        self.with_dependent_mut(|_buffer, reader| {
             let reader = reader
                 .0
                 .as_mut()
@@ -59,7 +59,7 @@ impl ReadBuffer for ReadWordBuffer {
     }
 
     fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> anyhow::Result<T> {
-        self.with_dependent_mut(|buffer, reader| {
+        self.with_dependent_mut(|_buffer, reader| {
             let reader = reader
                 .0
                 .as_mut()
@@ -69,7 +69,7 @@ impl ReadBuffer for ReadWordBuffer {
     }
 
     fn start_read(bytes: &[u8]) -> Self {
-        ReadWordBuffer::new(WordBuffer::with_capacity(bytes.len()), |mut buffer| {
+        ReadWordBuffer::new(WordBuffer::with_capacity(bytes.len()), |buffer| {
             // safety: we just created the buffer and nothing else had access to it
             // we need to get a mutable reference to the buffer to take ownership of it
             let mut_buffer: &mut WordBuffer;
@@ -84,7 +84,7 @@ impl ReadBuffer for ReadWordBuffer {
     }
 
     fn finish_read(&mut self) -> anyhow::Result<()> {
-        self.with_dependent_mut(|buffer, reader| {
+        self.with_dependent_mut(|_buffer, reader| {
             let (reader, context) = std::mem::take(reader).0.context("no reader")?;
             WordBuffer::finish_read(reader, context).context("error finishing read")
         })
@@ -92,7 +92,7 @@ impl ReadBuffer for ReadWordBuffer {
 }
 
 impl BitRead for ReadWordBuffer {
-    fn advance(&mut self, bits: usize) {
+    fn advance(&mut self, _bits: usize) {
         todo!()
     }
 
@@ -104,12 +104,12 @@ impl BitRead for ReadWordBuffer {
         todo!()
     }
 
-    fn read_bits(&mut self, bits: usize) -> anyhow::Result<Word> {
+    fn read_bits(&mut self, _bits: usize) -> anyhow::Result<Word> {
         todo!()
     }
 
     fn read_bytes(&mut self, len: NonZeroUsize) -> anyhow::Result<&[u8]> {
-        self.with_dependent_mut(|buffer, reader| {
+        self.with_dependent_mut(|_buffer, reader| {
             let reader = reader
                 .0
                 .as_mut()
@@ -118,7 +118,7 @@ impl BitRead for ReadWordBuffer {
         })
     }
 
-    fn reserve_bits(&self, bits: usize) -> anyhow::Result<()> {
+    fn reserve_bits(&self, _bits: usize) -> anyhow::Result<()> {
         todo!()
     }
 }

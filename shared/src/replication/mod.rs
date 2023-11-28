@@ -111,7 +111,7 @@ impl NetworkTarget {
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(Serialize, Deserialize, Clone)]
-pub(crate) enum ReplicationMessage<C, K> {
+pub enum ReplicationMessage<C, K> {
     // reliable
     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
     SpawnEntity(Entity, Vec<C>),

@@ -68,13 +68,6 @@ impl ReliableSender {
             current_time: WrappedTime::default(),
         }
     }
-
-    /// Called when we receive an ack that a message that we sent has been received
-    fn process_message_ack(&mut self, message_id: MessageId) {
-        if self.unacked_messages.contains_key(&message_id) {
-            self.unacked_messages.remove(&message_id).unwrap();
-        }
-    }
 }
 
 // Stragegy:
@@ -155,12 +148,12 @@ impl ChannelSend for ReliableSender {
         let resend_delay = chrono::Duration::milliseconds(
             (self.reliable_settings.rtt_resend_factor * self.current_rtt_millis) as i64,
         );
-        let should_send = |last_sent: Option<WrappedTime>| -> bool {
+        let should_send = |last_sent: &Option<WrappedTime>| -> bool {
             match last_sent {
                 // send it the message has never been sent
                 None => true,
                 // or if we sent it a while back but didn't get an ack
-                Some(last_sent) => self.current_time - last_sent > resend_delay,
+                Some(last_sent) => self.current_time - *last_sent > resend_delay,
             }
         };
 
@@ -169,7 +162,7 @@ impl ChannelSend for ReliableSender {
             match unacked_message {
                 UnackedMessage::Single {
                     bytes,
-                    mut last_sent,
+                    ref mut last_sent,
                 } => {
                     if should_send(last_sent) {
                         // TODO: this is a vecdeque, so if we call this function multiple times
@@ -182,7 +175,7 @@ impl ChannelSend for ReliableSender {
                             let message = SingleData::new(Some(*message_id), bytes.clone()).into();
                             self.single_messages_to_send.push_back(message);
                             self.message_ids_to_send.insert(message_info);
-                            last_sent = Some(self.current_time);
+                            *last_sent = Some(self.current_time);
                         }
                     }
                 }
@@ -190,7 +183,7 @@ impl ChannelSend for ReliableSender {
                     // only send the fragments that haven't been acked and should be resent
                     fragment_acks
                         .iter_mut()
-                        .filter(|f| !f.acked && should_send(f.last_sent))
+                        .filter(|f| !f.acked && should_send(&f.last_sent))
                         .for_each(|f| {
                             // TODO: need a mechanism like message_ids_to_send? (message/fragmnet_id) to send?
                             let message_info = MessageAck {
@@ -285,7 +278,10 @@ mod tests {
         );
 
         // Ack the first message
-        sender.process_message_ack(MessageId(0));
+        sender.notify_message_delivered(&MessageAck {
+            message_id: MessageId(0),
+            fragment_id: None,
+        });
         assert_eq!(sender.unacked_messages.len(), 0);
 
         // Advance by a time that is above the resend threshold

@@ -28,7 +28,7 @@ impl FromWorld for ReplicationData {
 
 impl ReplicationData {
     /// Returns true if the component is in the ComponentProtocol
-    pub fn contains_component(&self, component_id: ComponentId) -> bool {
+    pub fn contains_component(&self, _component_id: ComponentId) -> bool {
         todo!()
     }
 }

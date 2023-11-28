@@ -69,10 +69,3 @@ impl From<TypeId> for MessageKind {
         Self(type_id)
     }
 }
-
-#[derive(Default, Clone)]
-pub struct MessageRegistry {
-    // pub(in crate::protocol) builder_map: HashMap<MessageKind, MessageMetadata>,
-    pub(in crate::protocol) kind_map: TypeMapper<MessageKind>,
-    built: bool,
-}

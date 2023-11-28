@@ -72,7 +72,7 @@ impl TimeManager {
         self.wrapped_time += delta;
         // set the overstep to the overstep of fixed_time
         self.overstep = overstep;
-        self.send_timer.as_mut().map(|mut timer| {
+        self.send_timer.as_mut().map(|timer| {
             timer.tick(delta);
         });
     }

@@ -97,7 +97,7 @@ impl BitWrite for WriteWordBuffer {
         self.writer.write_bit(bit)
     }
 
-    fn write_bits(&mut self, bits: u32) {
+    fn write_bits(&mut self, _bits: u32) {
         todo!()
     }
 

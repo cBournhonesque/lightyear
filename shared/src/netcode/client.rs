@@ -22,9 +22,6 @@ use super::{
     MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
 };
 
-const RECV_BUF_SIZE: usize = 256 * 1024;
-const SEND_BUF_SIZE: usize = 256 * 1024;
-
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
 
 /// Configuration for a client.
