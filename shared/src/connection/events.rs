@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::iter;
 
-use bevy::prelude::{Component, Entity, Event};
+use bevy::prelude::{Component, Entity};
 
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;

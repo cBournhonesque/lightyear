@@ -1,5 +1,3 @@
-use bevy::prelude::Plugin;
-
 pub use replication::ReplicationData;
 pub use sets::ReplicationSet;
 

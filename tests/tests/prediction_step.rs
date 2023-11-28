@@ -17,20 +17,9 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::prediction::Predicted;
-use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet, SyncConfig};
-use lightyear_shared::netcode::generate_key;
-use lightyear_shared::plugin::events::InputEvent;
-use lightyear_shared::plugin::sets::FixedUpdateSet;
-use lightyear_shared::replication::{NetworkTarget, Replicate};
-use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::tick::Tick;
-use lightyear_shared::{
-    ChannelKind, ClientId, IoConfig, LinkConditionerConfig, MainSet, SharedConfig, TickConfig,
-    TransportConfig,
-};
+use lightyear_shared::_reexport::*;
+use lightyear_shared::prelude::client::*;
+use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{protocol, Channel2, Component1, MyInput, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 
@@ -53,7 +42,7 @@ fn server_init(mut commands: Commands) {
 // System that runs every fixed timestep, and will add an input to the buffer
 fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
     let tick = client.tick();
-    let amplitude = 10 as i16;
+    let amplitude = 10i16;
     // oscillating value between 0 and 10
     let value =
         |tick: Tick| amplitude - (amplitude - (tick.0 % (2 * amplitude) as u16) as i16).abs();
@@ -94,9 +83,9 @@ fn client_read_input(
 }
 
 fn server_read_input(
-    server: Res<Server<MyProtocol>>,
+    server: Res<server::Server<MyProtocol>>,
     mut component1_query: Query<&mut Component1>,
-    mut input_reader: EventReader<InputEvent<MyInput, ClientId>>,
+    mut input_reader: EventReader<server::InputEvent<MyInput>>,
 ) {
     let tick = server.tick();
     for input in input_reader.read() {

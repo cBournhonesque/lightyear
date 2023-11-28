@@ -1,5 +1,6 @@
-use bitcode::encoding::{Fixed, Gamma};
 use std::collections::{BTreeMap, HashMap};
+
+use bitcode::encoding::{Fixed, Gamma};
 
 use crate::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeader;
@@ -8,29 +9,26 @@ use crate::packet::packet_type::PacketType;
 use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
-use crate::serialize::reader::{BitRead, ReadBuffer};
+use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::utils::wrapping_id;
 
-/// Internal id that we assign to each packet sent over the network
+// Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
 /// Maximum number of bytes to write the header
 /// PacketType: 2 bits
 /// Rest: 64 bits (8 bytes)
 const HEADER_BYTES: usize = 9;
-// const HEADER_BYTES: usize = 30;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
 /// remove 1 byte for byte alignment at the end
 pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
-// pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 50;
 
 // TODO: THERE IS SOMETHING WRONG WITH EITHER LAST FRAGMENT OR ALL FRAGMENTS!
 /// The maximum number of bytes for a message before it is fragmented
 /// The final size of the fragmented packet (channel_id: 2, fragment_id: 1, message_id: 2, num_fragments: 1, number of bytes in fragment: 2)
 /// must be lower than MTU_PAYLOAD_BYTES
 pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 8;
-// pub(crate) const FRAGMENT_SIZE: usize = 500;
 
 // TODO: we don't need SinglePacket vs FragmentPacket; we can just re-use the same thing
 //  because MessageContainer already has the information about whether it is a fragment or not
@@ -376,15 +374,16 @@ mod tests {
     use bitcode::encoding::Gamma;
     use bytes::Bytes;
 
-    use super::*;
-    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
     use lightyear_derive::ChannelInternal;
 
+    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketManager;
     use crate::prelude::{ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings};
     use crate::protocol::channel::ChannelKind;
+
+    use super::*;
 
     #[derive(ChannelInternal)]
     struct Channel1;
@@ -433,7 +432,7 @@ mod tests {
         // add a channel with no messages
         packet.add_channel(2);
 
-        packet.encode(&mut write_buffer);
+        packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
         // Encode manually
@@ -502,7 +501,7 @@ mod tests {
         // add a channel with no messages
         packet.packet.add_channel(2);
 
-        packet.encode(&mut write_buffer);
+        packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
         let mut reader = ReadWordBuffer::start_read(packet_bytes);
@@ -531,7 +530,7 @@ mod tests {
 
         let mut write_buffer = WriteWordBuffer::with_capacity(100);
 
-        packet.encode(&mut write_buffer);
+        packet.encode(&mut write_buffer)?;
         let packet_bytes = write_buffer.finish_write();
 
         let mut reader = ReadWordBuffer::start_read(packet_bytes);

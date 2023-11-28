@@ -73,8 +73,8 @@ impl BevyStepper {
                 .with_conditioner(conditioner.clone()),
             ping: PingConfig::default(),
         };
-        let plugin_config = lightyear_shared::server::PluginConfig::new(config, protocol());
-        let plugin = lightyear_shared::server::Plugin::new(plugin_config);
+        let plugin_config = server::PluginConfig::new(config, protocol());
+        let plugin = server::Plugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
         // Setup client
@@ -93,7 +93,7 @@ impl BevyStepper {
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(conditioner.clone()),
-            ping: lightyear_shared::client::PingConfig {
+            ping: client::PingConfig {
                 sync_num_pings: 10,
                 sync_ping_interval_ms: Duration::from_millis(30),
                 ping_interval_ms: Default::default(),
@@ -105,8 +105,8 @@ impl BevyStepper {
             prediction: prediction_config,
             interpolation: interpolation_config,
         };
-        let plugin_config = lightyear_shared::client::PluginConfig::new(config, protocol(), auth);
-        let plugin = lightyear_shared::client::Plugin::new(plugin_config);
+        let plugin_config = client::PluginConfig::new(config, protocol(), auth);
+        let plugin = client::Plugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
         // Initialize Real time (needed only for the first TimeSystem run)

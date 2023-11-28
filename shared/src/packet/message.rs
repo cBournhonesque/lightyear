@@ -1,10 +1,8 @@
 use std::fmt::Debug;
 
-use bevy::prelude::Event;
 use bitcode::encoding::{Fixed, Gamma};
 use bitcode::{Decode, Encode};
 use bytes::Bytes;
-use serde::Serialize;
 
 use crate::connection::events::EventContext;
 use crate::packet::packet::FRAGMENT_SIZE;
@@ -21,7 +19,7 @@ use crate::utils::wrapping_id;
 //   in the serialized message, include the net_id (for decoding)
 //   no bit padding
 
-/// Internal id that we assign to each message sent over the network
+// Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);
 
 pub type FragmentIndex = u8;
@@ -308,13 +306,6 @@ impl MessageContainer {
         }
     }
 
-    pub(crate) fn is_fragment(&self) -> bool {
-        match &self {
-            MessageContainer::Single(_) => false,
-            MessageContainer::Fragment(_) => true,
-        }
-    }
-
     /// Serialize the message into a bytes buffer
     /// Returns the number of bits written
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
@@ -385,8 +376,9 @@ pub trait Message: EventContext + Named {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
+
+    use super::*;
 
     // #[test]
     // fn test_single_data_num_bits() {

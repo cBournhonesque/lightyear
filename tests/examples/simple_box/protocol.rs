@@ -1,8 +1,6 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use derive_more::{Add, Mul};
 use lightyear_shared::prelude::*;
-use lightyear_shared::replication::{NetworkTarget, Replicate};
-use lightyear_shared::{Protocol, UserInput};
 use serde::{Deserialize, Serialize};
 
 // Player

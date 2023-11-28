@@ -273,7 +273,7 @@ mod tests {
             assert_eq!(buffer.last_recv_packet_id, Some(PacketId(id)));
             assert_eq!(buffer.get_bitfield(), expected_bitfield);
             buffer
-        };
+        }
 
         // receive one packet with increment 1
         let recv_buffer = add_most_recent_packet(recv_buffer, 0, 0);
@@ -291,7 +291,7 @@ mod tests {
         // -ACK_BITFIELD_SIZE < diff_id < 0
         recv_buffer.recv_packet(PacketId(2));
         assert_eq!(recv_buffer.last_recv_packet_id, Some(PacketId(6)));
-        assert_eq!(recv_buffer.get_bitfield(), 0b0011_1100 as u32);
+        assert_eq!(recv_buffer.get_bitfield(), 0b0011_1100u32);
 
         // receive a packet that is far ahead
         // diff > ACK_BITFIELD_SIZE

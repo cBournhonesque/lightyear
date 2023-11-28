@@ -86,6 +86,8 @@ impl ChannelReceive for TickUnreliableReceiver {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use bytes::Bytes;
 
     use crate::channel::receivers::ChannelReceive;

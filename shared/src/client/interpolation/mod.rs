@@ -13,7 +13,7 @@ pub use crate::replication::interpolation::ShouldBeInterpolated;
 
 mod despawn;
 mod interpolate;
-mod interpolation_history;
+pub mod interpolation_history;
 pub mod plugin;
 
 /// This module handles doing snapshot interpolations for entities controlled by other clients.

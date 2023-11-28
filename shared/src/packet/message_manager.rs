@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
-use bitcode::read::Read;
 use tracing::trace;
 
 use crate::channel::builder::ChannelContainer;
@@ -21,7 +20,6 @@ use crate::serialize::writer::WriteBuffer;
 use crate::tick::manager::TickManager;
 use crate::tick::time::TimeManager;
 use crate::tick::Tick;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport

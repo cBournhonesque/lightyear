@@ -11,6 +11,7 @@ pub struct ReplicationData {
     pub replication_id: ComponentId,
     // TODO: maybe add a map from Component to the corresponding systems
     /// Map of the replicated entities that are owned by the current world (the world that sends replication updates)
+    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
     pub owned_entities: HashMap<Entity, Replicate>,
     // pub received_entities: HashMap<Entity, Replicate>,
 }

@@ -37,12 +37,13 @@ pub mod some_component {
 
 #[cfg(test)]
 mod tests {
-    use crate::some_component::MyComponentProtocol;
     use lightyear_shared::protocol::BitSerializable;
     use lightyear_shared::serialize::reader::ReadBuffer;
     use lightyear_shared::serialize::wordbuffer::reader::ReadWordBuffer;
     use lightyear_shared::serialize::wordbuffer::writer::WriteWordBuffer;
     use lightyear_shared::serialize::writer::WriteBuffer;
+
+    use crate::some_component::MyComponentProtocol;
 
     use super::some_component::*;
 

@@ -1,14 +1,17 @@
+use bevy::prelude::World;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
 use log::debug;
+use rand::Rng;
 
-use lightyear_shared::client::{Authentication, ClientConfig, SyncConfig};
+use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
+use lightyear_shared::connection::events::IterMessageEvent;
 use lightyear_shared::netcode::generate_key;
-use lightyear_shared::server::{NetcodeConfig, Server, ServerConfig};
 use lightyear_shared::prelude::*;
-use lightyear_tests::protocol::{protocol};
+use lightyear_shared::server::{NetcodeConfig, Server, ServerConfig};
+use lightyear_tests::protocol::{protocol, Channel1, Message1};
 
 #[test]
 fn test_connection_soak() -> anyhow::Result<()> {
@@ -64,7 +67,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         io: io_config,
         ping: Default::default(),
         sync: SyncConfig::default(),
-        ..Default::default(),
+        ..Default::default()
     };
     let mut client = Client::new(config, auth, protocol());
     debug!("Created client with local address: {}", client.local_addr());

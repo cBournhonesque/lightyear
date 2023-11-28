@@ -1,8 +1,7 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use lightyear_shared::shared::config::LogConfig;
-use lightyear_shared::{Client, SharedConfig, TickConfig};
+use lightyear_shared::prelude::*;
 use std::time::Duration;
 use tracing::Level;
 

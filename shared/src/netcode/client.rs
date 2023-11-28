@@ -277,7 +277,7 @@ impl<Ctx> Client<Ctx> {
     /// #    .unwrap()
     /// #    .try_into_bytes()
     /// #    .unwrap();
-    /// struct MyContext {};
+    /// struct MyContext {}
     /// let cfg = ClientConfig::with_context(MyContext {}).on_state_change(|from, to, _ctx| {
     ///    assert_eq!(from, ClientState::Disconnected);
     ///    assert_eq!(to, ClientState::SendingConnectionRequest);

@@ -111,7 +111,6 @@ mod tests {
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     use crate::serialize::wordbuffer::writer::WriteWordBuffer;
-    use crate::WriteBuffer;
 
     #[test]
     fn test_write_bits() -> anyhow::Result<()> {

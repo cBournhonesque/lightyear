@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use bevy::prelude::App;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -193,8 +191,9 @@ pub mod tests {
         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
     };
 
-    use super::*;
     use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
+
+    use super::*;
 
     // Messages
     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]

@@ -5,7 +5,6 @@
 
 #[cfg(feature = "trace")]
 use std::panic;
-use std::thread;
 
 use bevy::prelude::{App, Plugin};
 #[cfg(feature = "metrics")]

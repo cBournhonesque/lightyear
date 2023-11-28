@@ -308,7 +308,7 @@ impl From<WrappedTime> for Duration {
 
 #[cfg(test)]
 mod tests {
-    use crate::WrappedTime;
+    use crate::tick::time::WrappedTime;
 
     #[test]
     fn test_mul() {

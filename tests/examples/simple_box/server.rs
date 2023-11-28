@@ -2,12 +2,8 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use lightyear_shared::prelude::server::*;
 use lightyear_shared::prelude::*;
-use lightyear_shared::server::config::PacketConfig;
-use lightyear_shared::server::events::{ConnectEvent, DisconnectEvent, InputEvent};
-use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::shared::sets::FixedUpdateSet;
-use lightyear_shared::{IoConfig, LinkConditionerConfig, TransportConfig};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -34,9 +30,8 @@ impl Plugin for ServerPlugin {
                 .with_conditioner(link_conditioner),
             ping: PingConfig::default(),
         };
-        let plugin_config =
-            lightyear_shared::server::PluginConfig::new(config, MyProtocol::default());
-        app.add_plugins(lightyear_shared::server::Plugin::new(plugin_config));
+        let plugin_config = PluginConfig::new(config, MyProtocol::default());
+        app.add_plugins(server::Plugin::new(plugin_config));
         app.add_plugins(shared::SharedPlugin);
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
@@ -51,7 +46,7 @@ struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut server: ResMut<Server<MyProtocol>>) {
+pub(crate) fn init(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         "Server",
@@ -61,7 +56,6 @@ pub(crate) fn init(mut commands: Commands, mut server: ResMut<Server<MyProtocol>
             ..default()
         },
     ));
-    // server.set_base_relative_speed(0.001);
 }
 
 /// Server connection system, create a player upon connection
@@ -100,11 +94,11 @@ pub(crate) fn handle_connections(
 
 pub(crate) fn log_confirmed(server: Res<Server<MyProtocol>>, confirmed: Query<(&PlayerPosition)>) {
     for pos in confirmed.iter() {
-        // info!(
-        //     "interpolated pos: {:?}, server tick: {:?}",
-        //     pos,
-        //     server.tick()
-        // );
+        debug!(
+            "interpolated pos: {:?}, server tick: {:?}",
+            pos,
+            server.tick()
+        );
     }
 }
 

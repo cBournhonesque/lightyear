@@ -5,9 +5,7 @@
 
 use anyhow::Result;
 use bevy::prelude::{Component, Entity, Resource};
-use bitcode::__private::Serialize;
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
@@ -125,7 +123,7 @@ pub(crate) enum ReplicationMessage<C, K> {
     EntityUpdate(Entity, Vec<C>),
 }
 
-pub(crate) trait ReplicationSend<P: Protocol>: Resource {
+pub trait ReplicationSend<P: Protocol>: Resource {
     fn entity_spawn(
         &mut self,
         entity: Entity,

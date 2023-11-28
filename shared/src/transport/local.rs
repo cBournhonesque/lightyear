@@ -45,7 +45,7 @@ impl PacketReceiver for LocalChannel {
                     e
                 ))),
             },
-            |mut data| {
+            |data| {
                 self.buffer = data;
                 Ok(Some((self.buffer.as_mut_slice(), LOCAL_SOCKET)))
             },
@@ -54,9 +54,9 @@ impl PacketReceiver for LocalChannel {
 }
 
 impl PacketSender for LocalChannel {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
+    fn send(&mut self, payload: &[u8], _: &SocketAddr) -> std::io::Result<()> {
         self.send
             .try_send(payload.to_vec())
-            .map_err(|e| std::io::Error::other("error sending packet"))
+            .map_err(|_| std::io::Error::other("error sending packet"))
     }
 }

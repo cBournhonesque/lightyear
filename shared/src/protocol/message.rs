@@ -9,7 +9,6 @@ use crate::inputs::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::protocol::registry::{TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, Protocol};
-use crate::serialize::writer::WriteBuffer;
 use crate::utils::named::Named;
 
 // client writes an Enum containing all their message type

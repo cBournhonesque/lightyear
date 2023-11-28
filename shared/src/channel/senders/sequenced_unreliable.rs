@@ -82,6 +82,6 @@ mod tests {
 
     #[test]
     fn test_sequenced_unreliable_sender_internals() {
-        let mut sender = SequencedUnreliableSender::new();
+        let sender = SequencedUnreliableSender::new();
     }
 }

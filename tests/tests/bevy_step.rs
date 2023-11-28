@@ -15,16 +15,8 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
-use lightyear_shared::netcode::generate_key;
-use lightyear_shared::replication::Replicate;
-use lightyear_shared::server::{NetcodeConfig, PingConfig, ServerConfig};
-use lightyear_shared::tick::Tick;
-use lightyear_shared::{
-    ChannelKind, IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig,
-};
+use lightyear_shared::prelude::client::*;
+use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{protocol, Channel2, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 

@@ -35,16 +35,15 @@ impl Plugin for ClientPlugin {
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(link_conditioner),
-            ping: lightyear_shared::client::PingConfig::default(),
+            ping: PingConfig::default(),
             sync: SyncConfig::default(),
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::Ratio(2.0)),
         };
-        let plugin_config =
-            lightyear_shared::client::PluginConfig::new(config, MyProtocol::default(), auth);
-        app.add_plugins(lightyear_shared::client::Plugin::new(plugin_config));
+        let plugin_config = PluginConfig::new(config, MyProtocol::default(), auth);
+        app.add_plugins(client::Plugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
@@ -182,7 +181,7 @@ pub(crate) fn handle_interpolated_spawn(
 
 pub(crate) fn log_confirmed(client: Res<Client<MyProtocol>>, confirmed: Query<(&PlayerPosition)>) {
     for pos in confirmed.iter() {
-        // info!("confirmed pos: {:?}, client tick: {:?}", pos, client.tick());
+        debug!("confirmed pos: {:?}, client tick: {:?}", pos, client.tick());
     }
 }
 
@@ -190,6 +189,6 @@ pub(crate) fn log_interpolated(
     interpolated: Query<(&PlayerPosition, &ConfirmedHistory<PlayerPosition>), With<Interpolated>>,
 ) {
     for (pos, history) in interpolated.iter() {
-        // info!("interpolated pos: {:?}, history: {:?}", pos, history);
+        debug!("interpolated pos: {:?}, history: {:?}", pos, history);
     }
 }

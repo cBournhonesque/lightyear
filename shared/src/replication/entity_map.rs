@@ -3,8 +3,6 @@ use std::collections::HashMap;
 
 use bevy::prelude::{Entity, EntityWorldMut, World};
 
-use crate::replication::Replicate;
-
 #[derive(Default)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct EntityMap {

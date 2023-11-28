@@ -18,7 +18,7 @@ use lightyear_shared::client::prediction::PredictionCommandsExt;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::netcode::generate_key;
+use lightyear_shared::_reexport::*;
 use lightyear_shared::prelude::client::*;
 use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{protocol, Channel2, Component1, MyInput, MyProtocol};
@@ -54,9 +54,9 @@ fn test_despawned_predicted_rollback() -> anyhow::Result<()> {
     };
     let sync_config = SyncConfig::default().speedup_factor(1.0);
     let prediction_config = PredictionConfig::default().disable(false);
-    let interpolation_tick_delay = 3;
-    let interpolation_config = InterpolationConfig::default()
-        .with_delay(InterpolationDelay::Ticks(interpolation_tick_delay));
+    let interpolation_delay = Duration::from_millis(100);
+    let interpolation_config =
+        InterpolationConfig::default().with_delay(InterpolationDelay::Delay(interpolation_delay));
     let mut stepper = BevyStepper::new(
         shared_config,
         sync_config,
@@ -242,9 +242,9 @@ fn test_despawned_confirmed_rollback() -> anyhow::Result<()> {
     };
     let sync_config = SyncConfig::default().speedup_factor(1.0);
     let prediction_config = PredictionConfig::default().disable(false);
-    let interpolation_tick_delay = 3;
-    let interpolation_config = InterpolationConfig::default()
-        .with_delay(InterpolationDelay::Ticks(interpolation_tick_delay));
+    let interpolation_delay = Duration::from_millis(100);
+    let interpolation_config =
+        InterpolationConfig::default().with_delay(InterpolationDelay::Delay(interpolation_delay));
     let mut stepper = BevyStepper::new(
         shared_config,
         sync_config,

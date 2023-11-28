@@ -9,6 +9,8 @@ pub mod _reexport {
     pub use crate::channel::builder::{
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
+    pub use crate::client::interpolation::ShouldBeInterpolated;
+    pub use crate::client::prediction::ShouldBePredicted;
     pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
@@ -42,11 +44,12 @@ pub mod prelude {
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::replication::{NetworkTarget, Replicate};
-    pub use crate::shared::config::SharedConfig;
+    pub use crate::shared::config::{LogConfig, SharedConfig};
     pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::ReplicationData;
     pub use crate::tick::manager::TickConfig;
+    pub use crate::tick::Tick;
     pub use crate::tick::TickBufferChannel;
     pub use crate::transport::conditioner::LinkConditionerConfig;
     pub use crate::transport::io::{Io, IoConfig, TransportConfig};
@@ -54,17 +57,19 @@ pub mod prelude {
     pub use crate::utils::named::{Named, TypeNamed};
 
     pub mod client {
-        pub use crate::client::components::{ComponentSyncMode, SyncComponent};
+        pub use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
         pub use crate::client::config::NetcodeConfig;
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::client::input::{InputConfig, InputSystemSet};
+        pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
-        pub use crate::client::interpolation::{Interpolated, LerpMode};
+        pub use crate::client::interpolation::{InterpolateStatus, Interpolated, LerpMode};
         pub use crate::client::ping_manager::PingConfig;
         pub use crate::client::prediction::plugin::PredictionConfig;
+        pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::sync::SyncConfig;
         pub use crate::client::{Authentication, Client, ClientConfig, Plugin, PluginConfig};

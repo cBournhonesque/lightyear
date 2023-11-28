@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 
 use bevy::prelude::Resource;
-use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use lightyear_derive::MessageInternal;
@@ -18,23 +17,10 @@ pub trait UserInput:
 
 impl UserInput for () {}
 
-// OPTION 1: could do something similar to the prediction history (ready buffer and we don't include the gaps).
-//  but seems less optimized and overly complicated
-
-// OPTION 2: use a ringbuffer?
-
-// this should be more than enough, maybe make smaller or tune depending on latency?
-const INPUT_BUFFER_SIZE: usize = 128;
-
 #[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserInput> {
-    // TODO: just use VecDeque? (easier..)
-    // pub buffer: SequenceBuffer<Tick, T, INPUT_BUFFER_SIZE>,
     pub buffer: VecDeque<Option<T>>,
-    // TODO: maybe keep track of the start?
-    // only the values between start_tick and end_tick are valid
     pub start_tick: Tick,
-    // pub end_tick: Tick,
 }
 
 // TODO: add encode directive to encode even more efficiently

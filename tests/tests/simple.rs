@@ -1,9 +1,9 @@
+use bevy::prelude::World;
 use log::debug;
 use std::time::Duration;
 
 use lightyear_shared::client::Authentication;
-use lightyear_shared::netcode::generate_key;
-use lightyear_shared::{ChannelKind, World};
+use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 
 #[test]
@@ -31,7 +31,7 @@ fn test_simple_server_client() -> anyhow::Result<()> {
     client.connect();
 
     let start = std::time::Instant::now();
-    let tick_rate_secs = std::time::Duration::from_secs_f64(1.0 / 30.0);
+    let tick_rate_secs = Duration::from_secs_f64(1.0 / 30.0);
 
     let message1 = Message1("Hello World".to_string());
     let message1_expected = MyMessageProtocol::Message1(message1.clone());

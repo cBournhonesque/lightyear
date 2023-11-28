@@ -15,14 +15,8 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::{Authentication, Client, ClientConfig};
-use lightyear_shared::netcode::generate_key;
-use lightyear_shared::replication::Replicate;
-use lightyear_shared::server::{NetcodeConfig, PingConfig, ServerConfig};
-use lightyear_shared::tick::Tick;
-use lightyear_shared::{
-    ChannelKind, IoConfig, LinkConditionerConfig, SharedConfig, TickConfig, TransportConfig,
-};
+use lightyear_shared::prelude::client::*;
+use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{protocol, Channel2, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 
@@ -52,7 +46,14 @@ fn test_bevy_step() -> anyhow::Result<()> {
         incoming_jitter: Duration::from_millis(20),
         incoming_loss: 0.0,
     };
-    let mut stepper = BevyStepper::new(shared_config, link_conditioner, frame_duration);
+    let mut stepper = BevyStepper::new(
+        shared_config,
+        SyncConfig::default(),
+        PredictionConfig::default(),
+        InterpolationConfig::default(),
+        link_conditioner,
+        frame_duration,
+    );
 
     // add systems
     stepper.client_app.add_systems(Startup, client_init);

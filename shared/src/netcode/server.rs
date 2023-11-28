@@ -23,8 +23,6 @@ use super::{
 };
 
 pub const MAX_CLIENTS: usize = 256;
-const RECV_BUF_SIZE: usize = 4 * 1024 * 1024;
-const SEND_BUF_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy)]
 struct TokenEntry {
@@ -722,7 +720,7 @@ impl<Ctx> Server<Ctx> {
         mut receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        while let Some((mut buf, addr)) = receiver.recv().map_err(Error::from)? {
+        while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {
             self.recv_packet(buf, now, addr, sender)?;
         }
         Ok(())

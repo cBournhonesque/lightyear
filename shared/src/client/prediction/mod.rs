@@ -26,7 +26,7 @@ use crate::tick::Tick;
 /// - list of all the components that will be re-computed for reconciliation
 mod despawn;
 pub mod plugin;
-mod predicted_history;
+pub mod predicted_history;
 pub(crate) mod rollback;
 
 /// Marks an entity that is being predicted by the client

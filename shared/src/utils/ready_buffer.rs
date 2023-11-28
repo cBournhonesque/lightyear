@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::{cmp::Ordering, collections::BinaryHeap};
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)

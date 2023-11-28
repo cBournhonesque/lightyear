@@ -82,6 +82,6 @@ mod tests {
 
     #[test]
     fn test_unordered_unreliable_sender_internals() {
-        let mut sender = UnorderedUnreliableSender::new();
+        let sender = UnorderedUnreliableSender::new();
     }
 }

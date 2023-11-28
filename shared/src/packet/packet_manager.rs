@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use anyhow::Context;
 use bitcode::encoding::Gamma;
 
 use crate::netcode::MAX_PACKET_SIZE;
@@ -22,40 +21,21 @@ pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS a
 
 pub type Payload = Vec<u8>;
 
-/// Handles the process of sending and receiving packets
+/// `PacketManager` handles the process of creating a packet (writing the header and packing the
+/// messages into packets)
 pub(crate) struct PacketManager {
     pub(crate) header_manager: PacketHeaderManager,
-
-    // /// Current packets that have been built but must be sent over the network
-    // /// (excludes current_packet)
-    // current_packets: Vec<Packet>,
-    // /// Current packet that is being written
-    // pub(crate) current_packet: Option<Packet>,
-    // /// Current channel that is being written
-    // current_channel: Option<ChannelKind>,
-    /// Pre-allocated buffer to encode/decode without allocation.
+    // Pre-allocated buffer to encode/decode without allocation.
     // TODO: should this be associated with Packet?
     try_write_buffer: WriteWordBuffer,
     write_buffer: WriteWordBuffer,
 }
 
-// PLAN:
-// renet version:
-// - all types of messages we need to send are stored in the MessageRegistry and are encoded
-// into Bytes very early in the process. This solves the problem of `dyn Message` because
-// all the code just deals with Bytes.
-// The MessageContainer just stores Bytes along with the kind of the message.
-// At the very end of the code, we deserialize using the kind of message + the bytes?
-
 impl PacketManager {
     pub fn new() -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
-            // current_packets: Vec::new(),
-            // current_packet: None,
-            // current_channel: None,
-            /// write buffer to encode packets bit by bit
-            // TODO: create a BufWriter to keep track of both the buffer and the Writer. 
+            // write buffer to encode packets bit by bit
             try_write_buffer: WriteBuffer::with_capacity(2 * PACKET_BUFFER_CAPACITY),
             write_buffer: WriteBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
@@ -641,11 +621,12 @@ mod tests {
 
     use lightyear_derive::ChannelInternal;
 
-    use super::*;
     use crate::_reexport::*;
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::message::MessageId;
     use crate::prelude::*;
+
+    use super::*;
 
     #[derive(ChannelInternal)]
     struct Channel1;

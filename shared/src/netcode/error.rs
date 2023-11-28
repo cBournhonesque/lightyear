@@ -1,4 +1,3 @@
-use anyhow;
 use thiserror::Error;
 
 /// The result type for all the public methods that can return an error in this crate.
