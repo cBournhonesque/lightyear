@@ -126,7 +126,7 @@ mod tests {
     use mock_instant::Instant;
     use mock_instant::MockClock;
 
-    use crate::tick::Tick;
+    use crate::shared::tick_manager::Tick;
 
     use super::*;
 

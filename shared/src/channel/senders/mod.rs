@@ -4,8 +4,8 @@ use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::tick::manager::TickManager;
-use crate::tick::time::TimeManager;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::TimeManager;
 
 pub(crate) mod fragment_sender;
 pub(crate) mod reliable;

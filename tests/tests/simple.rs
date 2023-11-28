@@ -6,7 +6,7 @@ use bevy::prelude::World;
 use log::debug;
 use std::time::Duration;
 
-use lightyear_shared::client::Authentication;
+use lightyear_shared::prelude::client::Authentication;
 use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{Channel2, Message1, MyMessageProtocol};
 

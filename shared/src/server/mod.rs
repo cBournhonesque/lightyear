@@ -15,9 +15,6 @@ pub mod events;
 /// Handles client-generated inputs
 mod input;
 
-/// TODO: refactor
-pub mod ping_manager;
-
 /// Defines the server bevy plugin
 pub mod plugin;
 

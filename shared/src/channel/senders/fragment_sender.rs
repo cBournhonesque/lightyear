@@ -2,7 +2,7 @@ use bytes::Bytes;
 
 use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 pub(crate) struct FragmentSender {

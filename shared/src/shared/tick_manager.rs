@@ -3,7 +3,14 @@ use std::time::Duration;
 use bevy::prelude::Resource;
 use tracing::trace;
 
-use crate::tick::Tick;
+use crate::utils::wrapping_id::wrapping_id;
+
+// Internal id that tracks the Tick value for the server and the client
+wrapping_id!(Tick);
+
+pub trait TickManaged: Resource {
+    fn increment_tick(&mut self);
+}
 
 #[derive(Clone)]
 pub struct TickConfig {

@@ -52,6 +52,25 @@ impl Default for LogPlugin {
     }
 }
 
+#[derive(Clone)]
+pub struct LogConfig {
+    /// Filters logs using the [`EnvFilter`] format
+    pub filter: String,
+
+    /// Filters out logs that are "less than" the given level.
+    /// This can be further filtered using the `filter` setting.
+    pub level: Level,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info".to_string(),
+            level: Level::INFO,
+        }
+    }
+}
+
 impl Plugin for LogPlugin {
     #[cfg_attr(not(feature = "tracing-chrome"), allow(unused_variables))]
     fn build(&self, app: &mut App) {

@@ -9,8 +9,8 @@ use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 use crate::protocol::{BitSerializable, EventContext, Protocol};
-use crate::shared::replication::interpolation::ShouldBeInterpolated;
-use crate::shared::replication::prediction::ShouldBePredicted;
+use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::ReplicationSend;
 
 // client writes an Enum containing all their message type

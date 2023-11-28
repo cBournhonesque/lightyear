@@ -12,13 +12,14 @@ use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::replication::interpolation::ShouldBeInterpolated;
-use crate::shared::replication::prediction::ShouldBePredicted;
-use crate::shared::replication::{NetworkTarget, Replicate, ReplicationSend};
-use crate::tick::manager::TickManager;
-use crate::tick::message::SyncMessage;
-use crate::tick::time::TimeManager;
-use crate::tick::{Tick, TickManaged};
+use crate::shared::ping::manager::PingManager;
+use crate::shared::ping::message::SyncMessage;
+use crate::shared::replication::components::{NetworkTarget, Replicate};
+use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
+use crate::shared::replication::ReplicationSend;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::tick_manager::{Tick, TickManaged};
+use crate::shared::time_manager::TimeManager;
 use crate::transport::io::Io;
 use crate::transport::{PacketSender, Transport};
 
@@ -140,21 +141,21 @@ impl<P: Protocol> Server<P> {
 
     // TIME
 
+    #[doc(hidden)]
     pub fn is_ready_to_send(&self) -> bool {
         self.time_manager.is_ready_to_send()
     }
 
+    #[doc(hidden)]
     pub fn set_base_relative_speed(&mut self, relative_speed: f32) {
         self.time_manager.base_relative_speed = relative_speed;
     }
 
     // TICK
 
+    #[doc(hidden)]
     pub fn tick(&self) -> Tick {
         self.tick_manager.current_tick()
-    }
-    pub(crate) fn increment_tick(&mut self) {
-        self.tick_manager.increment_tick()
     }
 
     // INPUTS
@@ -265,7 +266,6 @@ impl<P: Protocol> Server<P> {
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients
     /// Sends keep-alive packets + any non-payload packet needed for netcode
-    // TODO: change the argument to delta?
     pub fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
         self.time_manager.update(delta, Duration::default());
@@ -278,7 +278,9 @@ impl<P: Protocol> Server<P> {
 
         // update connections
         for (_, connection) in &mut self.user_connections {
-            connection.update(delta, &self.time_manager, &self.tick_manager);
+            connection
+                .base
+                .update(&self.time_manager, &self.tick_manager);
         }
 
         // handle connections
@@ -309,53 +311,15 @@ impl<P: Protocol> Server<P> {
         Ok(())
     }
 
+    /// Receive messages from each connection, and update the events buffer
     pub fn receive(&mut self, world: &mut World) {
-        // -> ServerEvents<P> {
         for (client_id, connection) in &mut self.user_connections.iter_mut() {
             trace_span!("receive", client_id = ?client_id).entered();
             let mut connection_events = connection.receive(world, &self.time_manager);
-
-            // TODO: put all this code inside the server's Connection
-            // handle sync events
-            for sync in connection_events.into_iter_syncs() {
-                match sync {
-                    SyncMessage::Ping(ping) => {
-                        connection.buffer_pong(&self.time_manager, ping).unwrap();
-                    }
-                    SyncMessage::Pong(_) => {}
-                    SyncMessage::Ping(ping) => {
-                        // TODO: we should actually add the send-time in the send
-                        connection.ping_manager.buffer_sync_ping(ping);
-                        // connection
-                        //     .ping_manager
-                        //     .connection
-                        //     .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
-                        //     .unwrap();
-                    }
-                    SyncMessage::Pong(_) => {
-                        panic!("only the server sends time-sync-pong messages")
-                    }
-                }
-            }
-            // handle pings
-            for ping in connection_events.into_iter_pings() {
-                connection.buffer_pong(&self.time_manager, ping).unwrap();
-            }
-            // handle pongs
-            for pong in connection_events.into_iter_pongs() {
-                // update rtt/jitter estimation + update ping store
-                info!("Process pong {:?}", pong);
-                connection
-                    .ping_manager
-                    .process_pong(pong, &self.time_manager);
-            }
             if !connection_events.is_empty() {
                 self.events.push_events(*client_id, connection_events);
             }
         }
-
-        // return all received messages and reset the buffer
-        // std::mem::replace(&mut self.events, ServerEvents::new())
     }
 
     /// Send packets that are ready from the message manager through the transport layer
@@ -364,8 +328,9 @@ impl<P: Protocol> Server<P> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for mut packet_byte in
-                connection.send_packets(&self.time_manager, &self.tick_manager)?
+            for mut packet_byte in connection
+                .base
+                .send_packets(&self.time_manager, &self.tick_manager)?
             {
                 self.netcode
                     .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;

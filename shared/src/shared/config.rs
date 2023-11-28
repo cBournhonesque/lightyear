@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use tracing::Level;
+use crate::shared::log::LogConfig;
 
-use crate::tick::manager::TickConfig;
+use crate::shared::tick_manager::TickConfig;
 
 #[derive(Clone)]
 pub struct SharedConfig {
@@ -24,25 +24,6 @@ impl Default for SharedConfig {
             server_send_interval: Duration::from_millis(0),
             tick: TickConfig::new(Duration::from_millis(16)),
             log: LogConfig::default(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct LogConfig {
-    /// Filters logs using the [`EnvFilter`] format
-    pub filter: String,
-
-    /// Filters out logs that are "less than" the given level.
-    /// This can be further filtered using the `filter` setting.
-    pub level: Level,
-}
-
-impl Default for LogConfig {
-    fn default() -> Self {
-        Self {
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info".to_string(),
-            level: Level::INFO,
         }
     }
 }

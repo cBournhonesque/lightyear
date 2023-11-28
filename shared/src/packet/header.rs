@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
 
 /// Header included at the start of all packets
 // TODO: use packet_struct for encoding

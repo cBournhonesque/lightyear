@@ -1,17 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-use crate::tick::ping_store::PingId;
-use crate::tick::time::WrappedTime;
-use crate::tick::Tick;
+use crate::shared::ping::store::PingId;
+use crate::shared::tick_manager::Tick;
+use crate::shared::time_manager::WrappedTime;
 
 /// Ping message; the remote should response immediately with a pong
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Ping {
     pub id: PingId,
-    // tick of the host
-    pub tick: Tick,
-    // time when the server received the ping
-    pub ping_received_time: Option<WrappedTime>,
 }
 
 /// Pong message sent in response to a ping

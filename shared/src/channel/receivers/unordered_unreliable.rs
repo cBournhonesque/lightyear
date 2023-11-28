@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageContainer, SingleData};
-use crate::tick::manager::TickManager;
-use crate::tick::time::{TimeManager, WrappedTime};
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::{TimeManager, WrappedTime};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 

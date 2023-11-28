@@ -7,7 +7,7 @@ use crate::client::sync::SyncConfig;
 use crate::shared::config::SharedConfig;
 use crate::transport::io::IoConfig;
 
-use super::ping_manager::PingConfig;
+use crate::shared::ping::manager::PingConfig;
 
 #[derive(Clone)]
 /// Config related to the netcode protocol (abstraction of a connection over raw UDP-like transport)

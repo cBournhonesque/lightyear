@@ -1,9 +1,9 @@
 use crate::connection::events::ConnectionEvents;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
+use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::ReplicationMessage;
-use crate::tick::message::SyncMessage;
-use crate::tick::time::TimeManager;
+use crate::shared::time_manager::TimeManager;
 use crate::utils::named::Named;
 use serde::{Deserialize, Serialize};
 
@@ -55,16 +55,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                     }
                 }
             },
-            ProtocolMessage::Sync(mut sync) => {
-                match sync {
-                    SyncMessage::Ping(ref mut ping) => {
-                        // set the time received
-                        ping.ping_received_time = Some(time_manager.current_time());
-                    }
-                    _ => {}
-                };
-                events.push_sync(sync);
-            }
+            _ => {}
         }
     }
 }

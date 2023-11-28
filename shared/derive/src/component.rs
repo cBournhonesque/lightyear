@@ -155,9 +155,8 @@ pub fn component_protocol_impl(
                 push_component_insert_events, push_component_remove_events, push_component_update_events,
             };
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
-            use #shared_crate_name::client::prediction::{add_prediction_systems, ShouldBePredicted};
-            use #shared_crate_name::client::interpolation::{add_interpolation_systems, add_lerp_systems, ShouldBeInterpolated,
-                InterpolatedComponent};
+            use #shared_crate_name::client::prediction::{add_prediction_systems};
+            use #shared_crate_name::client::interpolation::{add_interpolation_systems, add_lerp_systems, InterpolatedComponent};
 
             #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
             #[enum_delegate::implement(ComponentBehaviour)]

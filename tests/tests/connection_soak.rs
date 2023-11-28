@@ -6,11 +6,10 @@ use std::time::Duration;
 use log::debug;
 use rand::Rng;
 
-use lightyear_shared::client::{Authentication, Client, ClientConfig, SyncConfig};
 use lightyear_shared::connection::events::IterMessageEvent;
-use lightyear_shared::netcode::generate_key;
+use lightyear_shared::prelude::client::{Authentication, Client, ClientConfig, SyncConfig};
+use lightyear_shared::prelude::server::{NetcodeConfig, Server, ServerConfig};
 use lightyear_shared::prelude::*;
-use lightyear_shared::server::{NetcodeConfig, Server, ServerConfig};
 use lightyear_tests::protocol::{protocol, Channel1, Message1};
 
 #[test]

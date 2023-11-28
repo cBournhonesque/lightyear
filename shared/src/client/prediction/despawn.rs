@@ -7,7 +7,7 @@ use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::prediction::Predicted;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
 
 // Despawn logic:
 // - despawning a predicted client entity:

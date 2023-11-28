@@ -167,3 +167,8 @@ pub struct InputChannel;
 /// Default Unordedered Unreliable channel, to send messages as fast as possible without any ordering.
 #[derive(ChannelInternal)]
 pub struct DefaultUnorderedUnreliableChannel;
+
+/// Channel where the messages are buffered according to the tick they are associated with
+/// At each server tick, we can read the messages that were sent from the corresponding client tick
+#[derive(ChannelInternal)]
+pub struct TickBufferChannel;

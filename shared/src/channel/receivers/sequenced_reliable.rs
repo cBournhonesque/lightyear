@@ -5,8 +5,8 @@ use anyhow::anyhow;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageContainer, MessageId, SingleData};
-use crate::tick::manager::TickManager;
-use crate::tick::time::TimeManager;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::TimeManager;
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
 /// do not return them in order, but ignore the messages that are older than the most recent one received

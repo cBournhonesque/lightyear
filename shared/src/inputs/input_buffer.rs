@@ -8,7 +8,7 @@ use crate::inputs::UserInput;
 use lightyear_derive::MessageInternal;
 
 use crate::protocol::BitSerializable;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
 
 #[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserInput> {

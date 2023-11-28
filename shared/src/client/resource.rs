@@ -13,10 +13,10 @@ use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::tick::manager::TickManager;
-use crate::tick::message::SyncMessage;
-use crate::tick::time::TimeManager;
-use crate::tick::{Tick, TickManaged};
+use crate::shared::ping::message::SyncMessage;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::tick_manager::{Tick, TickManaged};
+use crate::shared::time_manager::TimeManager;
 use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
@@ -77,7 +77,7 @@ impl<P: Protocol> Client<P> {
             .expect("could not create netcode client");
         let io = Io::from_config(&config.io).expect("could not build io");
 
-        let connection = Connection::new(protocol.channel_registry(), config.sync);
+        let connection = Connection::new(protocol.channel_registry(), config.sync, &config.ping);
         Self {
             io,
             config: config_clone,
@@ -148,9 +148,11 @@ impl<P: Protocol> Client<P> {
     pub(crate) fn update_relative_speed(&mut self, time: &mut Time<Virtual>) {
         // check if we need to set the relative speed to something else
         if self.connection.sync_manager.is_synced() {
-            self.connection
-                .sync_manager
-                .update_prediction_time(&mut self.time_manager, &self.tick_manager);
+            self.connection.sync_manager.update_prediction_time(
+                &mut self.time_manager,
+                &self.tick_manager,
+                &self.connection.base.ping_manager,
+            );
             // update bevy's relative speed
             self.time_manager.update_relative_speed(time);
             // let relative_speed = time.relative_speed();
@@ -203,6 +205,7 @@ impl<P: Protocol> Client<P> {
             self.connection.sync_manager.update(
                 &mut self.time_manager,
                 &mut self.tick_manager,
+                &self.connection.base.ping_manager,
                 &self.config.interpolation.delay,
                 self.config.shared.server_send_interval,
             );
@@ -221,37 +224,14 @@ impl<P: Protocol> Client<P> {
     /// Receive messages from the server
     pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
-        // TODO: time_manager is actually not needed by the client... code smell
-        let mut events = self.connection.base.receive(world, &self.time_manager);
-
-        // handle any sync messages
-        for sync in events.into_iter_syncs() {
-            match sync {
-                SyncMessage::Ping(ping) => {
-                    // self.connection.buffer_pong(&self.time_manager, ping);
-                }
-                SyncMessage::Pong(_) => {}
-                SyncMessage::Ping(_) => {
-                    panic!("only client sends time sync messages to server")
-                }
-                SyncMessage::Pong(pong) => {
-                    self.connection.sync_manager.buffer_pong(pong);
-                    // self.connection.sync_manager.process_pong(
-                    //     &pong,
-                    //     &mut self.time_manager,
-                    //     &mut self.tick_manager,
-                    // );
-                }
-            }
-        }
-
-        events
+        self.connection.base.receive(world, &self.time_manager)
     }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
         let packet_bytes = self
             .connection
+            .base
             .send_packets(&self.time_manager, &self.tick_manager)?;
         for mut packet_byte in packet_bytes {
             self.netcode.send(packet_byte.as_slice(), &mut self.io)?;

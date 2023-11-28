@@ -5,9 +5,9 @@ use bytes::Bytes;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
-use crate::tick::manager::TickManager;
-use crate::tick::time::TimeManager;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::TimeManager;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Acts as unreliable unordered, but sends the current tick with the message.

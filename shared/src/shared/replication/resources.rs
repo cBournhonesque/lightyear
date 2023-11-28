@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::shared::replication::Replicate;
+use crate::shared::replication::components::Replicate;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::{Entity, FromWorld, Resource, World};
 

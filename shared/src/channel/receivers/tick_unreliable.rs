@@ -3,9 +3,9 @@ use anyhow::Context;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageContainer, SingleData};
-use crate::tick::manager::TickManager;
-use crate::tick::time::{TimeManager, WrappedTime};
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
@@ -92,7 +92,7 @@ mod tests {
 
     use crate::channel::receivers::ChannelReceive;
     use crate::packet::message::SingleData;
-    use crate::tick::manager::TickConfig;
+    use crate::shared::tick_manager::TickConfig;
 
     use super::*;
 

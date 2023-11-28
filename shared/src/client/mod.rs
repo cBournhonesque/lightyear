@@ -21,9 +21,6 @@ pub mod input;
 /// Handles interpolation of entities between server updates
 pub mod interpolation;
 
-/// TODO: refactor
-pub mod ping_manager;
-
 /// Defines the client bevy plugin
 pub mod plugin;
 

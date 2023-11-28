@@ -9,7 +9,7 @@ pub use plugin::{add_interpolation_systems, add_lerp_systems};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::despawn::InterpolationMapping;
-pub use crate::shared::replication::interpolation::ShouldBeInterpolated;
+use crate::shared::replication::components::ShouldBeInterpolated;
 
 mod despawn;
 mod interpolate;

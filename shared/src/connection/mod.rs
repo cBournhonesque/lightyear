@@ -5,6 +5,7 @@ pub mod events;
 /// Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible messages that can be sent over the network
 pub(crate) mod message;
 
+use crate::_reexport::PingChannel;
 use anyhow::Result;
 use bevy::prelude::{Entity, World};
 use bitcode::__private::Serialize;
@@ -18,12 +19,13 @@ use crate::packet::packet_manager::Payload;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
+use crate::shared::ping::manager::{PingConfig, PingManager};
+use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::manager::ReplicationManager;
 use crate::shared::replication::ReplicationMessage;
-use crate::tick::manager::TickManager;
-use crate::tick::message::SyncMessage;
-use crate::tick::time::TimeManager;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::TimeManager;
 use crate::utils::named::Named;
 
 // NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
@@ -34,14 +36,16 @@ use crate::utils::named::Named;
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
 pub struct Connection<P: Protocol> {
+    pub ping_manager: PingManager,
     pub message_manager: MessageManager<ProtocolMessage<P>>,
     pub replication_manager: ReplicationManager<P>,
     pub events: ConnectionEvents<P>,
 }
 
 impl<P: Protocol> Connection<P> {
-    pub fn new(channel_registry: &ChannelRegistry) -> Self {
+    pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
         Self {
+            ping_manager: PingManager::new(ping_config),
             message_manager: MessageManager::new(channel_registry),
             replication_manager: ReplicationManager::default(),
             events: ConnectionEvents::new(),
@@ -52,6 +56,7 @@ impl<P: Protocol> Connection<P> {
 impl<P: Protocol> Connection<P> {
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.message_manager.update(time_manager, tick_manager);
+        self.ping_manager.update(time_manager);
     }
 
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
@@ -184,12 +189,29 @@ impl<P: Protocol> Connection<P> {
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
                 for message in messages {
-                    // TODO: maybe only run apply world if the client is time-synced!
-                    //  that would mean that for now, apply_world only runs on client, and not on server :)
-
-                    // TODO: maybe we only need the component kind in the events, so we don't need to clone the message!
-                    // apply replication messages to the world
-                    self.replication_manager.apply_world(world, message.clone());
+                    // other message-handling logic
+                    match message {
+                        ProtocolMessage::Replication(ref replication) => {
+                            // TODO: maybe only run apply world if the client is time-synced!
+                            //  that would mean that for now, apply_world only runs on client, and not on server :)
+                            self.replication_manager
+                                .apply_world(world, replication.clone());
+                        }
+                        ProtocolMessage::Sync(ref sync) => {
+                            match sync {
+                                SyncMessage::Ping(ping) => {
+                                    // prepare a pong in response (but do not send yet, because we need
+                                    // to set the correct send time)
+                                    self.ping_manager.buffer_pending_pong(ping, time_manager);
+                                }
+                                SyncMessage::Pong(pong) => {
+                                    // process the pong
+                                    self.ping_manager.process_pong(pong, time_manager);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                     // update events
                     message.push_to_events(channel_kind, &mut self.events, time_manager);
                 }
@@ -205,11 +227,39 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Send packets that are ready to be sent
-    pub fn send_packets(&mut self, tick_manager: &TickManager) -> Result<Vec<Payload>> {
-        // if !self.is_ready_to_send() {
-        //     info!("Not ready to send packets");
-        //     return Ok(vec![]);
-        // }
+    pub fn send_packets(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<Vec<Payload>> {
+        // update the ping manager with the actual send time
+        // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
+        //   - can give infinity priority to this channel?
+        //   - can write directly to io otherwise?
+        if time_manager.is_ready_to_send() {
+            // maybe send pings
+            // same thing, we want the correct send time for the ping
+            // (and not have the delay between when we prepare the ping and when we send the packet)
+            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
+                trace!("Sending ping {:?}", ping);
+                let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
+                let channel = ChannelKind::of::<PingChannel>();
+                self.message_manager.buffer_send(message, channel)?;
+            }
+
+            // prepare the pong messages with the correct send time
+            self.ping_manager
+                .take_pending_pongs()
+                .into_iter()
+                .try_for_each(|mut pong| {
+                    trace!("Sending pong {:?}", pong);
+                    // update the send time of the pong
+                    pong.pong_sent_time = time_manager.current_time();
+                    let message = ProtocolMessage::Sync(SyncMessage::Pong(pong));
+                    let channel = ChannelKind::of::<PingChannel>();
+                    self.message_manager.buffer_send(message, channel)
+                })?;
+        }
         self.message_manager
             .send_packets(tick_manager.current_tick())
     }

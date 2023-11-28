@@ -1,4 +1,4 @@
-use crate::tick::time::WrappedTime;
+use crate::shared::time_manager::WrappedTime;
 use crate::utils::sequence_buffer::SequenceBuffer;
 use crate::utils::wrapping_id;
 use crate::utils::wrapping_id::wrapping_id;
@@ -12,6 +12,7 @@ pub struct PingStore {
     /// Id that will be assigned to the next ping sent
     latest_ping_id: PingId,
     /// Buffer storing the latest pings sent along with their associated time
+    /// Older pings will get overwritten by newer pings
     buffer: SequenceBuffer<PingId, WrappedTime, PING_BUFFER_SIZE>,
 }
 

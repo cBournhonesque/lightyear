@@ -1,12 +1,12 @@
 use bevy::prelude::{Component, Query, ResMut};
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::InterpolatedComponent;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
 
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?
@@ -66,7 +66,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
             }
         }
 
-        info!(?current_interpolate_tick,
+        trace!(?current_interpolate_tick,
             last_received_server_tick = ?client.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
@@ -75,7 +75,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         status.end = end;
         status.current = current_interpolate_tick;
         if status.start.is_none() {
-            warn!("no lerp start tick");
+            trace!("no lerp start tick");
         }
         if status.end.is_none() {
             // warn!("no lerp end tick: might want to increase the interpolation delay");

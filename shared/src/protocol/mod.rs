@@ -5,6 +5,7 @@
 //! Channels are an abstraction over how the data will be sent over the network (reliability, ordering, etc.)
 
 use bevy::prelude::App;
+use lightyear_derive::ChannelInternal;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 

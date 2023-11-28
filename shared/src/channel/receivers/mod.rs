@@ -1,8 +1,8 @@
 use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::{MessageContainer, SingleData};
-use crate::tick::manager::TickManager;
-use crate::tick::time::TimeManager;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::TimeManager;
 
 /// Utilities to receive a Message from multiple fragment packets
 pub(crate) mod fragment_receiver;

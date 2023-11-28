@@ -1,9 +1,8 @@
 use bevy::prelude::{Commands, ResMut};
 use tracing::info;
 
-use lightyear_shared::client::Client;
+use lightyear_shared::prelude::client::Client;
 use lightyear_shared::prelude::*;
-use lightyear_shared::replication::Replicate;
 use lightyear_tests::protocol::{Channel2, MyProtocol};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {

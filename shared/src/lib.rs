@@ -16,11 +16,10 @@ pub mod _reexport {
     pub use enum_dispatch::enum_dispatch;
     pub use paste::paste;
 
+    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
-    pub use crate::client::interpolation::ShouldBeInterpolated;
-    pub use crate::client::prediction::ShouldBePredicted;
     pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
@@ -32,10 +31,10 @@ pub mod _reexport {
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     pub use crate::serialize::wordbuffer::writer::WriteWordBuffer;
     pub use crate::serialize::writer::WriteBuffer;
+    pub use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
     pub use crate::shared::replication::ReplicationSend;
-    pub use crate::tick::manager::TickManager;
-    pub use crate::tick::time::{TimeManager, WrappedTime};
-    pub use crate::tick::TickBufferChannel;
+    pub use crate::shared::tick_manager::TickManager;
+    pub use crate::shared::time_manager::{TimeManager, WrappedTime};
     pub use crate::utils::ready_buffer::ReadyBuffer;
     pub use crate::utils::sequence_buffer::SequenceBuffer;
 }
@@ -44,6 +43,7 @@ pub mod _reexport {
 pub mod prelude {
     pub use lightyear_derive::{component_protocol, message_protocol, Channel, Message};
 
+    pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
@@ -54,14 +54,14 @@ pub mod prelude {
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
-    pub use crate::shared::config::{LogConfig, SharedConfig};
+    pub use crate::shared::config::SharedConfig;
+    pub use crate::shared::log::LogConfig;
+    pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::SharedPlugin;
+    pub use crate::shared::replication::components::{NetworkTarget, Replicate};
     pub use crate::shared::replication::resources::ReplicationData;
-    pub use crate::shared::replication::{NetworkTarget, Replicate};
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
-    pub use crate::tick::manager::TickConfig;
-    pub use crate::tick::Tick;
-    pub use crate::tick::TickBufferChannel;
+    pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::transport::conditioner::LinkConditionerConfig;
     pub use crate::transport::io::{Io, IoConfig, TransportConfig};
     pub use crate::transport::udp::UdpSocket;
@@ -79,7 +79,6 @@ pub mod prelude {
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
         pub use crate::client::interpolation::{InterpolateStatus, Interpolated, LerpMode};
-        pub use crate::client::ping_manager::PingConfig;
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::plugin::PredictionConfig;
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
@@ -94,7 +93,6 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
-        pub use crate::server::ping_manager::PingConfig;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::resource::Server;
     }
@@ -129,9 +127,6 @@ pub mod server;
 
 /// Defines a bevy plugin that is shared between the server and the client
 pub mod shared;
-
-/// Handles updating the internal tick and time
-pub mod tick;
 
 /// Provides an abstraction over an unreliable transport
 pub mod transport;

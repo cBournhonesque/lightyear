@@ -2,9 +2,8 @@ use std::time::Duration;
 
 use crate::netcode::Key;
 use crate::shared::config::SharedConfig;
+use crate::shared::ping::manager::PingConfig;
 use crate::transport::io::IoConfig;
-
-use super::ping_manager::PingConfig;
 
 #[derive(Clone)]
 pub struct NetcodeConfig {

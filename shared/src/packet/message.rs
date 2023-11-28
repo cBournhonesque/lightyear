@@ -7,7 +7,7 @@ use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::tick::Tick;
+use crate::shared::tick_manager::Tick;
 use crate::utils::named::Named;
 use crate::utils::wrapping_id;
 use crate::utils::wrapping_id::wrapping_id;

@@ -10,8 +10,9 @@ use crate::netcode::ClientId;
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
 use crate::shared::events::ConnectEvent;
+use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::replication::resources::ReplicationData;
-use crate::shared::replication::{DespawnTracker, Replicate, ReplicationSend};
+use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::ReplicationSet;
 
 // TODO: make this more generic so that we can run it on both server and client
@@ -63,10 +64,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     for event in connect_events.read() {
         let client_id = event.context();
         query.iter().for_each(|(entity, replicate)| {
-            if replicate
-                .replication_target
-                .should_replicate_to(client_id.clone())
-            {
+            if replicate.replication_target.should_send_to(client_id) {
                 sender
                     .entity_spawn(entity, vec![], replicate.deref())
                     .unwrap();
@@ -100,10 +98,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
     for event in connect_events.read() {
         let client_id = event.context();
         query.iter().for_each(|(entity, component, replicate)| {
-            if replicate
-                .replication_target
-                .should_replicate_to(client_id.clone())
-            {
+            if replicate.replication_target.should_send_to(client_id) {
                 sender
                     .component_insert(entity, component.clone().into(), replicate)
                     .unwrap();
@@ -121,7 +116,6 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
         }
         // only update components that were not newly added ?
         if component.is_changed() && !component.is_added() {
-            info!("COMPONENT CHANGED");
             sender
                 .entity_update_single_component(entity, component.clone().into(), replicate)
                 .unwrap();

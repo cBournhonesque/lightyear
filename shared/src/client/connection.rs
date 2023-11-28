@@ -1,40 +1,44 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use tracing::debug;
+use bevy::prelude::World;
+use tracing::{debug, trace};
 
 use crate::channel::builder::PingChannel;
 use crate::client::sync::SyncConfig;
+use crate::connection::events::ConnectionEvents;
 use crate::connection::message::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::packet::packet_manager::Payload;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
-use crate::tick::manager::TickManager;
-use crate::tick::message::SyncMessage;
-use crate::tick::time::TimeManager;
-use crate::tick::Tick;
+use crate::shared::ping::manager::{PingConfig, PingManager};
+use crate::shared::ping::message::SyncMessage;
+use crate::shared::tick_manager::Tick;
+use crate::shared::tick_manager::TickManager;
+use crate::shared::time_manager::TimeManager;
 
 use super::sync::SyncManager;
 
-// TODO: this layer of indirection is annoying, is there a better way?
-//  maybe just pass the inner connection to ping_manager? (but harder to test)
+/// Wrapper around a [`crate::connection::Connection`] with client-specific logic
+/// (handling player inputs, and syncing the time between client and server)
 pub struct Connection<P: Protocol> {
     pub(crate) base: crate::connection::Connection<P>,
 
-    // pub(crate) ping_manager: PingManager,
     pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
 impl<P: Protocol> Connection<P> {
-    // NOTE: looks like we're using SyncManager on the client, and PingManager on the server
-    pub fn new(channel_registry: &ChannelRegistry, sync_config: SyncConfig) -> Self {
+    pub fn new(
+        channel_registry: &ChannelRegistry,
+        sync_config: SyncConfig,
+        ping_config: &PingConfig,
+    ) -> Self {
         Self {
-            base: crate::connection::Connection::new(channel_registry),
-            // ping_manager: PingManager::new(ping_config),
+            base: crate::connection::Connection::new(channel_registry, ping_config),
             input_buffer: InputBuffer::default(),
             sync_manager: SyncManager::new(sync_config),
         }
@@ -48,35 +52,6 @@ impl<P: Protocol> Connection<P> {
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.base.update(time_manager, tick_manager);
         // self.sync_manager.update(time_manager);
-    }
-
-    fn buffer_sync_ping(
-        &mut self,
-        time_manager: &TimeManager,
-        tick_manager: &TickManager,
-    ) -> Result<()> {
-        // client send pings to estimate rtt
-        if let Some(sync_ping) = self
-            .sync_manager
-            .maybe_prepare_ping(time_manager, tick_manager)
-        {
-            let message = ProtocolMessage::Sync(SyncMessage::Ping(sync_ping));
-            let channel = ChannelKind::of::<PingChannel>();
-            self.base.message_manager.buffer_send(message, channel)?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn send_packets(
-        &mut self,
-        time_manager: &TimeManager,
-        tick_manager: &TickManager,
-    ) -> Result<Vec<Payload>> {
-        // prepare pings as close as possible to sending so that ticks are correct
-        if time_manager.is_ready_to_send() {
-            self.buffer_sync_ping(time_manager, tick_manager)?;
-        }
-        self.base.send_packets(&tick_manager)
     }
 
     pub fn recv_packet(
@@ -94,37 +69,11 @@ impl<P: Protocol> Connection<P> {
             // Let's add delta / 2 as a compromise
             self.sync_manager.duration_since_latest_received_server_tick = Duration::default();
             // self.sync_manager.duration_since_latest_received_server_tick = time_manager.delta() / 2;
-            self.sync_manager.update_current_server_time(tick_manager);
+            self.sync_manager.update_current_server_time(
+                tick_manager.config.tick_duration,
+                self.base.ping_manager.rtt(),
+            );
         }
         Ok(())
     }
-
-    // pub fn buffer_ping(&mut self, time_manager: &TimeManager) -> Result<()> {
-    //     if !self.ping_manager.should_send_ping() {
-    //         return Ok(());
-    //     }
-    //
-    //     let ping_message = self.ping_manager.prepare_ping(time_manager);
-    //
-    //     // info!("Sending ping {:?}", ping_message);
-    //     trace!("Sending ping {:?}", ping_message);
-    //
-    //     let message = ProtocolMessage::Sync(SyncMessage::Ping(ping_message));
-    //     let channel = ChannelKind::of::<DefaultUnreliableChannel>();
-    //     self.base.message_manager.buffer_send(message, channel)
-    // }
-
-    // TODO: eventually call handle_ping and handle_pong directly from the connection
-    //  without having to send to events
-
-    // send pongs for every ping we received
-    // pub fn buffer_pong(&mut self, time_manager: &TimeManager, ping: PingMessage) -> Result<()> {
-    //     let pong_message = self.ping_manager.prepare_pong(time_manager, ping);
-    //
-    //     // info!("Sending ping {:?}", ping_message);
-    //     trace!("Sending pong {:?}", pong_message);
-    //     let message = ProtocolMessage::Sync(SyncMessage::Pong(pong_message));
-    //     let channel = ChannelKind::of::<DefaultUnreliableChannel>();
-    //     self.base.message_manager.buffer_send(message, channel)
-    // }
 }

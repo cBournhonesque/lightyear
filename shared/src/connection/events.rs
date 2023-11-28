@@ -8,7 +8,7 @@ use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::IntoKind;
 use crate::protocol::message::{MessageBehaviour, MessageKind};
 use crate::protocol::{EventContext, Protocol};
-use crate::tick::message::{Ping, Pong, SyncMessage};
+use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug)]
@@ -17,10 +17,6 @@ pub struct ConnectionEvents<P: Protocol> {
     pub connection: bool,
     pub disconnection: bool,
 
-    // sync
-    pub pings: Vec<Ping>,
-    pub pongs: Vec<Pong>,
-    pub syncs: Vec<SyncMessage>,
     // inputs
     // // TODO: maybe support a vec of inputs?
     // // TODO: we put the InputBuffer here right now instead of Connection because this struct is the one that is the most
@@ -57,10 +53,6 @@ impl<P: Protocol> ConnectionEvents<P> {
             // netcode
             connection: false,
             disconnection: false,
-            // sync
-            pings: Vec::new(),
-            pongs: Vec::new(),
-            syncs: Vec::new(),
             // inputs
             // inputs: InputBuffer::default(),
             // messages
@@ -82,9 +74,6 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn clear(&mut self) {
         self.connection = false;
         self.disconnection = false;
-        self.pings.clear();
-        self.pongs.clear();
-        self.syncs.clear();
         self.messages.clear();
         self.spawns.clear();
         self.despawns.clear();
@@ -111,45 +100,6 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn push_disconnection(&mut self) {
         self.disconnection = true;
         self.empty = false;
-    }
-
-    pub fn has_syncs(&self) -> bool {
-        !self.syncs.is_empty()
-    }
-
-    pub fn push_sync(&mut self, sync: SyncMessage) {
-        self.syncs.push(sync);
-        self.empty = false;
-    }
-
-    pub fn into_iter_syncs(&mut self) -> impl Iterator<Item = SyncMessage> + '_ {
-        std::mem::take(&mut self.syncs).into_iter()
-    }
-
-    pub fn has_pings(&self) -> bool {
-        !self.pings.is_empty()
-    }
-
-    pub fn push_ping(&mut self, ping: Ping) {
-        self.pings.push(ping);
-        self.empty = false;
-    }
-
-    pub fn into_iter_pings(&mut self) -> impl Iterator<Item = Ping> + '_ {
-        std::mem::take(&mut self.pings).into_iter()
-    }
-
-    pub fn has_pongs(&self) -> bool {
-        !self.pongs.is_empty()
-    }
-
-    pub fn push_pong(&mut self, pong: Pong) {
-        self.pongs.push(pong);
-        self.empty = false;
-    }
-
-    pub fn into_iter_pongs(&mut self) -> impl Iterator<Item = Pong> + '_ {
-        std::mem::take(&mut self.pongs).into_iter()
     }
 
     // /// Pop the input for the current tick from the input buffer

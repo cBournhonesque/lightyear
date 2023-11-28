@@ -13,7 +13,7 @@ use lightyear_shared::prelude::client::{
     Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
     SyncConfig,
 };
-use lightyear_shared::prelude::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
+use lightyear_shared::prelude::server::{NetcodeConfig, Server, ServerConfig};
 use lightyear_shared::prelude::*;
 use lightyear_shared::server as lightyear_server;
 
@@ -93,14 +93,7 @@ impl BevyStepper {
             netcode: Default::default(),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(conditioner.clone()),
-            ping: client::PingConfig {
-                sync_num_pings: 10,
-                sync_ping_interval_ms: Duration::from_millis(30),
-                ping_interval_ms: Default::default(),
-                rtt_ms_initial_estimate: Default::default(),
-                jitter_ms_initial_estimate: Default::default(),
-                rtt_smoothing_factor: 0.0,
-            },
+            ping: PingConfig::default(),
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
