@@ -14,14 +14,15 @@ use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::ChannelSender;
 use crate::utils::named::TypeNamed;
 
-/// A Channel is an abstraction for a way to send messages over the network
-/// You can define the direction, ordering, reliability of the channel
+/// A ChannelContainer is a struct that implements the [`Channel`] trait
 pub struct ChannelContainer {
     pub setting: ChannelSettings,
     pub(crate) receiver: ChannelReceiver,
     pub(crate) sender: ChannelSender,
 }
 
+/// A Channel is an abstraction for a way to send messages over the network
+/// You can define the direction, ordering, reliability of the channel
 pub trait Channel: 'static + TypeNamed {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
 }
@@ -38,13 +39,6 @@ impl ChannelBuilder {
         ChannelContainer::new(self.settings.clone())
     }
 }
-
-// /// Data from the channel that will be serialized in the header of the packet
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// pub(crate) struct ChannelHeader {
-//     pub(crate) kind: ChannelKind,
-//     // TODO: add fragmentation data
-// }
 
 impl ChannelContainer {
     pub fn new(settings: ChannelSettings) -> Self {
@@ -85,6 +79,7 @@ impl ChannelContainer {
     }
 }
 
+/// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
 #[derive(Clone, Debug)]
 pub struct ChannelSettings {
     // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
@@ -127,6 +122,7 @@ impl ChannelMode {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+/// [`ChannelDirection`] specifies in which direction the packets can be sent
 pub enum ChannelDirection {
     ClientToServer,
     ServerToClient,
@@ -147,26 +143,27 @@ impl ReliableSettings {
     }
 }
 
-/// Default channel to replicate entity actions reliably
+/// Default channel to replicate entity actions.
+/// This is an Unordered Reliable channel.
 /// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
 #[derive(ChannelInternal)]
 pub struct EntityActionsChannel;
 
 #[derive(ChannelInternal)]
 /// Default channel to replicate entity updates (ComponentUpdate)
-/// This is a sequenced unreliable channel
+/// This is a Sequenced Unreliable channel
 pub struct EntityUpdatesChannel;
 
-/// Default channel to replicate entity updates
-/// We send them in a sequenced way because there's no point in getting older updates if we received a later one
+/// Default channel to send pings. This is a Sequenced Unreliable channel, because
+/// there is no point in getting older pings.
 #[derive(ChannelInternal)]
 pub struct PingChannel;
 
+// TODO: should we use sequenced or unordered?
 #[derive(ChannelInternal)]
-/// Should we send input as unordered unreliable or sequenced?
-/// At least WE CANNOT SHARE SEQUENCED CHANNEL FOR PINGS AND INPUTS BECAUSE THEN RECEIVING MORE RECENT PINGS COULD MAKE US DISCARD INPUTS!
+/// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
 
-/// Default channel to send messages as fast as possible without any ordering
+/// Default Unordedered Unreliable channel, to send messages as fast as possible without any ordering.
 #[derive(ChannelInternal)]
 pub struct DefaultUnorderedUnreliableChannel;

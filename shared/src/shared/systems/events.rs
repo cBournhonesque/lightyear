@@ -1,12 +1,11 @@
 use bevy::prelude::{Component, Events, World};
 
 use crate::connection::events::{
-    EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    IterMessageEvent,
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, IterMessageEvent,
 };
 use crate::packet::message::Message;
 use crate::protocol::component::IntoKind;
-use crate::protocol::Protocol;
+use crate::protocol::{EventContext, Protocol};
 use crate::shared::events::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
 };

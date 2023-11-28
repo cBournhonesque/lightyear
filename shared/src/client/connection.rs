@@ -5,7 +5,7 @@ use tracing::debug;
 
 use crate::channel::builder::PingChannel;
 use crate::client::sync::SyncConfig;
-use crate::connection::ProtocolMessage;
+use crate::connection::message::ProtocolMessage;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::packet::packet_manager::Payload;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};

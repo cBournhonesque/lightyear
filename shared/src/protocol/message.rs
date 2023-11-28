@@ -4,11 +4,11 @@ use bevy::prelude::{App, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::connection::events::{EventContext, IterMessageEvent};
+use crate::connection::events::IterMessageEvent;
 use crate::inputs::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::protocol::registry::TypeKind;
-use crate::protocol::{BitSerializable, Protocol};
+use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::utils::named::Named;
 
 // client writes an Enum containing all their message type

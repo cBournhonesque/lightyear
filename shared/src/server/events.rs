@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::connection::events::{IterEntitySpawnEvent, IterMessageEvent};
-use crate::connection::ConnectionEvents;
+use crate::connection::events::{ConnectionEvents, IterEntitySpawnEvent, IterMessageEvent};
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;

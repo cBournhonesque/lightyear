@@ -12,13 +12,14 @@ use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::input::InputPlugin;
+use crate::server::resource::Server;
 use crate::server::systems::{clear_events, is_ready_to_send};
-use crate::server::Server;
 use crate::shared::plugin::SharedPlugin;
+use crate::shared::replication::resources::ReplicationData;
+use crate::shared::replication::systems::add_replication_send_systems;
+use crate::shared::sets::ReplicationSet;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::systems::replication::add_replication_send_systems;
 use crate::shared::systems::tick::increment_tick;
-use crate::shared::{ReplicationData, ReplicationSet};
 
 use super::config::ServerConfig;
 use super::systems::{receive, send};

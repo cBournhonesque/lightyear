@@ -26,6 +26,7 @@ pub fn channel_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     channel_impl(input, shared_crate_name)
 }
 
+#[doc(hidden)]
 #[proc_macro_derive(ChannelInternal)]
 pub fn channel_derive_internal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { crate };
@@ -34,18 +35,21 @@ pub fn channel_derive_internal(input: proc_macro::TokenStream) -> proc_macro::To
 
 // Message
 
+/// Derives the Message trait for a given struct
 #[proc_macro_derive(Message)]
 pub fn message_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { lightyear_shared };
     message_impl(input, shared_crate_name)
 }
 
+#[doc(hidden)]
 #[proc_macro_derive(MessageInternal)]
 pub fn message_derive_internal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { crate };
     message_impl(input, shared_crate_name)
 }
 
+#[doc(hidden)]
 #[proc_macro_attribute]
 pub fn message_protocol_internal(
     args: proc_macro::TokenStream,
@@ -55,6 +59,7 @@ pub fn message_protocol_internal(
     message_protocol_impl(args, input, shared_crate_name)
 }
 
+/// Attribute macro applied to an enum to derive the MessageProtocol trait for it
 #[proc_macro_attribute]
 pub fn message_protocol(
     args: proc_macro::TokenStream,
@@ -66,6 +71,7 @@ pub fn message_protocol(
 
 // Components
 
+#[doc(hidden)]
 #[proc_macro_attribute]
 pub fn component_protocol_internal(
     args: proc_macro::TokenStream,
@@ -75,6 +81,7 @@ pub fn component_protocol_internal(
     component_protocol_impl(args, input, shared_crate_name)
 }
 
+/// Attribute macro applied to an enum to derive the ComponentProtocol trait for it
 #[proc_macro_attribute]
 pub fn component_protocol(
     args: proc_macro::TokenStream,

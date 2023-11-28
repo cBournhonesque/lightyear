@@ -1,3 +1,9 @@
+//! # Protocol
+//!
+//! Protocol is the main struct that defines the various channels, inputs, messages and components that will be used in the game.
+//! Inputs, Messages and Components are all data structures that can be serialized and sent over the network.
+//! Channels are an abstraction over how the data will be sent over the network (reliability, ordering, etc.)
+
 use bevy::prelude::App;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -7,17 +13,57 @@ use crate::inputs::UserInput;
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
 use crate::protocol::message::MessageProtocol;
-use crate::replication::ReplicationSend;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::shared::replication::ReplicationSend;
 
+/// Defines the various channels that can be used to send data over the network
 pub(crate) mod channel;
+
+/// Defines the various components that can be sent over the network
 pub(crate) mod component;
+
+/// Defines the various messages that can be sent over the network
 pub(crate) mod message;
+
+/// Provides a mapping from a type to a unique identifier that can be serialized
 pub(crate) mod registry;
 
 // TODO: how to make components or messages or inputs optional? Just by having an implementation for () ?
-// TODO: maybe make input part of the protocol as well?
+/// The [`Protocol`] trait defines the various channels, inputs, messages and components that will be used in the game.
+///
+/// # Examples
+///
+/// Here is an example of a protocol that defines a single channel, a single message and a single component:
+/// ```
+///# use serde::{Serialize, Deserialize};
+///# use bevy::prelude::Component;
+///# use lightyear_shared::prelude::*;
+///
+///#[derive(Message, Serialize, Deserialize, Clone, PartialEq)]
+///pub struct Message1(pub String);
+///
+///#[derive(PartialEq)]
+///#[message_protocol(protocol = "MyProtocol")]
+///pub enum MyMessageProtocol {
+///    Message1(Message1),
+///}
+///
+///#[derive(Component, Serialize, Deserialize, Clone, PartialEq)]
+///pub struct Component1;
+///
+///#[derive(PartialEq)]
+///#[component_protocol(protocol = "MyProtocol")]
+///pub enum MyComponentsProtocol {
+///    Component1(Component1),
+///}
+///
+///protocolize! {
+///    Self = MyProtocol,
+///    Message = MyMessageProtocol,
+///    Component = MyComponentsProtocol,
+///}
+/// ```
 pub trait Protocol: Send + Sync + Clone + 'static {
     type Input: UserInput;
     type Message: MessageProtocol<Protocol = Self>;
@@ -29,6 +75,8 @@ pub trait Protocol: Send + Sync + Clone + 'static {
 }
 
 // TODO: give an option to change names of types
+
+/// This macro is used to build the Protocol struct
 #[macro_export]
 macro_rules! protocolize {
 
@@ -78,7 +126,7 @@ macro_rules! protocolize {
                         channel_registry: ChannelRegistry::default(),
                     };
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
-                        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+                        mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
@@ -181,6 +229,12 @@ where
         reader.deserialize::<Self>()
     }
 }
+
+/// Data that can be used in an Event
+/// Same as `Event`, but we implement it automatically for all compatible types
+pub trait EventContext: Send + Sync + 'static {}
+
+impl<T: Send + Sync + 'static> EventContext for T {}
 
 #[cfg(test)]
 pub mod tests {

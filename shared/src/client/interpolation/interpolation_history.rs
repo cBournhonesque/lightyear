@@ -9,7 +9,7 @@ use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::Interpolated;
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::tick::Tick;
 use crate::utils::ReadyBuffer;

@@ -5,8 +5,8 @@ use bevy::prelude::World;
 use tracing::trace;
 
 use crate::channel::builder::PingChannel;
-use crate::connection::events::IterMessageEvent;
-use crate::connection::{ConnectionEvents, ProtocolMessage};
+use crate::connection::events::{ConnectionEvents, IterMessageEvent};
+use crate::connection::message::ProtocolMessage;
 use crate::inputs::input_buffer::{InputBuffer, InputMessage};
 use crate::packet::packet_manager::Payload;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};

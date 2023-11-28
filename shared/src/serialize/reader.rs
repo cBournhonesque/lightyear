@@ -9,8 +9,10 @@ use serde::de::DeserializeOwned;
 pub trait ReadBuffer: BitRead {
     fn capacity(&self) -> usize;
 
-    /// Deserialize from the buffer into a value
+    /// Deserialize from the buffer using serde
     fn deserialize<T: DeserializeOwned>(&mut self) -> Result<T>;
+
+    /// Deserialize from the buffer using bitcode
     fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> Result<T>;
 
     /// Copy the bytes into the buffer, so that we can deserialize them

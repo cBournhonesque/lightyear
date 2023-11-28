@@ -5,7 +5,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::predicted_history::ComponentState;
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::protocol::Protocol;
 
 use super::predicted_history::PredictionHistory;

@@ -4,16 +4,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bevy::prelude::{Entity, Resource, World};
+use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, info, trace_span};
 
 use crate::channel::builder::Channel;
-use crate::client::interpolation::ShouldBeInterpolated;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::replication::prediction::ShouldBePredicted;
-use crate::replication::{NetworkTarget, Replicate, ReplicationSend};
+use crate::shared::replication::interpolation::ShouldBeInterpolated;
+use crate::shared::replication::prediction::ShouldBePredicted;
+use crate::shared::replication::{NetworkTarget, Replicate, ReplicationSend};
 use crate::tick::manager::TickManager;
 use crate::tick::message::SyncMessage;
 use crate::tick::time::TimeManager;
@@ -24,7 +25,6 @@ use crate::transport::{PacketSender, Transport};
 use super::config::ServerConfig;
 use super::connection::Connection;
 use super::events::ServerEvents;
-use super::io::NetcodeServerContext;
 
 #[derive(Resource)]
 pub struct Server<P: Protocol> {
@@ -44,6 +44,11 @@ pub struct Server<P: Protocol> {
     // Time
     time_manager: TimeManager,
     tick_manager: TickManager,
+}
+
+pub struct NetcodeServerContext {
+    pub connections: Sender<ClientId>,
+    pub disconnections: Sender<ClientId>,
 }
 
 impl<P: Protocol> Server<P> {

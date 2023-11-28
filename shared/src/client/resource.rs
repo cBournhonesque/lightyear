@@ -6,7 +6,7 @@ use bevy::prelude::{Resource, Time, Virtual, World};
 use tracing::trace;
 
 use crate::channel::builder::Channel;
-use crate::connection::ConnectionEvents;
+use crate::connection::events::ConnectionEvents;
 use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::Client as NetcodeClient;
 use crate::netcode::{ConnectToken, Key};

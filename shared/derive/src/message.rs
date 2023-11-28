@@ -94,13 +94,14 @@ pub fn message_protocol_impl(
     let from_into_methods = from_into_methods(&input, &fields, &enum_name);
 
     let output = quote! {
+        #[doc(hidden)]
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
             use bevy::prelude::{App, World};
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
-            use #shared_crate_name::connection::events::{EventContext, IterMessageEvent};
+            use #shared_crate_name::connection::events::{IterMessageEvent};
             use #shared_crate_name::shared::systems::events::push_message_events;
             use #shared_crate_name::shared::events::MessageEvent;
 

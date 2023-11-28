@@ -2,7 +2,7 @@ use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
 use tracing::{debug, trace};
 
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::connection::events::IterEntitySpawnEvent;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;

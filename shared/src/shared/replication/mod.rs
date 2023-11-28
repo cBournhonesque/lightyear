@@ -16,6 +16,8 @@ mod entity_map;
 pub mod interpolation;
 pub mod manager;
 pub mod prediction;
+pub mod resources;
+pub mod systems;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]

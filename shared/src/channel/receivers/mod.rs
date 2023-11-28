@@ -4,16 +4,27 @@ use crate::packet::message::{MessageContainer, SingleData};
 use crate::tick::manager::TickManager;
 use crate::tick::time::TimeManager;
 
+/// Utilities to receive a Message from multiple fragment packets
 pub(crate) mod fragment_receiver;
+
+/// Receive messages in an Ordered Reliable manner
 pub(crate) mod ordered_reliable;
+
+/// Receive messages in an Sequenced Reliable manner
 pub(crate) mod sequenced_reliable;
+
+/// Receive messages in an Sequenced Unreliable manner
 pub(crate) mod sequenced_unreliable;
+
 pub(crate) mod tick_unreliable;
+
+/// Receive messages in an Unordered Reliable manner
 pub(crate) mod unordered_reliable;
+
+/// Receive messages in an Unordered Unreliable manner
 pub(crate) mod unordered_unreliable;
 
-/// A trait for sending messages to a channel.
-/// A channel is a buffer over packets to be able to add ordering/reliability
+/// A trait for receiving messages over a channel
 #[enum_dispatch]
 pub trait ChannelReceive {
     /// Bookkeeping on the channel
@@ -26,7 +37,7 @@ pub trait ChannelReceive {
     fn read_message(&mut self) -> Option<SingleData>;
 }
 
-/// Enum dispatch lets us derive ChannelReceive on each enum variant
+/// This enum contains the various types of receivers available
 #[enum_dispatch(ChannelReceive)]
 pub enum ChannelReceiver {
     UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableReceiver),

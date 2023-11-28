@@ -9,9 +9,10 @@ use tracing::{debug, info};
 use crate::netcode::ClientId;
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
-use crate::replication::{DespawnTracker, Replicate, ReplicationSend};
 use crate::shared::events::ConnectEvent;
-use crate::shared::{ReplicationData, ReplicationSet};
+use crate::shared::replication::resources::ReplicationData;
+use crate::shared::replication::{DespawnTracker, Replicate, ReplicationSend};
+use crate::shared::sets::ReplicationSet;
 
 // TODO: make this more generic so that we can run it on both server and client
 //  client might want to replicate some things to server?

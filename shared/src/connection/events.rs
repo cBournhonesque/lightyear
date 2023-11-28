@@ -7,7 +7,7 @@ use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::IntoKind;
 use crate::protocol::message::{MessageBehaviour, MessageKind};
-use crate::protocol::Protocol;
+use crate::protocol::{EventContext, Protocol};
 use crate::tick::message::{PingMessage, PongMessage, SyncMessage};
 
 // TODO: don't make fields pub but instead make accessors
@@ -211,12 +211,6 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.empty = false;
     }
 }
-
-/// Data that can be used in an Event
-/// Same as `Event`, but we implement it automatically for all compatible types
-pub trait EventContext: Send + Sync + 'static {}
-
-impl<T: Send + Sync + 'static> EventContext for T {}
 
 pub trait IterMessageEvent<P: Protocol, Ctx: EventContext = ()> {
     fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)> + '_>

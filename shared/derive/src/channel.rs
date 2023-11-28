@@ -32,6 +32,7 @@ pub fn channel_impl(
     let get_builder_method = get_builder_method();
 
     let gen = quote! {
+        #[doc(hidden)]
         mod #module_name {
             pub use #shared_crate_name::prelude::{Channel, ChannelBuilder, ChannelContainer, ChannelSettings, TypeNamed};
             use super::*;

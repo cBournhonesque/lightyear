@@ -6,7 +6,7 @@ use bitvec::macros::internal::funty::Fundamental;
 use tracing::{debug, info, trace};
 
 use crate::client::interpolation::plugin::InterpolationDelay;
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::tick::manager::TickManager;

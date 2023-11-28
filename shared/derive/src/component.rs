@@ -141,6 +141,7 @@ pub fn component_protocol_impl(
     let remove_method = remove_method(&input, &fields, &enum_kind_name);
 
     let gen = quote! {
+        #[doc(hidden)]
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
@@ -148,8 +149,8 @@ pub fn component_protocol_impl(
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
             use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut, World};
-            use #shared_crate_name::shared::systems::replication::add_per_component_replication_send_systems;
-            use #shared_crate_name::connection::events::{EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
+            use #shared_crate_name::shared::replication::systems::add_per_component_replication_send_systems;
+            use #shared_crate_name::connection::events::{IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
             use #shared_crate_name::shared::systems::events::{
                 push_component_insert_events, push_component_remove_events, push_component_update_events,
             };

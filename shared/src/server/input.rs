@@ -5,7 +5,7 @@ use bevy::prelude::{
 
 use crate::netcode::ClientId;
 use crate::protocol::Protocol;
-use crate::server::Server;
+use crate::server::resource::Server;
 use crate::shared::events::InputEvent;
 use crate::shared::sets::FixedUpdateSet;
 

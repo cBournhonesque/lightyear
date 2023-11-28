@@ -5,13 +5,13 @@ use bevy::prelude::{App, Component, EntityWorldMut, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::client::interpolation::ShouldBeInterpolated;
 use crate::connection::events::{
-    EventContext, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
-use crate::protocol::{BitSerializable, Protocol};
-use crate::replication::prediction::ShouldBePredicted;
-use crate::replication::ReplicationSend;
+use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::shared::replication::interpolation::ShouldBeInterpolated;
+use crate::shared::replication::prediction::ShouldBePredicted;
+use crate::shared::replication::ReplicationSend;
 
 // client writes an Enum containing all their message type
 // each message must derive message

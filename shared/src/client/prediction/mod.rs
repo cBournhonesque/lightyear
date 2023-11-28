@@ -8,7 +8,7 @@ pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
-pub use crate::replication::prediction::ShouldBePredicted;
+pub use crate::shared::replication::prediction::ShouldBePredicted;
 use crate::tick::Tick;
 
 /// This file is dedicated to running Prediction on entities.

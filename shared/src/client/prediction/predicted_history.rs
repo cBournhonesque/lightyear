@@ -6,7 +6,7 @@ use bevy::prelude::{
 use tracing::error;
 
 use crate::client::components::SyncComponent;
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::tick::Tick;
 use crate::utils::ReadyBuffer;

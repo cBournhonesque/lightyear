@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
+use crate::shared::replication::Replicate;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::{Entity, FromWorld, Resource, World};
-
-use crate::replication::Replicate;
 
 #[derive(Resource)]
 pub struct ReplicationData {

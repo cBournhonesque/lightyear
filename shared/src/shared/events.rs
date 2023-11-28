@@ -5,13 +5,6 @@ use bevy::prelude::{Component, Entity, Event};
 use crate::inputs::UserInput;
 use crate::packet::message::Message;
 
-// pub struct NetworkEvent<Inner: EventContext, Ctx: EventContext> {
-//     inner: Inner,
-//     context: Ctx,
-// }
-//
-// pub type MessageEvent<Ctx = ()> = NetworkEvent<Message, Ctx>;
-
 #[derive(Event)]
 pub struct ConnectEvent<Ctx = ()>(Ctx);
 
@@ -36,7 +29,6 @@ impl<Ctx> DisconnectEvent<Ctx> {
     }
 }
 
-// TODO: for server
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
     message: M,

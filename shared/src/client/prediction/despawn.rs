@@ -5,7 +5,7 @@ use bevy::prelude::{Commands, Component, Entity, Query, With, World};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::prediction::Predicted;
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::tick::Tick;
 

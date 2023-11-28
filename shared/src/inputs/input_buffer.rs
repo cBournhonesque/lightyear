@@ -4,18 +4,11 @@ use std::fmt::Debug;
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
+use crate::inputs::UserInput;
 use lightyear_derive::MessageInternal;
 
 use crate::protocol::BitSerializable;
 use crate::tick::Tick;
-
-// TODO: should we request that a user input is a message?
-pub trait UserInput:
-    BitSerializable + Clone + Eq + PartialEq + Send + Sync + Debug + 'static
-{
-}
-
-impl UserInput for () {}
 
 #[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserInput> {

@@ -1,7 +1,8 @@
 use bevy::prelude::{App, Fixed, Plugin, Time};
 
 use crate::shared::config::SharedConfig;
-use crate::shared::{log, ReplicationData};
+use crate::shared::log;
+use crate::shared::replication::resources::ReplicationData;
 
 pub struct SharedPlugin {
     pub config: SharedConfig,

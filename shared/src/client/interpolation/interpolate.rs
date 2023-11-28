@@ -4,7 +4,7 @@ use tracing::{info, warn};
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::InterpolatedComponent;
-use crate::client::Client;
+use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::tick::Tick;
 

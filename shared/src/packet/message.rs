@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use bitcode::encoding::{Fixed, Gamma};
 use bytes::Bytes;
 
-use crate::connection::events::EventContext;
 use crate::packet::packet::FRAGMENT_SIZE;
+use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::tick::Tick;
