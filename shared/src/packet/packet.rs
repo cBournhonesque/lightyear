@@ -11,7 +11,7 @@ use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::utils::wrapping_id;
+use crate::utils::wrapping_id::wrapping_id;
 
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);

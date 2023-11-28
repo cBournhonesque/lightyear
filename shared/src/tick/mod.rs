@@ -3,6 +3,7 @@ use bevy::prelude::Resource;
 use lightyear_derive::ChannelInternal;
 
 use crate::utils::wrapping_id;
+use crate::utils::wrapping_id::wrapping_id;
 
 pub(crate) mod manager;
 pub(crate) mod message;

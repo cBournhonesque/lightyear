@@ -1,3 +1,13 @@
+//! # Time utilities
+//!
+//! ## Time Manager
+//! This crate defines [`TimeManager`], which is responsible for keeping track of the time.
+//! It will interact with bevy's [`Time`] resource, and potentially change the relative speed of the simulation.
+//!
+//! ## WrappedTime
+//!
+//! [`WrappedTime`] is a struct representing time, that wraps around 1 hour.
+//! It contains some helper functions to compute the difference between two times.
 use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
@@ -8,14 +18,16 @@ use bitcode::{Decode, Encode};
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
 
-// wrapping time: u32::MAX in microseconds (a bit over an hour)
+/// Time wraps after u32::MAX in microseconds (a bit over an hour)
 pub const WRAPPING_TIME_US: u32 = u32::MAX;
 
 pub struct TimeManager {
+    /// The current time
     wrapped_time: WrappedTime,
+    /// The remaining time after running the fixed-update steps
     overstep: Duration,
+    /// The time since the last frame; gets update by bevy's Time resource at the start of the frame
     delta: Duration,
-
     /// The relative speed set by the client.
     pub base_relative_speed: f32,
     /// Should we speedup or slowdown the simulation to sync the ticks?
@@ -56,17 +68,14 @@ impl TimeManager {
         self.overstep
     }
 
-    // TODO: when the user updates the relative speed, they should set the base_relative_speed here!
-    //  not use modify the relative speed on bevy's Time resource
+    /// Update the relative speed of the simulation by updating bevy's Time resource
     pub fn update_relative_speed(&self, time: &mut Time<Virtual>) {
         time.set_relative_speed(self.base_relative_speed * self.sync_relative_speed)
     }
 
-    /// Update the time by matching the virtual time from bevy
+    /// Update the time by applying the latest delta
     /// delta: delta time since last frame
     /// overstep: remaining time after running the fixed-update steps
-    /// (time from server start, wrapped around the hour)
-    // TODO: maybe just provide delta and overstep? (more easily testable, + it's just what we need)
     pub fn update(&mut self, delta: Duration, overstep: Duration) {
         self.delta = delta;
         self.wrapped_time += delta;
@@ -77,24 +86,10 @@ impl TimeManager {
         });
     }
 
-    // pub fn subtract_millis(&mut self, offset_ms: u32) {
-    //     let add_millis = WRAPPING_TIME_MS - offset_ms;
-    //     self.wrapped_time.elapsed_ms_wrapped += add_millis;
-    // }
-
-    /// Current time since server start, wrapped around 1 hour
+    /// Current time since start, wrapped around 1 hour
     pub fn current_time(&self) -> WrappedTime {
         self.wrapped_time
     }
-
-    pub fn set_current_time(&mut self, time: WrappedTime) {
-        self.wrapped_time = time;
-    }
-
-    // /// Current time since server start, wrapped around 1 hour
-    // pub fn mut_current_time(&mut self) -> WrappedTime {
-    //     mut self.wrapped_time
-    // }
 }
 
 /// Time since start of server, in milliseconds

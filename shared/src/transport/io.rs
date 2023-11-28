@@ -156,6 +156,5 @@ impl PacketReceiver for Box<dyn PacketReceiver + Send + Sync> {
 impl Transport for Io {
     fn local_addr(&self) -> SocketAddr {
         self.local_addr
-        // self.transport.local_addr()
     }
 }

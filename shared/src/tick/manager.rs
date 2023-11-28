@@ -5,9 +5,6 @@ use tracing::trace;
 
 use crate::tick::Tick;
 
-// When a server sends a message with its tick Ts, t
-// the client knows its current tick Tc and can compare Ts-Tc and know if it needs to slow down/up etc.
-// and it knows the tick difference between them as well as the rtt?
 #[derive(Clone)]
 pub struct TickConfig {
     pub tick_duration: Duration,
@@ -19,16 +16,16 @@ impl TickConfig {
     }
 }
 
-// Manages the tick for the host system
+/// Manages the tick for the host system. Ticks are incremented by one every time
+/// the [`bevy::prelude::FixedUpdate`] schedule runs
 #[derive(Resource)]
 pub struct TickManager {
+    /// Tick configuration
     pub config: TickConfig,
     /// Current tick (sequence number of the FixedUpdate schedule)
-    /// Gets updated by the FixedUpdate schedule
     tick: Tick,
 }
 
-// TODO: maybe put this outside of server/client? as a separate resource in SharedPlugin instead?
 impl TickManager {
     pub fn from_config(config: TickConfig) -> Self {
         Self {
@@ -36,11 +33,14 @@ impl TickManager {
             tick: Tick(0),
         }
     }
+
+    // NOTE: this is public just for integration testing purposes
+    #[doc(hidden)]
     pub fn increment_tick(&mut self) {
         self.tick += 1;
         trace!(new_tick = ?self.tick, "incremented client tick")
     }
-    pub fn set_tick_to(&mut self, tick: Tick) {
+    pub(crate) fn set_tick_to(&mut self, tick: Tick) {
         self.tick = tick;
     }
 

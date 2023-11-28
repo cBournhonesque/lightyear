@@ -3,7 +3,7 @@ use std::time::Duration;
 use bevy::prelude::{Timer, TimerMode};
 
 use crate::tick::manager::TickManager;
-use crate::tick::message::{PingMessage, PongMessage, TimeSyncPingMessage, TimeSyncPongMessage};
+use crate::tick::message::{Ping, Ping, Pong, Pong};
 use crate::tick::ping_store::PingStore;
 use crate::tick::time::TimeManager;
 use crate::tick::Tick;
@@ -47,7 +47,7 @@ pub struct PingManager {
     sent_pings: PingStore,
     /// We received time-sync pongs; we keep track that we will have to send pongs back when we can
     /// (when the connection's send_timer is ready)
-    pongs_to_send: Vec<TimeSyncPingMessage>,
+    pongs_to_send: Vec<Ping>,
 }
 
 impl PingManager {
@@ -77,14 +77,14 @@ impl PingManager {
     // TODO: issues here: we would like to send the ping message immediately, otherwise the recorded current time is incorrect
     //   - can give infinity priority to this channel?
     //   - can write directly to io otherwise?
-    pub fn prepare_ping(&mut self, time_manager: &TimeManager) -> PingMessage {
+    pub fn prepare_ping(&mut self, time_manager: &TimeManager) -> Ping {
         self.ping_timer.reset();
 
         let ping_id = self.sent_pings.push_new(time_manager.current_time());
 
         // TODO: for rtt purposes, we could just send a ping that has no tick info
         // PingMessage::new(ping_id, time_manager.current_tick())
-        PingMessage::new(ping_id, Tick(0))
+        Ping::new(ping_id, Tick(0))
 
         // let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
         // let channel = ChannelKind::of::<DefaultUnreliableChannel>();
@@ -95,9 +95,9 @@ impl PingManager {
     // TODO: issues here: we would like to send the ping message immediately, otherwise the recorded current time is incorrect
     //   - can give infinity priority to this channel?
     //   - can write directly to io otherwise?
-    pub fn prepare_pong(&mut self, time_manager: &TimeManager, ping: PingMessage) -> PongMessage {
+    pub fn prepare_pong(&mut self, time_manager: &TimeManager, ping: Ping) -> Pong {
         // TODO: for rtt purposes, we could just send a ping that has no tick info
-        PongMessage {
+        Pong {
             ping_id: ping.id,
             tick: Default::default(),
             offset_sec: 0.0,
@@ -115,10 +115,10 @@ impl PingManager {
         &mut self,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-        ping: TimeSyncPingMessage,
-    ) -> TimeSyncPongMessage {
+        ping: Ping,
+    ) -> Pong {
         // TODO: for rtt purposes, we could just send a ping that has no tick info
-        TimeSyncPongMessage {
+        Pong {
             ping_id: ping.id,
             // server_tick_instant: WrappedTime::new(0),
             // server_tick: tick_manager.current_tick(),
@@ -133,7 +133,7 @@ impl PingManager {
     }
 
     /// Process an incoming pong payload
-    pub fn process_pong(&mut self, pong: PongMessage, time_manager: &TimeManager) {
+    pub fn process_pong(&mut self, pong: Pong, time_manager: &TimeManager) {
         if let Some(ping_sent_time) = self.sent_pings.remove(pong.ping_id) {
             assert!(time_manager.current_time() > ping_sent_time);
             let rtt_millis =
@@ -151,11 +151,11 @@ impl PingManager {
         }
     }
 
-    pub(crate) fn buffer_sync_ping(&mut self, ping: TimeSyncPingMessage) {
+    pub(crate) fn buffer_sync_ping(&mut self, ping: Ping) {
         self.pongs_to_send.push(ping)
     }
 
-    pub(crate) fn client_pings_pending_pong(&mut self) -> Vec<TimeSyncPingMessage> {
+    pub(crate) fn client_pings_pending_pong(&mut self) -> Vec<Ping> {
         std::mem::take(&mut self.pongs_to_send)
     }
 }
@@ -191,7 +191,7 @@ mod tests {
         let delta = Duration::from_millis(20);
         ping_manager.update(delta);
         time_manager.update(delta, Duration::default());
-        let pong_message = PongMessage {
+        let pong_message = Pong {
             ping_id: PingId(0),
             tick: Default::default(),
             offset_sec: 0.0,

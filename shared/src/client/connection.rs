@@ -60,7 +60,7 @@ impl<P: Protocol> Connection<P> {
             .sync_manager
             .maybe_prepare_ping(time_manager, tick_manager)
         {
-            let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPing(sync_ping));
+            let message = ProtocolMessage::Sync(SyncMessage::Ping(sync_ping));
             let channel = ChannelKind::of::<PingChannel>();
             self.base.message_manager.buffer_send(message, channel)?;
         }

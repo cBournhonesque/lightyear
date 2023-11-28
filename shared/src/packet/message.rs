@@ -10,6 +10,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::tick::Tick;
 use crate::utils::named::Named;
 use crate::utils::wrapping_id;
+use crate::utils::wrapping_id::wrapping_id;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component

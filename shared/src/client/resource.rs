@@ -231,10 +231,10 @@ impl<P: Protocol> Client<P> {
                     // self.connection.buffer_pong(&self.time_manager, ping);
                 }
                 SyncMessage::Pong(_) => {}
-                SyncMessage::TimeSyncPing(_) => {
+                SyncMessage::Ping(_) => {
                     panic!("only client sends time sync messages to server")
                 }
-                SyncMessage::TimeSyncPong(pong) => {
+                SyncMessage::Pong(pong) => {
                     self.connection.sync_manager.buffer_pong(pong);
                     // self.connection.sync_manager.process_pong(
                     //     &pong,

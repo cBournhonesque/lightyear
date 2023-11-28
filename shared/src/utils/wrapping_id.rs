@@ -23,8 +23,7 @@ macro_rules! wrapping_id {
             use serde::{Deserialize, Serialize};
             use std::ops::{Add, AddAssign, Deref, Sub};
             use std::cmp::Ordering;
-            use crate::utils::WrappedId;
-            use crate::utils::wrapping_diff;
+            use crate::utils::wrapping_id::{wrapping_diff, WrappedId};
 
             // define the struct
             #[derive(

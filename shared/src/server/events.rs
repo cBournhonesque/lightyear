@@ -6,7 +6,7 @@ use crate::connection::events::{ConnectionEvents, IterEntitySpawnEvent, IterMess
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
-use crate::tick::message::{PingMessage, PongMessage};
+use crate::tick::message::{Ping, Pong};
 
 pub struct ServerEvents<P: Protocol> {
     // TODO: cannot include connection/disconnection directly into ConnectionEvents, because we remove
@@ -110,7 +110,7 @@ impl<P: Protocol> ServerEvents<P> {
             .any(|(_, connection_events)| connection_events.has_disconnection())
     }
 
-    pub fn iter_pings(&mut self) -> impl Iterator<Item = (PingMessage, ClientId)> + '_ {
+    pub fn iter_pings(&mut self) -> impl Iterator<Item = (Ping, ClientId)> + '_ {
         self.events.iter_mut().flat_map(|(client_id, events)| {
             let pings = events.into_iter_pings();
             let client_ids = std::iter::once(client_id.clone()).cycle();
@@ -124,7 +124,7 @@ impl<P: Protocol> ServerEvents<P> {
             .any(|(_, connection_events)| connection_events.has_pings())
     }
 
-    pub fn iter_pongs(&mut self) -> impl Iterator<Item = (PongMessage, ClientId)> + '_ {
+    pub fn iter_pongs(&mut self) -> impl Iterator<Item = (Pong, ClientId)> + '_ {
         self.events.iter_mut().flat_map(|(client_id, events)| {
             let pongs = events.into_iter_pongs();
             let client_ids = std::iter::once(client_id.clone()).cycle();

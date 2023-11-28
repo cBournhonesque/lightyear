@@ -8,7 +8,7 @@ use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::IntoKind;
 use crate::protocol::message::{MessageBehaviour, MessageKind};
 use crate::protocol::{EventContext, Protocol};
-use crate::tick::message::{PingMessage, PongMessage, SyncMessage};
+use crate::tick::message::{Ping, Pong, SyncMessage};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug)]
@@ -18,8 +18,8 @@ pub struct ConnectionEvents<P: Protocol> {
     pub disconnection: bool,
 
     // sync
-    pub pings: Vec<PingMessage>,
-    pub pongs: Vec<PongMessage>,
+    pub pings: Vec<Ping>,
+    pub pongs: Vec<Pong>,
     pub syncs: Vec<SyncMessage>,
     // inputs
     // // TODO: maybe support a vec of inputs?
@@ -130,12 +130,12 @@ impl<P: Protocol> ConnectionEvents<P> {
         !self.pings.is_empty()
     }
 
-    pub fn push_ping(&mut self, ping: PingMessage) {
+    pub fn push_ping(&mut self, ping: Ping) {
         self.pings.push(ping);
         self.empty = false;
     }
 
-    pub fn into_iter_pings(&mut self) -> impl Iterator<Item = PingMessage> + '_ {
+    pub fn into_iter_pings(&mut self) -> impl Iterator<Item = Ping> + '_ {
         std::mem::take(&mut self.pings).into_iter()
     }
 
@@ -143,12 +143,12 @@ impl<P: Protocol> ConnectionEvents<P> {
         !self.pongs.is_empty()
     }
 
-    pub fn push_pong(&mut self, pong: PongMessage) {
+    pub fn push_pong(&mut self, pong: Pong) {
         self.pongs.push(pong);
         self.empty = false;
     }
 
-    pub fn into_iter_pongs(&mut self) -> impl Iterator<Item = PongMessage> + '_ {
+    pub fn into_iter_pongs(&mut self) -> impl Iterator<Item = Pong> + '_ {
         std::mem::take(&mut self.pongs).into_iter()
     }
 

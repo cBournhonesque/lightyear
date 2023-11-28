@@ -10,11 +10,11 @@ use crate::client::resource::Client;
 use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::tick::manager::TickManager;
-use crate::tick::message::{TimeSyncPingMessage, TimeSyncPongMessage};
+use crate::tick::message::{Ping, Pong};
 use crate::tick::ping_store::{PingId, PingStore};
 use crate::tick::time::{TimeManager, WrappedTime};
 use crate::tick::Tick;
-use crate::utils::ReadyBuffer;
+use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
 pub fn client_is_synced<P: Protocol>(client: Res<Client<P>>) -> bool {
@@ -96,7 +96,7 @@ pub struct SyncManager {
     /// ping id corresponding to the most recent pong received
     most_recent_received_ping: PingId,
     /// We hold the pongs we received (we receive them at PreUpdate but we want to handle them at PostUpdate)
-    pong_buffer: Vec<TimeSyncPongMessage>,
+    pong_buffer: Vec<Pong>,
 
     // stats
     /// Buffer to store the stats of the last
@@ -228,7 +228,7 @@ impl SyncManager {
         }
     }
 
-    pub(crate) fn buffer_pong(&mut self, pong: TimeSyncPongMessage) {
+    pub(crate) fn buffer_pong(&mut self, pong: Pong) {
         self.pong_buffer.push(pong);
     }
 
@@ -241,7 +241,7 @@ impl SyncManager {
         &mut self,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> Option<TimeSyncPingMessage> {
+    ) -> Option<Ping> {
         // TODO: should we have something to start sending a sync ping right away? (so we don't wait for initial timer)
         if self.ping_timer.elapsed() >= self.config.sync_ping_interval {
             self.ping_timer.reset();
@@ -251,7 +251,7 @@ impl SyncManager {
                 .push_new(time_manager.current_time().clone());
 
             // TODO: for rtt purposes, we could just send a ping that has no tick info
-            return Some(TimeSyncPingMessage {
+            return Some(Ping {
                 id: ping_id,
                 tick: tick_manager.current_tick(),
                 ping_received_time: None,
@@ -525,7 +525,7 @@ impl SyncManager {
     /// Returns true if we have enough pongs to finalize the handshake
     pub(crate) fn process_pong(
         &mut self,
-        pong: &TimeSyncPongMessage,
+        pong: &Pong,
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
     ) -> bool {
@@ -655,7 +655,7 @@ mod tests {
         // send pings
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
-            Some(TimeSyncPingMessage {
+            Some(Ping {
                 id: PingId(0),
                 tick: Tick(0),
                 ping_received_time: None,
@@ -685,7 +685,7 @@ mod tests {
         tick_manager.set_tick_to(Tick(2));
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
-            Some(TimeSyncPingMessage {
+            Some(Ping {
                 id: PingId(1),
                 tick: Tick(2),
                 ping_received_time: None,
@@ -702,7 +702,7 @@ mod tests {
         );
         assert_eq!(
             sync_manager.maybe_prepare_ping(&time_manager, &tick_manager),
-            Some(TimeSyncPingMessage {
+            Some(Ping {
                 id: PingId(2),
                 tick: Tick(2),
                 ping_received_time: None,

@@ -1,3 +1,4 @@
+//! Contains the [`LinkConditionerConfig`] struct which can be used to simulate network conditions
 use std::io::Result;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -7,7 +8,7 @@ use rand;
 use rand::{thread_rng, Rng};
 
 use crate::transport::PacketReceiver;
-use crate::utils::ReadyBuffer;
+use crate::utils::ready_buffer::ReadyBuffer;
 
 cfg_if! {
     if #[cfg(any(test, feature = "mock_time"))] {

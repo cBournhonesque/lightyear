@@ -6,7 +6,7 @@ use crate::packet::message::{MessageContainer, SingleData};
 use crate::tick::manager::TickManager;
 use crate::tick::time::{TimeManager, WrappedTime};
 use crate::tick::Tick;
-use crate::utils::ReadyBuffer;
+use crate::utils::ready_buffer::ReadyBuffer;
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 

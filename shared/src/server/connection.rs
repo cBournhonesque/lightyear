@@ -12,7 +12,7 @@ use crate::packet::packet_manager::Payload;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::Protocol;
 use crate::tick::manager::TickManager;
-use crate::tick::message::{PingMessage, SyncMessage, TimeSyncPingMessage};
+use crate::tick::message::{Ping, Ping, SyncMessage};
 use crate::tick::time::TimeManager;
 
 use super::ping_manager::{PingConfig, PingManager};
@@ -88,7 +88,7 @@ impl<P: Protocol> Connection<P> {
         self.base.message_manager.buffer_send(message, channel)
     }
 
-    pub fn buffer_pong(&mut self, time_manager: &TimeManager, ping: PingMessage) -> Result<()> {
+    pub fn buffer_pong(&mut self, time_manager: &TimeManager, ping: Ping) -> Result<()> {
         let pong_message = self.ping_manager.prepare_pong(time_manager, ping);
 
         // info!("Sending ping {:?}", ping_message);
@@ -102,7 +102,7 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-        ping: TimeSyncPingMessage,
+        ping: Ping,
     ) -> Result<()> {
         let pong_message = self
             .ping_manager
@@ -110,7 +110,7 @@ impl<P: Protocol> Connection<P> {
 
         // info!("Sending ping {:?}", ping_message);
         trace!("Sending time sync pong {:?}", pong_message);
-        let message = ProtocolMessage::Sync(SyncMessage::TimeSyncPong(pong_message));
+        let message = ProtocolMessage::Sync(SyncMessage::Pong(pong_message));
         let channel = ChannelKind::of::<PingChannel>();
         self.base.message_manager.buffer_send(message, channel)
     }

@@ -9,7 +9,7 @@ use crate::client::components::SyncComponent;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::tick::Tick;
-use crate::utils::ReadyBuffer;
+use crate::utils::ready_buffer::ReadyBuffer;
 
 use super::{ComponentSyncMode, Confirmed, Predicted, Rollback, RollbackState};
 

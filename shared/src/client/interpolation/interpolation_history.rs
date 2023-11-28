@@ -12,7 +12,7 @@ use crate::client::interpolation::Interpolated;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::tick::Tick;
-use crate::utils::ReadyBuffer;
+use crate::utils::ready_buffer::ReadyBuffer;
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]

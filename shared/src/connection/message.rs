@@ -57,7 +57,7 @@ impl<P: Protocol> ProtocolMessage<P> {
             },
             ProtocolMessage::Sync(mut sync) => {
                 match sync {
-                    SyncMessage::TimeSyncPing(ref mut ping) => {
+                    SyncMessage::Ping(ref mut ping) => {
                         // set the time received
                         ping.ping_received_time = Some(time_manager.current_time());
                     }

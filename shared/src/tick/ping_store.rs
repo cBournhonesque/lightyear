@@ -1,6 +1,7 @@
 use crate::tick::time::WrappedTime;
 use crate::utils::sequence_buffer::SequenceBuffer;
 use crate::utils::wrapping_id;
+use crate::utils::wrapping_id::wrapping_id;
 
 wrapping_id!(PingId);
 
@@ -8,7 +9,9 @@ const PING_BUFFER_SIZE: usize = 32;
 
 /// Data structure to store the latest pings sent to remote
 pub struct PingStore {
+    /// Id that will be assigned to the next ping sent
     latest_ping_id: PingId,
+    /// Buffer storing the latest pings sent along with their associated time
     buffer: SequenceBuffer<PingId, WrappedTime, PING_BUFFER_SIZE>,
 }
 
@@ -29,6 +32,7 @@ impl PingStore {
         ping_id
     }
 
+    /// Remove a ping from the store and returns the corresponding time if it exists
     pub fn remove(&mut self, ping_id: PingId) -> Option<WrappedTime> {
         self.buffer.remove(&ping_id)
     }

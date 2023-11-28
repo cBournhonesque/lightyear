@@ -323,7 +323,7 @@ impl<P: Protocol> Server<P> {
                         connection.buffer_pong(&self.time_manager, ping).unwrap();
                     }
                     SyncMessage::Pong(_) => {}
-                    SyncMessage::TimeSyncPing(ping) => {
+                    SyncMessage::Ping(ping) => {
                         // TODO: we should actually add the send-time in the send
                         connection.ping_manager.buffer_sync_ping(ping);
                         // connection
@@ -332,7 +332,7 @@ impl<P: Protocol> Server<P> {
                         //     .buffer_sync_pong(&self.time_manager, &self.tick_manager, ping)
                         //     .unwrap();
                     }
-                    SyncMessage::TimeSyncPong(_) => {
+                    SyncMessage::Pong(_) => {
                         panic!("only the server sends time-sync-pong messages")
                     }
                 }
