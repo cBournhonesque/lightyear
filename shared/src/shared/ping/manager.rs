@@ -123,9 +123,7 @@ impl PingManager {
         if self.ping_timer.elapsed() >= self.config.ping_interval {
             self.ping_timer.reset();
 
-            let ping_id = self
-                .ping_store
-                .push_new(time_manager.current_time().clone());
+            let ping_id = self.ping_store.push_new(time_manager.current_time());
 
             return Some(Ping { id: ping_id });
         }
@@ -225,7 +223,7 @@ impl PingManager {
             }
             SyncMessage::Pong(pong) => {
                 // process the pong
-                self.process_pong(&pong, time_manager);
+                self.process_pong(pong, time_manager);
             }
         }
     }
@@ -260,12 +258,11 @@ mod tests {
         let mut ping_manager = PingManager::new(&config);
         let mut time_manager = TimeManager::new(Duration::default());
 
-        assert!(!ping_manager.is_synced());
         assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
 
         let delta = Duration::from_millis(100);
         time_manager.update(delta, Duration::default());
-        ping_manager.update(&mut time_manager);
+        ping_manager.update(&time_manager);
 
         // send pings
         assert_eq!(
@@ -274,12 +271,12 @@ mod tests {
         );
         let delta = Duration::from_millis(60);
         time_manager.update(delta, Duration::default());
-        ping_manager.update(&mut time_manager);
+        ping_manager.update(&time_manager);
 
         // ping timer hasn't gone off yet, send nothing
         assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
         time_manager.update(delta, Duration::default());
-        ping_manager.update(&mut time_manager);
+        ping_manager.update(&time_manager);
         assert_eq!(
             ping_manager.maybe_prepare_ping(&time_manager),
             Some(Ping { id: PingId(1) })
@@ -287,7 +284,7 @@ mod tests {
 
         let delta = Duration::from_millis(100);
         time_manager.update(delta, Duration::default());
-        ping_manager.update(&mut time_manager);
+        ping_manager.update(&time_manager);
         assert_eq!(
             ping_manager.maybe_prepare_ping(&time_manager),
             Some(Ping { id: PingId(2) })

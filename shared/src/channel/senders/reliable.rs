@@ -256,7 +256,7 @@ mod tests {
 
         // Buffer a new message
         let mut message1 = Bytes::from("hello");
-        sender.buffer_send(message1.clone().into());
+        sender.buffer_send(message1.clone());
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent
@@ -273,7 +273,7 @@ mod tests {
         sender.collect_messages_to_send();
         assert_eq!(sender.single_messages_to_send.len(), 1);
         assert_eq!(
-            sender.single_messages_to_send.get(0).unwrap(),
+            sender.single_messages_to_send.front().unwrap(),
             &SingleData::new(Some(MessageId(0)), message1.clone())
         );
 

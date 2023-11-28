@@ -56,13 +56,13 @@ pub fn message_protocol_impl(
     let attr_args = match NestedMeta::parse_meta_list(args.into()) {
         Ok(v) => v,
         Err(e) => {
-            return TokenStream::from(Error::from(e).write_errors()).into();
+            return Error::from(e).write_errors().into();
         }
     };
     let attr = match MacroAttrs::from_list(&attr_args) {
         Ok(v) => v,
         Err(e) => {
-            return TokenStream::from(e.write_errors()).into();
+            return e.write_errors().into();
         }
     };
     let protocol = &attr.protocol;
@@ -91,7 +91,7 @@ pub fn message_protocol_impl(
     let encode_method = encode_method();
     let decode_method = decode_method();
 
-    let from_into_methods = from_into_methods(&input, &fields, &enum_name);
+    let from_into_methods = from_into_methods(&input, &fields, enum_name);
 
     let output = quote! {
         #[doc(hidden)]
@@ -193,7 +193,7 @@ fn name_method(input: &ItemEnum) -> TokenStream {
     }
 }
 
-fn from_into_methods(input: &ItemEnum, fields: &Vec<&Field>, enum_name: &Ident) -> TokenStream {
+fn from_into_methods(input: &ItemEnum, fields: &[&Field], enum_name: &Ident) -> TokenStream {
     let enum_name = &input.ident;
     let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut body = quote! {};

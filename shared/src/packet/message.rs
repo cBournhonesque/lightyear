@@ -256,8 +256,7 @@ impl FragmentData {
         let tick = reader.decode::<Option<Tick>>(Fixed)?;
         let fragment_id = reader.decode::<FragmentIndex>(Gamma)?;
         let num_fragments = reader.decode::<FragmentIndex>(Gamma)?;
-        let bytes: Bytes;
-        if fragment_id == num_fragments - 1 {
+        let bytes = if fragment_id == num_fragments - 1 {
             // let num_bytes = reader.decode::<usize>(Gamma)?;
             // let num_bytes_non_zero = std::num::NonZeroUsize::new(num_bytes)
             //     .ok_or_else(|| anyhow::anyhow!("num_bytes is 0"))?;
@@ -267,14 +266,14 @@ impl FragmentData {
             // TODO: avoid the extra copy
             //  - maybe have the encoding of bytes be
             let read_bytes = reader.decode::<Vec<u8>>(Fixed)?;
-            bytes = Bytes::from(read_bytes);
+            Bytes::from(read_bytes)
         } else {
             // Serde does not handle arrays well (https://github.com/serde-rs/serde/issues/573)
             let read_bytes = reader.decode::<[u8; FRAGMENT_SIZE]>(Fixed)?;
             // TODO: avoid the extra copy
             let bytes_vec: Vec<u8> = read_bytes.to_vec();
-            bytes = Bytes::from(bytes_vec);
-        }
+            Bytes::from(bytes_vec)
+        };
         Ok(Self {
             message_id,
             tick,
@@ -388,7 +387,7 @@ mod tests {
         // dbg!(a);
         let bytes = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(bytes.as_ref());
+        let mut reader = ReadWordBuffer::start_read(bytes);
         let decoded = SingleData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));
@@ -416,7 +415,7 @@ mod tests {
         // dbg!(a);
         let bytes = writer.finish_write();
 
-        let mut reader = ReadWordBuffer::start_read(bytes.as_ref());
+        let mut reader = ReadWordBuffer::start_read(bytes);
         let decoded = FragmentData::decode(&mut reader).unwrap();
 
         // dbg!(bitvec::vec::BitVec::<u8>::from_slice(&bytes));

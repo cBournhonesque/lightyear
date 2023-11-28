@@ -98,42 +98,6 @@ impl<T: SyncComponent> PredictionHistory<T> {
     // }
 }
 
-#[cfg(test)]
-mod tests {
-    // use super::*;
-    //
-    // #[derive(Component, Clone, PartialEq, Eq, Debug)]
-    // pub struct A(u32);
-    //
-    // #[test]
-    // fn test_component_history() {
-    //     let mut component_history = ComponentHistory::new();
-    //
-    //     // check when we try to access a value when the buffer is empty
-    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
-    //
-    //     // check when we try to access an exact tick
-    //     component_history.buffer.add_item(Tick(1), A(1));
-    //     component_history.buffer.add_item(Tick(2), A(2));
-    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(2)));
-    //     // check that we cleared older ticks
-    //     assert!(component_history.buffer.is_empty());
-    //
-    //     // check when we try to access a value in-between ticks
-    //     component_history.buffer.add_item(Tick(1), A(1));
-    //     component_history.buffer.add_item(Tick(3), A(3));
-    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(1)));
-    //     assert_eq!(component_history.buffer.len(), 1);
-    //     assert_eq!(component_history.get_history_at_tick(Tick(4)), Some(A(3)));
-    //     assert!(component_history.buffer.is_empty());
-    //
-    //     // check when we try to access a value before any ticks
-    //     component_history.buffer.add_item(Tick(1), A(1));
-    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
-    //     assert_eq!(component_history.buffer.len(), 1);
-    // }
-}
-
 // This system:
 // - when we receive a confirmed entity, we will create a predicted entity
 // - when that predicted entity is created, we need to copy all components from the confirmed entity to the predicted entity, and create ComponentHistories
@@ -302,4 +266,40 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    // use super::*;
+    //
+    // #[derive(Component, Clone, PartialEq, Eq, Debug)]
+    // pub struct A(u32);
+    //
+    // #[test]
+    // fn test_component_history() {
+    //     let mut component_history = ComponentHistory::new();
+    //
+    //     // check when we try to access a value when the buffer is empty
+    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
+    //
+    //     // check when we try to access an exact tick
+    //     component_history.buffer.add_item(Tick(1), A(1));
+    //     component_history.buffer.add_item(Tick(2), A(2));
+    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(2)));
+    //     // check that we cleared older ticks
+    //     assert!(component_history.buffer.is_empty());
+    //
+    //     // check when we try to access a value in-between ticks
+    //     component_history.buffer.add_item(Tick(1), A(1));
+    //     component_history.buffer.add_item(Tick(3), A(3));
+    //     assert_eq!(component_history.get_history_at_tick(Tick(2)), Some(A(1)));
+    //     assert_eq!(component_history.buffer.len(), 1);
+    //     assert_eq!(component_history.get_history_at_tick(Tick(4)), Some(A(3)));
+    //     assert!(component_history.buffer.is_empty());
+    //
+    //     // check when we try to access a value before any ticks
+    //     component_history.buffer.add_item(Tick(1), A(1));
+    //     assert_eq!(component_history.get_history_at_tick(Tick(0)), None);
+    //     assert_eq!(component_history.buffer.len(), 1);
+    // }
 }

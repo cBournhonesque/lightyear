@@ -10,7 +10,7 @@ struct MacroAttrs {
     protocol: Ident,
 }
 
-const ATTRIBUTES: &'static [&'static str] = &["sync"];
+const ATTRIBUTES: &[&str] = &["sync"];
 
 #[derive(Debug, FromField)]
 #[darling(attributes(sync))]
@@ -79,13 +79,13 @@ pub fn component_protocol_impl(
     let attr_args = match NestedMeta::parse_meta_list(args.into()) {
         Ok(v) => v,
         Err(e) => {
-            return TokenStream::from(Error::from(e).write_errors()).into();
+            return Error::from(e).write_errors().into();
         }
     };
     let attr = match MacroAttrs::from_list(&attr_args) {
         Ok(v) => v,
         Err(e) => {
-            return TokenStream::from(e.write_errors()).into();
+            return e.write_errors().into();
         }
     };
     let protocol = &attr.protocol;
@@ -108,7 +108,7 @@ pub fn component_protocol_impl(
     let sync_fields: Vec<SyncField> = fields
         .iter()
         .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("sync")))
-        .map(|field| FromField::from_field(&field).unwrap())
+        .map(|field| FromField::from_field(field).unwrap())
         .collect();
     for field in &sync_fields {
         field.check_is_valid();
@@ -222,11 +222,10 @@ fn strip_attributes(input: &ItemEnum) -> ItemEnum {
     for variant in input.variants.iter_mut() {
         // remove all attributes that are used in this macro
         variant.attrs.retain(|v| {
-            v.path().segments.first().map_or(true, |s| {
-                ATTRIBUTES
-                    .iter()
-                    .all(|attr| attr.to_string() != s.ident.to_string())
-            })
+            v.path()
+                .segments
+                .first()
+                .map_or(true, |s| ATTRIBUTES.iter().all(|attr| s.ident != *attr))
         })
     }
     input
@@ -423,7 +422,7 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     }
 }
 
-fn into_kind_method(input: &ItemEnum, fields: &Vec<Field>, enum_kind_name: &Ident) -> TokenStream {
+fn into_kind_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> TokenStream {
     let component_kind_names = input.variants.iter().map(|v| &v.ident);
     let component_types = fields.iter().map(|field| &field.ty);
 
@@ -441,7 +440,7 @@ fn into_kind_method(input: &ItemEnum, fields: &Vec<Field>, enum_kind_name: &Iden
     field_body
 }
 
-fn remove_method(input: &ItemEnum, fields: &Vec<Field>, enum_kind_name: &Ident) -> TokenStream {
+fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> TokenStream {
     let component_kind_names = input.variants.iter().map(|v| &v.ident);
     let component_types = fields.iter().map(|field| &field.ty);
 

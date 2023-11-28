@@ -30,7 +30,7 @@ fn add_despawn_tracker(
     for (entity, replicate) in query.iter() {
         debug!("Adding DespawnTracker to entity: {:?}", entity);
         commands.entity(entity).insert(DespawnTracker);
-        replication.owned_entities.insert(entity, replicate.clone());
+        replication.owned_entities.insert(entity, *replicate);
     }
 }
 
@@ -75,7 +75,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate)| {
         if replicate.is_added() {
-            replication.owned_entities.insert(entity, replicate.clone());
+            replication.owned_entities.insert(entity, *replicate);
             sender
                 .entity_spawn(entity, vec![], replicate.deref())
                 .unwrap();

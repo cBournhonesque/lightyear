@@ -81,9 +81,9 @@ impl TimeManager {
         self.wrapped_time += delta;
         // set the overstep to the overstep of fixed_time
         self.overstep = overstep;
-        self.send_timer.as_mut().map(|timer| {
+        if let Some(timer) = self.send_timer.as_mut() {
             timer.tick(delta);
-        });
+        }
     }
 
     /// Current time since start, wrapped around 1 hour

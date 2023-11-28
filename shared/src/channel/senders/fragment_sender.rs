@@ -64,7 +64,7 @@ mod tests {
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(
-            fragments.get(0).unwrap(),
+            fragments.first().unwrap(),
             &FragmentData {
                 message_id,
                 tick: None,

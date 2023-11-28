@@ -53,6 +53,7 @@ impl Default for LogPlugin {
 }
 
 #[derive(Clone)]
+/// Configuration to setup logging/metrics
 pub struct LogConfig {
     /// Filters logs using the [`EnvFilter`] format
     pub filter: String,

@@ -130,13 +130,13 @@ mod tests {
 
         let mut read_buffer = ReadWordBuffer::start_read(bytes);
         let bool = read_buffer.deserialize::<bool>()?;
-        assert_eq!(bool, true);
+        assert!(bool);
         let bool = read_buffer.deserialize::<bool>()?;
-        assert_eq!(bool, false);
+        assert!(!bool);
         let bool = read_buffer.deserialize::<bool>()?;
-        assert_eq!(bool, true);
+        assert!(bool);
         let bool = read_buffer.deserialize::<bool>()?;
-        assert_eq!(bool, true);
+        assert!(!bool);
         read_buffer.finish_read()?;
 
         dbg!(bytes);

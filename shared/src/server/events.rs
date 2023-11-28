@@ -63,7 +63,7 @@ impl<P: Protocol> ServerEvents<P> {
     pub fn iter_connections(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.events
             .iter()
-            .filter_map(|(client_id, events)| events.has_connection().then_some(client_id.clone()))
+            .filter_map(|(client_id, events)| events.has_connection().then_some(*client_id))
     }
 
     pub fn has_connections(&self) -> bool {
@@ -95,9 +95,9 @@ impl<P: Protocol> ServerEvents<P> {
     // }
 
     pub fn iter_disconnections(&self) -> impl Iterator<Item = ClientId> + '_ {
-        self.events.iter().filter_map(|(client_id, events)| {
-            events.has_disconnection().then_some(client_id.clone())
-        })
+        self.events
+            .iter()
+            .filter_map(|(client_id, events)| events.has_disconnection().then_some(*client_id))
     }
 
     pub fn has_disconnections(&self) -> bool {
@@ -140,8 +140,8 @@ impl<P: Protocol> IterMessageEvent<P, ClientId> for ServerEvents<P> {
     {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let messages = events.into_iter_messages::<M>().map(|(message, _)| message);
-            let client_ids = std::iter::once(client_id.clone()).cycle();
-            return messages.zip(client_ids);
+            let client_ids = std::iter::once(*client_id).cycle();
+            messages.zip(client_ids)
         }))
     }
 
@@ -156,8 +156,8 @@ impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_spawn().map(|(entity, _)| entity);
-            let client_ids = std::iter::once(client_id.clone()).cycle();
-            return entities.zip(client_ids);
+            let client_ids = std::iter::once(*client_id).cycle();
+            entities.zip(client_ids)
         }))
     }
 

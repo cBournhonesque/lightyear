@@ -64,7 +64,7 @@ impl ReadBuffer for ReadWordBuffer {
                 .0
                 .as_mut()
                 .map_or_else(|| panic!("no reader"), |(reader, _)| reader);
-            Ok(T::decode(encoding, reader).context("error decoding")?)
+            T::decode(encoding, reader).context("error decoding")
         })
     }
 

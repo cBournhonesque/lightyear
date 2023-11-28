@@ -77,7 +77,7 @@ pub fn spawn_predicted_entity(
 ) {
     for (confirmed_entity, mut confirmed) in confirmed_entities.iter_mut() {
         // spawn a new predicted entity
-        let predicted_entity_mut = commands.spawn((Predicted { confirmed_entity }));
+        let predicted_entity_mut = commands.spawn(Predicted { confirmed_entity });
         let predicted_entity = predicted_entity_mut.id();
 
         // add Confirmed to the confirmed entity
@@ -86,12 +86,10 @@ pub fn spawn_predicted_entity(
         if let Some(mut confirmed) = confirmed {
             confirmed.predicted = Some(predicted_entity);
         } else {
-            confirmed_entity_mut.insert(
-                (Confirmed {
-                    predicted: Some(predicted_entity),
-                    interpolated: None,
-                }),
-            );
+            confirmed_entity_mut.insert(Confirmed {
+                predicted: Some(predicted_entity),
+                interpolated: None,
+            });
         }
         info!(
             "Spawn predicted entity {:?} for confirmed: {:?}",

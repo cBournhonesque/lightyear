@@ -186,7 +186,7 @@ impl<P: Protocol> IterMessageEvent<P> for ConnectionEvents<P> {
                 })
             }));
         }
-        return Box::new(iter::empty());
+        Box::new(iter::empty())
     }
 
     fn has_messages<M: Message>(&self) -> bool {
@@ -249,7 +249,7 @@ impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
         if let Some(data) = self.component_updates.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
-        return Box::new(iter::empty());
+        Box::new(iter::empty())
     }
 
     fn has_component_update<C: Component>(&self) -> bool
@@ -283,7 +283,7 @@ impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
         if let Some(data) = self.component_removes.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
-        return Box::new(iter::empty());
+        Box::new(iter::empty())
     }
 
     fn has_component_remove<C: Component>(&self) -> bool
@@ -317,7 +317,7 @@ impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
         if let Some(data) = self.component_inserts.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
-        return Box::new(iter::empty());
+        Box::new(iter::empty())
     }
 
     fn has_component_insert<C: Component>(&self) -> bool

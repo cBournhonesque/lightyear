@@ -33,7 +33,7 @@ pub struct InputPlugin<P: Protocol> {
 impl<P: Protocol> Default for InputPlugin<P> {
     fn default() -> Self {
         Self {
-            _marker: std::marker::PhantomData::default(),
+            _marker: std::marker::PhantomData,
         }
     }
 }

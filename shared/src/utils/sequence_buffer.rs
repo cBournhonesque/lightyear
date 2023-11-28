@@ -15,6 +15,12 @@ pub struct SequenceBuffer<K: WrappedId, T, const N: usize> {
     _marker: PhantomData<K>,
 }
 
+impl<K: WrappedId, T, const N: usize> Default for SequenceBuffer<K, T, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: WrappedId, T, const N: usize> SequenceBuffer<K, T, N> {
     pub fn new() -> Self {
         Self {

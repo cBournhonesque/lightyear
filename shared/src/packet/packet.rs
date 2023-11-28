@@ -98,7 +98,7 @@ impl SinglePacket {
 
     #[cfg(test)]
     pub fn num_messages(&self) -> usize {
-        self.data.iter().map(|(_, messages)| messages.len()).sum()
+        self.data.values().map(|messages| messages.len()).sum()
     }
 }
 
@@ -426,9 +426,9 @@ mod tests {
         let message2 = SingleData::new(None, Bytes::from("world"));
         let message3 = SingleData::new(None, Bytes::from("!"));
 
-        packet.add_message(0, message1.clone().into());
-        packet.add_message(0, message2.clone().into());
-        packet.add_message(1, message3.clone().into());
+        packet.add_message(0, message1.clone());
+        packet.add_message(0, message2.clone());
+        packet.add_message(1, message3.clone());
         // add a channel with no messages
         packet.add_channel(2);
 
@@ -495,9 +495,9 @@ mod tests {
         let message2 = SingleData::new(None, Bytes::from("world"));
         let message3 = SingleData::new(None, Bytes::from("!"));
 
-        packet.packet.add_message(0, message1.clone().into());
-        packet.packet.add_message(0, message2.clone().into());
-        packet.packet.add_message(1, message3.clone().into());
+        packet.packet.add_message(0, message1.clone());
+        packet.packet.add_message(0, message2.clone());
+        packet.packet.add_message(1, message3.clone());
         // add a channel with no messages
         packet.packet.add_channel(2);
 

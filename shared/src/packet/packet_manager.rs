@@ -384,9 +384,9 @@ impl PacketManager {
             'packet: loop {
                 // Can we write the channel id? If not, start a new packet (and add the channel id)
                 if single_packet.is_none()
-                    || single_packet.as_mut().is_some_and(|mut p| {
-                        !self.can_add_channel_to_packet(&channel_id, &mut p).unwrap()
-                    })
+                    || single_packet
+                        .as_mut()
+                        .is_some_and(|p| !self.can_add_channel_to_packet(&channel_id, p).unwrap())
                 {
                     let mut packet = self.build_new_single_packet();
                     // single_packet = Some(self.build_new_single_packet());
@@ -657,29 +657,14 @@ mod tests {
 
         let small_message = Bytes::from("hello");
         let mut packet = manager.build_new_single_packet();
-        assert_eq!(
-            manager.can_add_channel_to_packet(channel_id, &mut packet)?,
-            true
-        );
+        assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
 
-        assert_eq!(
-            manager.can_add_bits(small_message.len() * (u8::BITS as usize)),
-            true
-        );
-        packet.add_message(
-            channel_id.clone(),
-            SingleData::new(None, small_message.clone()),
-        );
+        assert!(manager.can_add_bits(small_message.len() * (u8::BITS as usize)),);
+        packet.add_message(*channel_id, SingleData::new(None, small_message.clone()));
         assert_eq!(packet.num_messages(), 1);
 
-        assert_eq!(
-            manager.can_add_bits(small_message.len() * (u8::BITS as usize)),
-            true
-        );
-        packet.add_message(
-            channel_id.clone(),
-            SingleData::new(None, small_message.clone()),
-        );
+        assert!(manager.can_add_bits(small_message.len() * (u8::BITS as usize)),);
+        packet.add_message(*channel_id, SingleData::new(None, small_message.clone()));
         assert_eq!(packet.num_messages(), 2);
         Ok(())
     }
@@ -693,16 +678,10 @@ mod tests {
 
         let big_message = Bytes::from(vec![1u8; 2 * MTU_PAYLOAD_BYTES]);
         let mut packet = manager.build_new_single_packet();
-        assert_eq!(
-            manager.can_add_channel_to_packet(channel_id, &mut packet)?,
-            true
-        );
+        assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
 
         // the big message is too big to fit in the packet
-        assert_eq!(
-            manager.can_add_bits(big_message.len() * (u8::BITS as usize)),
-            false
-        );
+        assert!(!manager.can_add_bits(big_message.len() * (u8::BITS as usize)),);
         Ok(())
     }
 
@@ -793,17 +772,11 @@ mod tests {
         // only 1 bit can be written
         manager.try_write_buffer.set_reserved_bits(1);
         // cannot write channel because of the continuation bit
-        assert_eq!(
-            manager.can_add_channel_to_packet(channel_id, &mut packet)?,
-            false
-        );
+        assert!(!manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
 
         manager.clear_try_write_buffer();
         manager.try_write_buffer.set_reserved_bits(2);
-        assert_eq!(
-            manager.can_add_channel_to_packet(channel_id, &mut packet)?,
-            true
-        );
+        assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
         Ok(())
     }
 

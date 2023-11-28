@@ -62,16 +62,11 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
             return None;
         }
         let mut val = None;
-        loop {
-            if let Some(item_with_key) = self.heap.peek() {
-                // we have a new update that is older than what we want, stop
-                if item_with_key.key > *key {
-                    // put back the update in the heap
-                    // self.heap.push(item_with_key);
-                    break;
-                }
-            } else {
-                // heap is empty
+        while let Some(item_with_key) = self.heap.peek() {
+            // we have a new update that is older than what we want, stop
+            if item_with_key.key > *key {
+                // put back the update in the heap
+                // self.heap.push(item_with_key);
                 break;
             }
             // safety: we know that the heap is not empty and that the key is <= the provided key
@@ -141,7 +136,7 @@ mod tests {
         heap.add_item(now + Duration::from_secs(3), 3);
 
         // no items are visible
-        assert_eq!(heap.has_item(&Instant::now()), false);
+        assert!(!heap.has_item(&Instant::now()));
 
         // we move the clock to 2, 2 items should be visible, in order of insertion
         MockClock::advance(Duration::from_secs(2));

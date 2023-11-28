@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -277,7 +278,7 @@ impl<P: Protocol> Server<P> {
             .context("Error updating netcode server")?;
 
         // update connections
-        for (_, connection) in &mut self.user_connections {
+        for connection in self.user_connections.values_mut() {
             connection
                 .base
                 .update(&self.time_manager, &self.tick_manager);
@@ -286,7 +287,7 @@ impl<P: Protocol> Server<P> {
         // handle connections
         for client_id in self.context.connections.try_iter() {
             // TODO: do we need a mutex around this?
-            if !self.user_connections.contains_key(&client_id) {
+            if let Entry::Vacant(e) = self.user_connections.entry(client_id) {
                 #[cfg(feature = "metrics")]
                 metrics::increment_gauge!("connected_clients", 1.0);
 
@@ -295,7 +296,7 @@ impl<P: Protocol> Server<P> {
                 let mut connection =
                     Connection::new(self.protocol.channel_registry(), &self.config.ping);
                 connection.base.events.push_connection();
-                self.user_connections.insert(client_id, connection);
+                e.insert(connection);
             }
         }
 

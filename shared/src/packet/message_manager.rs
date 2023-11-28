@@ -282,7 +282,7 @@ mod tests {
             MessageManager::<MyMessageProtocol>::new(&channel_registry);
 
         // client: buffer send messages, and then send
-        let mut message = MyMessageProtocol::Message1(Message1(1));
+        let message = MyMessageProtocol::Message1(Message1(1));
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -293,7 +293,7 @@ mod tests {
             HashMap::from([(
                 PacketId(0),
                 HashMap::from([(
-                    channel_kind_1.clone(),
+                    channel_kind_1,
                     vec![MessageAck {
                         message_id: MessageId(0),
                         fragment_id: None,
@@ -303,9 +303,9 @@ mod tests {
         );
 
         // server: receive bytes from the sent messages, then process them into messages
-        for mut packet_byte in packet_bytes.iter_mut() {
+        for packet_byte in packet_bytes.iter_mut() {
             server_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
+                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
@@ -336,7 +336,7 @@ mod tests {
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for mut packet_byte in packet_bytes.iter_mut() {
             client_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
+                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
         }
 
         // Check that reliability works correctly
@@ -373,7 +373,7 @@ mod tests {
 
         // client: buffer send messages, and then send
         let message_size = (1.5 * FRAGMENT_SIZE as f32) as usize;
-        let mut message = MyMessageProtocol::Message2(Message2(vec![1; message_size]));
+        let message = MyMessageProtocol::Message2(Message2(vec![1; message_size]));
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -386,7 +386,7 @@ mod tests {
                 (
                     PacketId(0),
                     HashMap::from([(
-                        channel_kind_1.clone(),
+                        channel_kind_1,
                         vec![MessageAck {
                             message_id: MessageId(0),
                             fragment_id: Some(0),
@@ -396,7 +396,7 @@ mod tests {
                 (
                     PacketId(1),
                     HashMap::from([(
-                        channel_kind_1.clone(),
+                        channel_kind_1,
                         vec![MessageAck {
                             message_id: MessageId(0),
                             fragment_id: Some(1),
@@ -407,9 +407,9 @@ mod tests {
         );
 
         // server: receive bytes from the sent messages, then process them into messages
-        for mut packet_byte in packet_bytes.iter_mut() {
+        for packet_byte in packet_bytes.iter_mut() {
             server_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
+                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
@@ -444,9 +444,9 @@ mod tests {
         let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
-        for mut packet_byte in packet_bytes.iter_mut() {
+        for packet_byte in packet_bytes.iter_mut() {
             client_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(&packet_byte.as_slice()))?;
+                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
         }
 
         // Check that reliability works correctly

@@ -238,8 +238,8 @@ impl ReceiveBuffer {
 
         // iter goes from the item pushed the longest ago (to the left of the bitfield)
         // to the items pushed most recently (to the right of the bitfield)
-        for (_i, &exists) in self.buffer.iter().enumerate() {
-            if exists {
+        for exists in self.buffer.iter() {
+            if *exists {
                 ack_bitfield |= mask;
             }
             mask >>= 1;
@@ -299,13 +299,13 @@ mod tests {
 
         // receive a packet at the max far ahead
         // diff == ACK_BITFIELD_SIZE
-        let mut recv_buffer = add_most_recent_packet(recv_buffer, 82, 1 << 32 - 1);
+        let mut recv_buffer = add_most_recent_packet(recv_buffer, 82, 1 << (32 - 1));
 
         // receive a packet that is too far in the past
         // diff_id < -ACK_BITFIELD_SIZE
         recv_buffer.recv_packet(PacketId(49));
         assert_eq!(recv_buffer.last_recv_packet_id, Some(PacketId(82)));
-        assert_eq!(recv_buffer.get_bitfield(), 1 << 32 - 1);
+        assert_eq!(recv_buffer.get_bitfield(), 1 << (32 - 1));
     }
 
     #[test]

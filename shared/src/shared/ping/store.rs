@@ -16,6 +16,12 @@ pub struct PingStore {
     buffer: SequenceBuffer<PingId, WrappedTime, PING_BUFFER_SIZE>,
 }
 
+impl Default for PingStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PingStore {
     pub fn new() -> Self {
         PingStore {

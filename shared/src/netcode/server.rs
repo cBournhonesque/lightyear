@@ -887,7 +887,7 @@ impl<Ctx> Server<Ctx> {
         self.conn_cache
             .clients
             .iter()
-            .filter_map(|(id, c)| c.is_connected().then_some(id.clone()))
+            .filter_map(|(id, c)| c.is_connected().then_some(*id))
     }
 
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {

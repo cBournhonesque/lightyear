@@ -115,7 +115,7 @@ mod tests {
         registry.add::<MyChannel>(settings.clone());
         assert_eq!(registry.len(), 1);
 
-        let mut builder = registry.get_builder_from_net_id(0).unwrap();
+        let builder = registry.get_builder_from_net_id(0).unwrap();
         let channel_container: ChannelContainer = builder.build();
         assert_eq!(
             channel_container.setting.mode,

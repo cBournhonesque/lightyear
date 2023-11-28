@@ -1,8 +1,8 @@
-/// Defines a [`ConnectionEvents`] struct that is used to store all events that are received from a [`Connection`]
+/// Defines a [`ConnectionEvents`](ConnectionEvents) struct that is used to store all events that are received from a [`Connection`](Connection)
 // only public for proc macro
 pub mod events;
 
-/// Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible messages that can be sent over the network
+/// Provides a [`ProtocolMessage`](ProtocolMessage) enum that is a wrapper around all the possible messages that can be sent over the network
 pub(crate) mod message;
 
 use crate::_reexport::PingChannel;
@@ -33,8 +33,7 @@ use crate::utils::named::Named;
 // Also it would be inefficient because we would send separate packets for messages or replications, even though
 // we can put them in the same packet
 
-/// Wrapper to: send/receive messages via channels to a remote address
-/// By splitting the data into packets and sending them through a given transport
+/// Wrapper to send/receive messages via channels to a remote address
 pub struct Connection<P: Protocol> {
     pub ping_manager: PingManager,
     pub message_manager: MessageManager<ProtocolMessage<P>>,

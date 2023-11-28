@@ -125,7 +125,7 @@ impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
         Self {
             entity,
             context,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -151,7 +151,7 @@ impl<C: Component, Ctx> ComponentInsertEvent<C, Ctx> {
         Self {
             entity,
             context,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -177,7 +177,7 @@ impl<C: Component, Ctx> ComponentRemoveEvent<C, Ctx> {
         Self {
             entity,
             context,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
