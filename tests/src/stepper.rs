@@ -74,7 +74,7 @@ impl BevyStepper {
             ping: PingConfig::default(),
         };
         let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::Plugin::new(plugin_config);
+        let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
         // Setup client
@@ -106,7 +106,7 @@ impl BevyStepper {
             interpolation: interpolation_config,
         };
         let plugin_config = client::PluginConfig::new(config, protocol(), auth);
-        let plugin = client::Plugin::new(plugin_config);
+        let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
         // Initialize Real time (needed only for the first TimeSystem run)

@@ -616,7 +616,6 @@ impl PacketManager {
 mod tests {
     use std::collections::{BTreeMap, VecDeque};
 
-    use bitvec::access::BitAccess;
     use bytes::Bytes;
 
     use lightyear_derive::ChannelInternal;
@@ -720,7 +719,7 @@ mod tests {
 
         let num_big_bytes = (2.5 * MTU_PAYLOAD_BYTES as f32) as usize;
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
-        let mut fragmenter = FragmentSender::new();
+        let fragmenter = FragmentSender::new();
         let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone());
 
         let small_bytes = Bytes::from(vec![0u8; 10]);

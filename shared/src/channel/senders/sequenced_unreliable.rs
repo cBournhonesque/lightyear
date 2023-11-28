@@ -78,10 +78,8 @@ impl ChannelSend for SequencedUnreliableSender {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sequenced_unreliable_sender_internals() {
-        let sender = SequencedUnreliableSender::new();
-    }
+    // #[test]
+    // fn test_sequenced_unreliable_sender_internals() {
+    //     todo!()
+    // }
 }

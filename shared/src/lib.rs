@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 // re-exports (mostly used in the derive macro crate or for internal purposes)
 #[doc(hidden)]
 pub mod _reexport {
@@ -72,7 +76,7 @@ pub mod prelude {
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::sync::SyncConfig;
-        pub use crate::client::{Authentication, Client, ClientConfig, Plugin, PluginConfig};
+        pub use crate::client::{Authentication, Client, ClientConfig, ClientPlugin, PluginConfig};
     }
     pub mod server {
         pub use crate::server::config::NetcodeConfig;
@@ -81,7 +85,7 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::ping_manager::PingConfig;
-        pub use crate::server::{Plugin, PluginConfig, Server, ServerConfig};
+        pub use crate::server::{PluginConfig, Server, ServerConfig, ServerPlugin};
     }
 }
 

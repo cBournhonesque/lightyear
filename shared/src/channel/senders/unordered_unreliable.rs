@@ -78,10 +78,8 @@ impl ChannelSend for UnorderedUnreliableSender {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_unordered_unreliable_sender_internals() {
-        let sender = UnorderedUnreliableSender::new();
-    }
+    // #[test]
+    // fn test_unordered_unreliable_sender_internals() {
+    //     todo!()
+    // }
 }

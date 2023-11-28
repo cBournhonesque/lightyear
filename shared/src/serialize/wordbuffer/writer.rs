@@ -110,13 +110,11 @@ impl BitWrite for WriteWordBuffer {
 mod tests {
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::wordbuffer::reader::ReadWordBuffer;
-    use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 
     #[test]
     fn test_write_bits() -> anyhow::Result<()> {
         use super::*;
         use crate::serialize::writer::WriteBuffer;
-        use serde::Serialize;
 
         let mut buffer = WriteWordBuffer::with_capacity(5);
         // confirm that we serialize bit by bit

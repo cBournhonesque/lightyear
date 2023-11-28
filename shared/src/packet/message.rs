@@ -383,7 +383,7 @@ mod tests {
     fn test_serde_single_data() {
         let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into());
         let mut writer = WriteWordBuffer::with_capacity(10);
-        let a = data.encode(&mut writer).unwrap();
+        let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
         let bytes = writer.finish_write();
 
@@ -411,7 +411,7 @@ mod tests {
             bytes: bytes.clone(),
         };
         let mut writer = WriteWordBuffer::with_capacity(10);
-        let a = data.encode(&mut writer).unwrap();
+        let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
         let bytes = writer.finish_write();
 

@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-pub struct ServerPlugin {
+pub struct MyServerPlugin {
     pub(crate) port: u16,
 }
 
-impl Plugin for ServerPlugin {
+impl Plugin for MyServerPlugin {
     fn build(&self, app: &mut App) {
         let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.port);
         let netcode_config = NetcodeConfig::default()
@@ -31,7 +31,7 @@ impl Plugin for ServerPlugin {
             ping: PingConfig::default(),
         };
         let plugin_config = PluginConfig::new(config, MyProtocol::default());
-        app.add_plugins(server::Plugin::new(plugin_config));
+        app.add_plugins(server::ServerPlugin::new(plugin_config));
         app.add_plugins(shared::SharedPlugin);
         app.init_resource::<Global>();
         app.add_systems(Startup, init);

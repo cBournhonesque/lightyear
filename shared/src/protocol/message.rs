@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::connection::events::{EventContext, IterMessageEvent};
 use crate::inputs::input_buffer::InputMessage;
 use crate::packet::message::Message;
-use crate::protocol::registry::{TypeKind, TypeMapper};
+use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, Protocol};
 use crate::utils::named::Named;
 

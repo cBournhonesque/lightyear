@@ -38,13 +38,13 @@ impl<P: Protocol> PluginConfig<P> {
     }
 }
 
-pub struct Plugin<P: Protocol> {
+pub struct ServerPlugin<P: Protocol> {
     // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference
     // in build()
     config: Mutex<Option<PluginConfig<P>>>,
 }
 
-impl<P: Protocol> Plugin<P> {
+impl<P: Protocol> ServerPlugin<P> {
     pub fn new(config: PluginConfig<P>) -> Self {
         Self {
             config: Mutex::new(Some(config)),
@@ -52,7 +52,7 @@ impl<P: Protocol> Plugin<P> {
     }
 }
 
-impl<P: Protocol> PluginType for Plugin<P> {
+impl<P: Protocol> PluginType for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let mut config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let server = Server::new(config.server_config.clone(), config.protocol);

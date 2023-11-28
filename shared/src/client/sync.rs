@@ -243,7 +243,7 @@ impl SyncManager {
         tick_manager: &TickManager,
     ) -> Option<TimeSyncPingMessage> {
         // TODO: should we have something to start sending a sync ping right away? (so we don't wait for initial timer)
-        if self.ping_timer.elapsed() > self.config.sync_ping_interval {
+        if self.ping_timer.elapsed() >= self.config.sync_ping_interval {
             self.ping_timer.reset();
 
             let ping_id = self

@@ -102,11 +102,10 @@ mod tests {
         let mut tick_manager = TickManager::from_config(TickConfig {
             tick_duration: Duration::from_millis(10),
         });
-        let mut time_manager = TimeManager::new(Duration::default());
+        let time_manager = TimeManager::new(Duration::default());
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));
         let mut single2 = SingleData::new(None, Bytes::from("world"));
-        let mut single3 = SingleData::new(None, Bytes::from("!"));
 
         // receive a message with no tick -> error
         assert_eq!(

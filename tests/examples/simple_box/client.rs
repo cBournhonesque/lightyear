@@ -9,12 +9,12 @@ use std::str::FromStr;
 use std::time::Duration;
 
 #[derive(Resource, Copy, Clone)]
-pub struct ClientPlugin {
+pub struct MyClientPlugin {
     pub(crate) client_id: ClientId,
     pub(crate) server_port: u16,
 }
 
-impl Plugin for ClientPlugin {
+impl Plugin for MyClientPlugin {
     fn build(&self, app: &mut App) {
         let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.server_port);
         let auth = Authentication::Manual {
@@ -43,7 +43,7 @@ impl Plugin for ClientPlugin {
                 .with_delay(InterpolationDelay::Ratio(2.0)),
         };
         let plugin_config = PluginConfig::new(config, MyProtocol::default(), auth);
-        app.add_plugins(client::Plugin::new(plugin_config));
+        app.add_plugins(client::ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
@@ -76,7 +76,7 @@ impl Plugin for ClientPlugin {
 pub(crate) fn init(
     mut commands: Commands,
     mut client: ResMut<Client<MyProtocol>>,
-    plugin: Res<ClientPlugin>,
+    plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(

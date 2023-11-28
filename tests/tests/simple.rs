@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 use bevy::prelude::World;
 use log::debug;
 use std::time::Duration;
@@ -41,13 +45,13 @@ fn test_simple_server_client() -> anyhow::Result<()> {
     // Run the server and client in parallel
     let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting server thread");
-        let mut World = World::default();
+        let mut world = World::default();
         loop {
             server.update(start.elapsed())?;
             server.recv_packets()?;
             server.send_packets()?;
 
-            let events = server.receive(&mut World);
+            let events = server.receive(&mut world);
 
             // if events.has_messages::<Message1>() {
             //     let messages = events
@@ -73,13 +77,13 @@ fn test_simple_server_client() -> anyhow::Result<()> {
     });
     let client_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting client thread");
-        let mut World = World::default();
+        let mut world = World::default();
         loop {
             client.update(start.elapsed(), Duration::default())?;
             client.recv_packets()?;
             client.send_packets()?;
 
-            client.receive(&mut World);
+            client.receive(&mut world);
 
             // if client.is_connected() {
             //     client.buffer_send::<Channel2, Message1>(message1)?;

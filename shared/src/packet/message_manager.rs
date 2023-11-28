@@ -224,7 +224,6 @@ impl<M: BitSerializable> MessageManager<M> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::str::FromStr;
 
     use serde::{Deserialize, Serialize};
 

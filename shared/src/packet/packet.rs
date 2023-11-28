@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn test_single_packet_add_messages() {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let manager = PacketManager::new();
         let mut packet = SinglePacket::new();
 
         packet.add_message(0, SingleData::new(None, Bytes::from("hello")));
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn test_encode_single_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let manager = PacketManager::new();
         let mut packet = SinglePacket::new();
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn test_encode_fragmented_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let bytes = Bytes::from(vec![0; 10]);
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn test_encode_fragmented_packet_no_single_data() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let manager = PacketManager::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let bytes = Bytes::from(vec![0; 10]);

@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 //! Run with
 //! - `cargo run --example bevy_cli server`
 //! - `cargo run --example bevy_cli client`
@@ -16,8 +20,8 @@ use clap::Parser;
 use metrics_exporter_prometheus;
 use serde::{Deserialize, Serialize};
 
-use crate::client::ClientPlugin;
-use crate::server::ServerPlugin;
+use crate::client::MyClientPlugin;
+use crate::server::MyServerPlugin;
 use lightyear_shared::netcode::{ClientId, Key};
 
 fn main() {
@@ -62,14 +66,14 @@ fn setup(app: &mut App, cli: Cli) {
     match cli {
         Cli::SinglePlayer => {}
         Cli::Server { port } => {
-            let server_plugin = ServerPlugin { port };
+            let server_plugin = MyServerPlugin { port };
             app.add_plugins(server_plugin);
         }
         Cli::Client {
             client_id,
             server_port,
         } => {
-            let client_plugin = ClientPlugin {
+            let client_plugin = MyClientPlugin {
                 client_id,
                 server_port,
             };

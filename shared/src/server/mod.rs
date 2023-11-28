@@ -3,7 +3,7 @@
 
 pub use config::{NetcodeConfig, ServerConfig};
 pub use ping_manager::PingConfig;
-pub use plugin::{Plugin, PluginConfig};
+pub use plugin::{PluginConfig, ServerPlugin};
 pub use server::Server;
 
 pub mod config;

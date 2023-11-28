@@ -48,6 +48,6 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         interpolation: InterpolationConfig::default(),
     };
     let plugin_config = PluginConfig::new(config, protocol(), auth);
-    let plugin = Plugin::new(plugin_config);
+    let plugin = ClientPlugin::new(plugin_config);
     app.add_plugins(plugin);
 }

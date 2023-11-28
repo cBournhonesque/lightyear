@@ -2,7 +2,7 @@
 //! bandwidth monitoring or compression
 use std::fmt::{Debug, Formatter};
 use std::io::Result;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 #[cfg(feature = "metrics")]
 use metrics;
@@ -28,6 +28,15 @@ pub enum TransportConfig {
 pub struct IoConfig {
     pub transport: TransportConfig,
     pub conditioner: Option<LinkConditionerConfig>,
+}
+
+impl Default for IoConfig {
+    fn default() -> Self {
+        Self {
+            transport: TransportConfig::UdpSocket(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0)),
+            conditioner: None,
+        }
+    }
 }
 
 impl IoConfig {
