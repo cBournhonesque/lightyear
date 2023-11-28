@@ -17,19 +17,10 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::interpolation::plugin::InterpolationConfig;
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
 use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet, SyncConfig};
 use lightyear_shared::netcode::generate_key;
-use lightyear_shared::plugin::events::InputEvent;
-use lightyear_shared::plugin::sets::FixedUpdateSet;
-use lightyear_shared::replication::Replicate;
+use lightyear_shared::prelude::*;
 use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::tick::Tick;
-use lightyear_shared::{
-    ChannelKind, ClientId, IoConfig, LinkConditionerConfig, MainSet, SharedConfig, TickConfig,
-    TransportConfig,
-};
 use lightyear_tests::protocol::{protocol, Channel2, MyInput, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 
@@ -54,7 +45,7 @@ fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
 
 fn client_read_input(
     client: Res<Client<MyProtocol>>,
-    mut input_reader: EventReader<InputEvent<MyInput>>,
+    mut input_reader: EventReader<client::InputEvent<MyInput>>,
 ) {
     for input in input_reader.read() {
         info!(
@@ -68,7 +59,7 @@ fn client_read_input(
 fn server_read_input(
     // TODO: maybe put the tick in a separate resource? it lowers parallelism to have to fetch the entire server just to get the tick..
     server: Res<Server<MyProtocol>>,
-    mut input_reader: EventReader<InputEvent<MyInput, ClientId>>,
+    mut input_reader: EventReader<server::InputEvent<MyInput>>,
 ) {
     let tick = server.tick();
     for input in input_reader.read() {
@@ -100,8 +91,8 @@ fn test_input_step() -> anyhow::Result<()> {
     let mut stepper = BevyStepper::new(
         shared_config,
         SyncConfig::default(),
-        PredictionConfig::default(),
-        InterpolationConfig::default(),
+        client::PredictionConfig::default(),
+        client::InterpolationConfig::default(),
         link_conditioner,
         frame_duration,
     );

@@ -396,7 +396,7 @@ impl<Ctx> Client<Ctx> {
             (Packet::KeepAlive(_), ClientState::Connected) => {
                 trace!("client received connection keep-alive packet from server");
             }
-            (Packet::KeepAlive(pkt), ClientState::SendingChallengeResponse) => {
+            (Packet::KeepAlive(_), ClientState::SendingChallengeResponse) => {
                 debug!("client received connection keep-alive packet from server");
                 self.set_state(ClientState::Connected);
                 info!("client connected to server");

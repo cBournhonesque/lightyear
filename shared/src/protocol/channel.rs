@@ -98,7 +98,7 @@ impl ChannelRegistry {
 mod tests {
     use lightyear_derive::ChannelInternal;
 
-    use crate::{ChannelDirection, ChannelMode, ChannelSettings};
+    use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
 
     use super::*;
 

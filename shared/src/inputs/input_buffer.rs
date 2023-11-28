@@ -174,7 +174,6 @@ impl<T: UserInput> InputBuffer<T> {
     // Return None if the last N inputs are all Absent
     pub(crate) fn create_message(&self, end_tick: Tick, num_ticks: u16) -> InputMessage<T> {
         let mut inputs = Vec::new();
-        let mut current_tick = end_tick;
         // start with the first value
         let start_tick = Tick(end_tick.0) - num_ticks + 1;
         inputs.push(

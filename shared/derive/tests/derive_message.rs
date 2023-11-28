@@ -3,7 +3,7 @@ pub mod some_message {
     use serde::{Deserialize, Serialize};
 
     use lightyear_derive::{component_protocol, message_protocol};
-    use lightyear_shared::{protocolize, Message, Named};
+    use lightyear_shared::prelude::*;
 
     #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Message1(pub u8);
@@ -37,8 +37,10 @@ pub mod some_message {
 
 #[cfg(test)]
 mod tests {
-    use lightyear_shared::BitSerializable;
-    use lightyear_shared::{Named, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+    use lightyear_shared::_reexport::{
+        BitSerializable, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
+    };
+    use lightyear_shared::prelude::*;
 
     use crate::some_message::MyMessageProtocol;
 

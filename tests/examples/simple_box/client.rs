@@ -2,20 +2,8 @@ use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, Play
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear_shared::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use lightyear_shared::client::config::PacketConfig;
-use lightyear_shared::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
-use lightyear_shared::client::interpolation::{ConfirmedHistory, Interpolated};
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::prediction::Predicted;
-use lightyear_shared::client::{
-    client_is_synced, Authentication, ClientConfig, InputConfig, InputSystemSet, SyncConfig,
-};
-use lightyear_shared::shared::events::{InputEvent, MessageEvent};
-use lightyear_shared::shared::sets::FixedUpdateSet;
-use lightyear_shared::{
-    Client, ClientId, EntitySpawnEvent, IoConfig, LinkConditionerConfig, TransportConfig,
-};
+use lightyear_shared::prelude::client::*;
+use lightyear_shared::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;

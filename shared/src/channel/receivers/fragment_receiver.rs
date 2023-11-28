@@ -127,7 +127,7 @@ mod tests {
     fn test_receiver() -> Result<()> {
         let mut receiver = FragmentReceiver::new();
         let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
-        let message_bytes = Bytes::from(vec![1 as u8; num_bytes]);
+        let message_bytes = Bytes::from(vec![1u8; num_bytes]);
         let fragments =
             FragmentSender::new().build_fragments(MessageId(0), None, message_bytes.clone());
 

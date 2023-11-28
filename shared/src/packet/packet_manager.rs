@@ -641,13 +641,11 @@ mod tests {
 
     use lightyear_derive::ChannelInternal;
 
+    use super::*;
+    use crate::_reexport::*;
     use crate::channel::senders::fragment_sender::FragmentSender;
-    use crate::packet::message::{MessageId, SingleData};
-    use crate::packet::packet::MTU_PAYLOAD_BYTES;
-    use crate::packet::packet_manager::PacketManager;
-    use crate::{
-        ChannelDirection, ChannelKind, ChannelMode, ChannelRegistry, ChannelSettings, WriteBuffer,
-    };
+    use crate::packet::message::MessageId;
+    use crate::prelude::*;
 
     #[derive(ChannelInternal)]
     struct Channel1;

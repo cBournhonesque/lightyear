@@ -253,7 +253,7 @@ impl ReceiveBuffer {
 mod tests {
     use bitcode::encoding::Fixed;
 
-    use crate::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+    use crate::_reexport::*;
 
     use super::*;
 
@@ -282,10 +282,10 @@ mod tests {
         let recv_buffer = add_most_recent_packet(recv_buffer, 1, 1);
 
         // receive a packet where the ACK_BITFIELD_SIZE > diff_id > 0
-        let recv_buffer = add_most_recent_packet(recv_buffer, 3, 0b0000_0110 as u32);
+        let recv_buffer = add_most_recent_packet(recv_buffer, 3, 0b0000_0110u32);
 
         // receive another packet where the ACK_BITFIELD_SIZE > diff_id > 0
-        let mut recv_buffer = add_most_recent_packet(recv_buffer, 6, 0b0011_0100 as u32);
+        let mut recv_buffer = add_most_recent_packet(recv_buffer, 6, 0b0011_0100u32);
 
         // receive a packet which is in the past
         // -ACK_BITFIELD_SIZE < diff_id < 0

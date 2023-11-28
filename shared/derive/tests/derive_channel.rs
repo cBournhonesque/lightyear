@@ -7,7 +7,7 @@ pub mod some_channel {
 
 #[cfg(test)]
 mod tests {
-    use lightyear_shared::{
+    use lightyear_shared::prelude::{
         Channel, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
     };
 

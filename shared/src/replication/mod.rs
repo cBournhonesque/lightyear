@@ -74,11 +74,6 @@ impl NetworkTarget {
     }
 }
 
-pub enum Authority {
-    Client,
-    Server,
-}
-
 impl Replicate {
     pub fn with_channel<C: Channel>() -> Self {
         Self {
@@ -118,7 +113,7 @@ impl NetworkTarget {
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(Serialize, Deserialize, Clone)]
-pub enum ReplicationMessage<C, K> {
+pub(crate) enum ReplicationMessage<C, K> {
     // reliable
     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
     SpawnEntity(Entity, Vec<C>),
@@ -130,7 +125,7 @@ pub enum ReplicationMessage<C, K> {
     EntityUpdate(Entity, Vec<C>),
 }
 
-pub trait ReplicationSend<P: Protocol>: Resource {
+pub(crate) trait ReplicationSend<P: Protocol>: Resource {
     fn entity_spawn(
         &mut self,
         entity: Entity,

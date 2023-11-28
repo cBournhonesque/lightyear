@@ -385,9 +385,8 @@ pub trait Message: EventContext + Named {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ReadWordBuffer, WriteWordBuffer};
-
     use super::*;
+    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
 
     // #[test]
     // fn test_single_data_num_bits() {

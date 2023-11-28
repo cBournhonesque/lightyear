@@ -14,27 +14,13 @@ use bevy::prelude::{
 use bevy::time::TimeUpdateStrategy;
 use bevy::winit::WinitPlugin;
 use bevy::{DefaultPlugins, MinimalPlugins};
+use lightyear_shared::client::prediction::PredictionCommandsExt;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::components::Confirmed;
-use lightyear_shared::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
-use lightyear_shared::client::prediction::plugin::PredictionConfig;
-use lightyear_shared::client::prediction::{
-    ComponentState, Predicted, PredictionCommandsExt, PredictionDespawnMarker, PredictionHistory,
-    ShouldBePredicted,
-};
-use lightyear_shared::client::{Authentication, Client, ClientConfig, InputSystemSet, SyncConfig};
 use lightyear_shared::netcode::generate_key;
-use lightyear_shared::plugin::events::InputEvent;
-use lightyear_shared::plugin::sets::FixedUpdateSet;
-use lightyear_shared::replication::{NetworkTarget, Replicate};
-use lightyear_shared::server::{NetcodeConfig, PingConfig, Server, ServerConfig};
-use lightyear_shared::tick::Tick;
-use lightyear_shared::{
-    ChannelKind, ClientId, IoConfig, LinkConditionerConfig, MainSet, SharedConfig, TickConfig,
-    TransportConfig,
-};
+use lightyear_shared::prelude::client::*;
+use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{protocol, Channel2, Component1, MyInput, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 

@@ -8,10 +8,9 @@ use bevy::DefaultPlugins;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client::{Authentication, Client};
 use lightyear_shared::netcode::generate_key;
-use lightyear_shared::replication::Replicate;
-use lightyear_shared::ChannelKind;
+use lightyear_shared::prelude::client::{Authentication, Client};
+use lightyear_shared::prelude::*;
 use lightyear_tests::protocol::{Channel2, MyProtocol};
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {

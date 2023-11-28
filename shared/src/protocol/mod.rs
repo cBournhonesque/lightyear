@@ -187,14 +187,14 @@ where
 #[cfg(test)]
 pub mod tests {
     use bevy::prelude::Component;
+    use serde::Deserialize;
 
     use lightyear_derive::{
         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
     };
 
-    use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
-
     use super::*;
+    use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
 
     // Messages
     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
