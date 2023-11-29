@@ -4,6 +4,8 @@ A library for writing server-authoritative multiplayer games with [Bevy](https:/
 
 Heavily inspired by [naia](https://github.com/naia-lib/naia).
 
+https://github.com/cBournhonesque/lightyear/assets/8112632/def1fb1e-9f62-474d-8034-37aee300d54b
+*Demo using one server with 2 clients. The entity is predicted (slightly ahead of server) on client 1, and interpolated (slightly behind server) on client 2.
 
 ## Getting started
 
@@ -54,6 +56,10 @@ It is only a one-line change on the `Replicate` struct.
 #### Configurable
 Lightyear is highly configurable: you can configure the size of the input buffer, the amount of interpolation-delay, the packet send rate, etc.
 All the configurations are accessible through the `ClientConfig` and `ServerConfig` structs.
+
+
+
+
 
 
 
