@@ -6,7 +6,8 @@ Heavily inspired by [naia](https://github.com/naia-lib/naia).
 
 https://github.com/cBournhonesque/lightyear/assets/8112632/def1fb1e-9f62-474d-8034-37aee300d54b
 
-*Demo using one server with 2 clients. The entity is predicted (slightly ahead of server) on client 1, and interpolated (slightly behind server) on client 2.*
+*Demo using one server with 2 clients. The entity is predicted (slightly ahead of server) on client 1, and interpolated (slightly behind server) on client 2.
+The server only sends updates to clients 10 times per second.*
 
 ## Getting started
 
