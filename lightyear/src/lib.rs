@@ -15,6 +15,9 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 pub mod _reexport {
     pub use enum_delegate;
     pub use enum_dispatch::enum_dispatch;
+    pub use lightyear_macros::{
+        component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
+    };
     pub use paste::paste;
 
     pub use crate::channel::builder::TickBufferChannel;
@@ -118,6 +121,9 @@ pub mod serialize;
 pub mod server;
 
 pub mod shared;
+
+#[cfg(test)]
+pub(crate) mod tests;
 
 /// Provides an abstraction over an unreliable transport
 pub mod transport;

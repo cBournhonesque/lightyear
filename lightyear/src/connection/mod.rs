@@ -29,11 +29,6 @@ use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 use crate::utils::named::Named;
 
-// NOTE: we cannot have a message manager exclusively for messages, and a message manager for replication
-// because prior to calling message_manager.recv() we don't know if the packet is a message or a replication event
-// Also it would be inefficient because we would send separate packets for messages or replications, even though
-// we can put them in the same packet
-
 /// Wrapper to send/receive messages via channels to a remote address
 pub struct Connection<P: Protocol> {
     pub ping_manager: PingManager,
@@ -95,6 +90,7 @@ impl<P: Protocol> Connection<P> {
     }
 
     pub fn buffer_despawn_entity(&mut self, entity: Entity, channel: ChannelKind) -> Result<()> {
+        // TODO: check with replication manager if we should send the despawn message
         let message = ProtocolMessage::Replication(ReplicationMessage::DespawnEntity(entity));
         self.message_manager.buffer_send(message, channel)
     }
@@ -118,6 +114,7 @@ impl<P: Protocol> Connection<P> {
         component: P::ComponentKinds,
         channel: ChannelKind,
     ) -> Result<()> {
+        // TODO: check with replication manager if we should send the component remove
         // TODO: maybe don't send the component remove if the entity is despawning?
         let message =
             ProtocolMessage::Replication(ReplicationMessage::RemoveComponent(entity, component));

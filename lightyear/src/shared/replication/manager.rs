@@ -154,7 +154,6 @@ impl<P: Protocol> ReplicationManager<P> {
                     .map(|c| c.into())
                     .collect::<Vec<P::ComponentKinds>>();
                 debug!(?entity, ?component_kinds, "Received spawn entity");
-                // let local_entity = world.spawn(components.into()).id();
 
                 // TODO: we only run spawn_entity if we don't already have an entity in the process of being spawned
                 //  so we need a data-structure to keep track of entities that are being spawned
@@ -167,7 +166,7 @@ impl<P: Protocol> ReplicationManager<P> {
                 }
                 let mut local_entity_mut = world.spawn_empty();
 
-                // TODO: optimize by using batch functions
+                // TODO: optimize by using batch functions?
                 for component in components {
                     component.insert(&mut local_entity_mut);
                 }
@@ -187,6 +186,7 @@ impl<P: Protocol> ReplicationManager<P> {
                 debug!(?entity, ?kind, "Received InsertComponent");
                 // it's possible that we received InsertComponent before the entity actually exists.
                 // In that case, we need to spawn the entity first.
+                // TODO: this might not be what we want? imagine we receive a DespawnEntity or RemoveComponent right before that?
                 let mut local_entity_mut = self.entity_map.get_by_remote_or_spawn(world, entity);
                 // TODO: maybe check if the component already exists?
                 component.insert(&mut local_entity_mut);

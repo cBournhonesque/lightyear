@@ -9,7 +9,7 @@ use bevy::prelude::{
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
-use crate::client::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
+use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
@@ -89,7 +89,6 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             ))
             // RESOURCES //
             .insert_resource(client)
-            .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, MainSet::Receive)
             .configure_sets(
@@ -109,6 +108,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()
             .add_event::<EntitySpawnEvent>()
+            .add_event::<EntityDespawnEvent>()
             // SYSTEMS //
             .add_systems(
                 PreUpdate,

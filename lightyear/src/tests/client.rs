@@ -4,10 +4,9 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-
-use crate::protocol::{protocol, MyProtocol};
+use crate::prelude::client::*;
+use crate::prelude::*;
+use crate::tests::protocol::{protocol, MyProtocol};
 
 pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
     let addr = SocketAddr::from_str("127.0.0.1:0")?;

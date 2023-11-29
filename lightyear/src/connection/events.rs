@@ -410,7 +410,7 @@ impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::tests::{
+    use crate::tests::protocol::{
         Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
     };
 

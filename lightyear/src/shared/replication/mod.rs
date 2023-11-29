@@ -75,3 +75,97 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// (for example collecting the individual single component updates into a single message)
     fn prepare_replicate_send(&mut self) -> Result<()>;
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::client::*;
+    use crate::prelude::*;
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use std::time::Duration;
+
+    // An entity gets replicated from server to client,
+    // then a component gets removed from that entity on server,
+    // that component should also removed on client as well.
+    #[test]
+    fn test_simple_component_remove() -> anyhow::Result<()> {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            enable_replication: true,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper.client_mut().connect();
+        stepper.client_mut().set_synced();
+
+        // Advance the world to let the connection process complete
+        for _ in 0..20 {
+            stepper.frame_step();
+        }
+
+        // Create an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((Component1(0.0), Replicate::default()))
+            .id();
+        // we need to step twice because we run client before server
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // Check that the entity is replicated to client
+        let client_entity = stepper
+            .client()
+            .connection()
+            .base()
+            .replication_manager
+            .entity_map
+            .get_local(server_entity)
+            .unwrap()
+            .clone();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<Component1>()
+                .unwrap(),
+            &Component1(0.0)
+        );
+
+        // Remove the component on the server
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .remove::<Component1>();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // Check that this removal was replicated
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<Component1>()
+            .is_none());
+        Ok(())
+    }
+}

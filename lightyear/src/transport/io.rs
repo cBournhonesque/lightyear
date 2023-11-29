@@ -19,25 +19,37 @@ pub enum TransportConfig {
 }
 
 impl TransportConfig {
-    pub fn get_local_addr(&self) -> SocketAddr {
+    pub fn get_io(&self) -> Io {
         match self {
-            TransportConfig::UdpSocket(addr) => *addr,
-            TransportConfig::LocalChannel => LOCAL_SOCKET,
+            TransportConfig::UdpSocket(addr) => {
+                let socket = UdpSocket::new(addr).unwrap();
+                Io::new(*addr, Box::new(socket.clone()), Box::new(socket))
+            }
+            TransportConfig::LocalChannel => {
+                let channel = LocalChannel::new();
+                Io::new(LOCAL_SOCKET, Box::new(channel.clone()), Box::new(channel))
+            }
         }
     }
-    pub fn get_sender(&self) -> Box<dyn PacketSender + Send + Sync> {
-        match self {
-            TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
-            TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
-        }
-    }
-
-    pub fn get_receiver(&self) -> Box<dyn PacketReceiver + Send + Sync> {
-        match self {
-            TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
-            TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
-        }
-    }
+    // pub fn get_local_addr(&self) -> SocketAddr {
+    //     match self {
+    //         TransportConfig::UdpSocket(addr) => *addr,
+    //         TransportConfig::LocalChannel => LOCAL_SOCKET,
+    //     }
+    // }
+    // pub fn get_sender(&self) -> Box<dyn PacketSender + Send + Sync> {
+    //     match self {
+    //         TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
+    //         TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
+    //     }
+    // }
+    //
+    // pub fn get_receiver(&self) -> Box<dyn PacketReceiver + Send + Sync> {
+    //     match self {
+    //         TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
+    //         TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -67,20 +79,32 @@ impl IoConfig {
         self
     }
 
-    pub fn get_local_addr(&self) -> SocketAddr {
-        self.transport.get_local_addr()
-    }
-    pub fn get_sender(&self) -> Box<dyn PacketSender + Send + Sync> {
-        self.transport.get_sender()
+    pub fn get_io(&self) -> Io {
+        let mut io = self.transport.get_io();
+        if let Some(conditioner) = &self.conditioner {
+            io = Io::new(
+                io.local_addr,
+                io.sender,
+                Box::new(ConditionedPacketReceiver::new(io.receiver, conditioner)),
+            );
+        }
+        io
     }
 
-    pub fn get_receiver(&self) -> Box<dyn PacketReceiver + Send + Sync> {
-        let mut receiver = self.transport.get_receiver();
-        if let Some(conditioner) = &self.conditioner {
-            receiver = Box::new(ConditionedPacketReceiver::new(receiver, conditioner));
-        }
-        receiver
-    }
+    // pub fn get_local_addr(&self) -> SocketAddr {
+    //     self.transport.get_local_addr()
+    // }
+    // pub fn get_sender(&self) -> Box<dyn PacketSender + Send + Sync> {
+    //     self.transport.get_sender()
+    // }
+    //
+    // pub fn get_receiver(&self) -> Box<dyn PacketReceiver + Send + Sync> {
+    //     let mut receiver = self.transport.get_receiver();
+    //     if let Some(conditioner) = &self.conditioner {
+    //         receiver = Box::new(ConditionedPacketReceiver::new(receiver, conditioner));
+    //     }
+    //     receiver
+    // }
 }
 
 pub struct Io {
@@ -91,10 +115,11 @@ pub struct Io {
 
 impl Io {
     pub fn from_config(config: &IoConfig) -> Self {
-        let local_addr = config.transport.get_local_addr();
-        let sender = config.transport.get_sender();
-        let receiver = config.transport.get_receiver();
-        Self::new(local_addr, sender, receiver)
+        config.get_io()
+        // let local_addr = config.transport.get_local_addr();
+        // let sender = config.transport.get_sender();
+        // let receiver = config.transport.get_receiver();
+        // Self::new(local_addr, sender, receiver)
     }
 
     pub fn new(
@@ -107,6 +132,15 @@ impl Io {
             sender,
             receiver,
         }
+    }
+
+    pub fn to_parts(
+        self,
+    ) -> (
+        Box<dyn PacketReceiver + Send + Sync>,
+        Box<dyn PacketSender + Send + Sync>,
+    ) {
+        (self.receiver, self.sender)
     }
 
     pub fn split(

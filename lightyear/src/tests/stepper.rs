@@ -7,17 +7,15 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear::client as lightyear_client;
-use lightyear::netcode::generate_key;
-use lightyear::prelude::client::{
+use crate::netcode::generate_key;
+use crate::prelude::client::{
     Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
     SyncConfig,
 };
-use lightyear::prelude::server::{NetcodeConfig, Server, ServerConfig};
-use lightyear::prelude::*;
-use lightyear::server as lightyear_server;
+use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use crate::prelude::*;
 
-use crate::protocol::{protocol, MyProtocol};
+use crate::tests::protocol::{protocol, MyProtocol};
 
 /// Helpers to setup a bevy app where I can just step the world easily
 
@@ -54,20 +52,19 @@ impl BevyStepper {
         //     .init();
 
         // Use local channels instead of UDP for testing
-        let transport_1 = IoConfig::from_transport(TransportConfig::LocalChannel)
-            .with_conditioner(conditioner.clone());
-        let addr_1 = transport_1.get_local_addr();
-        let receiver_1 = transport_1.get_receiver();
-        let sender_1 = transport_1.get_sender();
+        let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let io_1 = IoConfig::from_transport(TransportConfig::LocalChannel)
+            .with_conditioner(conditioner.clone())
+            .get_io();
+        let (receiver_1, sender_1) = io_1.to_parts();
 
-        let transport_2 = IoConfig::from_transport(TransportConfig::LocalChannel)
-            .with_conditioner(conditioner.clone());
-        let addr_2 = transport_2.get_local_addr();
-        let receiver_2 = transport_2.get_receiver();
-        let sender_2 = transport_2.get_sender();
+        let io_2 = IoConfig::from_transport(TransportConfig::LocalChannel)
+            .with_conditioner(conditioner.clone())
+            .get_io();
+        let (receiver_2, sender_2) = io_2.to_parts();
 
-        let io_1 = Io::new(addr_1.clone(), sender_2, receiver_1);
-        let io_2 = Io::new(addr_2.clone(), sender_1, receiver_2);
+        let io_1 = Io::new(addr, sender_2, receiver_1);
+        let io_2 = Io::new(addr, sender_1, receiver_2);
 
         // Shared config
         let protocol_id = 0;
@@ -93,7 +90,7 @@ impl BevyStepper {
         let mut client_app = App::new();
         client_app.add_plugins(MinimalPlugins.build());
         let auth = Authentication::Manual {
-            server_addr: addr_1,
+            server_addr: addr,
             protocol_id,
             private_key,
             client_id,
@@ -156,7 +153,6 @@ impl Step for BevyStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         mock_instant::MockClock::advance(self.frame_duration);
         self.client_app.update();
-        // TODO: maybe for testing use a local io via channels?
         // sleep a bit to make sure that local io receives the packets
         // std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();

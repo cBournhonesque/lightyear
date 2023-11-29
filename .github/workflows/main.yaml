@@ -35,6 +35,9 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
+      - name: Install alsa
+        run: sudo apt-get install -y libasound2-dev; sudo apt-get install -y libwebkit2gtk-4.0 ;
+
       - name: Clone repo
         uses: actions/checkout@v4
 
@@ -54,6 +57,9 @@ jobs:
     name: Doctest
     runs-on: ubuntu-latest
     steps:
+      - name: Install alsa
+        run: sudo apt-get install -y libasound2-dev; sudo apt-get install -y libwebkit2gtk-4.0 ;
+
       - name: Clone repo
         uses: actions/checkout@v4
 

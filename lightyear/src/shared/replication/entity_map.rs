@@ -18,11 +18,11 @@ impl EntityMap {
         self.local_to_remote.insert(local_entity, remote_entity);
     }
 
-    pub fn get_local(&mut self, remote_entity: Entity) -> Option<&Entity> {
+    pub fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
         self.remote_to_local.get(&remote_entity)
     }
 
-    pub fn get_remote(&mut self, local_entity: Entity) -> Option<&Entity> {
+    pub fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
         self.local_to_remote.get(&local_entity)
     }
 

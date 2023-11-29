@@ -79,7 +79,6 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_plugins(InputPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(server)
-            .init_resource::<ReplicationData>()
             // SYSTEM SETS //
             .configure_sets(PreUpdate, MainSet::Receive)
             .configure_sets(

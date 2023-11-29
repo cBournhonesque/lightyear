@@ -2,16 +2,17 @@ use bevy::prelude::Component;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
-use lightyear::prelude::*;
+use crate::_reexport::*;
+use crate::prelude::*;
 
 // Messages
-#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message1(pub String);
 
-#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[message_protocol(protocol = "MyProtocol")]
+#[message_protocol_internal(protocol = "MyProtocol")]
 pub enum MyMessageProtocol {
     Message1(Message1),
     Message2(Message2),
@@ -27,7 +28,7 @@ pub struct Component2(pub f32);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component3(pub f32);
 
-#[component_protocol(protocol = "MyProtocol")]
+#[component_protocol_internal(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     #[sync(full)]
     Component1(Component1),
@@ -41,6 +42,7 @@ pub enum MyComponentsProtocol {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
+
 impl UserInput for MyInput {}
 
 // Protocol
@@ -50,13 +52,14 @@ protocolize! {
     Message = MyMessageProtocol,
     Component = MyComponentsProtocol,
     Input = MyInput,
+    Crate = crate,
 }
 
 // Channels
-#[derive(Channel)]
+#[derive(ChannelInternal)]
 pub struct Channel1;
 
-#[derive(Channel)]
+#[derive(ChannelInternal)]
 pub struct Channel2;
 
 pub fn protocol() -> MyProtocol {

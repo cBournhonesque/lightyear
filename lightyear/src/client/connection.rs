@@ -78,4 +78,9 @@ impl<P: Protocol> Connection<P> {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub fn base(&self) -> &crate::connection::Connection<P> {
+        &self.base
+    }
 }

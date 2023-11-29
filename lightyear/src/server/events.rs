@@ -182,7 +182,7 @@ pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ClientId>;
 #[cfg(test)]
 mod tests {
     use crate::protocol::channel::ChannelKind;
-    use crate::protocol::tests::{
+    use crate::tests::protocol::{
         Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
     };
 

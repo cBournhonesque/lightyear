@@ -239,68 +239,68 @@ pub trait EventContext: Send + Sync + 'static {}
 
 impl<T: Send + Sync + 'static> EventContext for T {}
 
-#[cfg(test)]
-pub mod tests {
-    use bevy::prelude::Component;
-    use serde::Deserialize;
-
-    use lightyear_macros::{
-        component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
-    };
-
-    use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
-
-    use super::*;
-
-    // Messages
-    #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Message1(pub String);
-
-    #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Message2(pub u32);
-
-    // #[derive(Debug, PartialEq)]
-    #[message_protocol_internal(protocol = "MyProtocol")]
-    pub enum MyMessageProtocol {
-        Message1(Message1),
-        Message2(Message2),
-    }
-
-    #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-    pub struct Component1;
-
-    // TODO: because we add ShouldBePredicted to the enum, we cannot derive stuff for the enum anymore!
-    //  is it a problem? we could pass the derives through an attribute macro ...
-    // #[derive(Debug, PartialEq)]
-    #[component_protocol_internal(protocol = "MyProtocol")]
-    pub enum MyComponentsProtocol {
-        Component1(Component1),
-    }
-
-    protocolize! {
-        Self = MyProtocol,
-        Message = MyMessageProtocol,
-        Component = MyComponentsProtocol,
-        Crate = crate,
-    }
-
-    // Channels
-    #[derive(ChannelInternal)]
-    pub struct Channel1;
-
-    #[derive(ChannelInternal)]
-    pub struct Channel2;
-
-    pub fn test_protocol() -> MyProtocol {
-        let mut p = MyProtocol::default();
-        p.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            direction: ChannelDirection::Bidirectional,
-        });
-        p.add_channel::<Channel2>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
-        });
-        p
-    }
-}
+// #[cfg(test)]
+// pub mod tests {
+//     use bevy::prelude::Component;
+//     use serde::Deserialize;
+//
+//     use lightyear_macros::{
+//         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
+//     };
+//
+//     use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
+//
+//     use super::*;
+//
+//     // Messages
+//     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
+//     pub struct Message1(pub String);
+//
+//     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
+//     pub struct Message2(pub u32);
+//
+//     // #[derive(Debug, PartialEq)]
+//     #[message_protocol_internal(protocol = "MyProtocol")]
+//     pub enum MyMessageProtocol {
+//         Message1(Message1),
+//         Message2(Message2),
+//     }
+//
+//     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+//     pub struct Component1;
+//
+//     // TODO: because we add ShouldBePredicted to the enum, we cannot derive stuff for the enum anymore!
+//     //  is it a problem? we could pass the derives through an attribute macro ...
+//     // #[derive(Debug, PartialEq)]
+//     #[component_protocol_internal(protocol = "MyProtocol")]
+//     pub enum MyComponentsProtocol {
+//         Component1(Component1),
+//     }
+//
+//     protocolize! {
+//         Self = MyProtocol,
+//         Message = MyMessageProtocol,
+//         Component = MyComponentsProtocol,
+//         Crate = crate,
+//     }
+//
+//     // Channels
+//     #[derive(ChannelInternal)]
+//     pub struct Channel1;
+//
+//     #[derive(ChannelInternal)]
+//     pub struct Channel2;
+//
+//     pub fn test_protocol() -> MyProtocol {
+//         let mut p = MyProtocol::default();
+//         p.add_channel::<Channel1>(ChannelSettings {
+//             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+//             direction: ChannelDirection::Bidirectional,
+//         });
+//         p.add_channel::<Channel2>(ChannelSettings {
+//             mode: ChannelMode::UnorderedUnreliable,
+//             direction: ChannelDirection::Bidirectional,
+//         });
+//         p
+//     }
+// }

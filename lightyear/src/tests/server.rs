@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use crate::protocol::{protocol, MyProtocol};
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
+use crate::prelude::server::*;
+use crate::prelude::*;
+use crate::tests::protocol::{protocol, MyProtocol};
 
 pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProtocol>> {
     // create udp-socket based io

@@ -259,12 +259,9 @@ impl<P: Protocol> TickManaged for Client<P> {
     }
 }
 
-// TODO: make this only available for integration tests
+// Access some internals for tests
+#[cfg(test)]
 impl<P: Protocol> Client<P> {
-    pub fn io(&self) -> &Io {
-        &self.io
-    }
-
     pub fn set_latest_received_server_tick(&mut self, tick: Tick) {
         self.connection.sync_manager.latest_received_server_tick = tick;
         self.connection
@@ -272,10 +269,8 @@ impl<P: Protocol> Client<P> {
             .duration_since_latest_received_server_tick = Duration::default();
     }
 
-    pub fn duration_since_latest_received_server_tick(&self) -> Duration {
-        self.connection
-            .sync_manager
-            .duration_since_latest_received_server_tick
+    pub fn connection(&self) -> &Connection<P> {
+        &self.connection
     }
 
     pub fn set_synced(&mut self) {
