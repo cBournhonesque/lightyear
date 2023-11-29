@@ -17,9 +17,9 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::_reexport::*;
-use lightyear_shared::prelude::client::*;
-use lightyear_shared::prelude::*;
+use lightyear::_reexport::*;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use lightyear_tests::protocol::{protocol, Channel2, Component1, MyInput, MyProtocol};
 use lightyear_tests::stepper::{BevyStepper, Step};
 
@@ -105,7 +105,7 @@ fn test_removed_predicted_component_rollback() -> anyhow::Result<()> {
     );
 
     // check that the component history got created
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     // this is added during the first rollback call after we create the history
     history
         .buffer
@@ -144,7 +144,7 @@ fn test_removed_predicted_component_rollback() -> anyhow::Result<()> {
         .get::<Component1>(predicted)
         .is_none());
     // check that the component history is still there and that the value of the component history is correct
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     for i in 0..5 {
         history
             .buffer
@@ -183,7 +183,7 @@ fn test_removed_predicted_component_rollback() -> anyhow::Result<()> {
         .unwrap()
         .0 = 4.0;
     // check that the history is how we expect after rollback
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     for i in 3..7 {
         history
             .buffer
@@ -255,7 +255,7 @@ fn test_added_predicted_component_rollback() -> anyhow::Result<()> {
         .is_none());
 
     // check that history contains the removal
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     history.buffer.add_item(Tick(1), ComponentState::Removed);
     assert_eq!(
         stepper
@@ -304,7 +304,7 @@ fn test_removed_confirmed_component_rollback() -> anyhow::Result<()> {
     );
 
     // check that the component history got created
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     history
         .buffer
         .add_item(Tick(0), ComponentState::Updated(Component1(0.0)));
@@ -343,7 +343,7 @@ fn test_removed_confirmed_component_rollback() -> anyhow::Result<()> {
         .is_none());
 
     // check that the history is how we expect after rollback
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     history.buffer.add_item(Tick(1), ComponentState::Removed);
     assert_eq!(
         stepper
@@ -423,7 +423,7 @@ fn test_added_confirmed_component_rollback() -> anyhow::Result<()> {
         .unwrap()
         .0 = 4.0;
     // check that the history is how we expect after rollback
-    let mut history = PredictionHistory::<Component1>::new();
+    let mut history = PredictionHistory::<Component1>::default();
     for i in 3..7 {
         history
             .buffer

@@ -6,8 +6,8 @@ use std::time::Duration;
 use bevy::app::App;
 
 use crate::protocol::{protocol, MyProtocol};
-use lightyear_shared::prelude::server::*;
-use lightyear_shared::prelude::*;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
 pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProtocol>> {
     // create udp-socket based io
@@ -15,6 +15,7 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
     let netcode_config = NetcodeConfig::default()
         .with_protocol_id(protocol_id)
         .with_key(private_key);
+    let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
     let config = ServerConfig {
         shared: SharedConfig {
             enable_replication: false,
@@ -22,12 +23,11 @@ pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProt
             ..Default::default()
         },
         netcode: netcode_config,
-        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
     };
 
     // create lightyear server
-    Ok(Server::new(config, protocol()))
+    Ok(Server::new(config, io, protocol()))
 }
 
 pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key: Key) {
@@ -35,6 +35,7 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
     let netcode_config = NetcodeConfig::default()
         .with_protocol_id(protocol_id)
         .with_key(private_key);
+    let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
     let config = ServerConfig {
         shared: SharedConfig {
             enable_replication: false,
@@ -42,10 +43,9 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
             ..Default::default()
         },
         netcode: netcode_config,
-        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
     };
-    let plugin_config = PluginConfig::new(config, protocol());
+    let plugin_config = PluginConfig::new(config, io, protocol());
     let plugin = ServerPlugin::new(plugin_config);
     app.add_plugins(plugin);
 }

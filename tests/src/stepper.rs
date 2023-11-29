@@ -7,15 +7,15 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear_shared::client as lightyear_client;
-use lightyear_shared::netcode::generate_key;
-use lightyear_shared::prelude::client::{
+use lightyear::client as lightyear_client;
+use lightyear::netcode::generate_key;
+use lightyear::prelude::client::{
     Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
     SyncConfig,
 };
-use lightyear_shared::prelude::server::{NetcodeConfig, Server, ServerConfig};
-use lightyear_shared::prelude::*;
-use lightyear_shared::server as lightyear_server;
+use lightyear::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use lightyear::prelude::*;
+use lightyear::server as lightyear_server;
 
 use crate::protocol::{protocol, MyProtocol};
 
@@ -48,17 +48,31 @@ impl BevyStepper {
         conditioner: LinkConditionerConfig,
         frame_duration: Duration,
     ) -> Self {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_span_events(FmtSpan::ENTER)
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_span_events(FmtSpan::ENTER)
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
+
+        // Use local channels instead of UDP for testing
+        let transport_1 = IoConfig::from_transport(TransportConfig::LocalChannel)
+            .with_conditioner(conditioner.clone());
+        let addr_1 = transport_1.get_local_addr();
+        let receiver_1 = transport_1.get_receiver();
+        let sender_1 = transport_1.get_sender();
+
+        let transport_2 = IoConfig::from_transport(TransportConfig::LocalChannel)
+            .with_conditioner(conditioner.clone());
+        let addr_2 = transport_2.get_local_addr();
+        let receiver_2 = transport_2.get_receiver();
+        let sender_2 = transport_2.get_sender();
+
+        let io_1 = Io::new(addr_1.clone(), sender_2, receiver_1);
+        let io_2 = Io::new(addr_2.clone(), sender_1, receiver_2);
 
         // Shared config
-        let server_addr = SocketAddr::from_str("127.0.0.1:5000").unwrap();
         let protocol_id = 0;
         let private_key = generate_key();
         let client_id = 111;
-        let frame_duration = frame_duration;
 
         // Setup server
         let mut server_app = App::new();
@@ -69,11 +83,9 @@ impl BevyStepper {
         let config = ServerConfig {
             shared: shared_config.clone(),
             netcode: netcode_config,
-            io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
-                .with_conditioner(conditioner.clone()),
             ping: PingConfig::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
+        let plugin_config = server::PluginConfig::new(config, io_1, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
@@ -81,24 +93,21 @@ impl BevyStepper {
         let mut client_app = App::new();
         client_app.add_plugins(MinimalPlugins.build());
         let auth = Authentication::Manual {
-            server_addr,
+            server_addr: addr_1,
             protocol_id,
             private_key,
             client_id,
         };
-        let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let config = ClientConfig {
             shared: shared_config.clone(),
             input: InputConfig::default(),
             netcode: Default::default(),
-            io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
-                .with_conditioner(conditioner.clone()),
             ping: PingConfig::default(),
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
         };
-        let plugin_config = client::PluginConfig::new(config, protocol(), auth);
+        let plugin_config = client::PluginConfig::new(config, io_2, protocol(), auth);
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
@@ -149,9 +158,9 @@ impl Step for BevyStepper {
         self.client_app.update();
         // TODO: maybe for testing use a local io via channels?
         // sleep a bit to make sure that local io receives the packets
-        std::thread::sleep(Duration::from_millis(10));
+        // std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();
-        std::thread::sleep(Duration::from_millis(10));
+        // std::thread::sleep(Duration::from_millis(1));
     }
 
     fn tick_step(&mut self) {

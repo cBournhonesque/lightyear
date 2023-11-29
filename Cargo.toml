@@ -1,7 +1,3 @@
 [workspace]
 resolver = "2"
-members = [
-    "shared/derive",
-    "shared",
-    "tests",
-]
+members = ["examples", "macros", "lightyear", "tests"]

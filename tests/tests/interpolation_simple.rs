@@ -14,13 +14,13 @@
 // use bevy::time::TimeUpdateStrategy;
 // use bevy::winit::WinitPlugin;
 // use bevy::{DefaultPlugins, MinimalPlugins};
-// use lightyear_shared::client::components::Confirmed;
+// use lightyear::client::components::Confirmed;
 // use tracing::{debug, info};
 // use tracing_subscriber::fmt::format::FmtSpan;
 //
-// use lightyear_shared::_reexport::*;
-// use lightyear_shared::prelude::client::*;
-// use lightyear_shared::prelude::*;
+// use lightyear::_reexport::*;
+// use lightyear::prelude::client::*;
+// use lightyear::prelude::*;
 // use lightyear_tests::protocol::{protocol, Channel2, Component1, Component2, MyInput, MyProtocol};
 // use lightyear_tests::stepper::{BevyStepper, Step};
 //

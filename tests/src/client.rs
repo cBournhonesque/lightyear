@@ -4,13 +4,14 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use lightyear_shared::prelude::client::*;
-use lightyear_shared::prelude::*;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
 use crate::protocol::{protocol, MyProtocol};
 
 pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
     let addr = SocketAddr::from_str("127.0.0.1:0")?;
+    let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
     let config = ClientConfig {
         shared: SharedConfig {
             enable_replication: false,
@@ -19,7 +20,6 @@ pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
         },
         input: InputConfig::default(),
         netcode: Default::default(),
-        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
         sync: SyncConfig::default(),
         prediction: PredictionConfig::default(),
@@ -27,12 +27,13 @@ pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
     };
 
     // create lightyear client
-    Ok(Client::new(config, auth, protocol()))
+    Ok(Client::new(config, io, auth, protocol()))
 }
 
 pub fn bevy_setup(app: &mut App, auth: Authentication) {
     // create udp-socket based io
     let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+    let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
     let config = ClientConfig {
         shared: SharedConfig {
             enable_replication: false,
@@ -41,13 +42,12 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         },
         input: InputConfig::default(),
         netcode: Default::default(),
-        io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
         ping: PingConfig::default(),
         sync: SyncConfig::default(),
         prediction: PredictionConfig::default(),
         interpolation: InterpolationConfig::default(),
     };
-    let plugin_config = PluginConfig::new(config, protocol(), auth);
+    let plugin_config = PluginConfig::new(config, io, protocol(), auth);
     let plugin = ClientPlugin::new(plugin_config);
     app.add_plugins(plugin);
 }

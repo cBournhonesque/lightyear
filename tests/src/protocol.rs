@@ -2,7 +2,7 @@ use bevy::prelude::Component;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
-use lightyear_shared::prelude::*;
+use lightyear::prelude::*;
 
 // Messages
 #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
