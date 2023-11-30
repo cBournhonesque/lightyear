@@ -35,8 +35,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Install alsa
-        run: sudo apt-get install -y libasound2-dev libwebkit2gtk-4.0 pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
 
       - name: Clone repo
         uses: actions/checkout@v4
@@ -57,8 +57,8 @@ jobs:
     name: Doctest
     runs-on: ubuntu-latest
     steps:
-      - name: Install alsa
-        run: sudo apt-get update && apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
 
       - name: Clone repo
         uses: actions/checkout@v4
