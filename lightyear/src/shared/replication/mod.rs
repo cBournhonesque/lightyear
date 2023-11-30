@@ -131,15 +131,14 @@ mod tests {
         stepper.frame_step();
 
         // Check that the entity is replicated to client
-        let client_entity = stepper
+        let client_entity = *stepper
             .client()
             .connection()
             .base()
             .replication_manager
             .entity_map
             .get_local(server_entity)
-            .unwrap()
-            .clone();
+            .unwrap();
         assert_eq!(
             stepper
                 .client_app
