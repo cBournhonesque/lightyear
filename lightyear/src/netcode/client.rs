@@ -175,20 +175,6 @@ pub enum ClientState {
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = Client::new(&token_bytes).unwrap();
 /// client.connect();
-///
-/// let start = Instant::now();
-/// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
-/// loop {
-///     client.update(start.elapsed().as_secs_f64(), &mut io);
-///     if client.is_connected() {
-///         client.send(b"Hello World!", &mut io).unwrap();
-///     }
-///     if let Some(packet) = client.recv() {
-///         // println!("received packet: {:?}", packet);
-///     }
-///     thread::sleep(tick_rate);
-///     # break;
-/// }
 /// ```
 pub struct Client<Ctx = ()> {
     state: ClientState,
