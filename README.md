@@ -51,6 +51,9 @@ Lightyear provides a simple API for sending and receiving messages, and for repl
 - Configurable
   - Lightyear is highly configurable: you can configure the size of the input buffer, the amount of interpolation-delay, the packet send rate, etc.
     All the configurations are accessible through the `ClientConfig` and `ServerConfig` structs.
+- Observability
+  - Lightyear uses the `tracing` and `metrics` libraries to emit spans and logs around most events (sending/receiving messages, etc.). The metrics
+    can be exported to Prometheus for analysis.
 
 
 ## Planned features
