@@ -36,14 +36,14 @@ pub fn channel_derive_internal(input: proc_macro::TokenStream) -> proc_macro::To
 // Message
 
 /// Derives the Message trait for a given struct
-#[proc_macro_derive(Message)]
+#[proc_macro_derive(Message, attributes(message))]
 pub fn message_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { lightyear };
     message_impl(input, shared_crate_name)
 }
 
 #[doc(hidden)]
-#[proc_macro_derive(MessageInternal)]
+#[proc_macro_derive(MessageInternal, attributes(message))]
 pub fn message_derive_internal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { crate };
     message_impl(input, shared_crate_name)

@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
+use crate::prelude::MapEntities;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::replication::components::ShouldBePredicted;
@@ -22,6 +23,7 @@ pub trait ComponentProtocol:
     BitSerializable
     + Serialize
     + DeserializeOwned
+    + MapEntities
     + ComponentBehaviour
     + Send
     + Sync
@@ -55,6 +57,7 @@ pub trait ComponentProtocol:
     fn add_interpolation_systems(app: &mut App);
 }
 
+// TODO: enum_delegate doesn't work with generics + cannot be used multiple times since it derives a bunch of Into/From traits
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 #[enum_delegate::register]
 pub trait ComponentBehaviour {
@@ -75,6 +78,7 @@ pub trait ComponentProtocolKind:
     BitSerializable
     + Serialize
     + DeserializeOwned
+    + MapEntities
     + PartialEq
     + Eq
     + Hash

@@ -20,6 +20,10 @@ ROUGH EDGES:
 - some slightly weird stuff around the sync manager
 - can have smarter speedup/down for the sync system
 
+- Serialization:
+  - have a NetworkMessage macro that all network messages must derive (Input, Message, Component)
+  - all types must be Encode/Decode always. If a type is Serialize/Deserialize, then we can convert it to Encode/Decode ?
+
 
 - Prediction:
   - TODO: handle despawns, spawns

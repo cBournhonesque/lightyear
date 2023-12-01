@@ -1,4 +1,4 @@
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Entity};
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
@@ -19,14 +19,24 @@ pub enum MyMessageProtocol {
 }
 
 // Components
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component1(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component2(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component3(pub f32);
+
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[message(custom_map)]
+pub struct Component4(pub Entity);
+
+impl MapEntities for Component4 {
+    fn map_entities(&mut self, entity_map: &EntityMap) {
+        self.0.map_entities(entity_map);
+    }
+}
 
 #[component_protocol_internal(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
@@ -36,6 +46,8 @@ pub enum MyComponentsProtocol {
     Component2(Component2),
     #[sync(once)]
     Component3(Component3),
+    #[sync(simple)]
+    Component4(Component4),
 }
 
 // Inputs

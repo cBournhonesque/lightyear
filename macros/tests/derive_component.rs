@@ -6,10 +6,10 @@ pub mod some_component {
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
     pub struct Component1(pub f32);
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
     pub struct Component2(pub f32);
 
     #[component_protocol(protocol = "MyProtocol", derive(Debug))]

@@ -18,13 +18,13 @@ pub enum MyMessageProtocol {
 }
 
 // Components
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component1(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component2(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component3(pub f32);
 
 #[component_protocol(protocol = "MyProtocol", derive(Debug))]

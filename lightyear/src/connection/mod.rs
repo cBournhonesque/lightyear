@@ -17,6 +17,7 @@ use crate::connection::events::ConnectionEvents;
 use crate::connection::message::ProtocolMessage;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
+use crate::prelude::MapEntities;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -185,7 +186,9 @@ impl<P: Protocol> Connection<P> {
 
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
-                for message in messages {
+                for mut message in messages {
+                    // map entities from remote to local
+                    message.map_entities(&self.replication_manager.entity_map);
                     // other message-handling logic
                     match message {
                         ProtocolMessage::Replication(ref replication) => {

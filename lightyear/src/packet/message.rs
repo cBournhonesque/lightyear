@@ -7,6 +7,7 @@ use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::shared::replication::entity_map::MapEntities;
 use crate::shared::tick_manager::Tick;
 use crate::utils::named::Named;
 use crate::utils::wrapping_id;
@@ -322,7 +323,7 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + Named {}
+pub trait Message: EventContext + Named + MapEntities {}
 
 #[cfg(test)]
 mod tests {

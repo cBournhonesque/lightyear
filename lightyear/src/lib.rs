@@ -63,6 +63,7 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::components::{NetworkTarget, Replicate};
+    pub use crate::shared::replication::entity_map::{EntityMap, MapEntities};
     pub use crate::shared::replication::resources::ReplicationData;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::{Tick, TickConfig};

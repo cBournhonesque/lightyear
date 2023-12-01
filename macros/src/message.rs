@@ -1,34 +1,36 @@
 use crate::shared::generate_unique_ident;
 use darling::ast::NestedMeta;
 use darling::util::PathList;
-use darling::{Error, FromMeta};
+use darling::{Error, FromDeriveInput, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use std::ops::Deref;
 use syn::{parse_macro_input, parse_quote, DeriveInput, Field, Fields, ItemEnum, LitStr};
 
-#[derive(Debug, FromMeta)]
-struct MacroAttrs {
-    protocol: Ident,
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(message))]
+struct MessageAttrs {
     #[darling(default)]
-    derive: PathList,
+    custom_map: bool,
 }
-
 pub fn message_impl(
     input: proc_macro::TokenStream,
     shared_crate_name: TokenStream,
 ) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let attrs = <MessageAttrs as FromDeriveInput>::from_derive_input(&input).unwrap();
 
     // Helper Properties
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+    let ident_map = !attrs.custom_map;
 
     // Names
-    let struct_name = input.ident;
+    let struct_name = &input.ident;
     let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
     let lowercase_struct_name =
         format_ident!("{}", struct_name.to_string().to_lowercase().as_str());
     let module_name = generate_unique_ident(&format!("mod_{}", lowercase_struct_name));
+    let map_entities_trait = map_entities_trait(&input, ident_map);
 
     // Methods
     let gen = quote! {
@@ -37,6 +39,8 @@ pub fn message_impl(
             use #shared_crate_name::prelude::*;
 
             impl #impl_generics Message for #struct_name #type_generics #where_clause {}
+
+            #map_entities_trait
 
             // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
             impl #impl_generics Named for #struct_name #type_generics #where_clause {
@@ -50,6 +54,27 @@ pub fn message_impl(
     proc_macro::TokenStream::from(gen)
 }
 
+fn map_entities_trait(input: &DeriveInput, ident_map: bool) -> TokenStream {
+    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+    let struct_name = &input.ident;
+    if ident_map {
+        quote! {
+            impl #impl_generics MapEntities for #struct_name #type_generics #where_clause {
+                fn map_entities(&mut self, entity_map: &EntityMap) {}
+            }
+        }
+    } else {
+        quote! {}
+    }
+}
+
+#[derive(Debug, FromMeta)]
+struct MessageProtocolAttrs {
+    protocol: Ident,
+    #[darling(default)]
+    derive: PathList,
+}
+
 pub fn message_protocol_impl(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
@@ -61,7 +86,7 @@ pub fn message_protocol_impl(
             return Error::from(e).write_errors().into();
         }
     };
-    let attr = match MacroAttrs::from_list(&attr_args) {
+    let attr = match MessageProtocolAttrs::from_list(&attr_args) {
         Ok(v) => v,
         Err(e) => {
             return e.write_errors().into();
@@ -95,7 +120,7 @@ pub fn message_protocol_impl(
     // Methods
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
-    let name_method = name_method(&input);
+    let delegate_method = delegate_method(&input);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -125,11 +150,10 @@ pub fn message_protocol_impl(
 
                 #add_events_method
                 #push_message_events_method
-
             }
 
             // #from_into_methods
-            #name_method
+            #delegate_method
             // impl BitSerializable for #enum_name {
             //     #encode_method
             //     #decode_method
@@ -179,23 +203,35 @@ fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
     }
 }
 
-fn name_method(input: &ItemEnum) -> TokenStream {
+fn delegate_method(input: &ItemEnum) -> TokenStream {
     let enum_name = &input.ident;
     let variants = input.variants.iter().map(|v| v.ident.clone());
-    let mut body = quote! {};
+    let mut name_body = quote! {};
+    let mut map_entities_body = quote! {};
     for variant in input.variants.iter() {
         let ident = &variant.ident;
-        body = quote! {
-            #body
+        name_body = quote! {
+            #name_body
             &#enum_name::#ident(ref x) => x.name(),
-        }
+        };
+        map_entities_body = quote! {
+            #map_entities_body
+            #enum_name::#ident(ref mut x) => x.map_entities(entity_map),
+        };
     }
 
     quote! {
         impl Named for #enum_name {
             fn name(&self) -> String {
                 match self {
-                    #body
+                    #name_body
+                }
+            }
+        }
+        impl MapEntities for #enum_name {
+            fn map_entities(&mut self, entity_map: &EntityMap) {
+                match self {
+                    #map_entities_body
                 }
             }
         }

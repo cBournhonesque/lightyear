@@ -20,7 +20,7 @@ pub mod some_message {
         Message2(Message2),
     }
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Component1(pub u8);
 
     #[component_protocol(protocol = "MyProtocol")]

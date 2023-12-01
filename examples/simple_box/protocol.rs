@@ -30,13 +30,15 @@ impl PlayerBundle {
 
 // Components
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
+#[derive(
+    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
+)]
 pub struct PlayerPosition(Vec2);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
 #[component_protocol(protocol = "MyProtocol", derive(Debug))]

@@ -1,17 +1,20 @@
 //! Module to handle replicating entities and components from server to client
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use anyhow::Result;
 use bevy::prelude::{Component, Entity, Resource};
+use bevy::reflect::Map;
 use serde::{Deserialize, Serialize};
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
+use crate::prelude::{EntityMap, MapEntities};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
 
 pub mod components;
 
-mod entity_map;
+pub mod entity_map;
 
 pub mod manager;
 
@@ -31,6 +34,36 @@ pub enum ReplicationMessage<C, K> {
     RemoveComponent(Entity, K),
     // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
     EntityUpdate(Entity, Vec<C>),
+}
+
+impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
+    fn map_entities(&mut self, entity_map: &EntityMap) {
+        match self {
+            ReplicationMessage::SpawnEntity(e, components) => {
+                e.map_entities(entity_map);
+                for component in components {
+                    component.map_entities(entity_map);
+                }
+            }
+            ReplicationMessage::DespawnEntity(e) => {
+                e.map_entities(entity_map);
+            }
+            ReplicationMessage::InsertComponent(e, c) => {
+                e.map_entities(entity_map);
+                c.map_entities(entity_map);
+            }
+            ReplicationMessage::RemoveComponent(e, k) => {
+                e.map_entities(entity_map);
+                k.map_entities(entity_map);
+            }
+            ReplicationMessage::EntityUpdate(e, components) => {
+                e.map_entities(entity_map);
+                for component in components {
+                    component.map_entities(entity_map);
+                }
+            }
+        }
+    }
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {

@@ -50,7 +50,7 @@ pub(crate) mod registry;
 ///    Message1(Message1),
 ///}
 ///
-///#[derive(Component, Serialize, Deserialize, Clone, PartialEq)]
+///#[derive(Component, Message, Serialize, Deserialize, Clone, PartialEq)]
 ///pub struct Component1;
 ///
 ///#[component_protocol(protocol = "MyProtocol")]

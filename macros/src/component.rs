@@ -147,6 +147,7 @@ pub fn component_protocol_impl(
     let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
     let encode_method = encode_method();
     let decode_method = decode_method();
+    let delegate_method = delegate_method(&input, &enum_kind_name);
 
     // EnumKind methods
     let enum_kind = get_enum_kind(&input, &enum_kind_name);
@@ -187,6 +188,7 @@ pub fn component_protocol_impl(
             }
 
             #sync_component_impl
+            #delegate_method
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
             #enum_kind
@@ -471,6 +473,32 @@ fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> 
             match self {
                 #field_body
             };
+        }
+    }
+}
+
+fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
+    let enum_name = &input.ident;
+    let variants = input.variants.iter().map(|v| v.ident.clone());
+    let mut map_entities_body = quote! {};
+    for variant in input.variants.iter() {
+        let ident = &variant.ident;
+        map_entities_body = quote! {
+            #map_entities_body
+            #enum_name::#ident(ref mut x) => x.map_entities(entity_map),
+        };
+    }
+
+    quote! {
+        impl MapEntities for #enum_name {
+            fn map_entities(&mut self, entity_map: &EntityMap) {
+                match self {
+                    #map_entities_body
+                }
+            }
+        }
+        impl MapEntities for #enum_kind_name {
+            fn map_entities(&mut self, entity_map: &EntityMap) {}
         }
     }
 }
