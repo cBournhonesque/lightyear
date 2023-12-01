@@ -152,7 +152,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             PreUpdate,
             (
-                MainSet::Receive,
+                MainSet::ReceiveFlush,
                 PredictionSet::SpawnPrediction,
                 PredictionSet::SpawnPredictionFlush,
                 PredictionSet::SpawnHistory,

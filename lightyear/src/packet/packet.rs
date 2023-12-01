@@ -24,7 +24,6 @@ const HEADER_BYTES: usize = 9;
 /// remove 1 byte for byte alignment at the end
 pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
 
-// TODO: THERE IS SOMETHING WRONG WITH EITHER LAST FRAGMENT OR ALL FRAGMENTS!
 /// The maximum number of bytes for a message before it is fragmented
 /// The final size of the fragmented packet (channel_id: 2, fragment_id: 1, message_id: 2, num_fragments: 1, number of bytes in fragment: 2)
 /// must be lower than MTU_PAYLOAD_BYTES
@@ -184,22 +183,7 @@ impl FragmentedPacket {
 
     /// Return the list of message ids in the packet
     pub(crate) fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
-        let mut data: HashMap<_, _> = self
-            .packet
-            .data
-            .iter()
-            .map(|(&net_id, messages)| {
-                let message_acks: Vec<MessageAck> = messages
-                    .iter()
-                    .filter(|message| message.id.is_some())
-                    .map(|message| MessageAck {
-                        message_id: message.id.unwrap(),
-                        fragment_id: None,
-                    })
-                    .collect();
-                (net_id, message_acks)
-            })
-            .collect();
+        let mut data: HashMap<_, _> = self.packet.message_acks();
         data.entry(self.channel_id).or_default().push(MessageAck {
             message_id: self.fragment.message_id,
             fragment_id: Some(self.fragment.fragment_id),
@@ -379,7 +363,7 @@ mod tests {
     use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
-    use crate::packet::packet_manager::PacketManager;
+    use crate::packet::packet_manager::PacketBuilder;
     use crate::prelude::{ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings};
     use crate::protocol::channel::ChannelKind;
 
@@ -405,7 +389,7 @@ mod tests {
     #[test]
     fn test_single_packet_add_messages() {
         let channel_registry = get_channel_registry();
-        let manager = PacketManager::new();
+        let manager = PacketBuilder::new();
         let mut packet = SinglePacket::new();
 
         packet.add_message(0, SingleData::new(None, Bytes::from("hello")));
@@ -418,7 +402,7 @@ mod tests {
     #[test]
     fn test_encode_single_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let manager = PacketManager::new();
+        let manager = PacketBuilder::new();
         let mut packet = SinglePacket::new();
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);
@@ -477,7 +461,7 @@ mod tests {
     #[test]
     fn test_encode_fragmented_packet() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let manager = PacketManager::new();
+        let manager = PacketBuilder::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let bytes = Bytes::from(vec![0; 10]);
@@ -515,7 +499,7 @@ mod tests {
     #[test]
     fn test_encode_fragmented_packet_no_single_data() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let manager = PacketManager::new();
+        let manager = PacketBuilder::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let bytes = Bytes::from(vec![0; 10]);

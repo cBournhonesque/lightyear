@@ -1,11 +1,18 @@
-use std::collections::HashSet;
+use derive_more::{AddAssign, SubAssign};
+use std::collections::{HashMap, HashSet};
+use std::thread::current;
+use std::time::{Duration, Instant};
 
+use crate::_reexport::{ReadyBuffer, TimeManager, WrappedTime};
 use bitcode::{Decode, Encode};
+use chrono::format::ParseErrorKind;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
+use tracing::{info, trace};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
+use crate::packet::stats_manager::PacketStatsManager;
 use crate::shared::tick_manager::Tick;
 
 /// Header included at the start of all packets
@@ -45,6 +52,7 @@ impl PacketHeader {
 const ACK_BITFIELD_SIZE: u8 = 32;
 // we can only buffer up to `MAX_SEND_PACKET_QUEUE_SIZE` packets for sending
 const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
+const CLEAR_UNACKED_PACKETS_DELAY: chrono::Duration = chrono::Duration::milliseconds(5000);
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
@@ -55,7 +63,9 @@ pub struct PacketHeaderManager {
     next_packet_id: PacketId,
     // keep track of the packets (of type Data) we send out and that have not been acked yet,
     // so we can resend them when dropped
-    sent_packets_not_acked: HashSet<PacketId>,
+    // sent_packets_not_acked: HashSet<PacketId>,
+    sent_packets_not_acked: HashMap<PacketId, WrappedTime>,
+    stats_manager: PacketStatsManager,
 
     // channel to notify the sender of the packet_id of the packets that were delivered
     // ack_notification_sender: Sender<PacketId>,
@@ -64,19 +74,38 @@ pub struct PacketHeaderManager {
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
     recv_buffer: ReceiveBuffer,
+    // copy of current time so that we don't pollute the function signatures to much
+    current_time: WrappedTime,
 }
 
 impl PacketHeaderManager {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         // let (ack_notification_sender, ack_notification_receiver) =
         //     crossbeam::channel::bounded(MAX_SEND_PACKET_QUEUE_SIZE as usize);
         Self {
             next_packet_id: PacketId(0),
-            sent_packets_not_acked: HashSet::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
+            stats_manager: PacketStatsManager::default(),
+            // sent_packets_not_acked: HashSet::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
+            sent_packets_not_acked: HashMap::new(),
             recv_buffer: ReceiveBuffer::new(),
             // ack_notification_sender,
             // ack_notification_receiver,
+            current_time: WrappedTime::default(),
         }
+    }
+
+    pub(crate) fn update(&mut self, time_manager: &TimeManager) {
+        self.current_time = time_manager.current_time();
+        self.stats_manager.update(time_manager);
+        // clear sent packets that haven't received any ack for a while
+        self.sent_packets_not_acked.retain(|packet_id, time_sent| {
+            if self.current_time - (*time_sent) > CLEAR_UNACKED_PACKETS_DELAY {
+                trace!("sent packet got lost");
+                self.stats_manager.sent_packet_lost();
+                return false;
+            }
+            true
+        });
     }
 
     // /// Get the receiver for the ack notification channel
@@ -91,7 +120,7 @@ impl PacketHeaderManager {
     }
 
     #[cfg(test)]
-    pub fn sent_packets_not_acked(&self) -> &HashSet<PacketId> {
+    pub fn sent_packets_not_acked(&self) -> &HashMap<PacketId, WrappedTime> {
         &self.sent_packets_not_acked
     }
 
@@ -105,6 +134,7 @@ impl PacketHeaderManager {
     /// Returns the list of packets that have been newly acked by the remote
     pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) -> Vec<PacketId> {
         // update the receive buffer
+        self.stats_manager.received_packet();
         self.recv_buffer.recv_packet(header.packet_id);
 
         let mut newly_acked_packets = Vec::new();
@@ -112,12 +142,14 @@ impl PacketHeaderManager {
         // read the ack information (ack id + ack bitfield) from the received header, and update
         // the list of our sent packets that have not been acked yet
         if let Some(packet) = self.update_sent_packets_not_acked(&header.last_ack_packet_id) {
+            self.stats_manager.sent_packet_acked();
             newly_acked_packets.push(packet);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
             if header.get_bitfield_bit(i - 1) {
                 if let Some(packet) = self.update_sent_packets_not_acked(&packet_id) {
+                    self.stats_manager.sent_packet_acked();
                     newly_acked_packets.push(packet)
                 }
             }
@@ -130,7 +162,7 @@ impl PacketHeaderManager {
     ///
     /// Also potentially notify the channels/etc. that the packet was delivered.
     fn update_sent_packets_not_acked(&mut self, packet_id: &PacketId) -> Option<PacketId> {
-        if self.sent_packets_not_acked.contains(packet_id) {
+        if self.sent_packets_not_acked.contains_key(packet_id) {
             // TODO: make this non-blocking, but keep trying until it works?
             // notify that one of the packets we sent got acked
             // TODO: important to compute RTT
@@ -158,7 +190,11 @@ impl PacketHeaderManager {
             // TODO: we send the tick, later. Seems a bit dangerous...
             tick: Tick(0),
         };
-        self.sent_packets_not_acked.insert(self.next_packet_id);
+        // we build the header only when we actually send the packet, so computing the stats here is valid
+        self.stats_manager.sent_packet();
+        // keep track of when we sent the packet (so that if we don't get an ack after a certain amount of time we can consider it lost)
+        self.sent_packets_not_acked
+            .insert(self.next_packet_id, self.current_time);
         self.increment_next_packet_id();
         outgoing_header
     }

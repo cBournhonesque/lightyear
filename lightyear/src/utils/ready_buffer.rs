@@ -53,7 +53,7 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
         None
     }
 
-    /// Pop all items that are older than the provided key, then return the value for the most recent item
+    /// Pop all items that are older or equal than the provided key, then return the value for the most recent item
     /// with a key older or equal to the provided key
     /// (i.e. if we have keys 1, 4, 6, pop_until(5) will pop 1, 4 and return the value for key 4)
     /// /// (i.e. if we have keys 1, 4, 6, pop_until(4) will pop 1, 4 and return the value for key 4)
@@ -71,6 +71,27 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
             }
             // safety: we know that the heap is not empty and that the key is <= the provided key
             val = self.heap.pop().map(|item| (item.key, item.item));
+        }
+        val
+    }
+
+    /// Pop all items that are older or equal than the provided key, then return all the values that were popped
+    pub(crate) fn drain_until(&mut self, key: &K) -> Vec<(K, T)> {
+        if self.heap.is_empty() {
+            return vec![];
+        }
+        let mut val = Vec::new();
+        while let Some(item_with_key) = self.heap.peek() {
+            // we have a new update that is older than what we want, stop
+            if item_with_key.key > *key {
+                // put back the update in the heap
+                // self.heap.push(item_with_key);
+                break;
+            }
+            // safety: we know that the heap is not empty and that the key is <= the provided key
+            if let Some(v) = self.heap.pop().map(|item| (item.key, item.item)) {
+                val.push(v);
+            }
         }
         val
     }

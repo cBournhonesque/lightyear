@@ -6,6 +6,7 @@ use bevy::prelude::{App, Plugin};
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 #[cfg(feature = "metrics")]
 use metrics_util::layers::Layer;
+
 use tracing::{warn, Level};
 use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
 
@@ -99,7 +100,7 @@ impl Plugin for LogPlugin {
 
                 // Add in tracing
                 let traced_recorder = TracingContextLayer::all().layer(recorder);
-                thread::Builder::new()
+                std::thread::Builder::new()
                     .spawn(move || runtime.block_on(exporter))
                     .unwrap();
                 metrics::set_boxed_recorder(Box::new(traced_recorder));

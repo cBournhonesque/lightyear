@@ -22,6 +22,10 @@ jobs:
           mkdir mdbook
           curl -sSL $url | tar -xz --directory=./mdbook
           echo `pwd`/mdbook >> $GITHUB_PATH
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install mdbook-mermaid
+        run: cargo install mdbook-mermaid
       - name: Build Book
         run: |
           cd book

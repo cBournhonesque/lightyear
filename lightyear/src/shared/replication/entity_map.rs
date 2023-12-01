@@ -70,6 +70,7 @@ impl EntityMap {
 
 /// Trait that Messages or Components must implement to be able to map entities
 pub trait MapEntities {
+    /// Map the entities inside the message or component from the remote World to the local World
     fn map_entities(&mut self, entity_map: &EntityMap);
 }
 

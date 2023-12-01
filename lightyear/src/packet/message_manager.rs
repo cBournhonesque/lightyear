@@ -9,7 +9,7 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet::{Packet, PacketId};
-use crate::packet::packet_manager::{PacketManager, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -26,7 +26,7 @@ use crate::shared::time_manager::TimeManager;
 // TODO: put the M here or in the functions?
 pub struct MessageManager<M: BitSerializable> {
     /// Handles sending/receiving packets (including acks)
-    packet_manager: PacketManager,
+    packet_manager: PacketBuilder,
     // TODO: add ordering of channels per priority
     channels: HashMap<ChannelKind, ChannelContainer>,
     pub(crate) channel_registry: ChannelRegistry,
@@ -43,7 +43,7 @@ pub struct MessageManager<M: BitSerializable> {
 impl<M: BitSerializable> MessageManager<M> {
     pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
-            packet_manager: PacketManager::new(),
+            packet_manager: PacketBuilder::new(),
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
@@ -54,6 +54,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Update book-keeping
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+        self.packet_manager.header_manager.update(time_manager);
         for channel in self.channels.values_mut() {
             channel.sender.update(time_manager, tick_manager);
             channel.receiver.update(time_manager, tick_manager);
@@ -224,6 +225,7 @@ impl<M: BitSerializable> MessageManager<M> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration;
 
     use serde::{Deserialize, Serialize};
 
@@ -265,6 +267,7 @@ mod tests {
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
 
+        let time_manager = TimeManager::new(Duration::default());
         let mut channel_registry = ChannelRegistry::new();
         channel_registry.add::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
@@ -327,7 +330,7 @@ mod tests {
             .packet_manager
             .header_manager
             .sent_packets_not_acked()
-            .contains(&PacketId(0)));
+            .contains_key(&PacketId(0)));
 
         // Server sends back a message
         server_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -354,7 +357,6 @@ mod tests {
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
-
         let mut channel_registry = ChannelRegistry::new();
         channel_registry.add::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
@@ -431,12 +433,12 @@ mod tests {
             .packet_manager
             .header_manager
             .sent_packets_not_acked()
-            .contains(&PacketId(0)));
+            .contains_key(&PacketId(0)));
         assert!(client_message_manager
             .packet_manager
             .header_manager
             .sent_packets_not_acked()
-            .contains(&PacketId(1)));
+            .contains_key(&PacketId(1)));
 
         // Server sends back a message
         server_message_manager

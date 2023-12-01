@@ -36,3 +36,4 @@ pub(crate) mod packet_manager;
 
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 mod packet_type;
+pub(crate) mod stats_manager;

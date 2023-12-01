@@ -20,8 +20,8 @@ impl Plugin for MyServerPlugin {
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.00,
+            incoming_jitter: Duration::from_millis(10),
+            incoming_loss: 0.03,
         };
         let io = Io::from_config(
             &IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))

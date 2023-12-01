@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::_reexport::TimeManager;
 use bitcode::encoding::Gamma;
 
 use crate::netcode::MAX_PACKET_SIZE;
@@ -21,9 +22,9 @@ pub(crate) const PACKET_BUFFER_CAPACITY: usize = MTU_PAYLOAD_BYTES * (u8::BITS a
 
 pub type Payload = Vec<u8>;
 
-/// `PacketManager` handles the process of creating a packet (writing the header and packing the
+/// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)
-pub(crate) struct PacketManager {
+pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     // Pre-allocated buffer to encode/decode without allocation.
     // TODO: should this be associated with Packet?
@@ -31,7 +32,7 @@ pub(crate) struct PacketManager {
     write_buffer: WriteWordBuffer,
 }
 
-impl PacketManager {
+impl PacketBuilder {
     pub fn new() -> Self {
         Self {
             header_manager: PacketHeaderManager::new(),
@@ -615,6 +616,7 @@ impl PacketManager {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, VecDeque};
+    use std::time::Duration;
 
     use bytes::Bytes;
 
@@ -651,7 +653,7 @@ mod tests {
     #[test]
     fn test_write_small_message() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let mut manager = PacketBuilder::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
@@ -672,7 +674,7 @@ mod tests {
     #[test]
     fn test_write_big_message() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let mut manager = PacketBuilder::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
 
@@ -688,7 +690,7 @@ mod tests {
     #[test]
     fn test_pack_big_message() {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let mut manager = PacketBuilder::new();
         let channel_kind1 = ChannelKind::of::<Channel1>();
         let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
         let channel_kind2 = ChannelKind::of::<Channel2>();
@@ -763,7 +765,7 @@ mod tests {
     #[test]
     fn test_cannot_write_channel() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
-        let mut manager = PacketManager::new();
+        let mut manager = PacketBuilder::new();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let mut packet = manager.build_new_single_packet();

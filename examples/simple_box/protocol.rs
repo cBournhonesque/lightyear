@@ -1,4 +1,4 @@
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,21 @@ pub struct PlayerPosition(Vec2);
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
+
+// Example of a component that contains an entity.
+// This component, when replicated, needs to have the inner entity mapped from the Server world
+// to the client World.
+// This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
+// deriving the `MapEntities` trait for the component.
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[message(custom_map)]
+pub struct PlayerParent(Entity);
+
+impl MapEntities for PlayerParent {
+    fn map_entities(&mut self, entity_map: &EntityMap) {
+        self.0.map_entities(entity_map);
+    }
+}
 
 #[component_protocol(protocol = "MyProtocol", derive(Debug))]
 pub enum Components {

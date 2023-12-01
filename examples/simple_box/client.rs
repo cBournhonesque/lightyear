@@ -26,8 +26,8 @@ impl Plugin for MyClientPlugin {
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.00,
+            incoming_jitter: Duration::from_millis(10),
+            incoming_loss: 0.03,
         };
         let io = Io::from_config(
             &IoConfig::from_transport(TransportConfig::UdpSocket(addr))
@@ -45,7 +45,7 @@ impl Plugin for MyClientPlugin {
                 .with_delay(InterpolationDelay::Ratio(2.0)),
         };
         let plugin_config = PluginConfig::new(config, io, MyProtocol::default(), auth);
-        app.add_plugins(client::ClientPlugin::new(plugin_config));
+        app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);

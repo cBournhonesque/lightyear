@@ -24,6 +24,11 @@ ROUGH EDGES:
   - have a NetworkMessage macro that all network messages must derive (Input, Message, Component)
   - all types must be Encode/Decode always. If a type is Serialize/Deserialize, then we can convert it to Encode/Decode ?
 
+- MapEntities:
+  - if we receive a mapped entity but the entity doesn't exist, we just don't do any mapping; but then the entity could be completely wrong?
+    - in that case should we just wait for the entity to be created or present in the mapping (this is what naia does)? And if it doesn't get created we just ignore the message?
+    - the entity mapping is present in the entity_map which exists on client, but not on server. So we cannot do the mapping on server.
+
 
 - Prediction:
   - TODO: handle despawns, spawns
