@@ -14,29 +14,42 @@ pub(crate) mod udp;
 
 /// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
-pub(crate) mod webtransport;
+pub mod webtransport;
 
 use std::io::Result;
 use std::net::SocketAddr;
 
 /// Transport combines a PacketSender and a PacketReceiver
-pub trait Transport: PacketReceiver + PacketSender {
+pub trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
 
     // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>);
 }
 
 /// Send data to a remote address
-pub trait PacketSender {
+pub trait PacketSender: Send + Sync {
     /// Send data on the socket to the remote address
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()>;
 }
 
+impl PacketSender for Box<dyn PacketSender> {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
+        (**self).send(payload, address)
+    }
+}
+
 /// Receive data from a remote address
-pub trait PacketReceiver {
+pub trait PacketReceiver: Send + Sync {
     /// Receive a packet from the socket. Returns the data read and the origin.
     ///
     /// Returns Ok(None) if no data is available
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>>;
+}
+
+impl PacketReceiver for Box<dyn PacketReceiver> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
+        (**self).recv()
+    }
 }

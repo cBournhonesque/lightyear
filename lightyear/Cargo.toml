@@ -13,10 +13,10 @@ metrics = [
   "tokio",
 ]
 mock_time = ["dep:mock_instant"]
-webtransport = ["dep:wtransport", "tokio/sync", "wtransport/dangerous-configuration"]
-#webtransport = ["dep:wtransport", "tokio/sync"]
+webtransport = ["dep:wtransport", "tokio/sync", "wtransport/dangerous-configuration", "dep:ring", "dep:base64", "dep:rcgen", "dep:time"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 
 [dependencies]
 # utils
@@ -30,16 +30,18 @@ cfg-if = "1.0"
 mock_instant = { version = "0.3.1", optional = true }
 
 # transport
-#webtransport-quinn = { version = "0.6.1", optional = true }
-wtransport = { version = "0.1.8", optional = true}
-#webtransport-quinn = { version = "0.6.1"}
-quinn = { version = "0.10.2"}
+# TODO: we are using this version because we need Certificate to be Cloneable. Upgrade when this is merged
+wtransport = { git = "https://github.com/cBournhonesque/wtransport.git", branch = "cb/0.1.8andClone", optional = true}
+ring = { version = "0.17.6", optional = true }
+base64 = { version = "0.21.4", optional = true }
+rcgen = { version = "0.11.3", optional = true}
+time = {version = "0.3.1", optional = true}
 
 
 # serialization
 bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = [
   "serde",
-] }
+]}
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
@@ -57,7 +59,7 @@ tracing-log = "0.1.3"
 tracing-subscriber = { version = "0.3.17", features = [
   "registry",
   "env-filter",
-] }
+]}
 
 # server
 crossbeam-channel = { version = "0.5.8", features = [] }
@@ -75,8 +77,8 @@ tokio = { version = "1.33", features = ["rt", "net", "time"], optional = true }
 rand = "0.8"
 ringbuffer = "0.15"
 bevy = { version = "0.12", default-features = false }
-taplo-cli = "0.8.1"
 derive_more = "0.99.17"
+
 
 [dev-dependencies]
 derive_more = { version = "0.99", features = ["add", "mul"] }

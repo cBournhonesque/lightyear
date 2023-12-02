@@ -33,9 +33,24 @@ impl Transport for LocalChannel {
     fn local_addr(&self) -> SocketAddr {
         LOCAL_SOCKET
     }
+
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+        let (send, recv) = crossbeam_channel::unbounded();
+        let sender = LocalChannelSender { send };
+        let receiver = LocalChannelReceiver {
+            buffer: vec![],
+            recv,
+        };
+        (Box::new(sender), Box::new(receiver))
+    }
 }
 
-impl PacketReceiver for LocalChannel {
+struct LocalChannelReceiver {
+    buffer: Vec<u8>,
+    recv: Receiver<Vec<u8>>,
+}
+
+impl PacketReceiver for LocalChannelReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         self.recv.try_recv().map_or_else(
             |e| match e {
@@ -53,7 +68,11 @@ impl PacketReceiver for LocalChannel {
     }
 }
 
-impl PacketSender for LocalChannel {
+struct LocalChannelSender {
+    send: Sender<Vec<u8>>,
+}
+
+impl PacketSender for LocalChannelSender {
     fn send(&mut self, payload: &[u8], _: &SocketAddr) -> std::io::Result<()> {
         self.send
             .try_send(payload.to_vec())

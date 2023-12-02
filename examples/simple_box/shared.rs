@@ -14,7 +14,7 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
         log: LogConfig {
-            level: Level::INFO,
+            level: Level::DEBUG,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn"
                 .to_string(),
         },
@@ -25,7 +25,6 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, draw_boxes);
     }
 }
@@ -54,16 +53,7 @@ pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &I
 
 /// System that draws the boxed of the player positions.
 /// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(
-    mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor)>,
-    // client: Option<Res<Client<MyProtocol>>>,
-) {
-    // if let Some(client) = client {
-    //     if !client.is_synced() {
-    //         return;
-    //     }
-    // }
+pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
     for (position, color) in &players {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),

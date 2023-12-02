@@ -1,6 +1,6 @@
 use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, PlayerPosition};
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{KEY, PROTOCOL_ID};
+use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -8,10 +8,12 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[derive(Resource, Copy, Clone)]
+#[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
     pub(crate) client_id: ClientId,
+    pub(crate) client_port: u16,
     pub(crate) server_port: u16,
+    pub(crate) transport: Transports,
 }
 
 impl Plugin for MyClientPlugin {
@@ -23,15 +25,21 @@ impl Plugin for MyClientPlugin {
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
-        let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.03,
+            incoming_loss: 0.00,
+        };
+        let transport = match self.transport {
+            Transports::Udp => TransportConfig::UdpSocket(client_addr),
+            Transports::Webtransport => TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+            },
         };
         let io = Io::from_config(
-            &IoConfig::from_transport(TransportConfig::UdpSocket(addr))
-                .with_conditioner(link_conditioner),
+            &IoConfig::from_transport(transport).with_conditioner(link_conditioner),
         );
         let config = ClientConfig {
             shared: shared_config().clone(),
@@ -61,18 +69,10 @@ impl Plugin for MyClientPlugin {
                 receive_entity_spawn,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
-                log_interpolated,
-                log_confirmed,
             ),
         );
     }
 }
-
-// // Resource to store long-term data for the client
-// #[derive(Resource, Default)]
-// struct Global {
-//     pub client_owned_predicted_entity: Option<Entity>,
-// }
 
 // Startup system for the client
 pub(crate) fn init(
@@ -154,6 +154,7 @@ pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) 
     }
 }
 
+// Example system to handle EntitySpawn events
 pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
     for event in reader.read() {
         info!("Received entity spawn: {:?}", event.entity());
@@ -176,21 +177,6 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        info!("SPAWNED INTERPOLATION");
         color.0.set_s(0.2);
-    }
-}
-
-pub(crate) fn log_confirmed(client: Res<Client<MyProtocol>>, confirmed: Query<&PlayerPosition>) {
-    for pos in confirmed.iter() {
-        debug!("confirmed pos: {:?}, client tick: {:?}", pos, client.tick());
-    }
-}
-
-pub(crate) fn log_interpolated(
-    interpolated: Query<(&PlayerPosition, &ConfirmedHistory<PlayerPosition>), With<Interpolated>>,
-) {
-    for (pos, history) in interpolated.iter() {
-        debug!("interpolated pos: {:?}, history: {:?}", pos, history);
     }
 }

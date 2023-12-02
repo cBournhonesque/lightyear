@@ -38,7 +38,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-lightyear = { path = "../lightyear" }
+lightyear = { path = "../lightyear", features = ["webtransport"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
@@ -50,3 +50,4 @@ clap = { version = "4.4", features = ["derive"] }
 mock_instant = "0.3"
 metrics-exporter-prometheus = { version = "0.12.1", optional = true }
 bevy-inspector-egui = "0.21.0"
+tokio = "1.33.0"

@@ -43,9 +43,9 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>) {
-    //     (Box::new(self.socket.clone()), Box::new(self.socket.clone()))
-    // }
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+        (Box::new(self.clone()), Box::new(self.clone()))
+    }
 }
 
 impl PacketSender for UdpSocket {
@@ -61,25 +61,6 @@ impl PacketSender for UdpSocket {
 }
 
 impl PacketReceiver for UdpSocket {
-    // /// Receive a packet from the socket and store the results in the provided buffer
-    // /// Return the number of bytes written
-    // fn recv(&mut self, buffer: &[u8]) -> Result<Option<(&[u8], SocketAddr)>> {
-    //     match self
-    //         .socket
-    //         .as_ref()
-    //         .lock()
-    //         .unwrap()
-    //         .recv_from(&mut self.buffer)
-    //     {
-    //         Ok((recv_len, address)) => Ok(Some((&self.buffer[..recv_len], address))),
-    //         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-    //             // Nothing to receive on the socket
-    //             Ok(None)
-    //         }
-    //         Err(e) => Err(anyhow!(e).context("error receiving from udp socket")),
-    //     }
-    // }
-
     /// Receives a packet from the socket, and stores the results in the provided buffer
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self
