@@ -12,6 +12,10 @@ pub(crate) mod local;
 /// The transport is a UDP socket
 pub(crate) mod udp;
 
+/// The transport is using WebTransport
+#[cfg(feature = "webtransport")]
+pub(crate) mod webtransport;
+
 use std::io::Result;
 use std::net::SocketAddr;
 
