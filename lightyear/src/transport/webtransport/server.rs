@@ -1,3 +1,4 @@
+//! WebTransport client implementation.
 use crate::transport::webtransport::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use bevy::tasks::{IoTaskPool, TaskPool};
@@ -14,6 +15,7 @@ use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Certificate;
 use wtransport::{ClientConfig, ServerConfig};
 
+/// WebTransport client socket
 pub struct WebTransportServerSocket {
     server_addr: SocketAddr,
     certificate: Option<Certificate>,
@@ -123,7 +125,7 @@ impl Transport for WebTransportServerSocket {
     }
 }
 
-pub struct WebTransportServerSocketSender {
+struct WebTransportServerSocketSender {
     server_addr: SocketAddr,
     to_client_senders: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Box<[u8]>>>>>,
 }
@@ -143,7 +145,7 @@ impl PacketSender for WebTransportServerSocketSender {
     }
 }
 
-pub struct WebTransportServerSocketReceiver {
+struct WebTransportServerSocketReceiver {
     buffer: [u8; MTU],
     server_addr: SocketAddr,
     from_client_receiver: UnboundedReceiver<(Datagram, SocketAddr)>,

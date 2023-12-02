@@ -35,11 +35,10 @@ pub fn generate_local_certificate() -> wtransport::tls::Certificate {
         .unwrap();
 
     let rcgen_certificate = Certificate::from_params(cert_params).unwrap();
-    let certificate = wtransport::tls::Certificate::new(
+    wtransport::tls::Certificate::new(
         vec![rcgen_certificate.serialize_der().unwrap().to_vec()],
         rcgen_certificate.serialize_private_key_der().to_vec(),
-    );
-    certificate
+    )
 }
 
 pub(crate) fn dump_certificate(certificate: Certificate) {

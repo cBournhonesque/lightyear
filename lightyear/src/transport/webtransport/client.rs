@@ -1,3 +1,4 @@
+//! WebTransport client implementation.
 use crate::transport::webtransport::server::WebTransportServerSocket;
 use crate::transport::webtransport::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -10,6 +11,7 @@ use wtransport;
 use wtransport::datagram::Datagram;
 use wtransport::ClientConfig;
 
+/// WebTransport client socket
 pub struct WebTransportClientSocket {
     client_addr: SocketAddr,
     server_addr: SocketAddr,
@@ -86,7 +88,7 @@ impl Transport for WebTransportClientSocket {
     }
 }
 
-pub struct WebTransportClientPacketSender {
+struct WebTransportClientPacketSender {
     to_server_sender: mpsc::UnboundedSender<Box<[u8]>>,
 }
 
@@ -99,7 +101,7 @@ impl PacketSender for WebTransportClientPacketSender {
     }
 }
 
-pub struct WebTransportClientPacketReceiver {
+struct WebTransportClientPacketReceiver {
     server_addr: SocketAddr,
     from_server_receiver: mpsc::UnboundedReceiver<Datagram>,
     buffer: [u8; MTU],

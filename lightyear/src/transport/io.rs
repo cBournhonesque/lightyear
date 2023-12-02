@@ -6,22 +6,28 @@ use std::net::{IpAddr, SocketAddr};
 
 #[cfg(feature = "metrics")]
 use metrics;
-use wtransport::tls::Certificate;
 
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
 use crate::transport::udp::UdpSocket;
-use crate::transport::webtransport::client::{WebTransportClientSocket, WebTransportClientSocket};
+
+#[cfg(feature = "webtransport")]
+use crate::transport::webtransport::client::WebTransportClientSocket;
+#[cfg(feature = "webtransport")]
 use crate::transport::webtransport::server::WebTransportServerSocket;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
+#[cfg(feature = "webtransport")]
+use wtransport::tls::Certificate;
 
 #[derive(Clone)]
 pub enum TransportConfig {
     UdpSocket(SocketAddr),
+    #[cfg(feature = "webtransport")]
     WebTransportClient {
         client_addr: SocketAddr,
         server_addr: SocketAddr,
     },
+    #[cfg(feature = "webtransport")]
     WebTransportServer {
         server_addr: SocketAddr,
         certificate: Certificate,
@@ -33,10 +39,12 @@ impl TransportConfig {
     pub fn get_io(&self) -> Io {
         let mut transport: Box<dyn Transport> = match self {
             TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
+            #[cfg(feature = "webtransport")]
             TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
             } => Box::new(WebTransportClientSocket::new(*client_addr, *server_addr)),
+            #[cfg(feature = "webtransport")]
             TransportConfig::WebTransportServer {
                 server_addr,
                 certificate,

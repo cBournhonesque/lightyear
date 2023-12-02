@@ -24,7 +24,7 @@ use crate::server::MyServerPlugin;
 use lightyear::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let cli = Cli::parse();
     let mut app = App::new();

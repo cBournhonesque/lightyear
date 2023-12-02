@@ -1,3 +1,4 @@
+//! Transport using the WebTransport protocol (based on QUIC)
 pub(crate) mod client;
 pub(crate) mod server;
 

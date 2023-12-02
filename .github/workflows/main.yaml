@@ -72,50 +72,50 @@ jobs:
       - name: Test doc
         run: cargo test --doc
 
-#  test:
-#    name: Test
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Clone repo
-#        uses: actions/checkout@v4
-#
-#      - name: Install stable toolchain
-#        uses: dtolnay/rust-toolchain@stable
-#
-#      - name: Cache crates
-#        uses: Swatinem/rust-cache@v2
-#
-#      - name: Install LLVM tools
-#        run: rustup component add llvm-tools-preview
-#
-#      - name: Install Tarpaulin
-#        run: cargo install cargo-tarpaulin
-#
-#      - name: Test
-#        run: cargo tarpaulin --engine llvm --out lcov
-#
-#      - name: Upload code coverage results
-#        if: github.actor != 'dependabot[bot]'
-#        uses: actions/upload-artifact@v3
-#        with:
-#          name: code-coverage-report
-#          path: lcov.info
-#
-#  codecov:
-#    name: Upload to Codecov
-#    if: github.actor != 'dependabot[bot]'
-#    needs: [format, lint, doctest, test]
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Clone repo
-#        uses: actions/checkout@v4
-#
-#      - name: Download code coverage results
-#        uses: actions/download-artifact@v3
-#        with:
-#          name: code-coverage-report
-#
-#      - name: Upload to Codecov
-#        uses: codecov/codecov-action@v3
-#        with:
-#          token: ${{ secrets.CODECOV_TOKEN }}
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache crates
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install LLVM tools
+        run: rustup component add llvm-tools-preview
+
+      - name: Install Tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Test
+        run: cargo tarpaulin --engine llvm --out lcov
+
+      - name: Upload code coverage results
+        if: github.actor != 'dependabot[bot]'
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-coverage-report
+          path: lcov.info
+
+  codecov:
+    name: Upload to Codecov
+    if: github.actor != 'dependabot[bot]'
+    needs: [format, lint, doctest, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Download code coverage results
+        uses: actions/download-artifact@v3
+        with:
+          name: code-coverage-report
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
