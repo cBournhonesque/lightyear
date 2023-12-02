@@ -69,7 +69,6 @@ pub mod prelude {
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::transport::conditioner::LinkConditionerConfig;
     pub use crate::transport::io::{Io, IoConfig, TransportConfig};
-    pub use crate::transport::udp::UdpSocket;
     pub use crate::utils::named::{Named, TypeNamed};
 
     pub mod client {
