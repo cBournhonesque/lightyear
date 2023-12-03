@@ -23,7 +23,7 @@ syn = { version = "2.0", features = ["full"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = "1.0.75"
 darling = "0.20"
-uuid = "1.4.1"
+uuid = { version = "1.6.1", features = ["v4"] }
 
 
 [dev-dependencies]

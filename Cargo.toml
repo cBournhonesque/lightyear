@@ -1,7 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "examples", "macros", "lightyear",
-    "vendor/wtransport/wtransport",
-    "vendor/bitcode"
+  "examples",
+  "macros",
+  "lightyear",
+  "vendor/wtransport/wtransport",
+  "vendor/wtransport/wtransport-proto",
+  "vendor/bitcode",
 ]
