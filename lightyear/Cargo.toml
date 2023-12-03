@@ -26,6 +26,8 @@ webtransport = [
   "dep:wtransport",
   "tokio/sync",
   "wtransport/dangerous-configuration",
+]
+wtransport-cert = [
   "dep:ring",
   "dep:base64",
   "dep:rcgen",

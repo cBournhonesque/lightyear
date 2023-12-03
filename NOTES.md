@@ -74,3 +74,63 @@ TODO:
 
 - Reflection: 
   - when can we use this?
+
+
+
+
+# Interest Management
+
+- Clients can belong to multiple rooms, rooms can contain multiple clients
+  - we have a Map<ClientId, Hashset<RoomId>>
+  - we have a Map<RoomId, Hashset<ClientId>>
+- each Entity belongs to a room. If the client also belongs to that room, we replicate.
+  - if entity has no room, replicate to no-one
+  - if entity is in special-room All, replicate to everyone
+  - MAYBE: if entity is in special-room Only(id), replicate only to that client
+  - MAYBE: if entity is in special-room Except(id), replicate to everyone except that client
+  - each entity keeps a cache of the clients (HashSet<ClientId>) they are replicating too -> current status of which clients the entity should be replicating too
+    - everytime there is an event (ClientConnect, ClientDisconnect, ClientLeaveRoom, ClientEnterRoom,), we update all caches
+      - for every entity; check if that client id is in the same room (if it is, add it to the cache; if it's not )
+      - if the cache for that entity is updated, emit a ClientGainedVisibility or ClientLostVisibility
+    - if the entity leaves/enters any room, we update the cache as well.
+      - we cannot directly update the cache upon leave/enter, because other clients might be joining/exiting the room at the same time
+    - EntityLeaveRoom/EntityEnterRoom/ClientLeaveRoom/ClientEnterRoom should happen during Update.Main, and cache update will happen
+      on some PostUpdate system-set
+    - we will use a resource to keep track of all the pending room changes. We recompute the caches only for:
+      - entities that have a EntityLeaveRoom/EntityEnterRoom
+      - entities that are in a room that appear in any ClientLeaveRoom/ClientEnterRoom
+
+
+
+- Replication Systems:
+  - EntitySpawn:
+    - check through all ClientGainedVisibility -> send SpawnEntity
+    - check through all clients in cache -> send SpawnEntity
+  - ComponengUpdate:
+    - check through all ClientGainedVisibility -> send InsertComponent
+    - check through all clients in cache -> send ComponentUpdate if component changed, ComponentInsert if added
+
+- Or should we separate the modes:
+  - Only(id)/Except(id) from the rooms?
+
+- for replication, we check all entities that have Replicate.
+  - we check the list of rooms they belong in.
+  - for each room, if the client belongs to that room, we replicate to that client
+
+- when an entity or player leaves a room, check all the entities that won't get replicated to that player anymore
+  - the entity doesn't get replicated anymore.
+    - OPTION 1: for each of them, add a client Component LostVisibility. This component means that the entity is not visible to that client anymore, but still exists
+      - if the client rejoins the room soon after (~1s), we remove the LostVisibility component
+      - the main benefit is that an entity leaves/rejoins a room frequently, we don't have to keep spawning/despawning it.
+    - OPTION 2: we despawn the entity on the client 
+      - but careful if that despawn arrives after a spawn (that was sent after the despawn) -> maybe not possible if we use sequenced ordering for entity actions?
+
+
+- Examples:
+  - a new client connects. We go through every entity. All entity who are in `Only(id)` or `All` special rooms get replicated to that client
+    - via ComponentInsert ideally
+  - a client joins a room. We go through every entity. All entity who are in `Only(id)` or `All` or `RoomId` rooms get replicated to that client
+    - we iterate through all entities with that component
+    - If the entity has that client in its cache, that means we were already replicating to that client, check if component changed and replicate if so
+    - If the entity doesn't have that client in its cache, that means we were not replicating to that client, check if component changed and replicate if so
+    - via ComponentInsert ideally

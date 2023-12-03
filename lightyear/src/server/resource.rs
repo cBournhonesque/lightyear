@@ -18,6 +18,7 @@ use crate::shared::ping::manager::PingManager;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
 use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
+use crate::shared::replication::room::RoomId;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};
@@ -367,6 +368,13 @@ impl<P: Protocol> Server<P> {
     /// Clear the list of clients that were recently connected but haven't received any replication packages yet
     pub(crate) fn clear_new_clients(&mut self) {
         self.new_clients.clear();
+    }
+
+    pub fn room(&mut self, id: RoomId) -> RoomMut {
+        RoomMut {
+            id: RoomId,
+            manager: &self.room_manager,
+        }
     }
 }
 

@@ -2,9 +2,11 @@
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
 use crate::protocol::channel::ChannelKind;
+use crate::server::room::RoomId;
 use bevy::prelude::Component;
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
@@ -25,7 +27,12 @@ pub struct Replicate {
     pub prediction_target: NetworkTarget,
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
-    // pub owner:
+
+    /// Which rooms does this entity belong to?
+    pub rooms: HashSet<RoomId>,
+    /// List of clients that we the entity is currently replicated to.
+    /// Will be updated before the other replication systems
+    pub replication_clients_cache: HashSet<ClientId>,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
 }
