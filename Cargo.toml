@@ -8,8 +8,4 @@ members = [
   "vendor/wtransport/wtransport-proto",
   "vendor/bitcode",
 ]
-default-members = [
-  "examples",
-  "macros",
-  "lightyear",
-]
+default-members = ["examples", "macros", "lightyear"]
