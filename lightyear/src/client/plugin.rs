@@ -90,7 +90,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             // RESOURCES //
             .insert_resource(client)
             // SYSTEM SETS //
-            .configure_sets(PreUpdate, MainSet::Receive)
+            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
             .configure_sets(
                 FixedUpdate,
                 (

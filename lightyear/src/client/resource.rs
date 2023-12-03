@@ -58,7 +58,7 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    fn get_token(self) -> Option<ConnectToken> {
+    fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
         match self {
             Authentication::Token(token) => Some(token),
             Authentication::Manual {
@@ -67,6 +67,7 @@ impl Authentication {
                 private_key,
                 protocol_id,
             } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
+                .timeout_seconds(client_timeout_secs)
                 .generate()
                 .ok(),
         }
@@ -76,7 +77,9 @@ impl Authentication {
 impl<P: Protocol> Client<P> {
     pub fn new(config: ClientConfig, io: Io, auth: Authentication, protocol: P) -> Self {
         let config_clone = config.clone();
-        let token = auth.get_token().expect("could not generate token");
+        let token = auth
+            .get_token(config.netcode.client_timeout_secs)
+            .expect("could not generate token");
         let token_bytes = token.try_into_bytes().unwrap();
         let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
             .expect("could not create netcode client");

@@ -6,9 +6,11 @@ use bevy::ecs::component::ComponentId;
 use bevy::prelude::{Entity, FromWorld, Resource, World};
 
 #[derive(Resource)]
-pub struct ReplicationData {
-    /// ComponentId of the Replicate component
-    pub replication_id: ComponentId,
+/// Internal resource used to keep track of the state of replication
+pub(crate) struct ReplicationData {
+    // ComponentId of the Replicate component
+    // pub replication_id: ComponentId,
+
     // TODO: maybe add a map from Component to the corresponding systems
     /// Map of the replicated entities that are owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
@@ -19,7 +21,7 @@ pub struct ReplicationData {
 impl FromWorld for ReplicationData {
     fn from_world(world: &mut World) -> Self {
         Self {
-            replication_id: world.init_component::<Replicate>(),
+            // replication_id: world.init_component::<Replicate>(),
             owned_entities: HashMap::new(),
             // received_entities: HashMap::new(),
         }

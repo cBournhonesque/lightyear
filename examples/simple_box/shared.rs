@@ -14,7 +14,7 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
         log: LogConfig {
-            level: Level::DEBUG,
+            level: Level::INFO,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn"
                 .to_string(),
         },
@@ -25,6 +25,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        // app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, draw_boxes);
     }
 }

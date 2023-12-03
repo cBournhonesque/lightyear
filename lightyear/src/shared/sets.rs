@@ -4,7 +4,12 @@ use bevy::prelude::SystemSet;
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSet {
+    /// ReplicationSystems that run once per frame
+    ReplicationSystems,
+
+    // TODO: is it useful to separate these two system sets?
     /// System Set to gather all the replication updates to send
+    /// These systems only run once every send_interval
     SendEntityUpdates,
     SendComponentUpdates,
 }

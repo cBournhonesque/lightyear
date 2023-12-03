@@ -96,6 +96,9 @@ impl<P: Protocol> Connection<P> {
         self.message_manager.buffer_send(message, channel)
     }
 
+    // TODO: maybe we should do the same optimization as component updates:
+    //  group all components added/removed into a vec, and send them all at once (saves bytes)
+    //  then split them up when we need to create the events
     /// Buffer a component insert for an entity
     pub fn buffer_component_insert(
         &mut self,
@@ -103,9 +106,11 @@ impl<P: Protocol> Connection<P> {
         component: P::Components,
         channel: ChannelKind,
     ) -> Result<()> {
-        self.replication_manager
-            .send_component_insert(entity, component, channel);
-        Ok(())
+        // self.replication_manager
+        //     .send_component_insert(entity, component, channel);
+        let message =
+            ProtocolMessage::Replication(ReplicationMessage::InsertComponent(entity, component));
+        self.message_manager.buffer_send(message, channel)
     }
 
     /// Buffer a component remove for an entity
@@ -213,7 +218,12 @@ impl<P: Protocol> Connection<P> {
                         _ => {}
                     }
                     // update events
-                    message.push_to_events(channel_kind, &mut self.events, time_manager);
+                    message.push_to_events(
+                        channel_kind,
+                        &mut self.events,
+                        &self.replication_manager.entity_map,
+                        time_manager,
+                    );
                 }
             }
         }

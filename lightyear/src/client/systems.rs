@@ -1,10 +1,10 @@
 //! Defines the client bevy systems and run conditions
 use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
-use crate::client::events::{ConnectEvent, DisconnectEvent, EntitySpawnEvent};
+use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;
-use crate::connection::events::IterEntitySpawnEvent;
+use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -33,30 +33,40 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             // receive packets from message managers
             let mut events = client.receive(world);
             if !events.is_empty() {
-                if events.has_connection() {
-                    let mut connect_event_writer =
-                        world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                    debug!("Client connected event");
-                    connect_event_writer.send(ConnectEvent::new(()));
-                }
-
-                if events.has_disconnection() {
-                    let mut disconnect_event_writer =
-                        world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                    debug!("Client disconnected event");
-                    disconnect_event_writer.send(DisconnectEvent::new(()));
-                }
+                // NOTE: maybe no need to send those events, because the client knows when it's connected/disconnected?
+                // if events.has_connection() {
+                //     let mut connect_event_writer =
+                //         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
+                //     debug!("Client connected event");
+                //     connect_event_writer.send(ConnectEvent::new(()));
+                // }
+                //
+                // if events.has_disconnection() {
+                //     let mut disconnect_event_writer =
+                //         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
+                //     debug!("Client disconnected event");
+                //     disconnect_event_writer.send(DisconnectEvent::new(()));
+                // }
 
                 // Message Events
                 P::Message::push_message_events(world, &mut events);
 
-                // Spawn entity event
+                // SpawnEntity event
                 if events.has_entity_spawn() {
                     let mut entity_spawn_event_writer = world
                         .get_resource_mut::<Events<EntitySpawnEvent>>()
                         .unwrap();
                     for (entity, _) in events.into_iter_entity_spawn() {
                         entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, ()));
+                    }
+                }
+                // DespawnEntity event
+                if events.has_entity_despawn() {
+                    let mut entity_despawn_event_writer = world
+                        .get_resource_mut::<Events<EntityDespawnEvent>>()
+                        .unwrap();
+                    for (entity, _) in events.into_iter_entity_despawn() {
+                        entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, ()));
                     }
                 }
 

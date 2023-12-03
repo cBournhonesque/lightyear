@@ -64,7 +64,6 @@ pub mod prelude {
     pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::components::{NetworkTarget, Replicate};
     pub use crate::shared::replication::entity_map::{EntityMap, MapEntities};
-    pub use crate::shared::replication::resources::ReplicationData;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::transport::conditioner::LinkConditionerConfig;
@@ -99,6 +98,8 @@ pub mod prelude {
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::resource::Server;
+        #[cfg(feature = "webtransport")]
+        pub use wtransport::tls::Certificate;
     }
 }
 

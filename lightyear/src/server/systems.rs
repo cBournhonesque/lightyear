@@ -1,14 +1,13 @@
 //! Defines the server bevy systems and run conditions
 use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
-use crate::connection::events::IterEntitySpawnEvent;
+use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::netcode::ClientId;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
-use crate::server::events::{ConnectEvent, DisconnectEvent};
+use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::resource::Server;
-use crate::shared::events::EntitySpawnEvent;
 use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::ReplicationSend;
 
@@ -49,7 +48,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                 let mut connect_event_writer =
                     world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
                 for client_id in server.events.iter_disconnections() {
-                    debug!("Client connected event: {}", client_id);
+                    debug!("Client disconnected event: {}", client_id);
                     connect_event_writer.send(DisconnectEvent::new(client_id));
                 }
             }
@@ -57,15 +56,26 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             // Message Events
             P::Message::push_message_events(world, &mut server.events);
 
-            // Entity Spawn Events
+            // EntitySpawn Events
             if server.events.has_entity_spawn() {
                 let mut entity_spawn_event_writer = world
-                    .get_resource_mut::<Events<EntitySpawnEvent<ClientId>>>()
+                    .get_resource_mut::<Events<EntitySpawnEvent>>()
                     .unwrap();
                 for (entity, client_id) in server.events.into_iter_entity_spawn() {
                     entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, client_id));
                 }
             }
+            // EntityDespawn Events
+            if server.events.has_entity_despawn() {
+                let mut entity_despawn_event_writer = world
+                    .get_resource_mut::<Events<EntityDespawnEvent>>()
+                    .unwrap();
+                for (entity, client_id) in server.events.into_iter_entity_spawn() {
+                    entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, client_id));
+                }
+            }
+
+            // TODO: add component replication events
         }
     });
 }
@@ -79,6 +89,8 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     });
     // send buffered packets to io
     server.send_packets().unwrap();
+
+    server.clear_new_clients();
 }
 
 pub(crate) fn clear_events<P: Protocol>(mut server: ResMut<Server<P>>) {

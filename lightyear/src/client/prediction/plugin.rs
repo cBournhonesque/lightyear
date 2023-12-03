@@ -10,6 +10,7 @@ use crate::client::prediction::despawn::{
     remove_component_for_despawn_predicted, remove_despawn_marker,
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
+use crate::prelude::Named;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
@@ -109,7 +110,7 @@ pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
 //   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
 //  the tick we rollback to would not be the current client tick ?
 
-pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
+pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,

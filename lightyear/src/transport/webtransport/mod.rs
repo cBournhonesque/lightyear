@@ -2,8 +2,6 @@
 pub(crate) mod client;
 pub(crate) mod server;
 
-pub mod cert;
-
 // Maximum transmission units; maximum size in bytes of a UDP packet
 // See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
 const MTU: usize = 1472;
@@ -12,7 +10,6 @@ const MTU: usize = 1472;
 mod tests {
     use super::client::*;
     use super::server::*;
-    use crate::transport::webtransport::cert::{dump_certificate, generate_local_certificate};
     use crate::transport::{PacketReceiver, PacketSender, Transport};
     use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
     use std::time::Duration;
@@ -26,7 +23,7 @@ mod tests {
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
-        let certificate = generate_local_certificate();
+        let certificate = Certificate::self_signed(["localhost"]);
         let server_addr = "127.0.0.1:7000".parse().unwrap();
         let client_addr = "127.0.0.1:8000".parse().unwrap();
 

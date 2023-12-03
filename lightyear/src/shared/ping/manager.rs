@@ -160,17 +160,21 @@ impl PingManager {
             let rtt_diff = (item.round_trip_delay.as_secs_f64() - rtt_mean).abs();
             rtt_diff <= rtt_stdv + 1000.0 * f64::EPSILON
         });
-        let (mut pruned_rtt_mean, pruned_sample_count) =
+        let (pruned_rtt_mean, pruned_sample_count) =
             pruned_samples.fold((0.0, 0.0), |acc, stat| {
                 let item = &stat.item;
                 (acc.0 + item.round_trip_delay.as_secs_f64(), acc.1 + 1.0)
             });
-        pruned_rtt_mean /= pruned_sample_count;
+        let final_rtt_mean = if pruned_sample_count > 0.0 {
+            pruned_rtt_mean / pruned_sample_count
+        } else {
+            rtt_mean
+        };
         // TODO: recompute rtt_stdv from pruned ?
 
         self.final_stats = FinalStats {
             // rtt: Duration::from_secs_f64(rtt_mean),
-            rtt: Duration::from_secs_f64(pruned_rtt_mean),
+            rtt: Duration::from_secs_f64(final_rtt_mean),
             // jitter is based on one-way delay, so we divide by 2
             jitter: Duration::from_secs_f64(rtt_stdv / 2.0),
         };

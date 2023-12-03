@@ -52,6 +52,7 @@ impl<P: Protocol> ProtocolMessage<P> {
         self,
         channel_kind: ChannelKind,
         events: &mut ConnectionEvents<P>,
+        entity_map: &EntityMap,
         time_manager: &TimeManager,
     ) {
         match self {
@@ -65,23 +66,30 @@ impl<P: Protocol> ProtocolMessage<P> {
             }
             ProtocolMessage::Replication(replication) => match replication {
                 ReplicationMessage::SpawnEntity(entity, components) => {
-                    events.push_spawn(entity);
+                    // convert the remote entity to the local before sending to events
+                    // if we can't find the local entity, just use the remote
+                    let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
+                    events.push_spawn(local_entity);
                     for component in components {
-                        events.push_insert_component(entity, (&component).into());
+                        events.push_insert_component(local_entity, (&component).into());
                     }
                 }
                 ReplicationMessage::DespawnEntity(entity) => {
-                    events.push_despawn(entity);
+                    let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
+                    events.push_despawn(local_entity);
                 }
                 ReplicationMessage::InsertComponent(entity, component) => {
-                    events.push_insert_component(entity, (&component).into());
+                    let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
+                    events.push_insert_component(local_entity, (&component).into());
                 }
                 ReplicationMessage::RemoveComponent(entity, component_kind) => {
-                    events.push_remove_component(entity, component_kind);
+                    let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
+                    events.push_remove_component(local_entity, component_kind);
                 }
                 ReplicationMessage::EntityUpdate(entity, components) => {
+                    let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
                     for component in components {
-                        events.push_update_component(entity, (&component).into());
+                        events.push_update_component(local_entity, (&component).into());
                     }
                 }
             },

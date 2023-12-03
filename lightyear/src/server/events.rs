@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::connection::events::{ConnectionEvents, IterEntitySpawnEvent, IterMessageEvent};
+use crate::connection::events::{
+    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
+};
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
@@ -26,13 +28,11 @@ impl<P: Protocol> ServerEvents<P> {
     }
 
     /// Clear all events except for the input buffer which we want to keep around
-    // TODO: this seems to show that events might not the right place to put the input buffer
-    //  maybe we want to create a dedicated InputBuffer resource for it?
-    //  on server-side it would be hashmap, and we need to sync it with connections/disconnections
     pub(crate) fn clear(&mut self) {
         self.disconnects = Vec::new();
         self.empty = true;
-        self.events.values_mut().for_each(|events| events.clear());
+        self.events = HashMap::new();
+        // self.events.values_mut().for_each(|events| events.clear());
     }
 
     pub fn is_empty(&self) -> bool {
@@ -95,16 +95,12 @@ impl<P: Protocol> ServerEvents<P> {
     //     })
     // }
 
-    pub fn iter_disconnections(&self) -> impl Iterator<Item = ClientId> + '_ {
-        self.events
-            .iter()
-            .filter_map(|(client_id, events)| events.has_disconnection().then_some(*client_id))
+    pub fn iter_disconnections(&mut self) -> impl Iterator<Item = ClientId> + '_ {
+        std::mem::take(&mut self.disconnects).into_iter()
     }
 
     pub fn has_disconnections(&self) -> bool {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_disconnection())
+        !self.disconnects.is_empty()
     }
 
     // pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {
@@ -168,6 +164,24 @@ impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
             .any(|(_, connection_events)| connection_events.has_entity_spawn())
     }
 }
+
+impl<P: Protocol> IterEntityDespawnEvent<ClientId> for ServerEvents<P> {
+    fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
+        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            let entities = events.into_iter_entity_despawn().map(|(entity, _)| entity);
+            let client_ids = std::iter::once(*client_id).cycle();
+            entities.zip(client_ids)
+        }))
+    }
+
+    fn has_entity_despawn(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_entity_despawn())
+    }
+}
+
+// TODO: add component replication events
 
 pub type ConnectEvent = crate::shared::events::ConnectEvent<ClientId>;
 pub type DisconnectEvent = crate::shared::events::DisconnectEvent<ClientId>;

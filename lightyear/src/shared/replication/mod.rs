@@ -37,27 +37,23 @@ pub enum ReplicationMessage<C, K> {
 }
 
 impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
+    // NOTE: we do NOT map the entities for these messages (apart from those contained in the components)
+    // because the replication logic (`apply_world`) expects the entities to be the remote entities
     fn map_entities(&mut self, entity_map: &EntityMap) {
         match self {
             ReplicationMessage::SpawnEntity(e, components) => {
-                e.map_entities(entity_map);
                 for component in components {
                     component.map_entities(entity_map);
                 }
             }
-            ReplicationMessage::DespawnEntity(e) => {
-                e.map_entities(entity_map);
-            }
+            ReplicationMessage::DespawnEntity(e) => {}
             ReplicationMessage::InsertComponent(e, c) => {
-                e.map_entities(entity_map);
                 c.map_entities(entity_map);
             }
             ReplicationMessage::RemoveComponent(e, k) => {
-                e.map_entities(entity_map);
                 k.map_entities(entity_map);
             }
             ReplicationMessage::EntityUpdate(e, components) => {
-                e.map_entities(entity_map);
                 for component in components {
                     component.map_entities(entity_map);
                 }
@@ -67,6 +63,10 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
+    /// Return the list of clients that connected to the server since we last sent any replication messages
+    /// (this is used to send the initial state of the world to new clients)
+    fn new_remote_peers(&self) -> Vec<ClientId>;
+
     fn entity_spawn(
         &mut self,
         entity: Entity,

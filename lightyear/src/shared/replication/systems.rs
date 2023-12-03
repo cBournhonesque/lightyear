@@ -8,6 +8,7 @@ use bevy::prelude::{
 use tracing::{debug, info};
 
 use crate::netcode::ClientId;
+use crate::prelude::NetworkTarget;
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
 use crate::shared::events::ConnectEvent;
@@ -29,7 +30,6 @@ fn add_despawn_tracker(
     query: Query<(Entity, &Replicate), Added<Replicate>>,
 ) {
     for (entity, replicate) in query.iter() {
-        debug!("Adding DespawnTracker to entity: {:?}", entity);
         commands.entity(entity).insert(DespawnTracker);
         replication.owned_entities.insert(entity, *replicate);
     }
@@ -39,6 +39,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
     // query: Query<(Entity, Ref<Replicate>), RemovedComponents<>>
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
+    //  not just entities that had despawn tracker once
     mut despawn_removed: RemovedComponents<DespawnTracker>,
     mut sender: ResMut<R>,
 ) {
@@ -54,27 +55,24 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
 //  we can also separate the on_connect part to a separate system
 fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
-    // try doing entity spawn whenever replicate gets added
     query: Query<(Entity, Ref<Replicate>)>,
-    // TODO: use Ctx instead of ClientId so that this can be used on both client and server
-    mut connect_events: EventReader<ConnectEvent<ClientId>>,
-    // query: Query<(Entity, &Replicate)>,
     mut sender: ResMut<R>,
 ) {
-    // We might want to replicate all entities on connect
-    for event in connect_events.read() {
-        let client_id = event.context();
-        query.iter().for_each(|(entity, replicate)| {
-            if replicate.replication_target.should_send_to(client_id) {
-                sender
-                    .entity_spawn(entity, vec![], replicate.deref())
-                    .unwrap();
-            }
-        })
-    }
-
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate)| {
+        // we might want to replicate this entity to newly connected clients
+        // (we cannot use ConnectEvent, because events are reset every frame, but the Replication systems
+        //  might run less frequently than every frame)
+        for client_id in sender.new_remote_peers() {
+            if replicate.replication_target.should_send_to(&client_id) {
+                let mut replicate_copy = *replicate;
+                replicate_copy.replication_target = NetworkTarget::Only(client_id);
+                sender
+                    .entity_spawn(entity, vec![], &replicate_copy)
+                    .unwrap();
+            }
+        }
+        // try doing entity spawn whenever replicate gets added
         if replicate.is_added() {
             replication.owned_entities.insert(entity, *replicate);
             sender
@@ -89,26 +87,23 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 /// and ComponentUpdates otherwise
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, Ref<C>, &Replicate)>,
-    // TODO: use Ctx instead of ClientId so that this can be used on both client and server
-    mut connect_events: EventReader<ConnectEvent<ClientId>>,
     mut sender: ResMut<R>,
 ) where
     <P as Protocol>::Components: From<C>,
 {
-    // We might want to replicate the component on connect
-    for event in connect_events.read() {
-        let client_id = event.context();
-        query.iter().for_each(|(entity, component, replicate)| {
-            if replicate.replication_target.should_send_to(client_id) {
+    query.iter().for_each(|(entity, component, replicate)| {
+        for client_id in sender.new_remote_peers() {
+            // we might want to replicate this component to newly connected clients
+            // (we cannot use ConnectEvent, because events are reset every frame, but the Replication systems
+            //  might run less frequently than every frame)
+            if replicate.replication_target.should_send_to(&client_id) {
+                let mut replicate_copy = *replicate;
+                replicate_copy.replication_target = NetworkTarget::Only(client_id);
                 sender
-                    .component_insert(entity, component.clone().into(), replicate)
+                    .component_insert(entity, component.clone().into(), &replicate_copy)
                     .unwrap();
             }
-        })
-    }
-
-    // TODO: find a way to not do this if we already sent messages in the previous loops for newly connected clients
-    query.iter().for_each(|(entity, component, replicate)| {
+        }
         // send an component_insert for components that were newly added
         if component.is_added() {
             sender
@@ -146,15 +141,18 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
     app.add_systems(
         PostUpdate,
         (
-            add_despawn_tracker,
-            send_entity_spawn::<P, R>,
-            send_entity_despawn::<P, R>,
-        )
-            .in_set(ReplicationSet::SendEntityUpdates),
+            // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
+            //  so we can run the system every frame
+            send_entity_spawn::<P, R>.in_set(ReplicationSet::SendEntityUpdates),
+            // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
+            //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
+            //  It is ok to run it every frame because it creates at most one message per despawn
+            (add_despawn_tracker, send_entity_despawn::<P, R>)
+                .in_set(ReplicationSet::ReplicationSystems),
+        ),
     );
 }
 
-// pub fn add_replication_send_systems
 pub fn add_per_component_replication_send_systems<
     C: Component + Clone,
     P: Protocol,
@@ -168,9 +166,13 @@ pub fn add_per_component_replication_send_systems<
     app.add_systems(
         PostUpdate,
         (
-            send_component_removed::<C, P, R>,
-            send_component_update::<C, P, R>,
-        )
-            .in_set(ReplicationSet::SendComponentUpdates),
+            // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
+            //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
+            //  It is ok to run it every frame because it creates at most one message per despawn
+            send_component_removed::<C, P, R>.in_set(ReplicationSet::ReplicationSystems),
+            // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
+            //  and use up all the bandwidth
+            send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),
+        ),
     );
 }

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::{Entity, EntityWorldMut, World};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct EntityMap {
     remote_to_local: HashMap<Entity, Entity>,
@@ -18,11 +18,11 @@ impl EntityMap {
         self.local_to_remote.insert(local_entity, remote_entity);
     }
 
-    pub fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
+    pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
         self.remote_to_local.get(&remote_entity)
     }
 
-    pub fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
+    pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
         self.local_to_remote.get(&local_entity)
     }
 

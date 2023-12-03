@@ -3,7 +3,7 @@ use std::ops::Deref;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
@@ -92,7 +92,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                     let history = ConfirmedHistory::<T>::new();
                     match T::mode() {
                         ComponentSyncMode::Full => {
-                            info!("spawn interpolation history");
+                            debug!("spawn interpolation history");
                             interpolated_entity_mut.insert((
                                 confirmed_component.deref().clone(),
                                 history,
@@ -104,7 +104,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                             ));
                         }
                         _ => {
-                            info!("copy interpolation component");
+                            debug!("copy interpolation component");
                             interpolated_entity_mut.insert(confirmed_component.deref().clone());
                         }
                     }

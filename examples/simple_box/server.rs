@@ -4,7 +4,6 @@ use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::transport::webtransport::cert::generate_local_certificate;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -29,7 +28,7 @@ impl Plugin for MyServerPlugin {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
             Transports::Webtransport => TransportConfig::WebTransportServer {
                 server_addr,
-                certificate: generate_local_certificate(),
+                certificate: Certificate::self_signed(&["localhost"]),
             },
         };
         let io = Io::from_config(
@@ -77,7 +76,6 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = connection.context();
-        info!("New connection from client: {:?}", client_id);
         // Generate pseudo random color from client id.
         let h = (((client_id * 30) % 360) as f32) / 360.0;
         let s = 0.8;
@@ -94,7 +92,6 @@ pub(crate) fn handle_connections(
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
-        info!("Client {:?} disconnected", client_id);
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
             commands.entity(entity).despawn();
         }

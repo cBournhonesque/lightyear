@@ -3,10 +3,11 @@ use std::ops::Deref;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, With, Without,
 };
-use tracing::error;
+use tracing::{error, info};
 
 use crate::client::components::SyncComponent;
 use crate::client::resource::Client;
+use crate::prelude::Named;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -110,7 +111,7 @@ impl<T: SyncComponent> PredictionHistory<T> {
 //  - copy component and add component history (for rollback)
 //  - copy component to history and don't add component
 #[allow(clippy::type_complexity)]
-pub fn add_component_history<T: SyncComponent, P: Protocol>(
+pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
     mut commands: Commands,
     client: Res<Client<P>>,
     predicted_entities: Query<(Entity, Option<Ref<T>>), Without<PredictionHistory<T>>>,
