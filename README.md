@@ -44,8 +44,9 @@ Lightyear provides a simple API for sending and receiving messages, and for repl
 
 - Serialization
   - Lightyear uses [bitcode](https://github.com/SoftbearStudios/bitcode/tree/main) for serialization, which supports very compact serialization. It uses bit-packing (a bool will be serialized as a single bit).
-- Reliability
+- Message passing
   - Lightyear supports sending packets with different guarantees of ordering and reliability through the use of channels.
+  - Packet fragmentation (for messages larger than ~1200 bytes) is supported
 - Input handling
   - Lightyear has special handling for player inputs (mouse presses, keyboards).
     They are buffered every tick on the `Client`, and lightyear makes sure that the client input for tick `N` will be also processed on tick `N` on the server.
