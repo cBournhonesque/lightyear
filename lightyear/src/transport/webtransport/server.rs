@@ -37,6 +37,7 @@ impl WebTransportServerSocket {
         let session_request = incoming_session.await.unwrap();
         let connection = session_request.accept().await.unwrap();
         let client_addr = connection.remote_address();
+
         debug!(
             "Spawning new task to create connection with client: {}",
             client_addr

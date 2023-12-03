@@ -15,7 +15,7 @@ pub fn shared_config() -> SharedConfig {
         },
         log: LogConfig {
             level: Level::INFO,
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn"
+            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
         },
     }
