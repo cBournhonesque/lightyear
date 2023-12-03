@@ -97,7 +97,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Test
-        run: cargo tarpaulin -p lightyear --engine llvm --out lcov
+        run: cargo tarpaulin --engine llvm --out lcov --workspace -p lightyear_macros -p lightyear -e wtransport_lightyear_patch -e wtransport-proto_lightyear_patch -e bitcode_lightyear_patch --exclude-files vendor/**/*.rs --exclude-files macros/**/*.rs
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
