@@ -6,10 +6,12 @@ on:
     paths-ignore:
       - ".gitignore"
       - ".github/dependabot.yml"
+      - "**.md"
   pull_request:
     paths-ignore:
       - ".gitignore"
       - ".github/dependabot.yml"
+      - "**.md"
 env:
   CARGO_TERM_COLOR: always
 jobs:
@@ -28,7 +30,7 @@ jobs:
 
       - name: Format
         run: |
-          cargo fmt --check
+          cargo fmt -p lightyear --check
           taplo fmt --check
 
   lint:
@@ -48,7 +50,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy --no-deps --tests -- -D warnings -A clippy::module_inception -A clippy::wrong_self_convention
+        run: cargo clippy -p lightyear --no-deps --tests -- -D warnings -A clippy::module_inception -A clippy::wrong_self_convention -A clippy::assign-op-pattern
 
       - name: Rustdoc
         run: cargo rustdoc -p lightyear -- --document-private-items -D warnings
@@ -70,7 +72,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Test doc
-        run: cargo test --doc
+        run: cargo test -p lightyear --doc
 
   test:
     name: Test

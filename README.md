@@ -24,8 +24,9 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 
 Lightyear uses a very general [Transport](https://github.com/cBournhonesque/lightyear/blob/main/lightyear/src/transport/mod.rs) trait to send raw data on the network.
 
-The trait currently has two implementations: UDP sockets, and crossbeam channels (for testing).
-I plan to add implementations for either WebRTC or WebTransport in the future, so that lightyear can be used to write browser games.
+The trait currently has two implementations:
+- UDP sockets
+- WebTransport (using QUIC): not compatible with wasm yet.
 
 ### Ergonomic
 
@@ -61,9 +62,6 @@ Lightyear provides a simple API for sending and receiving messages, and for repl
 
 ## Planned features
 
-- Transport
-    - Adding a web-compatible transport (WebRTC or WebTransport)
-    - Add support for measuring packet loss
 - Metrics
     - Improve the metrics/logs
 - Packet
@@ -71,6 +69,5 @@ Lightyear provides a simple API for sending and receiving messages, and for repl
 - Serialization
     - Improve the serialization code to be more ergonomic, and to have fewer copies.
 - Replication 
-    - Add better support for entity-relations: replicating components that contain references to other entities.
     - Add support for interest management: being able to only replicate entities to clients who are in the same 'zone' as them.
     - Add more tests for subtle replication situations (receiving ComponentInsert after the entity has been despawned, etc.)
