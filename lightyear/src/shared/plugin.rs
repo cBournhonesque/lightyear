@@ -17,14 +17,11 @@ impl Plugin for SharedPlugin {
             self.config.tick.tick_duration.as_secs_f64(),
         ));
         app.init_resource::<ReplicationData>();
-        // SYSTEMS
-        // app.add_systems(FixedUpdate, increment_tick);
 
-        // TODO: set log config
+        // SYSTEMS
+        // TODO: increment_tick should be shared
+        // app.add_systems(FixedUpdate, increment_tick);
         let log_config = self.config.log.clone();
-        app.add_plugins(log::LogPlugin {
-            level: log_config.level,
-            filter: log_config.filter,
-        });
+        app.add_plugins(log::LogPlugin { config: log_config });
     }
 }

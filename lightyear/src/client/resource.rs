@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::{Resource, Time, Virtual, World};
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;

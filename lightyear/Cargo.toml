@@ -13,8 +13,18 @@ metrics = [
   "tokio",
 ]
 mock_time = ["dep:mock_instant"]
+webtransport = [
+  "dep:wtransport",
+  "tokio/sync",
+  "wtransport/dangerous-configuration",
+  "dep:ring",
+  "dep:base64",
+  "dep:rcgen",
+  "dep:time",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 
 [dependencies]
 # utils
@@ -26,6 +36,14 @@ thiserror = "1.0.50"
 paste = "1.0"
 cfg-if = "1.0"
 mock_instant = { version = "0.3.1", optional = true }
+
+# transport
+# TODO: we are using this version because we need Certificate to be Cloneable. Upgrade when this is merged
+wtransport = { git = "https://github.com/cBournhonesque/wtransport.git", branch = "cb/0.1.8andClone", optional = true }
+ring = { version = "0.17.6", optional = true }
+base64 = { version = "0.21.4", optional = true }
+rcgen = { version = "0.11.3", optional = true }
+time = { version = "0.3.1", optional = true }
 
 
 # serialization
@@ -62,12 +80,13 @@ metrics-exporter-prometheus = { version = "0.12.1", optional = true, default-fea
   "http-listener",
 ] }
 tokio = { version = "1.33", features = ["rt", "net", "time"], optional = true }
+#tokio = { version = "1.33", features = ["rt", "net", "sync", "time"]}
 
 rand = "0.8"
 ringbuffer = "0.15"
 bevy = { version = "0.12", default-features = false }
-taplo-cli = "0.8.1"
 derive_more = "0.99.17"
+
 
 [dev-dependencies]
 derive_more = { version = "0.99", features = ["add", "mul"] }

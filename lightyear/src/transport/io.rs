@@ -10,46 +10,54 @@ use metrics;
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
 use crate::transport::udp::UdpSocket;
+
+#[cfg(feature = "webtransport")]
+use crate::transport::webtransport::client::WebTransportClientSocket;
+#[cfg(feature = "webtransport")]
+use crate::transport::webtransport::server::WebTransportServerSocket;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
+#[cfg(feature = "webtransport")]
+use wtransport::tls::Certificate;
 
 #[derive(Clone)]
 pub enum TransportConfig {
     UdpSocket(SocketAddr),
+    #[cfg(feature = "webtransport")]
+    WebTransportClient {
+        client_addr: SocketAddr,
+        server_addr: SocketAddr,
+    },
+    #[cfg(feature = "webtransport")]
+    WebTransportServer {
+        server_addr: SocketAddr,
+        certificate: Certificate,
+    },
     LocalChannel,
 }
 
 impl TransportConfig {
     pub fn get_io(&self) -> Io {
-        match self {
-            TransportConfig::UdpSocket(addr) => {
-                let socket = UdpSocket::new(addr).unwrap();
-                Io::new(*addr, Box::new(socket.clone()), Box::new(socket))
-            }
-            TransportConfig::LocalChannel => {
-                let channel = LocalChannel::new();
-                Io::new(LOCAL_SOCKET, Box::new(channel.clone()), Box::new(channel))
-            }
-        }
+        let mut transport: Box<dyn Transport> = match self {
+            TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
+            #[cfg(feature = "webtransport")]
+            TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+            } => Box::new(WebTransportClientSocket::new(*client_addr, *server_addr)),
+            #[cfg(feature = "webtransport")]
+            TransportConfig::WebTransportServer {
+                server_addr,
+                certificate,
+            } => Box::new(WebTransportServerSocket::new(
+                *server_addr,
+                certificate.clone(),
+            )),
+            TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
+        };
+        let addr = transport.local_addr();
+        let (sender, receiver) = transport.listen();
+        Io::new(addr, sender, receiver)
     }
-    // pub fn get_local_addr(&self) -> SocketAddr {
-    //     match self {
-    //         TransportConfig::UdpSocket(addr) => *addr,
-    //         TransportConfig::LocalChannel => LOCAL_SOCKET,
-    //     }
-    // }
-    // pub fn get_sender(&self) -> Box<dyn PacketSender + Send + Sync> {
-    //     match self {
-    //         TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
-    //         TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
-    //     }
-    // }
-    //
-    // pub fn get_receiver(&self) -> Box<dyn PacketReceiver + Send + Sync> {
-    //     match self {
-    //         TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
-    //         TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
-    //     }
-    // }
 }
 
 #[derive(Clone)]
@@ -90,42 +98,23 @@ impl IoConfig {
         }
         io
     }
-
-    // pub fn get_local_addr(&self) -> SocketAddr {
-    //     self.transport.get_local_addr()
-    // }
-    // pub fn get_sender(&self) -> Box<dyn PacketSender + Send + Sync> {
-    //     self.transport.get_sender()
-    // }
-    //
-    // pub fn get_receiver(&self) -> Box<dyn PacketReceiver + Send + Sync> {
-    //     let mut receiver = self.transport.get_receiver();
-    //     if let Some(conditioner) = &self.conditioner {
-    //         receiver = Box::new(ConditionedPacketReceiver::new(receiver, conditioner));
-    //     }
-    //     receiver
-    // }
 }
 
 pub struct Io {
     local_addr: SocketAddr,
-    sender: Box<dyn PacketSender + Send + Sync>,
-    receiver: Box<dyn PacketReceiver + Send + Sync>,
+    sender: Box<dyn PacketSender>,
+    receiver: Box<dyn PacketReceiver>,
 }
 
 impl Io {
     pub fn from_config(config: &IoConfig) -> Self {
         config.get_io()
-        // let local_addr = config.transport.get_local_addr();
-        // let sender = config.transport.get_sender();
-        // let receiver = config.transport.get_receiver();
-        // Self::new(local_addr, sender, receiver)
     }
 
     pub fn new(
         local_addr: SocketAddr,
-        sender: Box<dyn PacketSender + Send + Sync>,
-        receiver: Box<dyn PacketReceiver + Send + Sync>,
+        sender: Box<dyn PacketSender>,
+        receiver: Box<dyn PacketReceiver>,
     ) -> Self {
         Self {
             local_addr,
@@ -133,22 +122,15 @@ impl Io {
             receiver,
         }
     }
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
 
-    pub fn to_parts(
-        self,
-    ) -> (
-        Box<dyn PacketReceiver + Send + Sync>,
-        Box<dyn PacketSender + Send + Sync>,
-    ) {
+    pub fn to_parts(self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>) {
         (self.receiver, self.sender)
     }
 
-    pub fn split(
-        &mut self,
-    ) -> (
-        &mut Box<dyn PacketSender + Send + Sync>,
-        &mut Box<dyn PacketReceiver + Send + Sync>,
-    ) {
+    pub fn split(&mut self) -> (&mut Box<dyn PacketSender>, &mut Box<dyn PacketReceiver>) {
         (&mut self.sender, &mut self.receiver)
     }
 }
@@ -201,8 +183,12 @@ impl PacketReceiver for Box<dyn PacketReceiver + Send + Sync> {
     }
 }
 
-impl Transport for Io {
-    fn local_addr(&self) -> SocketAddr {
-        self.local_addr
-    }
-}
+// impl Transport for Io {
+//     fn local_addr(&self) -> SocketAddr {
+//         self.local_addr
+//     }
+//
+//     fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+//         (self.sender.clone(), self.receiver.clone())
+//     }
+// }

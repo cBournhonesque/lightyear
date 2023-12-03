@@ -21,21 +21,7 @@ use tracing_log::LogTracer;
 /// rerunning the same initialization multiple times will lead to a panic.
 // TODO: take directly log config?
 pub struct LogPlugin {
-    /// Filters logs using the [`EnvFilter`] format
-    pub filter: String,
-
-    /// Filters out logs that are "less than" the given level.
-    /// This can be further filtered using the `filter` setting.
-    pub level: Level,
-}
-
-impl Default for LogPlugin {
-    fn default() -> Self {
-        Self {
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info".to_string(),
-            level: Level::INFO,
-        }
-    }
+    pub config: LogConfig,
 }
 
 #[derive(Clone)]
@@ -61,11 +47,11 @@ impl Default for LogConfig {
 impl Plugin for LogPlugin {
     fn build(&self, app: &mut App) {
         let finished_subscriber;
-        let default_filter = { format!("{},{}", self.level, self.filter) };
-        dbg!(&default_filter);
+        let default_filter = { format!("{},{}", self.config.level, self.config.filter) };
         let filter_layer = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(&default_filter))
             .unwrap();
+        println!("Log filter: {:?}", default_filter);
         let subscriber = Registry::default().with(filter_layer);
 
         let fmt_layer = tracing_subscriber::fmt::Layer::default()

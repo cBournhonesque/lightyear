@@ -1,15 +1,17 @@
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, KEY, PROTOCOL_ID};
+use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::transport::webtransport::cert::generate_local_certificate;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 pub struct MyServerPlugin {
     pub(crate) port: u16,
+    pub(crate) transport: Transports,
 }
 
 impl Plugin for MyServerPlugin {
@@ -21,11 +23,17 @@ impl Plugin for MyServerPlugin {
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.03,
+            incoming_loss: 0.00,
+        };
+        let transport = match self.transport {
+            Transports::Udp => TransportConfig::UdpSocket(server_addr),
+            Transports::Webtransport => TransportConfig::WebTransportServer {
+                server_addr,
+                certificate: generate_local_certificate(),
+            },
         };
         let io = Io::from_config(
-            &IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
-                .with_conditioner(link_conditioner),
+            &IoConfig::from_transport(transport).with_conditioner(link_conditioner),
         );
         let config = ServerConfig {
             shared: shared_config().clone(),
@@ -39,7 +47,7 @@ impl Plugin for MyServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
-        app.add_systems(Update, (handle_connections, send_message, log_confirmed));
+        app.add_systems(Update, (handle_connections, send_message));
     }
 }
 
@@ -62,7 +70,6 @@ pub(crate) fn init(mut commands: Commands) {
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    // TODO: give type alias to ConnectionEvents<ClientId> ? (such as ServerConnectionEvents)?
     mut connections: EventReader<ConnectEvent>,
     mut disconnections: EventReader<DisconnectEvent>,
     mut global: ResMut<Global>,
@@ -91,16 +98,6 @@ pub(crate) fn handle_connections(
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
             commands.entity(entity).despawn();
         }
-    }
-}
-
-pub(crate) fn log_confirmed(server: Res<Server<MyProtocol>>, confirmed: Query<&PlayerPosition>) {
-    for pos in confirmed.iter() {
-        debug!(
-            "interpolated pos: {:?}, server tick: {:?}",
-            pos,
-            server.tick()
-        );
     }
 }
 
