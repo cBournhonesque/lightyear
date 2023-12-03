@@ -1,0 +1,59 @@
+[package]
+name = "wtransport_lightyear_patch"
+version = "0.1.10"
+license = "MIT OR Apache-2.0"
+authors = ["Biagio Festa"]
+description = "Implementation of the WebTransport (over HTTP3) protocol"
+repository = "https://github.com/BiagioFesta/wtransport"
+keywords = ["webtransport"]
+categories = ["network-programming", "asynchronous"]
+edition = "2021"
+readme = "../README.md"
+rust-version = "1.65.0"
+
+
+[dependencies]
+base64 = "0.21.0"
+bytes = "1.4.0"
+quinn = "0.10.1"
+rcgen = "0.11.1"
+ring = "0.17.6"
+rustls = "0.21.1"
+rustls-native-certs = "0.6.2"
+rustls-pemfile = "1.0.2"
+socket2 = "0.5.3"
+thiserror = "1.0.40"
+time = "0.3.21"
+tokio = { version = "1.28.1", default-features = false, features = [
+  "macros",
+  "fs",
+] }
+tracing = "0.1.37"
+url = "2.4.0"
+wtransport-proto = { version = "0.1.8", package = "wtransport-proto_lightyear_patch", features = [
+  "async",
+] }
+x509-parser = "0.15.1"
+
+[dev-dependencies]
+anyhow = "1.0.71"
+axum = "0.7.1"
+hyper = "1.0.1"
+pathsearch = "0.2.0"
+sysinfo = "0.29.10"
+tokio = { version = "1.28.1", features = [
+  "rt",
+  "rt-multi-thread",
+  "macros",
+  "process",
+] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+
+[features]
+default = []
+dangerous-configuration = ["rustls/dangerous_configuration"]
+quinn = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
