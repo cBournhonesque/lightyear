@@ -213,7 +213,12 @@ impl<P: Protocol> Connection<P> {
                         _ => {}
                     }
                     // update events
-                    message.push_to_events(channel_kind, &mut self.events, time_manager);
+                    message.push_to_events(
+                        channel_kind,
+                        &mut self.events,
+                        &self.replication_manager.entity_map,
+                        time_manager,
+                    );
                 }
             }
         }
