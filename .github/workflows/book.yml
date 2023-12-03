@@ -1,6 +1,8 @@
-name: Deploy
+name: Update Book
 on:
   push:
+    paths:
+      - "book/**"
     branches:
       - main
 
