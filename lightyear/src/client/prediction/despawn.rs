@@ -23,6 +23,9 @@ pub trait PredictionCommandsExt {
     fn prediction_despawn<P: Protocol>(&mut self);
 }
 
+/// This command must be used to despawn the predicted or confirmed entity.
+/// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
+/// - If the entity is confirmed, we despawn both the predicted and confirmed entities
 pub struct PredictionDespawnCommand<P: Protocol> {
     entity: Entity,
     _marker: PhantomData<P>,

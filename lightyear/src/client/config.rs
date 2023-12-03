@@ -15,6 +15,10 @@ use crate::shared::ping::manager::PingConfig;
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
     pub keepalive_packet_send_rate: f64,
+    /// if we don't hear from the client for this duration, we disconnect them
+    /// A negative value means no timeout.
+    /// This is used for Authentication::Manual tokens
+    pub client_timeout_secs: i32,
 }
 
 impl Default for NetcodeConfig {
@@ -22,6 +26,7 @@ impl Default for NetcodeConfig {
         Self {
             num_disconnect_packets: 10,
             keepalive_packet_send_rate: 1.0 / 10.0,
+            client_timeout_secs: 10,
         }
     }
 }

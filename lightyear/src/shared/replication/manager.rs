@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::{Entity, World};
-use tracing::{debug, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use super::entity_map::EntityMap;
 use super::{Replicate, ReplicationMessage};
@@ -176,9 +176,8 @@ impl<P: Protocol> ReplicationManager<P> {
                 // TODO: we only run this if the entity has been confirmed to be spawned on client?
                 //  or should we send the message right away and let the receiver handle the ordering?
                 //  (what if they receive despawn before spawn?)
-
-                if let Some(_local_entity) = self.entity_map.remove_by_remote(entity) {
-                    world.despawn(entity);
+                if let Some(local_entity) = self.entity_map.remove_by_remote(entity) {
+                    world.despawn(local_entity);
                 }
             }
             ReplicationMessage::InsertComponent(entity, component) => {
@@ -213,7 +212,7 @@ impl<P: Protocol> ReplicationManager<P> {
                     .iter()
                     .map(|c| c.into())
                     .collect::<Vec<P::ComponentKinds>>();
-                debug!(?entity, ?kinds, "Received entity update");
+                trace!(?entity, ?kinds, "Received entity update");
                 // if the entity does not exist, create it
                 let mut local_entity_mut = self.entity_map.get_by_remote_or_spawn(world, entity);
                 // TODO: keep track of the components inserted?

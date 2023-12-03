@@ -16,15 +16,9 @@ use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 #[derive(Debug)]
 pub struct ConnectionEvents<P: Protocol> {
     // netcode
+    // we put disconnections outside of there because `ConnectionEvents` gets removed upon disconnection
     pub connection: bool,
-    pub disconnection: bool,
 
-    // inputs
-    // // TODO: maybe support a vec of inputs?
-    // // TODO: we put the InputBuffer here right now instead of Connection because this struct is the one that is the most
-    // //  accessible from bevy. Maybe refactor later
-    // //  THIS ONLY CONTAINS THE INPUTS RECEIVED FROM REMOTE, I.E THIS FIELD IS ONLY USED BY THE SERVER RIGHT NOW
-    // pub inputs: InputBuffer<P::Input>,
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
@@ -54,7 +48,6 @@ impl<P: Protocol> ConnectionEvents<P> {
         Self {
             // netcode
             connection: false,
-            disconnection: false,
             // inputs
             // inputs: InputBuffer::default(),
             // messages
@@ -70,12 +63,8 @@ impl<P: Protocol> ConnectionEvents<P> {
         }
     }
 
-    // TODO: this seems to show that events might not the right place to put the input buffer
-    //  maybe we want to create a dedicated InputBuffer resource for it?
-    //  on server-side it would be hashmap, and we need to sync it with connections/disconnections
     pub fn clear(&mut self) {
         self.connection = false;
-        self.disconnection = false;
         self.messages.clear();
         self.spawns.clear();
         self.despawns.clear();
@@ -94,26 +83,6 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.connection = true;
         self.empty = false;
     }
-
-    pub fn has_disconnection(&self) -> bool {
-        self.disconnection
-    }
-
-    pub fn push_disconnection(&mut self) {
-        self.disconnection = true;
-        self.empty = false;
-    }
-
-    // /// Pop the input for the current tick from the input buffer
-    // /// We can pop it because we won't be needing it anymore?
-    // /// Maybe not because of rollback!
-    // pub fn pop_input(&mut self, tick: Tick) -> Option<P::Input> {
-    //     self.inputs.buffer.remove(&tick)
-    // }
-    //
-    // pub fn get_input(&mut self, tick: Tick) -> Option<&P::Input> {
-    //     self.inputs.buffer.get(&tick)
-    // }
 
     pub fn is_empty(&self) -> bool {
         self.empty
@@ -330,83 +299,6 @@ impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
         self.component_inserts.contains_key(&component_kind)
     }
 }
-
-// pub trait IterMessageEvent<M: Message, P: Protocol, Ctx = ()>
-// where
-//     P::Message: TryInto<M, Error = ()>,
-// {
-//     fn into_iter_messages(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)>>;
-//
-//     fn has_messages(&self) -> bool;
-// }
-
-// impl<M: Message, P: Protocol> IterMessageEvent<M, P> for ConnectionEvents<P> {
-//     fn into_iter_messages(&mut self) -> Box<dyn Iterator<Item = (M, ())>> {
-//         let message_kind = MessageKind::of::<M>();
-//         if let Some(data) = self.messages.remove(&message_kind) {
-//             return Box::new(data.into_iter().flat_map(|data| {
-//                 data.into_iter().flat_map(|(_, messages)| {
-//                     messages.into_iter().map(|message| {
-//                         // SAFETY: we checked via message kind that only messages of the type M
-//                         // are in the list
-//                         (message.try_into().unwrap(), ())
-//                     })
-//                 })
-//             }));
-//         }
-//         return Box::new(iter::empty());
-//     }
-//
-//     fn has_messages(&self) -> bool {
-//         let message_kind = MessageKind::of::<M>();
-//         self.messages.contains_key(&message_kind)
-//     }
-// }
-//
-// pub trait IterConnectionEvent<P: Protocol> {
-//     type Iter;
-//     type IntoIter;
-//
-//     fn iter(events: &mut ConnectionEvents<P>) -> Self::Iter;
-//
-//     fn has(events: &ConnectionEvents<P>) -> bool;
-// }
-
-// pub struct MessageEvent<C: Channel, M: Message> {
-//     _phantom: std::marker::PhantomData<(C, M)>,
-// }
-//
-// impl<P: Protocol, C> IterEvent<P> for MessageEvent<, M> {
-//     type Iter = IntoIter<M>;
-//
-//     fn iter(events: &mut Events<E>) -> Self::Iter {
-//         let channel_kind: ChannelKind = ChannelKind::of::<C>();
-//         if let Some(channel_map) = events.messages.get_mut(&channel_kind) {
-//             let message_kind: MessageKind = MessageKind::of::<M>();
-//             if let Some(boxed_list) = channel_map.remove(&message_kind) {
-//                 let mut output_list: Vec<M> = Vec::new();
-//
-//                 for boxed_message in boxed_list {
-//                     let boxed_any = boxed_message.to_boxed_any();
-//                     let message = boxed_any.downcast::<M>().unwrap();
-//                     output_list.push(*message);
-//                 }
-//
-//                 return IntoIterator::into_iter(output_list);
-//             }
-//         }
-//         return IntoIterator::into_iter(Vec::new());
-//     }
-//
-//     fn has(events: &Events<E>) -> bool {
-//         let channel_kind: ChannelKind = ChannelKind::of::<C>();
-//         if let Some(channel_map) = events.messages.get(&channel_kind) {
-//             let message_kind: MessageKind = MessageKind::of::<M>();
-//             return channel_map.contains_key(&message_kind);
-//         }
-//         return false;
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

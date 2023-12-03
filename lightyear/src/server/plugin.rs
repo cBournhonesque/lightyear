@@ -3,8 +3,8 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{
-    App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType, PostUpdate,
-    PreUpdate,
+    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
 use crate::netcode::ClientId;
@@ -80,18 +80,21 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             // RESOURCES //
             .insert_resource(server)
             // SYSTEM SETS //
-            .configure_sets(PreUpdate, MainSet::Receive)
+            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
             // NOTE: it's ok to run the replication systems less frequently than every frame
             //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
             .configure_sets(
                 PostUpdate,
-                ((
-                    ReplicationSet::SendEntityUpdates,
-                    ReplicationSet::SendComponentUpdates,
-                    MainSet::SendPackets,
-                )
-                    .chain())
-                .in_set(MainSet::Send),
+                (
+                    (
+                        ReplicationSet::SendEntityUpdates,
+                        ReplicationSet::SendComponentUpdates,
+                        MainSet::SendPackets,
+                    )
+                        .chain()
+                        .in_set(MainSet::Send),
+                    (ReplicationSet::ReplicationSystems, MainSet::SendPackets).chain(),
+                ),
             )
             .configure_sets(PostUpdate, MainSet::ClearEvents)
             .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
@@ -101,7 +104,13 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_event::<EntitySpawnEvent>()
             .add_event::<EntityDespawnEvent>()
             // SYSTEMS //
-            .add_systems(PreUpdate, receive::<P>.in_set(MainSet::Receive))
+            .add_systems(
+                PreUpdate,
+                (
+                    receive::<P>.in_set(MainSet::Receive),
+                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                ),
+            )
             // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
             //  maybe TickManager should be a separate resource not contained in Client/Server?
             .add_systems(

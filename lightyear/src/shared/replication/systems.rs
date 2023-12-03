@@ -30,7 +30,6 @@ fn add_despawn_tracker(
     query: Query<(Entity, &Replicate), Added<Replicate>>,
 ) {
     for (entity, replicate) in query.iter() {
-        debug!("Adding DespawnTracker to entity: {:?}", entity);
         commands.entity(entity).insert(DespawnTracker);
         replication.owned_entities.insert(entity, *replicate);
     }
@@ -40,6 +39,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
     // query: Query<(Entity, Ref<Replicate>), RemovedComponents<>>
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
+    //  not just entities that had despawn tracker once
     mut despawn_removed: RemovedComponents<DespawnTracker>,
     mut sender: ResMut<R>,
 ) {
@@ -141,15 +141,18 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
     app.add_systems(
         PostUpdate,
         (
-            add_despawn_tracker,
-            send_entity_spawn::<P, R>,
-            send_entity_despawn::<P, R>,
-        )
-            .in_set(ReplicationSet::SendEntityUpdates),
+            // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
+            //  so we can run the system every frame
+            send_entity_spawn::<P, R>.in_set(ReplicationSet::SendEntityUpdates),
+            // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
+            //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
+            //  It is ok to run it every frame because it creates at most one message per despawn
+            (add_despawn_tracker, send_entity_despawn::<P, R>)
+                .in_set(ReplicationSet::ReplicationSystems),
+        ),
     );
 }
 
-// pub fn add_replication_send_systems
 pub fn add_per_component_replication_send_systems<
     C: Component + Clone,
     P: Protocol,
@@ -163,9 +166,13 @@ pub fn add_per_component_replication_send_systems<
     app.add_systems(
         PostUpdate,
         (
-            send_component_removed::<C, P, R>,
-            send_component_update::<C, P, R>,
-        )
-            .in_set(ReplicationSet::SendComponentUpdates),
+            // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
+            //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
+            //  It is ok to run it every frame because it creates at most one message per despawn
+            send_component_removed::<C, P, R>.in_set(ReplicationSet::ReplicationSystems),
+            // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
+            //  and use up all the bandwidth
+            send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),
+        ),
     );
 }

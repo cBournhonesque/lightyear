@@ -67,6 +67,7 @@ impl Plugin for MyClientPlugin {
             (
                 receive_message1,
                 receive_entity_spawn,
+                receive_entity_despawn,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
@@ -158,6 +159,13 @@ pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) 
 pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
     for event in reader.read() {
         info!("Received entity spawn: {:?}", event.entity());
+    }
+}
+
+// Example system to handle EntitySpawn events
+pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
+    for event in reader.read() {
+        info!("Received entity despawn: {:?}", event.entity());
     }
 }
 

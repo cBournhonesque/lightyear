@@ -10,6 +10,9 @@ use crate::transport::io::IoConfig;
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
     pub keep_alive_send_rate: f64,
+    /// if we don't hear from the client for this duration, we disconnect them
+    /// A negative value means no timeout
+    pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Option<Key>,
 }
@@ -19,6 +22,7 @@ impl Default for NetcodeConfig {
         Self {
             num_disconnect_packets: 10,
             keep_alive_send_rate: 1.0 / 10.0,
+            client_timeout_secs: 10,
             protocol_id: 0,
             private_key: None,
         }
@@ -32,6 +36,11 @@ impl NetcodeConfig {
     }
     pub fn with_key(mut self, key: Key) -> Self {
         self.private_key = Some(key);
+        self
+    }
+
+    pub fn with_client_timeout_secs(mut self, client_timeout_secs: i32) -> Self {
+        self.client_timeout_secs = client_timeout_secs;
         self
     }
 }

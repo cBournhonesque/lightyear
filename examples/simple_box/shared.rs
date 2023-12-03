@@ -25,6 +25,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        // app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, draw_boxes);
     }
 }

@@ -250,7 +250,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                     }
                 }
             } else {
-                warn!("Predicted entity {:?} was not found", confirmed.predicted);
+                debug!("Predicted entity {:?} was not found", confirmed.predicted);
             }
         }
     }

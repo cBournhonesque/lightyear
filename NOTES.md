@@ -4,31 +4,34 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
-PROBLEMS:
-- SYNC:
-  - sync only works if we send client updates every frame. Otherwise we need to take a LOT more margin on the server
-    to make sure that client packets arrive on time. -> MAKE SYNC COMPATIBLE WITH CLIENT UPDATE_INTERVAL (ADD UPDATE_INTERVAL TO MARGIN?)
-  - SOMETHIGN PROBABLY BREAKS BECAUSE OF THE WRAPPING OF TICK AND WRAPPED-TIME, THINK ABOUT HOW IT WORKS
-- if client 1 DC and then reconnects again, we don't get a new cube.
-- it looks like disconnects events are not being received?
-
+PROBLEMS/BUGS:
+- None right now
 
 ROUGH EDGES:
 - users cannot derive traits on ComponentProtocol or MessageProtocol because we add some extra variants to those enums
 - the bitcode/Bytes parts are confusing and make extra copies
 - users cannot specify how they serialize messages/components
-- some slightly weird stuff around the sync manager
-- can have smarter speedup/down for the sync system
 
-- Serialization:
-  - have a NetworkMessage macro that all network messages must derive (Input, Message, Component)
-  - all types must be Encode/Decode always. If a type is Serialize/Deserialize, then we can convert it to Encode/Decode ?
+- SYNC:
+  - sync only works if we send client updates every frame. Otherwise we need to take a LOT more margin on the server
+    to make sure that client packets arrive on time. -> MAKE SYNC COMPATIBLE WITH CLIENT UPDATE_INTERVAL (ADD UPDATE_INTERVAL TO MARGIN?)
+  - Something probably BREAKS BECAUSE OF THE WRAPPING OF TICK AND WRAPPED-TIME, THINK ABOUT HOW IT WORKS
+    - weird wrapping logic in sync manager is probably not correct
+  - can have smarter speedup/down for the sync system
 
 - MapEntities:
   - if we receive a mapped entity but the entity doesn't exist, we just don't do any mapping; but then the entity could be completely wrong?
     - in that case should we just wait for the entity to be created or present in the mapping (this is what naia does)? And if it doesn't get created we just ignore the message?
     - the entity mapping is present in the entity_map which exists on client, but not on server. So we cannot do the mapping on server.
 
+
+
+TODO:
+
+- Serialization:
+  - have a NetworkMessage macro that all network messages must derive (Input, Message, Component)
+    - DONE: all network messages derive Message
+  - all types must be Encode/Decode always. If a type is Serialize/Deserialize, then we can convert it to Encode/Decode ?
 
 - Prediction:
   - TODO: handle despawns, spawns
@@ -54,23 +57,13 @@ ROUGH EDGES:
   - POSSIBLE TODO: send back messages about entity-actions having been received? (we get this for free with reliable channels, but we need to notify the replication manager)
 
 - Message Manager
-  - TODO: need to handle any messages/components that contain entity handles
-    - lookup bevy's entity-mapper
-  - TODO: run more extensive soak test
+  - TODO: run more extensive soak test. Soak test with multiple clients, replication, connections/disconnections and different send_intervals?
 
 - Packet Manager:
-  - TODO: Send Keepalive as part of Payload instead of KeepAlive
-    - so that we can receive ack bitfields frequently (ack bitfields needed for reliable channels not to resend)
-    - DISABLE NETCODE KEEP-ALIVE AND ROLL-OUT MY OWN WITH KEEPALIVE DATA TYPE! (this works because any packet received counts as keep alive)
-    - actually, don't need to disable netcode keep-alive, just send payload keep alive more frequently!
-    - or just prepare an ACK response whenever we receive anything from a reliable sender? (so the reliable sender gets a quick ack bitfield)
-  - TODO: Pick correct constant values for MTUs, etc.
   - TODO: construct the final Packet from Bytes without using WriteBuffer and ReadBuffer, just concat Bytes to avoid having too many copies
 
 - Channels:
   - TODO: add channel priority with accumulation. Some channels need infinite priority though (such as pings)
-  - TODO: add a tick buffer so that inputs from client arrive on the same corresponding tick in the server.
-    - in general the tick buffer can be used to associate an event with a tick, and make sure it is received on the same corresponding tick in remote
 
 - UI:
   - TODO: UI that lets us see which packets are sent at every system update?

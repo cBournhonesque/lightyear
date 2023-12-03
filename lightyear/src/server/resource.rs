@@ -101,8 +101,10 @@ impl<P: Protocol> Server<P> {
 
     /// Generate a connect token for a client with id `client_id`
     pub fn token(&mut self, client_id: ClientId) -> ConnectToken {
+        info!("timeout: {:?}", self.config.netcode.client_timeout_secs);
         self.netcode
             .token(client_id, self.local_addr())
+            .timeout_seconds(self.config.netcode.client_timeout_secs)
             .generate()
             .unwrap()
     }
@@ -314,7 +316,7 @@ impl<P: Protocol> Server<P> {
             #[cfg(feature = "metrics")]
             metrics::decrement_gauge!("connected_clients", 1.0);
 
-            debug!("Client {} got disconnected", client_id);
+            info!("Client {} disconnected", client_id);
             self.events.push_disconnects(client_id);
             self.user_connections.remove(&client_id);
         }
@@ -437,11 +439,16 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                               connection: &mut Connection<P>|
          -> Result<()> {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.base.buffer_update_entity_single_component(
+            connection.base.buffer_component_insert(
                 entity,
                 component.clone(),
                 replicate.actions_channel,
             )
+            // connection.base.buffer_update_entity_single_component(
+            //     entity,
+            //     component.clone(),
+            //     replicate.actions_channel,
+            // )
         };
         self.apply_replication(replicate, buffer_message)
     }
