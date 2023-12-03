@@ -1,3 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["examples", "macros", "lightyear"]
+members = [
+  "examples",
+  "macros",
+  "lightyear",
+  "vendor/wtransport/wtransport",
+  "vendor/wtransport/wtransport-proto",
+  "vendor/bitcode",
+]

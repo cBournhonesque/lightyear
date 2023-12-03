@@ -1,11 +1,11 @@
 [package]
 name = "lightyear"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
 description = "Server-client networking library for the Bevy game engine"
-readme = "README.md"
+readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
@@ -49,16 +49,20 @@ thiserror = "1.0.50"
 
 # transport
 # TODO: we are using this version because we need Certificate to be Cloneable. Upgrade when this is merged
-wtransport = { git = "https://github.com/BiagioFesta/wtransport.git", branch = "master", optional = true }
+wtransport = { version = "0.1.10", package = "wtransport_lightyear_patch", optional = true }
+#wtransport = { git = "https://github.com/BiagioFesta/wtransport.git", branch = "master", optional = true }
 ring = { version = "0.17.6", optional = true }
 base64 = { version = "0.21.4", optional = true }
 rcgen = { version = "0.11.3", optional = true }
 time = { version = "0.3.1", optional = true }
 
 # serialization
-bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = [
+bitcode = { version = "0.4.0", package = "bitcode_lightyear_patch", features = [
   "serde",
 ] }
+#bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = [
+#  "serde",
+#] }
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
@@ -68,7 +72,8 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 byteorder = "1.5.0"
 
 # derive
-lightyear_macros = { path = "../macros" }
+#lightyear_macros = { path = "../macros" }
+lightyear_macros = "0.1.0"
 
 # tracing
 tracing = "0.1.40"

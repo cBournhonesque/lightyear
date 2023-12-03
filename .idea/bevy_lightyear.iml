@@ -24,6 +24,11 @@
       <sourceFolder url="file://$MODULE_DIR$/lightyear/serde/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/macros/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/macros/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/bitcode/bitcode_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/bitcode/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/wtransport/wtransport-proto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/wtransport/wtransport/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/wtransport/wtransport/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
