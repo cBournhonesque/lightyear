@@ -1,5 +1,9 @@
 # Lightyear
 
+[![crates.io](https://img.shields.io/crates/v/lightyear)](https://crates.io/crates/lightyear)
+[![docs.rs](https://docs.rs/lightyear/badge.svg)](https://docs.rs/lightyear)
+[![codecov](https://codecov.io/gh/cBournhonesque/lightyear/branch/main/graph/badge.svg?token=N1G28NQB1L)](https://codecov.io/gh/cBournhonesque/lightyear)
+
 A library for writing server-authoritative multiplayer games with [Bevy](https://bevyengine.org/).
 
 Heavily inspired by [naia](https://github.com/naia-lib/naia).
