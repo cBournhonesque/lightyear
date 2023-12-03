@@ -26,13 +26,11 @@ impl<P: Protocol> ServerEvents<P> {
     }
 
     /// Clear all events except for the input buffer which we want to keep around
-    // TODO: this seems to show that events might not the right place to put the input buffer
-    //  maybe we want to create a dedicated InputBuffer resource for it?
-    //  on server-side it would be hashmap, and we need to sync it with connections/disconnections
     pub(crate) fn clear(&mut self) {
         self.disconnects = Vec::new();
         self.empty = true;
-        self.events.values_mut().for_each(|events| events.clear());
+        self.events = HashMap::new();
+        // self.events.values_mut().for_each(|events| events.clear());
     }
 
     pub fn is_empty(&self) -> bool {

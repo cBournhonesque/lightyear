@@ -40,6 +40,10 @@ pub struct Server<P: Protocol> {
     context: ServerContext,
     // Clients
     user_connections: HashMap<ClientId, Connection<P>>,
+    // TODO: maybe put this in replication plugin
+    // list of clients that connected since the last time we sent replication messages
+    // (we want to keep track of them because we need to replicate the entire world state to them)
+    new_clients: Vec<ClientId>,
     // Protocol
     pub protocol: P,
     // Events
@@ -87,6 +91,7 @@ impl<P: Protocol> Server<P> {
             netcode,
             context,
             user_connections: HashMap::new(),
+            new_clients: Vec::new(),
             protocol,
             events: ServerEvents::new(),
             time_manager: TimeManager::new(config.shared.server_send_interval),
@@ -300,6 +305,7 @@ impl<P: Protocol> Server<P> {
                     Connection::new(self.protocol.channel_registry(), &self.config.ping);
                 connection.base.events.push_connection();
                 e.insert(connection);
+                self.new_clients.push(client_id);
             }
         }
 
@@ -355,6 +361,11 @@ impl<P: Protocol> Server<P> {
         }
         Ok(())
     }
+
+    /// Clear the list of clients that were recently connected but haven't received any replication packages yet
+    pub(crate) fn clear_new_clients(&mut self) {
+        self.new_clients.clear();
+    }
 }
 
 pub struct ServerContext {
@@ -363,6 +374,10 @@ pub struct ServerContext {
 }
 
 impl<P: Protocol> ReplicationSend<P> for Server<P> {
+    fn new_remote_peers(&self) -> Vec<ClientId> {
+        self.new_clients.clone()
+    }
+
     fn entity_spawn(
         &mut self,
         entity: Entity,

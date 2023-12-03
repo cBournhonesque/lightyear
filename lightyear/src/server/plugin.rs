@@ -81,6 +81,8 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .insert_resource(server)
             // SYSTEM SETS //
             .configure_sets(PreUpdate, MainSet::Receive)
+            // NOTE: it's ok to run the replication systems less frequently than every frame
+            //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
             .configure_sets(
                 PostUpdate,
                 ((

@@ -1,8 +1,18 @@
 [package]
 name = "lightyear_examples"
 version = "0.1.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
+rust-version = "1.65"
+description = "Examples for the lightyearServer-client networking library for the Bevy game engine"
+readme = "README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license = "MIT OR Apache-2.0"
+exclude = ["/tests"]
 publish = false
+
 
 [[example]]
 name = "simple_box"

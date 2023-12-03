@@ -67,6 +67,10 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
+    /// Return the list of clients that connected to the server since we last sent any replication messages
+    /// (this is used to send the initial state of the world to new clients)
+    fn new_remote_peers(&self) -> Vec<ClientId>;
+
     fn entity_spawn(
         &mut self,
         entity: Entity,
