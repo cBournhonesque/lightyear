@@ -22,7 +22,7 @@ wrapping_id!(RoomId);
 /// leaves then re-joins a room within the same send_interval period, we don't need to send any update)
 ///
 /// This will be cleared every time the Server sends updates to the Client (every send_interval)
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct RoomEvents {
     client_enter_room: HashMap<ClientId, HashSet<RoomId>>,
     client_leave_room: HashMap<ClientId, HashSet<RoomId>>,
@@ -48,7 +48,7 @@ pub struct RoomData {
     rooms: HashMap<RoomId, Room>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Room {
     /// list of clients that are in the room
     clients: HashSet<ClientId>,
@@ -62,9 +62,16 @@ pub struct RoomManager {
     data: RoomData,
 }
 
-#[derive(Default)]
 pub struct RoomPlugin<P: Protocol> {
     _marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> Default for RoomPlugin<P> {
+    fn default() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 /// System sets related to Rooms
@@ -100,6 +107,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                 (
                     clear_entity_replication_cache::<P>,
                     clean_entity_despawns::<P>,
+                    clear_room_events::<P>,
                 )
                     .in_set(RoomSystemSets::RoomBookkeeping),
             ),
@@ -218,9 +226,16 @@ impl<'s> RoomMut<'s> {
 }
 
 impl RoomEvents {
+    fn clear(&mut self) {
+        self.client_enter_room.clear();
+        self.client_leave_room.clear();
+        self.entity_enter_room.clear();
+        self.entity_leave_room.clear();
+    }
+
     /// A client joined a room
     pub fn client_enter_room(&mut self, room_id: RoomId, client_id: ClientId) {
-        // if the client had left the room, no need to track the enter
+        // if the client had left the room and re-entered, no need to track the enter
         if !self
             .client_leave_room
             .entry(client_id)
@@ -235,6 +250,7 @@ impl RoomEvents {
     }
 
     pub fn client_leave_room(&mut self, room_id: RoomId, client_id: ClientId) {
+        // if the client had entered the room and left, no need to track the leaving
         if !self
             .client_enter_room
             .entry(client_id)
@@ -386,6 +402,11 @@ fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate>)
     }
 }
 
+/// Clear every room event that happened
+fn clear_room_events<P: Protocol>(mut server: ResMut<Server<P>>) {
+    server.room_manager.events.clear();
+}
+
 /// Clear out the room metadata for any entity that was ever replicated
 fn clean_entity_despawns<P: Protocol>(
     mut server: ResMut<Server<P>>,
@@ -394,4 +415,346 @@ fn clean_entity_despawns<P: Protocol>(
     for entity in despawned.read() {
         server.room_manager.entity_despawn(entity);
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::client::*;
+    use crate::prelude::*;
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::{EventReader, Events};
+    use std::time::Duration;
+
+    fn setup() -> BevyStepper {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            enable_replication: true,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper.client_mut().connect();
+        stepper.client_mut().set_synced();
+
+        // Advance the world to let the connection process complete
+        for _ in 0..20 {
+            stepper.frame_step();
+        }
+
+        stepper
+    }
+
+    #[test]
+    // client is in a room
+    // we add an entity to that room, then we remove it
+    fn test_add_remove_entity_room() {
+        let mut stepper = setup();
+
+        // Client joins room
+        let client_id = 111;
+        let room_id = RoomId(0);
+        stepper.server_mut().room(room_id).add_client(client_id);
+
+        // Spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // Check room states
+        assert!(stepper
+            .server()
+            .room_manager
+            .data
+            .rooms
+            .get(&room_id)
+            .unwrap()
+            .clients
+            .contains(&client_id),);
+
+        // Add the entity in the same room
+        stepper.server_mut().room(room_id).add_entity(server_entity);
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert!(stepper
+            .server()
+            .room_manager
+            .events
+            .entity_enter_room
+            .get(&server_entity)
+            .unwrap()
+            .contains(&room_id));
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Gained)])
+        );
+
+        stepper.frame_step();
+        // Bookkeeping should get applied
+        // Check room states
+        assert!(stepper
+            .server()
+            .room_manager
+            .data
+            .rooms
+            .get(&room_id)
+            .unwrap()
+            .entities
+            .contains(&server_entity));
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Maintained)])
+        );
+
+        // Check that the entity gets replicated to client
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<Events<EntitySpawnEvent>>()
+                .len(),
+            1
+        );
+        let client_entity = *stepper
+            .client()
+            .connection()
+            .base()
+            .replication_manager
+            .entity_map
+            .get_local(server_entity)
+            .unwrap();
+
+        // Remove the entity from the room
+        stepper
+            .server_mut()
+            .room(room_id)
+            .remove_entity(server_entity);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert!(stepper
+            .server()
+            .room_manager
+            .events
+            .entity_leave_room
+            .get(&server_entity)
+            .unwrap()
+            .contains(&room_id));
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Lost)])
+        );
+        stepper.frame_step();
+        // after bookkeeping, the entity should not have any clients in its replication cache
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<Replicate>()
+            .unwrap()
+            .replication_clients_cache
+            .is_empty());
+
+        stepper.frame_step();
+        // Check that the entity gets despawned on client
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<Events<EntityDespawnEvent>>()
+                .len(),
+            1
+        );
+        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+    }
+
+    #[test]
+    // entity is in a room
+    // we add a client to that room, then we remove it
+    fn test_add_remove_client_room() {
+        let mut stepper = setup();
+
+        // Client joins room
+        let client_id = 111;
+        let room_id = RoomId(0);
+
+        // Spawn an entity on server
+        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        stepper.server_mut().room(room_id).add_entity(server_entity);
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // Check room states
+        assert!(stepper
+            .server()
+            .room_manager
+            .data
+            .rooms
+            .get(&room_id)
+            .unwrap()
+            .entities
+            .contains(&server_entity));
+
+        // Add the client in the same room
+        stepper.server_mut().room(room_id).add_client(client_id);
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert!(stepper
+            .server()
+            .room_manager
+            .events
+            .client_enter_room
+            .get(&client_id)
+            .unwrap()
+            .contains(&room_id));
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Gained)])
+        );
+
+        stepper.frame_step();
+        // Bookkeeping should get applied
+        // Check room states
+        assert!(stepper
+            .server()
+            .room_manager
+            .data
+            .rooms
+            .get(&room_id)
+            .unwrap()
+            .entities
+            .contains(&server_entity));
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Maintained)])
+        );
+
+        // Check that the entity gets replicated to client
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<Events<EntitySpawnEvent>>()
+                .len(),
+            1
+        );
+        let client_entity = *stepper
+            .client()
+            .connection()
+            .base()
+            .replication_manager
+            .entity_map
+            .get_local(server_entity)
+            .unwrap();
+
+        // Remove the client from the room
+        stepper.server_mut().room(room_id).remove_client(client_id);
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert!(stepper
+            .server()
+            .room_manager
+            .events
+            .client_leave_room
+            .get(&client_id)
+            .unwrap()
+            .contains(&room_id));
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Lost)])
+        );
+        stepper.frame_step();
+        // after bookkeeping, the entity should not have any clients in its replication cache
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<Replicate>()
+            .unwrap()
+            .replication_clients_cache
+            .is_empty());
+
+        stepper.frame_step();
+        // Check that the entity gets despawned on client
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<Events<EntityDespawnEvent>>()
+                .len(),
+            1
+        );
+        assert!(stepper.client_app.world.get_entity(client_entity).is_none());
+    }
+
+    // TODO: check that entity despawn/client disconnect cleans the room metadata
+
+    // TODO: check
 }

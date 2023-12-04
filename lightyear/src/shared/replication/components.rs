@@ -34,7 +34,7 @@ pub struct Replicate {
     /// List of clients that we the entity is currently replicated to.
     /// Will be updated before the other replication systems
     pub(crate) replication_clients_cache: HashMap<ClientId, ClientVisibility>,
-    pub replication_mode: ReplicationMode,
+    // pub replication_mode: ReplicationMode,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
 }
@@ -68,7 +68,7 @@ impl Default for Replicate {
             interpolation_target: NetworkTarget::None,
             // rooms: HashSet::new(),
             replication_clients_cache: HashMap::new(),
-            replication_mode: ReplicationMode::default(),
+            // replication_mode: ReplicationMode::default(),
         }
     }
 }
