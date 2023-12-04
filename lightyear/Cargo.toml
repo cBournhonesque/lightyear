@@ -26,10 +26,6 @@ webtransport = [
   "dep:wtransport",
   "tokio/sync",
   "wtransport/dangerous-configuration",
-  "dep:ring",
-  "dep:base64",
-  "dep:rcgen",
-  "dep:time",
 ]
 
 
@@ -48,13 +44,7 @@ ringbuffer = "0.15"
 thiserror = "1.0.50"
 
 # transport
-# TODO: we are using this version because we need Certificate to be Cloneable. Upgrade when this is merged
-wtransport = { version = "0.1.10", package = "wtransport_lightyear_patch", optional = true }
-#wtransport = { git = "https://github.com/BiagioFesta/wtransport.git", branch = "master", optional = true }
-ring = { version = "0.17.6", optional = true }
-base64 = { version = "0.21.4", optional = true }
-rcgen = { version = "0.11.3", optional = true }
-time = { version = "0.3.1", optional = true }
+wtransport = { version = "0.1.9", optional = true }
 
 # serialization
 bitcode = { version = "0.4.0", package = "bitcode_lightyear_patch", features = [

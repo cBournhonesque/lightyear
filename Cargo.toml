@@ -4,8 +4,6 @@ members = [
   "examples",
   "macros",
   "lightyear",
-  "vendor/wtransport/wtransport",
-  "vendor/wtransport/wtransport-proto",
   "vendor/bitcode",
 ]
 default-members = ["examples", "macros", "lightyear"]
