@@ -104,6 +104,7 @@ TODO:
 
 - Replication Systems:
   - EntitySpawn:
+    - we can have ReplicationMode::room or ReplicationMode::force. Force means we always replicate to everyone, without caring baout rooms
     - check through all ClientGainedVisibility -> send SpawnEntity
     - check through all clients in cache -> send SpawnEntity
   - ComponengUpdate:

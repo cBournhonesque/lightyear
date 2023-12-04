@@ -889,11 +889,13 @@ impl<Ctx> Server<Ctx> {
         Ok(())
     }
 
-    pub fn connected_client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
+    pub fn connected_client_ids(&self) -> Vec<ClientId> {
         self.conn_cache
             .clients
             .iter()
-            .filter_map(|(id, c)| c.is_connected().then_some(*id))
+            .filter_map(|(id, c)| c.is_connected().then_some(id))
+            .cloned()
+            .collect()
     }
 
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {

@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::netcode::ClientId;
 use crate::shared::replication::components::Replicate;
-use crate::shared::replication::room::RoomId;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::{Entity, FromWorld, Resource, World};
 

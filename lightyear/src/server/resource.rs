@@ -14,11 +14,11 @@ use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
+use crate::server::room::{RoomId, RoomManager, RoomMut};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
 use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
-use crate::shared::replication::room::RoomId;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};
@@ -49,6 +49,8 @@ pub struct Server<P: Protocol> {
     pub protocol: P,
     // Events
     pub(crate) events: ServerEvents<P>,
+    // Rooms
+    pub(crate) room_manager: RoomManager,
     // Time
     time_manager: TimeManager,
     tick_manager: TickManager,
@@ -95,6 +97,7 @@ impl<P: Protocol> Server<P> {
             new_clients: Vec::new(),
             protocol,
             events: ServerEvents::new(),
+            room_manager: RoomManager::default(),
             time_manager: TimeManager::new(config.shared.server_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
         }
@@ -138,19 +141,6 @@ impl<P: Protocol> Server<P> {
             })
     }
 
-    // /// Get the inputs for all clients for the given tick
-    // pub fn get_inputs(&mut self) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
-    //     self.user_connections
-    //         .iter_mut()
-    //         .map(|(client_id, connection)| {
-    //             let input = connection
-    //                 .input_buffer
-    //                 .buffer
-    //                 .get(&self.tick_manager.current_tick());
-    //             (input, *client_id)
-    //         })
-    // }
-
     // TIME
 
     #[doc(hidden)]
@@ -170,63 +160,23 @@ impl<P: Protocol> Server<P> {
         self.tick_manager.current_tick()
     }
 
-    // INPUTS
-
-    // /// Update the input buffer for the connection when receiving an input message.
-    // /// TODO: maybe do this directly during receive instead of here?
-    // pub(crate) fn update_inputs(
-    //     &mut self,
-    //     input_message: &InputMessage<P::Input>,
-    //     client_id: &ClientId,
-    // ) {
-    //     // TODO: do nothing if client does not exist (was disconnected)?
-    //     let connection = self
-    //         .user_connections
-    //         .get_mut(&client_id)
-    //         .expect("client not found");
-    //     connection.input_buffer.update_from_message(&input_message);
-    // }
-
     // REPLICATION
-    fn apply_replication<F: Fn(ClientId, &Replicate, &mut Connection<P>) -> Result<()>>(
-        &mut self,
-        replicate: &Replicate,
-        f: F,
-    ) -> Result<()> {
-        match replicate.replication_target {
+    /// Find the list of clients that should receive the replication message
+    fn apply_replication(&mut self, target: NetworkTarget) -> Box<dyn Iterator<Item = ClientId>> {
+        match target {
             NetworkTarget::All => {
                 // TODO: maybe only send stuff when the client is time-synced ?
-                for client_id in self.netcode.connected_client_ids() {
-                    let connection = self
-                        .user_connections
-                        .get_mut(&client_id)
-                        .expect("client not found");
-                    f(client_id, replicate, connection)?;
-                }
+                Box::new(self.netcode.connected_client_ids().into_iter())
             }
-            NetworkTarget::AllExcept(client_id) => {
-                for client_id in self
-                    .netcode
+            NetworkTarget::AllExcept(client_id) => Box::new(
+                self.netcode
                     .connected_client_ids()
-                    .filter(|id| *id != client_id)
-                {
-                    let connection = self
-                        .user_connections
-                        .get_mut(&client_id)
-                        .expect("client not found");
-                    f(client_id, replicate, connection)?;
-                }
-            }
-            NetworkTarget::Only(client_id) => {
-                let connection = self
-                    .user_connections
-                    .get_mut(&client_id)
-                    .expect("client not found");
-                f(client_id, replicate, connection)?;
-            }
-            NetworkTarget::None => {}
+                    .into_iter()
+                    .filter(move |id| *id != client_id),
+            ),
+            NetworkTarget::Only(client_id) => Box::new(std::iter::once(client_id)),
+            NetworkTarget::None => Box::new(std::iter::empty()),
         }
-        Ok(())
     }
 
     // MESSAGES
@@ -281,7 +231,6 @@ impl<P: Protocol> Server<P> {
     pub fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
         self.time_manager.update(delta, Duration::default());
-        // self.tick_manager.update(delta);
 
         // update netcode server
         self.netcode
@@ -320,6 +269,7 @@ impl<P: Protocol> Server<P> {
             info!("Client {} disconnected", client_id);
             self.events.push_disconnects(client_id);
             self.user_connections.remove(&client_id);
+            self.room_manager.client_disconnect(client_id);
         }
         Ok(())
     }
@@ -372,8 +322,8 @@ impl<P: Protocol> Server<P> {
 
     pub fn room(&mut self, id: RoomId) -> RoomMut {
         RoomMut {
-            id: RoomId,
-            manager: &self.room_manager,
+            id,
+            manager: &mut self.room_manager,
         }
     }
 }
@@ -393,13 +343,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         components: Vec<P::Components>,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()> {
         // debug!(?entity, "Spawning entity");
-        let buffer_message = |client_id: ClientId,
-                              replicate: &Replicate,
-                              connection: &mut Connection<P>|
-         -> Result<()> {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+        self.apply_replication(target).try_for_each(|client_id| {
             let mut components = components.clone();
 
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
@@ -409,25 +357,29 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             if replicate.interpolation_target.should_send_to(&client_id) {
                 components.push(P::Components::from(ShouldBeInterpolated));
             }
-            connection
+            self.user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
                 .base
                 .buffer_spawn_entity(entity, components, replicate.actions_channel)
-        };
-        self.apply_replication(replicate, buffer_message)
+        })
     }
 
-    fn entity_despawn(&mut self, entity: Entity, replicate: &Replicate) -> Result<()> {
+    fn entity_despawn(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate,
+        target: NetworkTarget,
+    ) -> Result<()> {
         debug!(?entity, "Sending EntityDespawn");
-        let buffer_message = |client_id: ClientId,
-                              replicate: &Replicate,
-                              connection: &mut Connection<P>|
-         -> Result<()> {
+        self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection
+            self.user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
                 .base
                 .buffer_despawn_entity(entity, replicate.actions_channel)
-        };
-        self.apply_replication(replicate, buffer_message)
+        })
     }
 
     fn component_insert(
@@ -435,6 +387,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         component: P::Components,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
         debug!(
@@ -442,23 +395,14 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             component = ?kind,
             "Inserting single component"
         );
-        let buffer_message = |client_id: ClientId,
-                              replicate: &Replicate,
-                              connection: &mut Connection<P>|
-         -> Result<()> {
+        self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.base.buffer_component_insert(
-                entity,
-                component.clone(),
-                replicate.actions_channel,
-            )
-            // connection.base.buffer_update_entity_single_component(
-            //     entity,
-            //     component.clone(),
-            //     replicate.actions_channel,
-            // )
-        };
-        self.apply_replication(replicate, buffer_message)
+            self.user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
+                .base
+                .buffer_component_insert(entity, component.clone(), replicate.actions_channel)
+        })
     }
 
     fn component_remove(
@@ -466,20 +410,17 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         component_kind: P::ComponentKinds,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()> {
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
-        let buffer_message = |client_id: ClientId,
-                              replicate: &Replicate,
-                              connection: &mut Connection<P>|
-         -> Result<()> {
+        self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.base.buffer_component_remove(
-                entity,
-                component_kind.clone(),
-                replicate.actions_channel,
-            )
-        };
-        self.apply_replication(replicate, buffer_message)
+            self.user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
+                .base
+                .buffer_component_remove(entity, component_kind.clone(), replicate.actions_channel)
+        })
     }
 
     fn entity_update_single_component(
@@ -487,6 +428,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         component: P::Components,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
         debug!(
@@ -494,18 +436,18 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             component = ?kind,
             "Updating single component"
         );
-        let buffer_message = |client_id: ClientId,
-                              replicate: &Replicate,
-                              connection: &mut Connection<P>|
-         -> Result<()> {
+        self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.base.buffer_update_entity_single_component(
-                entity,
-                component.clone(),
-                replicate.updates_channel,
-            )
-        };
-        self.apply_replication(replicate, buffer_message)
+            self.user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
+                .base
+                .buffer_update_entity_single_component(
+                    entity,
+                    component.clone(),
+                    replicate.updates_channel,
+                )
+        })
     }
 
     fn entity_update(
@@ -513,30 +455,29 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         components: Vec<P::Components>,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()> {
         debug!("Updating components for entity {:?}", entity);
-        let buffer_message = |client_id: ClientId,
-                              replicate: &Replicate,
-                              connection: &mut Connection<P>|
-         -> Result<()> {
+        let x = self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            connection.base.buffer_update_entity(
-                entity,
-                components.clone(),
-                replicate.updates_channel,
-            )
-        };
-        self.apply_replication(replicate, buffer_message)
+            self.user_connections
+                .get_mut(&client_id)
+                .expect("client not found")
+                .base
+                .buffer_update_entity(entity, components.clone(), replicate.updates_channel)
+        });
+        x
     }
 
     fn prepare_replicate_send(&mut self) -> Result<()> {
         let span = trace_span!("prepare_replicate_send").entered();
         self.netcode
             .connected_client_ids()
+            .iter()
             .try_for_each(|client_id| {
                 let connection = self
                     .user_connections
-                    .get_mut(&client_id)
+                    .get_mut(client_id)
                     .expect("client not found");
                 connection.base.prepare_replication_send()
             })

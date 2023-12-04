@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
-use crate::prelude::{EntityMap, MapEntities};
+use crate::prelude::{EntityMap, MapEntities, NetworkTarget};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
@@ -72,15 +72,22 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         entity: Entity,
         components: Vec<P::Components>,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()>;
 
-    fn entity_despawn(&mut self, entity: Entity, replicate: &Replicate) -> Result<()>;
+    fn entity_despawn(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate,
+        target: NetworkTarget,
+    ) -> Result<()>;
 
     fn component_insert(
         &mut self,
         entity: Entity,
         component: P::Components,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()>;
 
     fn component_remove(
@@ -88,6 +95,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         entity: Entity,
         component_kind: P::ComponentKinds,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()>;
 
     fn entity_update_single_component(
@@ -95,6 +103,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         entity: Entity,
         component: P::Components,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()>;
 
     fn entity_update(
@@ -102,6 +111,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         entity: Entity,
         components: Vec<P::Components>,
         replicate: &Replicate,
+        target: NetworkTarget,
     ) -> Result<()>;
 
     /// Any operation that needs to happen before we can send the replication messages
