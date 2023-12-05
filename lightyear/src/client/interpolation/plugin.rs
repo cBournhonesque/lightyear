@@ -19,45 +19,43 @@ use super::{spawn_interpolated_entity, InterpolatedComponent};
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
 #[derive(Clone)]
-pub enum InterpolationDelay {
-    /// How much behind the client time the interpolated entities are
-    /// This should be big enough that even if one server packet is loss
-    Delay(Duration),
-    // How much behind the client entity the interpolated entity is in terms of ticks
-    // Ticks(u16),
-    // The interpolation delay is a ratio of the update-rate from the server
-    // Currently the server sends updates every frame, so the delay will be a ratio of the frame-rate
-    Ratio(f32),
+pub struct InterpolationDelay {
+    /// The minimum delay that we will apply for interpolation
+    /// This should be big enough so that the interpolated entity always has a server snapshot
+    /// to interpolate towards.
+    /// Set to 0.0 if you want to only use the Ratio
+    pub min_delay: Duration,
+    /// The interpolation delay is a ratio of the update-rate from the server
+    /// The higher the server update_rate (i.e. smaller send_interval), the smaller the interpolation delay
+    /// Set to 0.0 if you want to only use the Delay
+    pub send_interval_ratio: f32,
 }
 
 impl Default for InterpolationDelay {
     fn default() -> Self {
-        Self::Delay(Duration::from_millis(100))
+        Self {
+            min_delay: Duration::from_millis(0),
+            send_interval_ratio: 2.0,
+        }
     }
 }
 
 impl InterpolationDelay {
-    /// How much behind the latest server update we want the interpolation time to be
-    pub(crate) fn to_duration(&self, server_update_rate: Duration) -> Duration {
-        match self {
-            InterpolationDelay::Delay(delay) => *delay,
-            InterpolationDelay::Ratio(ratio) => server_update_rate.mul_f32(*ratio),
-        }
+    pub fn with_min_delay(mut self, min_delay: Duration) -> Self {
+        self.min_delay = min_delay;
+        self
     }
 
-    // /// Compute how many ticks the interpolated entity is behind compared to the current entity
-    // // TODO: figure out how to not need to pass the arguments if we don't need them
-    // pub(crate) fn tick_delta(&self, tick_duration: Duration, server_update_rate: Duration) -> u16 {
-    //     match self {
-    //         InterpolationDelay::Delay(delay) => {
-    //             (delay.as_secs_f64() / tick_duration.as_secs_f64()).ceil() as u16
-    //         }
-    //         // InterpolationDelay::Ticks(ticks) => *ticks,
-    //         InterpolationDelay::Ratio(ratio) => (server_update_rate.mul_f32(*ratio).as_secs_f64()
-    //             / tick_duration.as_secs_f64())
-    //         .ceil() as usize,
-    //     }
-    // }
+    pub fn with_send_interval_ratio(mut self, send_interval_ratio: f32) -> Self {
+        self.send_interval_ratio = send_interval_ratio;
+        self
+    }
+
+    /// How much behind the latest server update we want the interpolation time to be
+    pub(crate) fn to_duration(&self, server_send_interval: Duration) -> Duration {
+        let ratio_value = server_send_interval.mul_f32(self.send_interval_ratio);
+        std::cmp::max(ratio_value, self.min_delay)
+    }
 }
 
 /// How much behind the client time the interpolated entities are
@@ -65,9 +63,6 @@ impl InterpolationDelay {
 /// This should be
 #[derive(Clone)]
 pub struct InterpolationConfig {
-    /// How much behind the client time the interpolated entities are
-    /// This will be converted to a tick
-    /// This should be
     pub(crate) delay: InterpolationDelay,
     // How long are we keeping the history of the confirmed entities so we can interpolate between them?
     // pub(crate) interpolation_buffer_size: Duration,

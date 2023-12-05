@@ -130,16 +130,19 @@ impl BevyStepper {
         }
     }
 
-    pub fn client(&self) -> &Client<MyProtocol> {
+    pub(crate) fn client(&self) -> &Client<MyProtocol> {
         self.client_app.world.resource::<Client<MyProtocol>>()
     }
 
-    pub fn client_mut(&mut self) -> Mut<Client<MyProtocol>> {
+    pub(crate) fn client_mut(&mut self) -> Mut<Client<MyProtocol>> {
         self.client_app.world.resource_mut::<Client<MyProtocol>>()
     }
 
-    fn server(&self) -> &Server<MyProtocol> {
+    pub(crate) fn server(&self) -> &Server<MyProtocol> {
         self.server_app.world.resource::<Server<MyProtocol>>()
+    }
+    pub(crate) fn server_mut(&mut self) -> Mut<Server<MyProtocol>> {
+        self.server_app.world.resource_mut::<Server<MyProtocol>>()
     }
 }
 

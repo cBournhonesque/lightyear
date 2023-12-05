@@ -61,16 +61,33 @@ pub trait ComponentProtocol:
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 #[enum_delegate::register]
 pub trait ComponentBehaviour {
-    /// Insert the component for an entity
+    /// Apply a ComponentInsert to an entity
     fn insert(self, entity: &mut EntityWorldMut);
+
+    /// Apply a ComponentUpdate to an entity
+    fn update(self, entity: &mut EntityWorldMut);
 }
 
 impl<T: Component> ComponentBehaviour for T {
+    // Apply a ComponentInsert to an entity
     fn insert(self, entity: &mut EntityWorldMut) {
         // only insert if the entity didn't have the component
-        // if entity.get::<T>().is_none() {
-        entity.insert(self);
-        // }
+        // because otherwise the insert could override an component-update that was received later?
+
+        // but this could cause some issues if we wanted the component to be updated from the insert
+        if entity.get::<T>().is_none() {
+            entity.insert(self);
+        }
+    }
+
+    // Apply a ComponentUpdate to an entity
+    fn update(self, entity: &mut EntityWorldMut) {
+        match entity.get_mut::<T>() {
+            Some(mut c) => *c = self,
+            None => {
+                entity.insert(self);
+            }
+        }
     }
 }
 

@@ -65,7 +65,9 @@ pub trait BufferTrait: Default {
     /// Returns the written bytes.
     fn finish_write(&mut self, writer: Self::Writer) -> &[u8];
 
-    fn start_read<'a, 'b>(&'a mut self, bytes: &'b [u8]) -> (Self::Reader<'a>, Self::Context) where 'a: 'b;
+    fn start_read<'a, 'b>(&'a mut self, bytes: &'b [u8]) -> (Self::Reader<'a>, Self::Context)
+    where
+        'a: 'b;
     /// Check for errors such as Eof and ExpectedEof
     fn finish_read(reader: Self::Reader<'_>, context: Self::Context) -> Result<()>;
     /// Overrides decoding errors with Eof since the reader might allow reading slightly past the

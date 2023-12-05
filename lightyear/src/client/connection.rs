@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::World;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::channel::builder::PingChannel;
 use crate::client::sync::SyncConfig;
@@ -63,7 +63,7 @@ impl<P: Protocol> Connection<P> {
         tick_manager: &TickManager,
     ) -> Result<()> {
         let tick = self.base.recv_packet(reader)?;
-        debug!("Recv server packet with tick: {:?}", tick);
+        debug!("Received server packet with tick: {:?}", tick);
         if tick >= self.sync_manager.latest_received_server_tick {
             self.sync_manager.latest_received_server_tick = tick;
             // TODO: add 'received_new_server_tick' ?
@@ -76,6 +76,7 @@ impl<P: Protocol> Connection<P> {
                 self.base.ping_manager.rtt(),
             );
         }
+        debug!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
         Ok(())
     }
 

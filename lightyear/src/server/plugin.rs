@@ -14,6 +14,7 @@ use crate::protocol::Protocol;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::input::InputPlugin;
 use crate::server::resource::Server;
+use crate::server::room::RoomPlugin;
 use crate::server::systems::{clear_events, is_ready_to_send};
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::resources::ReplicationData;
@@ -77,6 +78,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 config: config.server_config.shared.clone(),
             })
             .add_plugins(InputPlugin::<P>::default())
+            .add_plugins(RoomPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(server)
             // SYSTEM SETS //
@@ -89,10 +91,18 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
+                        ReplicationSet::ReplicationSystems,
+                    )
+                        .in_set(ReplicationSet::All),
+                    (
+                        ReplicationSet::SendEntityUpdates,
+                        ReplicationSet::SendComponentUpdates,
                         MainSet::SendPackets,
                     )
                         .chain()
                         .in_set(MainSet::Send),
+                    // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
+                    // which runs every send_interval
                     (ReplicationSet::ReplicationSystems, MainSet::SendPackets).chain(),
                 ),
             )

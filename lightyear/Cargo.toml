@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.2.0"
+version = "0.3.0-alpha.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -27,6 +27,7 @@ webtransport = [
   "tokio/sync",
   "wtransport/dangerous-configuration",
 ]
+wtransport-cert = ["dep:ring", "dep:base64", "dep:rcgen", "dep:time"]
 
 
 [dependencies]

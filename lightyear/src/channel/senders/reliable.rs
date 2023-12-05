@@ -1,12 +1,15 @@
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashSet};
+use std::time::Duration;
 
 use bytes::Bytes;
+use tracing::{info, trace};
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 
@@ -49,8 +52,7 @@ pub struct ReliableSender {
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
 
-    // TODO: only need pub for test
-    current_rtt_millis: f32,
+    current_rtt: Duration,
     current_time: WrappedTime,
 }
 
@@ -64,7 +66,7 @@ impl ReliableSender {
             fragmented_messages_to_send: Default::default(),
             message_ids_to_send: Default::default(),
             fragment_sender: FragmentSender::new(),
-            current_rtt_millis: 0.0,
+            current_rtt: Duration::default(),
             current_time: WrappedTime::default(),
         }
     }
@@ -80,9 +82,9 @@ impl ReliableSender {
 // or because one of the fragments of the )
 // - (because once we have that list, that list knows how to serialize itself)
 impl ChannelSend for ReliableSender {
-    fn update(&mut self, time_manager: &TimeManager, _: &TickManager) {
+    fn update(&mut self, time_manager: &TimeManager, ping_manager: &PingManager, _: &TickManager) {
         self.current_time = time_manager.current_time();
-        // TODO: update current_rtt
+        self.current_rtt = ping_manager.rtt();
     }
 
     /// Add a new message to the buffer of messages to be sent.
@@ -145,9 +147,10 @@ impl ChannelSend for ReliableSender {
     /// Needs to be called before [`ReliableSender::send_packet`]
     fn collect_messages_to_send(&mut self) {
         // resend delay is based on the rtt
-        let resend_delay = chrono::Duration::milliseconds(
-            (self.reliable_settings.rtt_resend_factor * self.current_rtt_millis) as i64,
-        );
+        let resend_delay =
+            chrono::Duration::from_std(self.reliable_settings.resend_delay(self.current_rtt))
+                .unwrap();
+        trace!("resend_delay: {:?}", resend_delay);
         let should_send = |last_sent: &Option<WrappedTime>| -> bool {
             match last_sent {
                 // send it the message has never been sent
@@ -250,8 +253,9 @@ mod tests {
     fn test_reliable_sender_internals() {
         let mut sender = ReliableSender::new(ReliableSettings {
             rtt_resend_factor: 1.5,
+            rtt_resend_min_delay: Duration::from_millis(100),
         });
-        sender.current_rtt_millis = 100.0;
+        sender.current_rtt = Duration::from_millis(100);
         sender.current_time = WrappedTime::new(0);
 
         // Buffer a new message

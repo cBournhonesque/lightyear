@@ -1,6 +1,7 @@
 //! Bevy [`bevy::prelude::Resource`]s used for replication
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use crate::netcode::ClientId;
 use crate::shared::replication::components::Replicate;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::{Entity, FromWorld, Resource, World};
@@ -16,6 +17,7 @@ pub(crate) struct ReplicationData {
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
     pub owned_entities: HashMap<Entity, Replicate>,
     // pub received_entities: HashMap<Entity, Replicate>,
+    // pub client_to_rooms: HashMap<ClientId, HashSet<RoomId>>,
 }
 
 impl FromWorld for ReplicationData {
@@ -23,6 +25,7 @@ impl FromWorld for ReplicationData {
         Self {
             // replication_id: world.init_component::<Replicate>(),
             owned_entities: HashMap::new(),
+            // client_to_rooms: HashMap::new(),
             // received_entities: HashMap::new(),
         }
     }

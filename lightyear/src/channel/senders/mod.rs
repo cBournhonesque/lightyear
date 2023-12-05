@@ -4,6 +4,7 @@ use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
@@ -18,7 +19,12 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelSend {
     /// Bookkeeping for the channel
-    fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager);
+    fn update(
+        &mut self,
+        time_manager: &TimeManager,
+        ping_manager: &PingManager,
+        tick_manager: &TickManager,
+    );
 
     /// Queues a message to be transmitted
     fn buffer_send(&mut self, message: Bytes);

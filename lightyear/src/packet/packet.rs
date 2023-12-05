@@ -18,8 +18,8 @@ wrapping_id!(PacketId);
 
 /// Maximum number of bytes to write the header
 /// PacketType: 2 bits
-/// Rest: 64 bits (8 bytes)
-const HEADER_BYTES: usize = 9;
+/// Rest: 10 bytes
+const HEADER_BYTES: usize = 11;
 /// The maximum of bytes that the payload of the packet can contain (excluding the header)
 /// remove 1 byte for byte alignment at the end
 pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
@@ -95,8 +95,9 @@ impl SinglePacket {
             .collect()
     }
 
-    #[cfg(test)]
-    pub fn num_messages(&self) -> usize {
+    // TODO: this should not be public
+    // #[cfg(test)]
+    pub(crate) fn num_messages(&self) -> usize {
         self.data.values().map(|messages| messages.len()).sum()
     }
 }
@@ -234,6 +235,14 @@ pub(crate) enum PacketData {
 }
 
 impl PacketData {
+    pub(crate) fn num_messages(&self) -> usize {
+        match self {
+            PacketData::Single(single_packet) => single_packet.num_messages(),
+            PacketData::Fragmented(fragmented_packet) => {
+                1 + fragmented_packet.packet.num_messages()
+            }
+        }
+    }
     pub(crate) fn contents(self) -> HashMap<NetId, Vec<MessageContainer>> {
         let mut res = HashMap::new();
         match self {

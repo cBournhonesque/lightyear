@@ -133,7 +133,7 @@ impl SyncManager {
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
         interpolation_delay: &InterpolationDelay,
-        server_update_rate: Duration,
+        server_send_interval: Duration,
     ) {
         self.duration_since_latest_received_server_tick += time_manager.delta();
         self.current_server_time += time_manager.delta();
@@ -144,12 +144,15 @@ impl SyncManager {
             info!("Received enough pongs to finalize handshake");
             self.synced = true;
             self.finalize(time_manager, tick_manager, ping_manager);
-            self.interpolation_time =
-                self.interpolation_objective(interpolation_delay, server_update_rate, tick_manager)
+            self.interpolation_time = self.interpolation_objective(
+                interpolation_delay,
+                server_send_interval,
+                tick_manager,
+            )
         }
 
         if self.synced {
-            self.update_interpolation_time(interpolation_delay, server_update_rate, tick_manager);
+            self.update_interpolation_time(interpolation_delay, server_send_interval, tick_manager);
         }
     }
 
@@ -230,7 +233,7 @@ impl SyncManager {
         // TODO: make interpolation delay part of SyncConfig?
         interpolation_delay: &InterpolationDelay,
         // TODO: should we get this via an estimate?
-        server_update_rate: Duration,
+        server_send_interval: Duration,
         tick_manager: &TickManager,
     ) -> WrappedTime {
         // We want the interpolation time to be just a little bit behind the latest server time
@@ -243,7 +246,7 @@ impl SyncManager {
         // how much we want interpolation time to be behind the latest received server tick?
         // TODO: use a specified config margin + add std of time_between_server_updates?
         let objective_delta =
-            chrono::Duration::from_std(interpolation_delay.to_duration(server_update_rate))
+            chrono::Duration::from_std(interpolation_delay.to_duration(server_send_interval))
                 .unwrap();
         objective_time - objective_delta
     }

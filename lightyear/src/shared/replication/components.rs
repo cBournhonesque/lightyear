@@ -2,9 +2,11 @@
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
 use crate::protocol::channel::ChannelKind;
+use crate::server::room::{ClientVisibility, RoomId};
 use bevy::prelude::Component;
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
@@ -12,7 +14,7 @@ pub struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone)]
 pub struct Replicate {
     // TODO: be able to specify channel separately for entiy spawn/despawn and component insertion/removal?
     /// The channel to use for replication (indicated by the generic type)
@@ -25,9 +27,28 @@ pub struct Replicate {
     pub prediction_target: NetworkTarget,
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
-    // pub owner:
+
+    // TODO: maybe an entity can belong to only one room at a time?
+    /// Which rooms does this entity belong to?
+    // pub rooms: HashSet<RoomId>,
+
+    // TODO: this should not be public, but replicate is public... how to fix that?
+    //  have a separate component ReplicateVisibility?
+    /// List of clients that we the entity is currently replicated to.
+    /// Will be updated before the other replication systems
+    pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
+    pub replication_mode: ReplicationMode,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub enum ReplicationMode {
+    /// We will replicate this entity only to clients that are in the same room as the entity
+    Room,
+    /// We will replicate this entity to clients using only the [`NetworkTarget`], without caring about rooms
+    #[default]
+    NetworkTarget,
 }
 
 impl Replicate {
@@ -48,6 +69,9 @@ impl Default for Replicate {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
+            // rooms: HashSet::new(),
+            replication_clients_cache: HashMap::new(),
+            replication_mode: ReplicationMode::default(),
         }
     }
 }

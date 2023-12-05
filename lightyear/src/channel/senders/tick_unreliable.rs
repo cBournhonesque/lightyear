@@ -5,6 +5,7 @@ use bytes::Bytes;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -37,7 +38,7 @@ impl TickUnreliableSender {
 }
 
 impl ChannelSend for TickUnreliableSender {
-    fn update(&mut self, _: &TimeManager, tick_manager: &TickManager) {
+    fn update(&mut self, _: &TimeManager, _: &PingManager, tick_manager: &TickManager) {
         self.current_tick = tick_manager.current_tick();
     }
 

@@ -2,7 +2,7 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Added, App, Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs,
+    Added, App, Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs, Mut,
     PostUpdate, Query, Ref, RemovedComponents, ResMut,
 };
 use tracing::{debug, info};
@@ -11,8 +11,9 @@ use crate::netcode::ClientId;
 use crate::prelude::NetworkTarget;
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
+use crate::server::room::ClientVisibility;
 use crate::shared::events::ConnectEvent;
-use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
 use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::ReplicationSet;
@@ -22,8 +23,8 @@ use crate::shared::sets::ReplicationSet;
 
 // TODO: run these systems only if there is at least 1 remote connected!!!
 
-/// This system adds DespawnTracker to each entity that was every replicated, so that we can track
-/// when they are despawned
+/// This system adds DespawnTracker to each entity that was every replicated,
+/// so that we can track when they are despawned
 fn add_despawn_tracker(
     mut replication: ResMut<ReplicationData>,
     mut commands: Commands,
@@ -31,21 +32,49 @@ fn add_despawn_tracker(
 ) {
     for (entity, replicate) in query.iter() {
         commands.entity(entity).insert(DespawnTracker);
-        replication.owned_entities.insert(entity, *replicate);
+        replication.owned_entities.insert(entity, replicate.clone());
     }
 }
 
 fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
-    // query: Query<(Entity, Ref<Replicate>), RemovedComponents<>>
+    query: Query<(Entity, Ref<Replicate>)>,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
     mut despawn_removed: RemovedComponents<DespawnTracker>,
     mut sender: ResMut<R>,
 ) {
+    // Despawn entities for clients that lost visibility
+    query.iter().for_each(|(entity, replicate)| {
+        if matches!(replicate.replication_mode, ReplicationMode::Room) {
+            replicate
+                .replication_clients_cache
+                .iter()
+                .for_each(|(client_id, visibility)| {
+                    if replicate.replication_target.should_send_to(client_id)
+                        && matches!(visibility, ClientVisibility::Lost)
+                    {
+                        debug!("sending entity despawn for entity: {:?}", entity);
+                        sender
+                            .prepare_entity_despawn(
+                                entity,
+                                &replicate,
+                                NetworkTarget::Only(*client_id),
+                            )
+                            .unwrap();
+                    }
+                });
+        }
+    });
+    // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
         if let Some(replicate) = replication.owned_entities.remove(&entity) {
-            sender.entity_despawn(entity, &replicate).unwrap();
+            // TODO: maybe check the status of replicate.replication_clients_cache
+            //  and only despawn for the entities in the cache?
+            //  but that means we have to update the owned_entity value every time the replication_clients_cache is updated
+            sender
+                .prepare_entity_despawn(entity, &replicate, replicate.replication_target)
+                .unwrap();
         }
     }
 }
@@ -60,24 +89,63 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 ) {
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate)| {
-        // we might want to replicate this entity to newly connected clients
-        // (we cannot use ConnectEvent, because events are reset every frame, but the Replication systems
-        //  might run less frequently than every frame)
-        for client_id in sender.new_remote_peers() {
-            if replicate.replication_target.should_send_to(&client_id) {
-                let mut replicate_copy = *replicate;
-                replicate_copy.replication_target = NetworkTarget::Only(client_id);
-                sender
-                    .entity_spawn(entity, vec![], &replicate_copy)
-                    .unwrap();
+        match replicate.replication_mode {
+            ReplicationMode::Room => {
+                replicate
+                    .replication_clients_cache
+                    .iter()
+                    .for_each(|(client_id, visibility)| {
+                        if replicate.replication_target.should_send_to(client_id) {
+                            match visibility {
+                                ClientVisibility::Gained => {
+                                    debug!("send entity spawn to gained");
+                                    sender
+                                        .prepare_entity_spawn(
+                                            entity,
+                                            vec![],
+                                            &replicate,
+                                            NetworkTarget::Only(*client_id),
+                                        )
+                                        .unwrap();
+                                }
+                                ClientVisibility::Lost => {}
+                                ClientVisibility::Maintained => {
+                                    // TODO: is this even reachable?
+                                    // only try to replicate if the replicate component was just added
+                                    if replicate.is_added() {
+                                        debug!("send entity spawn to maintained");
+                                        replication
+                                            .owned_entities
+                                            .insert(entity, replicate.clone());
+                                        sender
+                                            .prepare_entity_spawn(
+                                                entity,
+                                                vec![],
+                                                replicate.deref(),
+                                                NetworkTarget::Only(*client_id),
+                                            )
+                                            .unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    });
             }
-        }
-        // try doing entity spawn whenever replicate gets added
-        if replicate.is_added() {
-            replication.owned_entities.insert(entity, *replicate);
-            sender
-                .entity_spawn(entity, vec![], replicate.deref())
-                .unwrap();
+            ReplicationMode::NetworkTarget => {
+                // only try to replicate if the replicate component was just added
+                if replicate.is_added() {
+                    debug!("send entity spawn to maintained");
+                    replication.owned_entities.insert(entity, replicate.clone());
+                    sender
+                        .prepare_entity_spawn(
+                            entity,
+                            vec![],
+                            replicate.deref(),
+                            replicate.replication_target,
+                        )
+                        .unwrap();
+                }
+            }
         }
     })
 }
@@ -92,31 +160,77 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
     <P as Protocol>::Components: From<C>,
 {
     query.iter().for_each(|(entity, component, replicate)| {
-        for client_id in sender.new_remote_peers() {
-            // we might want to replicate this component to newly connected clients
-            // (we cannot use ConnectEvent, because events are reset every frame, but the Replication systems
-            //  might run less frequently than every frame)
-            if replicate.replication_target.should_send_to(&client_id) {
-                let mut replicate_copy = *replicate;
-                replicate_copy.replication_target = NetworkTarget::Only(client_id);
-                sender
-                    .component_insert(entity, component.clone().into(), &replicate_copy)
-                    .unwrap();
+        match replicate.replication_mode {
+            ReplicationMode::Room => {
+                replicate
+                    .replication_clients_cache
+                    .iter()
+                    .for_each(|(client_id, visibility)| {
+                        if replicate.replication_target.should_send_to(client_id) {
+                            match visibility {
+                                ClientVisibility::Gained => {
+                                    sender
+                                        .prepare_component_insert(
+                                            entity,
+                                            component.clone().into(),
+                                            replicate,
+                                            NetworkTarget::Only(*client_id),
+                                        )
+                                        .unwrap();
+                                }
+                                ClientVisibility::Lost => {}
+                                ClientVisibility::Maintained => {
+                                    // send an component_insert for components that were newly added
+                                    if component.is_added() {
+                                        sender
+                                            .prepare_component_insert(
+                                                entity,
+                                                component.clone().into(),
+                                                replicate,
+                                                NetworkTarget::Only(*client_id),
+                                            )
+                                            .unwrap();
+                                        // only update components that were not newly added
+                                    } else if component.is_changed() {
+                                        sender
+                                            .prepare_entity_update(
+                                                entity,
+                                                component.clone().into(),
+                                                replicate,
+                                                NetworkTarget::Only(*client_id),
+                                            )
+                                            .unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    })
+            }
+            ReplicationMode::NetworkTarget => {
+                // send an component_insert for components that were newly added
+                if component.is_added() {
+                    sender
+                        .prepare_component_insert(
+                            entity,
+                            component.clone().into(),
+                            replicate,
+                            replicate.replication_target,
+                        )
+                        .unwrap();
+                    // only update components that were not newly added
+                } else if component.is_changed() {
+                    sender
+                        .prepare_entity_update(
+                            entity,
+                            component.clone().into(),
+                            replicate,
+                            replicate.replication_target,
+                        )
+                        .unwrap();
+                }
             }
         }
-        // send an component_insert for components that were newly added
-        if component.is_added() {
-            sender
-                .component_insert(entity, component.clone().into(), replicate)
-                .unwrap();
-        }
-        // only update components that were not newly added ?
-        if component.is_changed() && !component.is_added() {
-            sender
-                .entity_update_single_component(entity, component.clone().into(), replicate)
-                .unwrap();
-        }
-    })
+    });
 }
 
 /// This system sends updates for all components that were removed
@@ -130,9 +244,37 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
 {
     removed.read().for_each(|entity| {
         if let Ok(replicate) = query.get(entity) {
-            sender
-                .component_remove(entity, C::into_kind(), replicate)
-                .unwrap()
+            match replicate.replication_mode {
+                ReplicationMode::Room => {
+                    replicate.replication_clients_cache.iter().for_each(
+                        |(client_id, visibility)| {
+                            if replicate.replication_target.should_send_to(client_id) {
+                                // TODO: maybe send no matter the vis?
+                                if matches!(visibility, ClientVisibility::Maintained) {
+                                    sender
+                                        .prepare_component_remove(
+                                            entity,
+                                            C::into_kind(),
+                                            replicate,
+                                            NetworkTarget::Only(*client_id),
+                                        )
+                                        .unwrap();
+                                }
+                            }
+                        },
+                    )
+                }
+                ReplicationMode::NetworkTarget => {
+                    sender
+                        .prepare_component_remove(
+                            entity,
+                            C::into_kind(),
+                            replicate,
+                            replicate.replication_target,
+                        )
+                        .unwrap();
+                }
+            }
         }
     })
 }

@@ -15,4 +15,6 @@ pub mod plugin;
 
 pub mod resource;
 
+pub mod room;
+
 mod systems;

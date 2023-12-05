@@ -55,10 +55,19 @@ pub struct PingManager {
 }
 
 /// Connection stats aggregated over several [`SyncStats`]
-#[derive(Default)]
 pub struct FinalStats {
     pub rtt: Duration,
     pub jitter: Duration,
+}
+
+impl Default for FinalStats {
+    fn default() -> Self {
+        Self {
+            // start with a conservative estimate
+            rtt: Duration::from_millis(100),
+            jitter: Duration::default(),
+        }
+    }
 }
 
 /// Stats computed from each pong
@@ -80,6 +89,7 @@ impl PingManager {
             pongs_to_send: vec![],
             // sync
             sync_stats: SyncStatsBuffer::new(),
+            // TODO: should we start with a bigger RTT estimate?
             final_stats: FinalStats::default(),
         }
     }

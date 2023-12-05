@@ -12,6 +12,9 @@ pub enum ReplicationSet {
     /// These systems only run once every send_interval
     SendEntityUpdates,
     SendComponentUpdates,
+
+    // SystemSet that encompasses all replication systems
+    All,
 }
 
 /// Main SystemSets used by lightyear to receive and send data

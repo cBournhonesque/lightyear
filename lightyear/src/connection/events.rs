@@ -4,8 +4,10 @@ use std::collections::HashMap;
 use std::iter;
 
 use bevy::prelude::{Component, Entity};
+use tracing::{info, trace};
 
 use crate::packet::message::Message;
+use crate::prelude::Named;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::IntoKind;
 use crate::protocol::message::{MessageBehaviour, MessageKind};
@@ -88,6 +90,12 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.empty
     }
     pub fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
+        trace!("Received message: {:?}", message.name());
+        #[cfg(feature = "metrics")]
+        {
+            let message_name = message.name();
+            metrics::increment_counter!("message", "kind" => message_name);
+        }
         self.messages
             .entry(message.kind())
             .or_default()
@@ -98,16 +106,31 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 
     pub(crate) fn push_spawn(&mut self, entity: Entity) {
+        trace!(?entity, "Received entity spawn");
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("entity_spawn");
+        }
         self.spawns.push(entity);
         self.empty = false;
     }
 
     pub(crate) fn push_despawn(&mut self, entity: Entity) {
+        trace!(?entity, "Received entity despawn");
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("entity_despawn");
+        }
         self.despawns.push(entity);
         self.empty = false;
     }
 
     pub(crate) fn push_insert_component(&mut self, entity: Entity, component: P::ComponentKinds) {
+        trace!(?entity, ?component, "Received insert component");
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("component_insert", "kind" => component);
+        }
         self.component_inserts
             .entry(component)
             .or_default()
@@ -116,6 +139,11 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 
     pub(crate) fn push_remove_component(&mut self, entity: Entity, component: P::ComponentKinds) {
+        trace!(?entity, ?component, "Received remove component");
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("component_remove", "kind" => component);
+        }
         self.component_removes
             .entry(component)
             .or_default()
@@ -125,6 +153,11 @@ impl<P: Protocol> ConnectionEvents<P> {
 
     // TODO: how do distinguish between multiple updates for the same component/entity? add ticks?
     pub(crate) fn push_update_component(&mut self, entity: Entity, component: P::ComponentKinds) {
+        trace!(?entity, ?component, "Received update component");
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("component_update", "kind" => component);
+        }
         self.component_updates
             .entry(component)
             .or_default()

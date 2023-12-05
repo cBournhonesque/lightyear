@@ -98,6 +98,7 @@ pub mod prelude {
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::resource::Server;
+        pub use crate::server::room::{RoomId, RoomMut, RoomRef};
         #[cfg(feature = "webtransport")]
         pub use wtransport::tls::Certificate;
     }

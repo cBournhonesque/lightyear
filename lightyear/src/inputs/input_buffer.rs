@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::inputs::UserInput;
 use lightyear_macros::MessageInternal;
+use tracing::info;
 
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
@@ -87,7 +88,9 @@ impl<T: UserInput> InputBuffer<T> {
             self.buffer.pop_front();
         }
         self.start_tick = tick + 1;
-        self.buffer.pop_front().unwrap()
+        let a = self.buffer.pop_front().unwrap();
+        info!(?self, "input buffer");
+        a
     }
 
     pub(crate) fn get(&self, tick: Tick) -> Option<&T> {

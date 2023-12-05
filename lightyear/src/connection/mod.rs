@@ -34,7 +34,7 @@ use crate::utils::named::Named;
 pub struct Connection<P: Protocol> {
     pub ping_manager: PingManager,
     pub message_manager: MessageManager<ProtocolMessage<P>>,
-    pub replication_manager: ReplicationManager<P>,
+    pub(crate) replication_manager: ReplicationManager<P>,
     pub events: ConnectionEvents<P>,
 }
 
@@ -51,126 +51,40 @@ impl<P: Protocol> Connection<P> {
 
 impl<P: Protocol> Connection<P> {
     pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
-        self.message_manager.update(time_manager, tick_manager);
+        self.message_manager
+            .update(time_manager, &self.ping_manager, tick_manager);
         self.ping_manager.update(time_manager);
     }
 
     pub fn buffer_message(&mut self, message: P::Message, channel: ChannelKind) -> Result<()> {
-        #[cfg(feature = "metrics")]
-        {
-            // TODO: i know channel names never change so i should be able to get them as static
-            // TODO: just have a channel registry enum as well?
-            let channel_name = self
-                .message_manager
-                .channel_registry
-                .name(&channel)
-                .unwrap_or("unknown")
-                .to_string();
-            let message_name = message.name();
-            // metrics::increment_counter!(format!("send_message.{}.{}", channel_name, message_name));
-            metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
-        }
-        // debug!("Buffering message to channel");
+        // TODO: i know channel names never change so i should be able to get them as static
+        // TODO: just have a channel registry enum as well?
+        let channel_name = self
+            .message_manager
+            .channel_registry
+            .name(&channel)
+            .unwrap_or("unknown")
+            .to_string();
         let message = ProtocolMessage::Message(message);
+        message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message, channel)
     }
 
-    pub fn buffer_spawn_entity(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        channel: ChannelKind,
-    ) -> Result<()> {
-        let message =
-            ProtocolMessage::Replication(ReplicationMessage::SpawnEntity(entity, components));
-        // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
-        if self.replication_manager.send_entity_spawn(entity) {
-            self.message_manager.buffer_send(message, channel)?
-        }
-        Ok(())
-    }
-
-    pub fn buffer_despawn_entity(&mut self, entity: Entity, channel: ChannelKind) -> Result<()> {
-        // TODO: check with replication manager if we should send the despawn message
-        let message = ProtocolMessage::Replication(ReplicationMessage::DespawnEntity(entity));
-        self.message_manager.buffer_send(message, channel)
-    }
-
-    // TODO: maybe we should do the same optimization as component updates:
-    //  group all components added/removed into a vec, and send them all at once (saves bytes)
-    //  then split them up when we need to create the events
-    /// Buffer a component insert for an entity
-    pub fn buffer_component_insert(
-        &mut self,
-        entity: Entity,
-        component: P::Components,
-        channel: ChannelKind,
-    ) -> Result<()> {
-        // self.replication_manager
-        //     .send_component_insert(entity, component, channel);
-        let message =
-            ProtocolMessage::Replication(ReplicationMessage::InsertComponent(entity, component));
-        self.message_manager.buffer_send(message, channel)
-    }
-
-    /// Buffer a component remove for an entity
-    pub fn buffer_component_remove(
-        &mut self,
-        entity: Entity,
-        component: P::ComponentKinds,
-        channel: ChannelKind,
-    ) -> Result<()> {
-        // TODO: check with replication manager if we should send the component remove
-        // TODO: maybe don't send the component remove if the entity is despawning?
-        let message =
-            ProtocolMessage::Replication(ReplicationMessage::RemoveComponent(entity, component));
-        self.message_manager.buffer_send(message, channel)
-    }
-
-    /// Buffer a component insert for an entity
-    pub fn buffer_update_entity_single_component(
-        &mut self,
-        entity: Entity,
-        component: P::Components,
-        channel: ChannelKind,
-    ) -> Result<()> {
-        #[cfg(feature = "metrics")]
-        {
-            let channel_name = self
-                .message_manager
-                .channel_registry
-                .name(&channel)
-                .unwrap_or("unknown");
-            let component_kind: P::ComponentKinds = (&component).into();
-            metrics::increment_counter!(format!(
-                "single_component_update.{}.{:?}",
-                channel_name, component_kind
-            ));
-        }
+    /// Buffer any replication messages
+    pub fn buffer_replication_messages(&mut self) -> Result<()> {
         self.replication_manager
-            .send_entity_update_single_component(entity, component, channel);
-        Ok(())
-    }
-
-    /// Finalize any messages that we need to send for replication
-    pub fn prepare_replication_send(&mut self) -> Result<()> {
-        self.replication_manager
-            .prepare_send()
+            .finalize()
             .into_iter()
-            .try_for_each(|(channel, message)| self.message_manager.buffer_send(message, channel))
-    }
-
-    pub fn buffer_update_entity(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        channel: ChannelKind,
-    ) -> Result<()> {
-        let message =
-            ProtocolMessage::Replication(ReplicationMessage::EntityUpdate(entity, components));
-        // TODO: add replication manager logic? (to check if the entity is already spawned or despawned, etc.)
-        //  e.g. should we still send updates if the entity is despawning?
-        self.message_manager.buffer_send(message, channel)
+            .try_for_each(|(channel, message)| {
+                let channel_name = self
+                    .message_manager
+                    .channel_registry
+                    .name(&channel)
+                    .unwrap_or("unknown")
+                    .to_string();
+                message.emit_send_logs(&channel_name);
+                self.message_manager.buffer_send(message, channel)
+            })
     }
 
     // TODO: make world optional? or separate receiving into messages and applying into world?
