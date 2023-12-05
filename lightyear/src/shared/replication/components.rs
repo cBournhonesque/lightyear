@@ -28,12 +28,9 @@ pub struct Replicate {
     /// Which clients should interpolated this entity
     pub interpolation_target: NetworkTarget,
 
-    // TODO: maybe an entity can belong to only one room at a time?
-    /// Which rooms does this entity belong to?
-    // pub rooms: HashSet<RoomId>,
-
     // TODO: this should not be public, but replicate is public... how to fix that?
     //  have a separate component ReplicateVisibility?
+    //  or force users to use `Replicate::default().with...`?
     /// List of clients that we the entity is currently replicated to.
     /// Will be updated before the other replication systems
     pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
@@ -69,7 +66,6 @@ impl Default for Replicate {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
-            // rooms: HashSet::new(),
             replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
         }

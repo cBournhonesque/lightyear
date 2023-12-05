@@ -88,9 +88,7 @@ impl<T: UserInput> InputBuffer<T> {
             self.buffer.pop_front();
         }
         self.start_tick = tick + 1;
-        let a = self.buffer.pop_front().unwrap();
-        info!(?self, "input buffer");
-        a
+        self.buffer.pop_front().unwrap();
     }
 
     pub(crate) fn get(&self, tick: Tick) -> Option<&T> {
