@@ -1,9 +1,4 @@
 [workspace]
 resolver = "2"
-members = [
-  "examples",
-  "macros",
-  "lightyear",
-  "vendor/bitcode",
-]
+members = ["examples", "macros", "lightyear", "vendor/bitcode"]
 default-members = ["examples", "macros", "lightyear"]

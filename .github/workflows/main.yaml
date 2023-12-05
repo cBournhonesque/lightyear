@@ -109,7 +109,7 @@ jobs:
   codecov:
     name: Upload to Codecov
     if: github.actor != 'dependabot[bot]'
-    needs: [format, lint, doctest, test]
+    needs: [test]
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo
