@@ -17,7 +17,7 @@ PROBLEMS/BUGS:
   - also it seems like our frames are smaller than our fixed update. This could cause issues?
   - CONFIRMATION:
     - the problem is indeed that we receive a ping for tick 20, but the world state for tick 20 is only received after
-      so the rollback thinks there is a problem
+      so the rollback thinks there is a problem (mismatch at tick 20 + rolls-back to a faulty state 20)
     - it was more prevalent with send_interval = 0 because the frame_duration was lower than tick_duration. So sometimes
       we would have: frame1/tick20: send updates. frame2/tick20: send ping. And the ping would arrive before.
     - BASICALLY, when we receive a packet for tick 10, we think the whole word is replicated at tick 10, but that's not the case.
@@ -39,17 +39,20 @@ PROBLEMS/BUGS:
     - it's probably because the spawn message (from joining a room) arrives after the despawn message
 
 
-
 - interpolation has some lag at the beginning, it looks like the entity isn't moving. Probably because we only got an end but no start?
   - is it because the start history got deleted? or we should interpolate from current to end?
-  - 
+  - the problem is that we get regular update roughly every send_interval when the entity is moving. But when it's not the delay between start and end becomes bigger.
+  - when we have start = X, end = None, we should keep pushing start forward at roughly send-interval rate?
+   
+- interpolation
+  - how come the interpolation_tick is not behind the latest_server_tick, even after setting the interpolation_delay to 50ms?
+    (server update is 80ms)
+    normally it should be fine because we already make sure that interpolation time is behind the latest_server_tick...
+    need to look into that.
+
 - interpolation is very unsmooth when the server update is small.  
    - SOLVED: That's because we used interpolation delay = ratio, and the send_interval was 0.0
    - we need a setting that is ratio with min-delay
-
-- prediction/interpolation are sometimes not spawning anymore. This must be a ordering issue
-  - maybe because the Predicted/Interpolated component are only added if client/entity are in the same room
-  - or because we only run entity_spawn for the given NetworkTarget, but those are 
 
 
 ADD TESTS FOR TRICKY SCENARIOS:

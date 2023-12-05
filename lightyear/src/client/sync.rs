@@ -238,7 +238,7 @@ impl SyncManager {
     ) -> WrappedTime {
         // We want the interpolation time to be just a little bit behind the latest server time
         // We add `duration_since_latest_received_server_tick` because we receive them intermittently
-        // TODO: maybe integrate?
+        // TODO: maybe integrate because of jitter?
         let objective_time = WrappedTime::from_duration(
             self.latest_received_server_tick.0 as u32 * tick_manager.config.tick_duration
                 + self.duration_since_latest_received_server_tick,
@@ -248,6 +248,7 @@ impl SyncManager {
         let objective_delta =
             chrono::Duration::from_std(interpolation_delay.to_duration(server_send_interval))
                 .unwrap();
+        // info!("objective_delta: {:?}", objective_delta);
         objective_time - objective_delta
     }
 
