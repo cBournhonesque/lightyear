@@ -32,6 +32,7 @@
     - [Interpolation](./boncepts/advanced_replication/interpolation.md)
     - [Prediction](./concepts/advanced_replication/prediction.md)
     - [ComponentSyncMode](./concepts/advanced_replication/component_sync_mode.md)
+    - [Interest management](./concepts/advanced_replication/interest_management.md)
 
 
 - [Appendix](./appendix/title.md)

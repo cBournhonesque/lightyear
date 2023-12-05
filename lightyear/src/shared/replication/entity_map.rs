@@ -76,6 +76,11 @@ pub trait MapEntities {
 
 impl MapEntities for Entity {
     fn map_entities(&mut self, entity_map: &EntityMap) {
+        // TODO: if the entity is inside a component, then we don't want to just use the remote entity in the component
+        //  instead we should say:
+        //  - there is a remote entity that we haven't mapped yet
+        //  - wait for it to appear
+        //  - if it appears, we finish the mapping and spawn the entity
         if let Some(local) = entity_map.get_local(*self) {
             *self = *local;
         }

@@ -1,5 +1,5 @@
 use crate::netcode::ClientId;
-use crate::prelude::{MainSet, Replicate};
+use crate::prelude::{MainSet, Replicate, ReplicationSet};
 use crate::protocol::Protocol;
 use crate::server::resource::Server;
 use crate::server::systems::is_ready_to_send;
@@ -11,6 +11,7 @@ use bevy::prelude::{
     Res, ResMut, Resource, SystemSet,
 };
 use std::collections::{HashMap, HashSet};
+use tracing::info;
 
 // Id for a room, used to perform interest management
 // An entity will be replicated to a client only if they are in the same room
@@ -22,7 +23,7 @@ wrapping_id!(RoomId);
 /// leaves then re-joins a room within the same send_interval period, we don't need to send any update)
 ///
 /// This will be cleared every time the Server sends updates to the Client (every send_interval)
-#[derive(Resource, Debug)]
+#[derive(Resource, Debug, Default)]
 pub struct RoomEvents {
     client_enter_room: HashMap<ClientId, HashSet<RoomId>>,
     client_leave_room: HashMap<ClientId, HashSet<RoomId>>,
@@ -30,18 +31,7 @@ pub struct RoomEvents {
     entity_leave_room: HashMap<Entity, HashSet<RoomId>>,
 }
 
-impl Default for RoomEvents {
-    fn default() -> Self {
-        Self {
-            client_enter_room: HashMap::new(),
-            client_leave_room: HashMap::new(),
-            entity_enter_room: HashMap::new(),
-            entity_leave_room: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct RoomData {
     client_to_rooms: HashMap<ClientId, HashSet<RoomId>>,
     entity_to_rooms: HashMap<Entity, HashSet<RoomId>>,
@@ -91,12 +81,20 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
         app.configure_sets(
             PostUpdate,
             (
-                RoomSystemSets::UpdateReplicationCaches,
-                MainSet::Send,
-                RoomSystemSets::RoomBookkeeping,
-            )
-                .chain()
-                .run_if(is_ready_to_send::<P>),
+                (
+                    // update replication caches must happen before replication
+                    RoomSystemSets::UpdateReplicationCaches,
+                    ReplicationSet::All,
+                    RoomSystemSets::RoomBookkeeping,
+                )
+                    .chain(),
+                // the room systems can run every send_interval
+                (
+                    RoomSystemSets::UpdateReplicationCaches,
+                    RoomSystemSets::RoomBookkeeping,
+                )
+                    .run_if(is_ready_to_send::<P>),
+            ),
         );
         // SYSTEMS
         app.add_systems(
@@ -105,7 +103,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                 update_entity_replication_cache::<P>
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
                 (
-                    clear_entity_replication_cache::<P>,
+                    clear_entity_replication_cache,
                     clean_entity_despawns::<P>,
                     clear_room_events::<P>,
                 )
@@ -225,6 +223,34 @@ impl<'s> RoomMut<'s> {
     }
 }
 
+/// Convenient wrapper to mutate a room
+pub struct RoomRef<'s> {
+    pub(crate) id: RoomId,
+    pub(crate) manager: &'s RoomManager,
+}
+
+impl<'s> RoomRef<'s> {
+    fn new(manager: &'s RoomManager, id: RoomId) -> Self {
+        Self { id, manager }
+    }
+
+    pub fn has_client_id(&self, client_id: ClientId) -> bool {
+        self.manager
+            .data
+            .rooms
+            .get(&self.id)
+            .map_or_else(|| false, |room| room.clients.contains(&client_id))
+    }
+
+    pub fn has_entity(&mut self, entity: Entity) -> bool {
+        self.manager
+            .data
+            .rooms
+            .get(&self.id)
+            .map_or_else(|| false, |room| room.entities.contains(&entity))
+    }
+}
+
 impl RoomEvents {
     fn clear(&mut self) {
         self.client_enter_room.clear();
@@ -309,8 +335,9 @@ impl RoomEvents {
     }
 }
 
+// TODO: this should not be public
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub(crate) enum ClientVisibility {
+pub enum ClientVisibility {
     /// the entity was not replicated to the client, but now is
     Gained,
     /// the entity was replicated to the client, but not anymore
@@ -343,14 +370,15 @@ fn update_entity_replication_cache<P: Protocol>(
     }
     // entity left room
     for (entity, rooms) in server.room_manager.events.iter_entity_leave_room() {
-        // for each room left, update the entity's client visibility list
+        // for each room left, update the entity's client visibility list if the client was in the room
         rooms.iter().for_each(|room_id| {
             let room = server.room_manager.data.rooms.get(room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
-                    replicate
-                        .replication_clients_cache
-                        .insert(*client_id, ClientVisibility::Lost);
+                    if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
+                    {
+                        *visibility = ClientVisibility::Lost;
+                    }
                 }
             });
         });
@@ -375,9 +403,10 @@ fn update_entity_replication_cache<P: Protocol>(
             let room = server.room_manager.data.rooms.get(room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
-                    replicate
-                        .replication_clients_cache
-                        .insert(*client_id, ClientVisibility::Lost);
+                    if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
+                    {
+                        *visibility = ClientVisibility::Lost;
+                    }
                 }
             });
         });
@@ -387,7 +416,7 @@ fn update_entity_replication_cache<P: Protocol>(
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate>) {
+fn clear_entity_replication_cache(mut query: Query<&mut Replicate>) {
     for mut replicate in query.iter_mut() {
         replicate
             .replication_clients_cache
@@ -422,6 +451,7 @@ mod tests {
     use super::*;
     use crate::prelude::client::*;
     use crate::prelude::*;
+    use crate::shared::replication::components::ReplicationMode;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
@@ -472,10 +502,17 @@ mod tests {
         // Client joins room
         let client_id = 111;
         let room_id = RoomId(0);
-        stepper.server_mut().room(room_id).add_client(client_id);
+        stepper.server_mut().room_mut(room_id).add_client(client_id);
 
         // Spawn an entity on server
-        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                replication_mode: ReplicationMode::Room,
+                ..Default::default()
+            })
+            .id();
 
         stepper.frame_step();
         stepper.frame_step();
@@ -492,7 +529,10 @@ mod tests {
             .contains(&client_id),);
 
         // Add the entity in the same room
-        stepper.server_mut().room(room_id).add_entity(server_entity);
+        stepper
+            .server_mut()
+            .room_mut(room_id)
+            .add_entity(server_entity);
         // Run update replication cache once
         stepper
             .server_app
@@ -562,7 +602,7 @@ mod tests {
         // Remove the entity from the room
         stepper
             .server_mut()
-            .room(room_id)
+            .room_mut(room_id)
             .remove_entity(server_entity);
         stepper
             .server_app
@@ -621,8 +661,18 @@ mod tests {
         let room_id = RoomId(0);
 
         // Spawn an entity on server
-        let server_entity = stepper.server_app.world.spawn(Replicate::default()).id();
-        stepper.server_mut().room(room_id).add_entity(server_entity);
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                replication_mode: ReplicationMode::Room,
+                ..Default::default()
+            })
+            .id();
+        stepper
+            .server_mut()
+            .room_mut(room_id)
+            .add_entity(server_entity);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -639,7 +689,7 @@ mod tests {
             .contains(&server_entity));
 
         // Add the client in the same room
-        stepper.server_mut().room(room_id).add_client(client_id);
+        stepper.server_mut().room_mut(room_id).add_client(client_id);
         // Run update replication cache once
         stepper
             .server_app
@@ -707,7 +757,10 @@ mod tests {
             .unwrap();
 
         // Remove the client from the room
-        stepper.server_mut().room(room_id).remove_client(client_id);
+        stepper
+            .server_mut()
+            .room_mut(room_id)
+            .remove_client(client_id);
         stepper
             .server_app
             .world

@@ -5,7 +5,58 @@
   - one server: 1 game room per core?
 
 PROBLEMS/BUGS:
-- None right now
+- more rollbacks than expected (Especially with rooms). Let's check what happens with 0 jitter -> there should be 0 rollback no?
+  - is it because we are sending too much data to the client? (a lot of entity spawn/despawn)
+  - is it because the ticks are not in sync?
+  - with 0 jitter, the problem completely disappears, prediction becomes butter smooth
+  - with higher send_interval, the prediction becomes extremely jittery!!!
+  - It could be something like:
+    - we are sending the player position update for a tick T1 in a packet
+      is only received after. So at tick 20, we think we have the world state for tick 20, but we don't. We don't even have the world state for tick 18.
+
+  - also it seems like our frames are smaller than our fixed update. This could cause issues?
+  - CONFIRMATION:
+    - the problem is indeed that we receive a ping for tick 20, but the world state for tick 20 is only received after
+      so the rollback thinks there is a problem
+    - it was more prevalent with send_interval = 0 because the frame_duration was lower than tick_duration. So sometimes
+      we would have: frame1/tick20: send updates. frame2/tick20: send ping. And the ping would arrive before.
+    - BASICALLY, when we receive a packet for tick 10, we think the whole word is replicated at tick 10, but that's not the case.
+      Only the entities in that packet. TO fix this:
+      - try hard to put all messages for a single entity in the same packet. Even though they might have different channels
+      - if we can't, let's care mostly about the latest tick for the entity-updates.
+      - for rollback, we track for each entity the latest tick for which we have received an update.
+      - during rollback check, we check if there is a mismatch for each entity (and we take the latest entity-update for that entity)
+      - if there is a mismatch, we 
+  
+  - i think the reason is this:
+    - we send multiple packets for tick 20
+    - some of them (entity spawn, etc.) arrive at tick 25 on client. latest_serv_tick = 20
+    - we consider that the world update for tick 20 is received!
+    - some of them (player position) arrive later on client.
+
+- room management:
+  - when moving fast, some entities don't get despawned on the client
+    - it's probably because the spawn message (from joining a room) arrives after the despawn message
+
+
+
+- interpolation has some lag at the beginning, it looks like the entity isn't moving. Probably because we only got an end but no start?
+  - is it because the start history got deleted? or we should interpolate from current to end?
+  - 
+- interpolation is very unsmooth when the server update is small.  
+   - SOLVED: That's because we used interpolation delay = ratio, and the send_interval was 0.0
+   - we need a setting that is ratio with min-delay
+
+- prediction/interpolation are sometimes not spawning anymore. This must be a ordering issue
+  - maybe because the Predicted/Interpolated component are only added if client/entity are in the same room
+  - or because we only run entity_spawn for the given NetworkTarget, but those are 
+
+
+ADD TESTS FOR TRICKY SCENARIOS:
+- replication at the beginning while RTT is 0?
+- replication when multiple inserts/removes/updates at same tick
+- replication where the data gets split between multiple packets
+
 
 ROUGH EDGES:
 - users cannot derive traits on ComponentProtocol or MessageProtocol because we add some extra variants to those enums
@@ -34,6 +85,9 @@ TODO:
   - all types must be Encode/Decode always. If a type is Serialize/Deserialize, then we can convert it to Encode/Decode ?
 
 - Prediction:
+  - TODO: output the rollback output. Instead of snapping the entity to the rollback output, provide the rollback output to the user
+    and they can choose themselves how they want to handle it (they could either snap to the rollback output, or lerp from prediction output to rollback output)
+   
   - TODO: handle despawns, spawns
       - despawn another entity TODO:
         - we let the user decide 
@@ -79,6 +133,9 @@ TODO:
 
 
 # Interest Management
+
+TODO: What is the benefit of doing this room thing instead of just letting the user set
+replication_target = "Select(hashSet<ClientId>)" ?
 
 - Clients can belong to multiple rooms, rooms can contain multiple clients
   - we have a Map<ClientId, Hashset<RoomId>>

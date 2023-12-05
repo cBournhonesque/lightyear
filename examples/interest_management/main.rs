@@ -57,8 +57,8 @@ enum Cli {
         transport: Transports,
     },
     Client {
-        #[arg(short, long, default_value_t = ClientId::default())]
-        client_id: ClientId,
+        #[arg(short, long, default_value_t = 0)]
+        client_id: u16,
 
         #[arg(long, default_value_t = CLIENT_PORT)]
         client_port: u16,

@@ -1,13 +1,14 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
+use lightyear::shared::replication::components::ReplicationMode;
 use serde::{Deserialize, Serialize};
 
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
-    position: PlayerPosition,
+    position: Position,
     color: PlayerColor,
     replicate: Replicate,
 }
@@ -16,12 +17,13 @@ impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
         Self {
             id: PlayerId(id),
-            position: PlayerPosition(position),
+            position: Position(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(id),
                 interpolation_target: NetworkTarget::AllExcept(id),
+                // use rooms for replication
+                replication_mode: ReplicationMode::Room,
                 ..default()
             },
         }
@@ -31,15 +33,19 @@ impl PlayerBundle {
 // Components
 
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(ClientId);
+pub struct PlayerId(pub ClientId);
 
 #[derive(
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
-pub struct PlayerPosition(Vec2);
+pub struct Position(pub(crate) Vec2);
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
+
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+// Marker component
+pub struct Circle;
 
 // Example of a component that contains an entity.
 // This component, when replicated, needs to have the inner entity mapped from the Server world
@@ -61,9 +67,11 @@ pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),
     #[sync(full)]
-    PlayerPosition(PlayerPosition),
+    PlayerPosition(Position),
     #[sync(once)]
     PlayerColor(PlayerColor),
+    #[sync(once)]
+    Circle(Circle),
 }
 
 // Channels

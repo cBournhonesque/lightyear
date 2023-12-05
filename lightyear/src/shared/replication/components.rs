@@ -31,10 +31,13 @@ pub struct Replicate {
     // TODO: maybe an entity can belong to only one room at a time?
     /// Which rooms does this entity belong to?
     // pub rooms: HashSet<RoomId>,
+
+    // TODO: this should not be public, but replicate is public... how to fix that?
+    //  have a separate component ReplicateVisibility?
     /// List of clients that we the entity is currently replicated to.
     /// Will be updated before the other replication systems
-    pub(crate) replication_clients_cache: HashMap<ClientId, ClientVisibility>,
-    // pub replication_mode: ReplicationMode,
+    pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
+    pub replication_mode: ReplicationMode,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
 }
@@ -43,9 +46,9 @@ pub struct Replicate {
 pub enum ReplicationMode {
     /// We will replicate this entity only to clients that are in the same room as the entity
     Room,
-    /// We will replicate this entity to all clients
+    /// We will replicate this entity to clients using only the [`NetworkTarget`], without caring about rooms
     #[default]
-    All,
+    NetworkTarget,
 }
 
 impl Replicate {
@@ -68,7 +71,7 @@ impl Default for Replicate {
             interpolation_target: NetworkTarget::None,
             // rooms: HashSet::new(),
             replication_clients_cache: HashMap::new(),
-            // replication_mode: ReplicationMode::default(),
+            replication_mode: ReplicationMode::default(),
         }
     }
 }

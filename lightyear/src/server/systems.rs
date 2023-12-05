@@ -84,7 +84,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     trace!("Send packets to clients");
     // finalize any packets that are needed for replication
-    server.prepare_replicate_send().unwrap_or_else(|e| {
+    server.buffer_replication_messages().unwrap_or_else(|e| {
         error!("Error preparing replicate send: {}", e);
     });
     // send buffered packets to io

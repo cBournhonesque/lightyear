@@ -5,6 +5,7 @@ use bytes::Bytes;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
@@ -34,7 +35,7 @@ impl SequencedUnreliableSender {
 }
 
 impl ChannelSend for SequencedUnreliableSender {
-    fn update(&mut self, _: &TimeManager, _: &TickManager) {}
+    fn update(&mut self, _: &TimeManager, _: &PingManager, _: &TickManager) {}
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message

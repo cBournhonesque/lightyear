@@ -1,5 +1,6 @@
 //! This module contains the [`Channel`] trait
 use lightyear_macros::ChannelInternal;
+use std::time::Duration;
 
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
@@ -134,13 +135,23 @@ pub enum ChannelDirection {
 pub struct ReliableSettings {
     /// Duration to wait before resending a packet if it has not been acked
     pub rtt_resend_factor: f32,
+    /// Minimum duration to wait before resending a packet if it has not been acked
+    pub rtt_resend_min_delay: Duration,
+}
+
+impl Default for ReliableSettings {
+    fn default() -> Self {
+        Self {
+            rtt_resend_factor: 1.5,
+            rtt_resend_min_delay: Duration::default(),
+        }
+    }
 }
 
 impl ReliableSettings {
-    pub const fn default() -> Self {
-        Self {
-            rtt_resend_factor: 1.5,
-        }
+    pub(crate) fn resend_delay(&self, rtt: Duration) -> Duration {
+        let delay = rtt.mul_f32(self.rtt_resend_factor);
+        std::cmp::max(delay, self.rtt_resend_min_delay)
     }
 }
 

@@ -13,6 +13,9 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 publish = false
 
+[[example]]
+name = "interest_management"
+path = "interest_management/main.rs"
 
 [[example]]
 name = "simple_box"

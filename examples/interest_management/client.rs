@@ -1,7 +1,8 @@
-use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, PlayerPosition};
+use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, Position};
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use lightyear::_reexport::{ShouldBeInterpolated, ShouldBePredicted};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -10,7 +11,7 @@ use std::time::Duration;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
-    pub(crate) client_id: ClientId,
+    pub(crate) client_id: u16,
     pub(crate) client_port: u16,
     pub(crate) server_port: u16,
     pub(crate) transport: Transports,
@@ -21,14 +22,14 @@ impl Plugin for MyClientPlugin {
         let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.server_port);
         let auth = Authentication::Manual {
             server_addr,
-            client_id: self.client_id,
+            client_id: self.client_id as ClientId,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(10),
+            incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
@@ -49,8 +50,10 @@ impl Plugin for MyClientPlugin {
             sync: SyncConfig::default(),
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
-            interpolation: InterpolationConfig::default()
-                .with_delay(InterpolationDelay::Ratio(2.0)),
+            interpolation: InterpolationConfig::default().with_delay(
+                InterpolationDelay::default().with_min_delay(Duration::from_millis(150)),
+            ),
+            // .with_delay(InterpolationDelay::Ratio(2.0)),
         };
         let plugin_config = PluginConfig::new(config, io, MyProtocol::default(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
@@ -66,10 +69,9 @@ impl Plugin for MyClientPlugin {
             Update,
             (
                 receive_message1,
-                receive_entity_spawn,
-                receive_entity_despawn,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
+                log,
             ),
         );
     }
@@ -124,6 +126,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     // TODO: should we only send an input if it's not all NIL?
     // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
     if !input.is_none() {
+        info!(client_tick = ?client.tick(), input = ?&input, "Sending input");
         client.add_input(Inputs::Direction(input));
     }
 }
@@ -133,14 +136,16 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
+    mut position_query: Query<&mut Position, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if PlayerPosition::mode() != ComponentSyncMode::Full {
+    // if we are not doing prediction, no need to read inputs
+    if Position::mode() != ComponentSyncMode::Full {
         return;
     }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
+            info!(?input, "read input");
             for mut position in position_query.iter_mut() {
                 shared_movement_behaviour(&mut position, input);
             }
@@ -155,26 +160,35 @@ pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) 
     }
 }
 
-// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity spawn: {:?}", event.entity());
-    }
-}
-
-// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity despawn: {:?}", event.entity());
-    }
-}
-
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
         color.0.set_s(0.2);
+    }
+}
+
+pub(crate) fn log(
+    client: Res<Client<MyProtocol>>,
+    confirmed: Query<&Position, With<Confirmed>>,
+    predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
+    mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,
+    mut predict_event: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
+) {
+    let server_tick = client.latest_received_server_tick();
+    for confirmed_pos in confirmed.iter() {
+        info!(?server_tick, "Confirmed position: {:?}", confirmed_pos);
+    }
+    let client_tick = client.tick();
+    for predicted_pos in predicted.iter() {
+        info!(?client_tick, "Predicted position: {:?}", predicted_pos);
+    }
+    for event in interp_event.read() {
+        info!("Interpolated event: {:?}", event.entity());
+    }
+    for event in predict_event.read() {
+        info!("Predicted event: {:?}", event.entity());
     }
 }
 

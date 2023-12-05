@@ -148,8 +148,10 @@ mod tests {
         let sync_config = SyncConfig::default().speedup_factor(1.0);
         let prediction_config = PredictionConfig::default().disable(false);
         let interpolation_delay = Duration::from_millis(100);
-        let interpolation_config = InterpolationConfig::default()
-            .with_delay(InterpolationDelay::Delay(interpolation_delay));
+        let interpolation_config = InterpolationConfig::default().with_delay(InterpolationDelay {
+            min_delay: interpolation_delay,
+            send_interval_ratio: 0.0,
+        });
         let mut stepper = BevyStepper::new(
             shared_config,
             sync_config,
@@ -336,8 +338,10 @@ mod tests {
         let sync_config = SyncConfig::default().speedup_factor(1.0);
         let prediction_config = PredictionConfig::default().disable(false);
         let interpolation_delay = Duration::from_millis(100);
-        let interpolation_config = InterpolationConfig::default()
-            .with_delay(InterpolationDelay::Delay(interpolation_delay));
+        let interpolation_config = InterpolationConfig::default().with_delay(InterpolationDelay {
+            min_delay: interpolation_delay,
+            send_interval_ratio: 0.0,
+        });
         let mut stepper = BevyStepper::new(
             shared_config,
             sync_config,

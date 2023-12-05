@@ -1,13 +1,14 @@
 //! Handles client-generated inputs
 use anyhow::Context;
 use bevy::prelude::{
-    App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, Res, ResMut, SystemSet,
+    not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
 use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::events::InputEvent;
+use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
@@ -69,14 +70,15 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // SETS
         app.configure_sets(
             FixedUpdate,
-            (
+            ((
                 FixedUpdateSet::TickUpdate,
-                InputSystemSet::BufferInputs,
+                // no need to keep buffering inputs during rollback
+                InputSystemSet::BufferInputs.run_if(not(is_in_rollback)),
                 InputSystemSet::WriteInputEvent,
                 FixedUpdateSet::Main,
                 InputSystemSet::ClearInputEvent,
             )
-                .chain(),
+                .chain(),),
         );
         app.configure_sets(
             PostUpdate,

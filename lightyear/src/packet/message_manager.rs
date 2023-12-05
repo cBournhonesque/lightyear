@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -17,6 +17,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
+use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -53,10 +54,17 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Update book-keeping
-    pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub fn update(
+        &mut self,
+        time_manager: &TimeManager,
+        ping_manager: &PingManager,
+        tick_manager: &TickManager,
+    ) {
         self.packet_manager.header_manager.update(time_manager);
         for channel in self.channels.values_mut() {
-            channel.sender.update(time_manager, tick_manager);
+            channel
+                .sender
+                .update(time_manager, ping_manager, tick_manager);
             channel.receiver.update(time_manager, tick_manager);
         }
     }
@@ -94,17 +102,33 @@ impl<M: BitSerializable> MessageManager<M> {
                 data_to_send.insert(*channel_id, channel.sender.send_packet());
             }
         }
+        for (channel_id, (single_data, fragment_data)) in data_to_send.iter() {
+            let channel_kind = self
+                .channel_registry
+                .get_kind_from_net_id(*channel_id)
+                .unwrap();
+            let channel_name = self.channel_registry.name(channel_kind).unwrap();
+            trace!("sending data on channel {}", channel_name);
+            // for single_data in single_data.iter() {
+            //     info!(size = ?single_data.bytes.len(), "Single data");
+            // }
+            // for fragment_data in fragment_data.iter() {
+            //     info!(size = ?fragment_data.bytes.len(),
+            //           id = ?fragment_data.fragment_id,
+            //           num_fragments = ?fragment_data.num_fragments,
+            //           "Fragment data");
+            // }
+        }
 
         let packets = self.packet_manager.build_packets(data_to_send);
 
-        // TODO: might need to split into single packets?
         let mut bytes = Vec::new();
         for mut packet in packets {
+            trace!(num_messages = ?packet.data.num_messages(), "sending packet");
             let packet_id = packet.header().packet_id;
 
             // set the current tick
             packet.header.tick = current_tick;
-            trace!(?packet, "Sending packet");
 
             // Step 2. Get the packets to send over the network
             let payload = self.packet_manager.encode_packet(&packet)?;

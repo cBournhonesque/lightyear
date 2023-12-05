@@ -30,8 +30,12 @@ pub enum ReplicationMessage<C, K> {
     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
     SpawnEntity(Entity, Vec<C>),
     DespawnEntity(Entity),
-    InsertComponent(Entity, C),
-    RemoveComponent(Entity, K),
+    // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
+    //  unfortunately can't really put entity-updates in the same message because it uses a different channel
+    /// All the components that are inserted on this entity
+    InsertComponent(Entity, Vec<C>),
+    /// All the components that are removed from this entity
+    RemoveComponent(Entity, Vec<K>),
     // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
     EntityUpdate(Entity, Vec<C>),
 }
@@ -47,11 +51,16 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
                 }
             }
             ReplicationMessage::DespawnEntity(e) => {}
-            ReplicationMessage::InsertComponent(e, c) => {
-                c.map_entities(entity_map);
+            ReplicationMessage::InsertComponent(e, components) => {
+                // c.map_entities(entity_map);
+                for component in components {
+                    component.map_entities(entity_map);
+                }
             }
-            ReplicationMessage::RemoveComponent(e, k) => {
-                k.map_entities(entity_map);
+            ReplicationMessage::RemoveComponent(e, component_kinds) => {
+                for component_kind in component_kinds {
+                    component_kind.map_entities(entity_map);
+                }
             }
             ReplicationMessage::EntityUpdate(e, components) => {
                 for component in components {
@@ -67,7 +76,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// (this is used to send the initial state of the world to new clients)
     fn new_remote_peers(&self) -> Vec<ClientId>;
 
-    fn entity_spawn(
+    fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
         components: Vec<P::Components>,
@@ -75,14 +84,14 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         target: NetworkTarget,
     ) -> Result<()>;
 
-    fn entity_despawn(
+    fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
         replicate: &Replicate,
         target: NetworkTarget,
     ) -> Result<()>;
 
-    fn component_insert(
+    fn prepare_component_insert(
         &mut self,
         entity: Entity,
         component: P::Components,
@@ -90,7 +99,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         target: NetworkTarget,
     ) -> Result<()>;
 
-    fn component_remove(
+    fn prepare_component_remove(
         &mut self,
         entity: Entity,
         component_kind: P::ComponentKinds,
@@ -98,7 +107,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         target: NetworkTarget,
     ) -> Result<()>;
 
-    fn entity_update_single_component(
+    fn prepare_entity_update(
         &mut self,
         entity: Entity,
         component: P::Components,
@@ -106,17 +115,15 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         target: NetworkTarget,
     ) -> Result<()>;
 
-    fn entity_update(
-        &mut self,
-        entity: Entity,
-        components: Vec<P::Components>,
-        replicate: &Replicate,
-        target: NetworkTarget,
-    ) -> Result<()>;
-
     /// Any operation that needs to happen before we can send the replication messages
-    /// (for example collecting the individual single component updates into a single message)
-    fn prepare_replicate_send(&mut self) -> Result<()>;
+    /// (for example collecting the individual single component updates into a single message,
+    ///
+    /// Similarly, we want to collect all ComponentInsert and ComponentRemove into a single message.
+    /// Why? Because if we create separate message for each ComponentInsert (for example when the entity gets spawned)
+    /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
+    ///
+    /// But the receiving systems might expect both components to be present at the same time.
+    fn buffer_replication_messages(&mut self) -> Result<()>;
 }
 
 #[cfg(test)]

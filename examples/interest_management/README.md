@@ -1,16 +1,20 @@
-# Simple box
+# Interest management
 
-A simple example that shows how to use Lightyear to create a server-authoritative multiplayer game.
+A simple example that shows how to use Lightyear to perform interest management.
 
-It also showcases how to enable client-side prediction and snapshot interpolation.
+Interest management is a technique to reduce the amount of data that is sent to each client:
+we want to send only the data that is relevant to each client.
+
+In this example, we are going to replicate entities that are within a certain distance of the client.
+
 
 
 ## Running the example
 
-To start the server, run `cargo run --example simple_box server`
+To start the server, run `cargo run --example interest_management -- server`
 
 Then you can launch multiple clients with the commands:
 
-- `cargo run --example simple_box client -c 1`
+- `cargo run --example interest_management -- client -c 1`
 
-- `cargo run --example simple_box client -c 2 --client-port 2000`
+- `cargo run --example interest_management -- client -c 2 --client-port 2000`

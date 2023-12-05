@@ -50,7 +50,7 @@ impl Plugin for MyClientPlugin {
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default()
-                .with_delay(InterpolationDelay::Ratio(2.0)),
+                .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
         };
         let plugin_config = PluginConfig::new(config, io, MyProtocol::default(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));

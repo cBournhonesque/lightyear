@@ -141,6 +141,7 @@ pub struct SingleData {
     // TODO: for now, we include the tick into every single data because it's easier
     //  for optimizing size later, we want the tick channels to use a different SingleData type that contains tick
     //  basically each channel should have either SingleData or TickData as associated type ?
+    // NOTE: This is only used for tick buffered receiver, so that the message is read at the same exact tick it was sent
     pub tick: Option<Tick>,
     pub bytes: Bytes,
 }
