@@ -12,14 +12,14 @@ pub fn shared_config() -> SharedConfig {
         enable_replication: true,
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::default(),
-        server_send_interval: Duration::from_millis(80),
+        server_send_interval: Duration::from_millis(30),
         tick: TickConfig {
             // right now, we NEED the tick_duration to be smaller than the frame_duration
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
         log: LogConfig {
-            level: Level::WARN,
+            level: Level::INFO,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
         },

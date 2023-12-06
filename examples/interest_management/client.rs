@@ -29,7 +29,7 @@ impl Plugin for MyClientPlugin {
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(20),
+            incoming_jitter: Duration::from_millis(5),
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
@@ -51,7 +51,9 @@ impl Plugin for MyClientPlugin {
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default().with_delay(
-                InterpolationDelay::default().with_min_delay(Duration::from_millis(150)),
+                InterpolationDelay::default()
+                    .with_min_delay(Duration::from_millis(50))
+                    .with_send_interval_ratio(2.0),
             ),
             // .with_delay(InterpolationDelay::Ratio(2.0)),
         };
@@ -178,11 +180,11 @@ pub(crate) fn log(
 ) {
     let server_tick = client.latest_received_server_tick();
     for confirmed_pos in confirmed.iter() {
-        info!(?server_tick, "Confirmed position: {:?}", confirmed_pos);
+        debug!(?server_tick, "Confirmed position: {:?}", confirmed_pos);
     }
     let client_tick = client.tick();
     for predicted_pos in predicted.iter() {
-        info!(?client_tick, "Predicted position: {:?}", predicted_pos);
+        debug!(?client_tick, "Predicted position: {:?}", predicted_pos);
     }
     for event in interp_event.read() {
         info!("Interpolated event: {:?}", event.entity());

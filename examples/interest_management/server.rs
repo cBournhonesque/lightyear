@@ -29,7 +29,7 @@ impl Plugin for MyServerPlugin {
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(20),
+            incoming_jitter: Duration::from_millis(5),
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
