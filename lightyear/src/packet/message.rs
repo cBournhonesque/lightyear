@@ -314,6 +314,27 @@ impl MessageContainer {
         };
     }
 
+    /// Set the tick of the remote when this message was sent
+    ///
+    /// Note that in some cases the tick can be already set (for example for tick-buffered channel,
+    /// or for reliable channels, since the tick set in the packet header might not correspond to the tick
+    /// where the message was initially set)
+    /// In those cases we don't override the tick
+    pub fn set_tick(&mut self, tick: Tick) {
+        match self {
+            MessageContainer::Single(data) => {
+                if data.tick.is_some() {
+                    data.tick = Some(tick);
+                }
+            }
+            MessageContainer::Fragment(data) => {
+                if data.tick.is_some() {
+                    data.tick = Some(tick);
+                }
+            }
+        };
+    }
+
     /// Get access to the underlying bytes (clone is a cheap operation for `Bytes`)
     pub fn bytes(&self) -> Bytes {
         match self {

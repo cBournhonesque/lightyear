@@ -4,15 +4,221 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+
+- FINAL CHOICE:
+  - send all actions per group on an reliable unordered channel
+    - ordering is done per group, with a sequenced id (1,2,3)
+    - thus we cannot receive a despawn before a spawn, or a component removal before a component insert
+    - actions are still buffered in advance, so that whenever the latest arrives we apply all of them
+  - send all updates per group on an unreliable unordered channel
+    - sequencing is done per group
+    - updates only modify components, do not create them
+    - we do not send an update for a component that has an insert
+    - we apply updates immediately for components that exist, and we buffer updates for components/entities that don't exist (this means not in a component)
+      - this means that some components (at insert time), can be stuck behind other components; but it's quickly fixed afterwards. All update components are always on the same tick
+    - prediction:
+      - we store the component history, along with the correct ticks, on the confirmed entity
+      - we check rollback on each action or each update for each entity predicted. We rollback on the oldest rollback tick across all predicted entities.
+        we restore each predicted entity to their latest update tick.
+      - simpler: put all predicted entities in the same group so they have the same tick
+      - even simpler: send all updates+actions for predicted entities in the same packet, so updates AND components are all on the same tick.
+    - interpolation:
+      - we store the component history, along with the correct ticks, on the confirmed entity
+  - groups:
+    - by default, entities are in their own group GroupId = Entity
+    - can specify a group for an entity, and then all entities in that group are in the same group and have their actions / updates sent together
+      - useful for hierarchical entities (parent/children)
+      - need to make sure parents are sent first in groups I think ? for entity mapping
+  - events:
+    - for actions: send an event for each action
+    - for updates: send an event for each component update received (buffer)? or applied? applied would be in order, which be better
+
+ReplicationManager:
+- ActionsManager:
+  - for each group, maintain a sequence id for the ordering, and a buffer of actions that are more recent than the sequence_id we are waiting for (waiting-actions)
+  - an ActionMessage is GroupId + SequenceId + HashMap<Entity, Spawn or Despawn, Vec<ComponentInserts>, Vec<ComponentRemoves>>
+- UpdatesManager:
+  - can just use the packet tick for sequencing
+  - Maintain a buffer of updates for components/entities that don't exist (waiting-updates), or components that refer to entities that don't exist?
+  - an UpdateMessage is GroupId + HashMap<Entity, Vec<ComponentUpdates>>
+  - ORDER:
+    - recv ReplicationMessage
+    - buffer actions
+    - read all actions until we get None.
+    - apply actions to world
+    - flush?
+    - read updates. if updates tick is < latest_actions_tick; discard
+    - if updates_tick >= latest_actions_tick; apply updates
+    - for components that exist (we know them just by checking the world), just apply updates
+    - for components that don't exist, buffer updates so that we can apply them as soon as component is created.
+- GroupsManager: groups can be tracked as part of Replicate component
+- Priority: accumulator for each group? 
+- Prediction/Interpolation:
+  - probably update component history and check for prediction based on events.
+
+      
+
+
+- in any case, i can't keep using sequenced reliable/unreliable if i send one message per entity (because then getting packet P2 would prevent me from reading packet P1)
+
+- Several options:
+  - one big packet containing ALL actions+updates, in a reliable sequenced channel
+    - world is always consistent
+  - one big packet containing ALL actions+updates, in a reliable sequenced channel. If no actions, use unreliable sequenced channel.
+  - one packet per group actions+updates, in an reliable unordered channel. And we keep track of received tick per group to do sequencing.
+    - con: we don't need to retry reliable for the entity updates? but maybe we do if we insist on a consistent state
+    - pros: if all the predicted entities are in the same group, no need to use confirmed history for prediction?
+  - one reliable unordered packet for group actions, one unreliable unordered packet for group updates
+    - apply sequencing manually via a group action tick and group update tick
+    - update tick could be ahead of action tick
+      (action13: C1 spawn, C3 remove, update14: C1 update, C2 update, C3 update. (C2 already exists) We receive update14 first.
+      - option 1: We apply it for all components that exist and set update tick to 14? but then it's not consistent for the components that don't exist)
+        C2 is updated to tick 14. When we receive action13, we apply it for C1, and apply the buffered update for C1 so we bring it 14 immediately
+        (so that all update ticks are consistent, important for interpolation/prediction)
+        -> we still know for each component at which tick we are, but we could be at a state never reached by the server
+      - option 2: we apply it for all components, spawning those that don't exist.
+        C2 is updated to tick 14, C1 is spawned and set to tick 14.
+        -> problem, could get some inconsistency in the entity's archetype. When we receive action13, we don't apply it for C1 (since it exists)
+      - option 3: we buffer updates-14, and only apply it when we get action 13 (which could be empty)
+        -> in the updates-message, we include the latest action tick for that entity that we send (13).
+        -> when we receive updates-14, if we have already received actions-13, then we can apply the updates immediately. If we haven't, we know we need to buffer
+        -> it just means we are as slow as the archetype, but that's ok
+        -> also if we receive action-13 but update-13 gets lost then it's ok, because they are for different components
+           - for each component we still know at which tick we are (important for interpolation/prediction)
+        -> so basically we are as far as the latest actions received
+    - actions are applied in order. (if we receive actions 14, we buffer them and wait for actions 13.) 
+      How do we make sure of that? For every group, the actions are sent with an id that is incremented in order (1,2,3,4,etc.)
+      We wait until we receive the one from the previous id before applying the actions.
+      Basically re-implement ordered channel, but manually for this entity/group.
+      
+    - con: we don't need to retry reliable for the entity updates? but maybe we do if we insist on a consistent state
+  - when we receive a server update for tick T, don't apply server updates immediately, but buffer them wait for k * packet_loss + k' * jitter.
+    - then we consider that we got the entire consistent world state for tick T, and apply everything. 
+
+NEW REPLICATION APPROACH:
+- priority:
+  - accumulate priority score per entity (or group)
+- replication:
+  - maybe send the entire actions+updates as one sequenced reliable message?
+  - or, if there are no actions this tick, send as sequenced unreliable?
+- rooms:
+  - this was done to limit the size of messages, but paradoxically it might increase the size if the entity doesn't get updated a lot
+  - for example, if it's just some background entity, it's better to send them all once, instead of constantly sending them and despawning them
+  - for a mmorpg with fixed instances/rooms; is there need to despawn? maybe better if client just despawns anything in the room, and server just stops replicating stuff outside the main room (without despawning though)
+- entity actions are sent as a single message, so that the archetype world state is always consistent
+  - or do that only within groups! (so entities in a given group are always consistent)
+  - groups could use priority with accumulation to do throttling.
+- updates are sent as one group of update per entity.
+- for an entity, we can track:
+  - it's actions-tick (tick at which the server entity actions were sent)
+  - it's updates-tick (tick at which the server entity updates were sent)
+
+
+
+Some scenarios:
+- we send E-spawn on tick 13, E-despawn on tick 14. E-despawn arrives first.
+  - then we update our internal state to have E: action-tick = 14, so we ignore the tick-13 spawn -> GOOD
+  - TODO: this means we need to keep track of the action-tick/updates-tick OUTSIDE of a component, since we need to update it even if the component does not exist
+  - we keep track of an entity's replication state for at least time to handle de-sync like this:
+    - k * send_interval + k' * jitter (k' = 3 for 99% jitter, k = 2 to handle 1 packet lost)
+- we send C-insert on tick 13, C-remove on tick 14, C-insert on tick 15. We receive 14, 15, 13.
+  - we update our internal state to have C: remove-tick = 14, so we ignore the tick-13 insert -> GOOD
+  - we update our internal state to have C: updates-tick = 15, so we add the component -> GOOD
+- we send C-insert on tick 13, C-update on tick 14. We receive 14, 13
+  - TODO: don't send insert and update on the same tick, only send insert!
+  - EITHER:
+    - we spawn C with value of 14. And then we can ignore insert. But then the world state in terms of archetypes could again be incorrect?
+    - we buffer C as a pending update. Then later when we receive 13, we spawn C with value of 13, and immediately apply the update
+      Action tick = 13, update tick = 14.
+      TODO: need a buffer of component updates along with their tick.
+      - we might need it either way for prediction/interpolation
+    
+- Update interpolation history:
+  - stop using latest_recv_server_tick to put stuff in the history, instead use the entity's update-tick
+- Prediction
+  - let's say that all the entities that are predicted at the same time are in the same group. Then their world is consistent
+  - we know they all receive an update at the same tick (entity update tick)
+  - so whenever we receive a new server packet for any entities in the group, we know that all the entities are consistently on tick T
+  - we check if need to rollback for tick T
+  - if yes, we rollback from tick T, which is easy (no need to have confirmed histories)
+   
+
 PROBLEMS/BUGS:
+- Big problem with sequencing. Right now we use a single channel for all entity updates.
+  - but imagine we send [A1, B2, C3] in packet 1, and [B4] in packet 2 (the numbers are the message ids, incremented in the SequencedSender)
+  - then we receive [B4] before the other packet. That means that because of sequencing we ignore [A1, B2, C3].
+  - ignoring B2 is good because we received a more recent update for B, but we should not ignore A1 and C3.
+  - that means we should have separate sequencing guarantees for each entity/component?
+  - in our case, remember that all updates for one entity are in the same message. But we could have B be the updates for entity B and A for entity A.
+    then we would completely not receive the updates for entity A.
+  - Instead we can:
+    - use unordered unreliable channel
+    - keep track of the latest tick received per entity update
+  - REMEMBER THAT THOSE PROBLEMS ARISE ONLY IF WE HAVE MULTIPLE PACKETS, MIGHT BE REALLY RATE?
+    - can happen if lots of replication stuff to send
+
+
+- Other sequencing problem:
+  - let's say that we send [E-A-update] in packet 1, [E-A-removal] in packet 2 and packet 2 arrives before packet 1
+    - can only happen if jitter is big compared with send_interval
+    - within a single frame, we won't send both an update and a removal for the same entity/component
+  - then removal of component A for entity E gets applied, but then we receive update, which re-inserts the entity!
+  - TODO: Maybe updates should just update the entity and not re-insert it!
+
+- TLDR: Basically lots of bugs if jitter is big compared with send_interval! 
+  (i.e. if some packets)
+  
+
+
+
 - more rollbacks than expected (Especially with rooms). Let's check what happens with 0 jitter -> there should be 0 rollback no?
   - is it because we are sending too much data to the client? (a lot of entity spawn/despawn)
   - is it because the ticks are not in sync?
   - with 0 jitter, the problem completely disappears, prediction becomes butter smooth
   - with higher send_interval, the prediction becomes extremely jittery!!!
   - It could be something like:
-    - we are sending the player position update for a tick T1 in a packet
-      is only received after. So at tick 20, we think we have the world state for tick 20, but we don't. We don't even have the world state for tick 18.
+    - we are sending the player position update for a tick 18 in a packet
+      is only received after. So if we first receive a PING for tick 20, we think we have the world state for tick 20, but we don't. We don't even have the world state for tick 18 for that one entity.
+    - worst part is that we do a wrong rollback for at tick! We do a rollback for tick 20, but then we don't do it when we later receive the update for tick 18, because it's not a latest_recv_server_tick
+
+  - this is exacerbated for entity actions because they are sent on a reliable channel.
+    the packet tick may say tick 300, but the entity insert was actually done only at tick 290. (because of packet loss, the message is sent again on a different packet)
+    Should entity actions include the tick at which they were actually inserted?
+    Actually this is for any replication message that is sent on a reliable channel.
+
+  - SOL 1:
+    - keep checkinf for rollback only when we receive a new latest_received_server_tick.
+    - when receive a packet at tick T and we have last_received_server_tick = T, we know that we should do a rollback check after 2 * k * jitter has elapsed (jitter could be in both directions).
+      because at this time all the packets for tick T have been received. At that time, the confirmed state is for tick T.
+      This might not work if the server send_interval is small compared to jitter.
+      Thus we only start checking for rollback at (server_latest_recv_time + 2 * k * jitter) (and that's what we should do anyway,
+      because only then do we know that we have a full world state)
+    - PROS: more elegant?
+    - CONS: 
+      - seems to not work well if send_interval is very small, because the server state at server_ltaest_recv_time + 2 * k * jitter won't be the server state for tick T
+        but for a tick T + x, as we we will have received other updates
+ 
+ 
+  - SOL 2:
+    - when we receive an update for an entity, keep track of the server_tick for that update and add it to a ConfirmedHistory for that tick.
+      - maybe keep track of the tick for each component?
+      - maybe keep track of the tick for updates / removes / inserts?
+      - maybe keep track of the tick for the entity?
+    - then we do a rollback check for that entity. If there is mismatch, we need to do a rollback for at least tick T (tick of the packet that contained the entity update)
+    - we do this across all entities for which we receive an update, and we compute that the earliest rollback we need to do. (earliest tick across all entities) T*
+    - we can do the rollback because:
+      - we have the history of all confirmed components since T*
+        - we need to keep histories for at most 2*k*jitter + packet-loss ?
+      - we have client inputs since T* (we cannot do the rollback if we don't have client inputs since T*)
+    - note that we have a similar problem for interpolation:
+      - we could send C1 at tick 18, C2 at tick 20. (happens if we send updates quickly)
+      - but C2 is received first because of jitter, so latest_recv_server_tick is set to 20.
+      - we then add C2 in history with tick 20 because it changes.
+      - we receive C1 later, we add C1 in history for tick 20 (which is incorrect because it should be for tick 18)
+      - in general, knowing the exact tick of the update is valuable
+
+
+
 
   - also it seems like our frames are smaller than our fixed update. This could cause issues?
   - CONFIRMATION:
@@ -53,6 +259,8 @@ PROBLEMS/BUGS:
 - interpolation is very unsmooth when the server update is small.  
    - SOLVED: That's because we used interpolation delay = ratio, and the send_interval was 0.0
    - we need a setting that is ratio with min-delay
+
+- map entities is not working
 
 
 ADD TESTS FOR TRICKY SCENARIOS:

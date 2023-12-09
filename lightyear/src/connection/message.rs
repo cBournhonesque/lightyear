@@ -3,7 +3,7 @@ Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible me
 */
 use crate::_reexport::{InputMessage, ShouldBeInterpolated, ShouldBePredicted, TickManager};
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::{EntityMap, MapEntities};
+use crate::prelude::{EntityMap, MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
@@ -137,6 +137,9 @@ impl<P: Protocol> ProtocolMessage<P> {
         events: &mut ConnectionEvents<P>,
         entity_map: &EntityMap,
         time_manager: &TimeManager,
+        // tick of the remote when they sent that message. This means this message represents
+        // the state of the remote world for this tick
+        tick: Tick,
     ) {
         let _span = trace_span!("receive");
         match self {
@@ -150,7 +153,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                     let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
                     events.push_spawn(local_entity);
                     for component in components {
-                        events.push_insert_component(local_entity, (&component).into());
+                        events.push_insert_component(local_entity, (&component).into(), tick);
                     }
                 }
                 ReplicationMessage::DespawnEntity(entity) => {
@@ -160,19 +163,19 @@ impl<P: Protocol> ProtocolMessage<P> {
                 ReplicationMessage::InsertComponent(entity, components) => {
                     let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
                     for component in components {
-                        events.push_insert_component(local_entity, (&component).into());
+                        events.push_insert_component(local_entity, (&component).into(), tick);
                     }
                 }
                 ReplicationMessage::RemoveComponent(entity, component_kinds) => {
                     let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
                     for component_kind in component_kinds {
-                        events.push_remove_component(local_entity, component_kind);
+                        events.push_remove_component(local_entity, component_kind, tick);
                     }
                 }
                 ReplicationMessage::EntityUpdate(entity, components) => {
                     let local_entity = *entity_map.get_local(entity).unwrap_or(&entity);
                     for component in components {
-                        events.push_update_component(local_entity, (&component).into());
+                        events.push_update_component(local_entity, (&component).into(), tick);
                     }
                 }
             },

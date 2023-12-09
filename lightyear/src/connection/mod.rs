@@ -105,12 +105,15 @@ impl<P: Protocol> Connection<P> {
 
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
-                for mut message in messages {
+                for (tick, mut message) in messages {
                     // map entities from remote to local
                     message.map_entities(&self.replication_manager.entity_map);
                     // other message-handling logic
                     match message {
                         ProtocolMessage::Replication(ref replication) => {
+                            // TODO: maybe only apply to the world if the tick is more recent than
+                            //  what we have for that (component/entity) ?
+
                             // TODO: maybe only run apply world if the client is time-synced!
                             //  that would mean that for now, apply_world only runs on client, and not on server :)
                             self.replication_manager
@@ -137,6 +140,7 @@ impl<P: Protocol> Connection<P> {
                         &mut self.events,
                         &self.replication_manager.entity_map,
                         time_manager,
+                        tick,
                     );
                 }
             }

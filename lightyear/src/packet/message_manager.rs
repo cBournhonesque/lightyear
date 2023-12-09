@@ -215,7 +215,8 @@ impl<M: BitSerializable> MessageManager<M> {
                 .channels
                 .get_mut(channel_kind)
                 .ok_or_else(|| anyhow!("Channel not found"))?;
-            for message in messages {
+            for mut message in messages {
+                message.set_tick(tick);
                 channel.receiver.buffer_recv(message)?;
             }
         }
@@ -225,7 +226,7 @@ impl<M: BitSerializable> MessageManager<M> {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<M>> {
+    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, M)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
@@ -234,7 +235,10 @@ impl<M: BitSerializable> MessageManager<M> {
                 let message = M::decode(&mut reader).expect("Could not decode message");
                 // TODO: why do we need finish read? to check for errors?
                 // reader.finish_read()?;
-                messages.push(message);
+
+                // SAFETY: when we read, we set the tick of the message to the header tick
+                // so every message has a tick
+                messages.push((single_data.tick.unwrap(), message));
             }
             if !messages.is_empty() {
                 map.insert(*channel_kind, messages);
@@ -335,8 +339,14 @@ mod tests {
                 .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
         }
         let mut data = server_message_manager.read_messages();
-        assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
-        assert_eq!(data.get(&channel_kind_2).unwrap(), &vec![message.clone()]);
+        assert_eq!(
+            data.get(&channel_kind_1).unwrap(),
+            &vec![(Tick(0), message.clone())]
+        );
+        assert_eq!(
+            data.get(&channel_kind_2).unwrap(),
+            &vec![(Tick(0), message.clone())]
+        );
 
         // Confirm what happens if we try to receive but there is nothing on the io
         data = server_message_manager.read_messages();
@@ -438,8 +448,14 @@ mod tests {
                 .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
         }
         let mut data = server_message_manager.read_messages();
-        assert_eq!(data.get(&channel_kind_1).unwrap(), &vec![message.clone()]);
-        assert_eq!(data.get(&channel_kind_2).unwrap(), &vec![message.clone()]);
+        assert_eq!(
+            data.get(&channel_kind_1).unwrap(),
+            &vec![(Tick(0), message.clone())]
+        );
+        assert_eq!(
+            data.get(&channel_kind_2).unwrap(),
+            &vec![(Tick(0), message.clone())]
+        );
 
         // Confirm what happens if we try to receive but there is nothing on the io
         data = server_message_manager.read_messages();

@@ -1,12 +1,13 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
+    Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, Res, ResMut, With, Without,
 };
 use tracing::{debug, error, info};
 
 use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::events::ComponentUpdateEvent;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::Interpolated;
 use crate::client::resource::Client;
@@ -118,41 +119,81 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
 /// or update the interpolated component directly if InterpolatedComponentMode::Sync
 pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
     client: Res<Client<P>>,
+    mut confirmed_updates: EventReader<ComponentUpdateEvent<T>>,
     mut interpolated_entities: Query<
         (&mut T, Option<&mut ConfirmedHistory<T>>),
         (With<Interpolated>, Without<Confirmed>),
     >,
     confirmed_entities: Query<(&Confirmed, Ref<T>)>,
 ) {
-    let latest_server_tick = client.latest_received_server_tick();
-    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.interpolated {
-            if confirmed_component.is_changed() {
-                if let Ok((mut interpolated_component, history_option)) =
-                    interpolated_entities.get_mut(p)
-                {
-                    match T::mode() {
-                        ComponentSyncMode::Full => {
-                            if let Some(mut history) = history_option {
-                                history.buffer.add_item(
-                                    latest_server_tick,
-                                    confirmed_component.deref().clone(),
-                                );
-                            } else {
-                                error!(
-                                    "Interpolated entity {:?} doesn't have a ComponentHistory",
-                                    p
-                                );
+    // TODO: seems inefficient to cycle through all updates just to find the ones for the confirmed entity
+    //  have a way for events to also give us the list of updates for a single entity
+    //  maybe make ConnectionEvents a SystemParam/WorldQuery or something?
+    //  or add an ComponentEvent<T> component for each sync component that has mode::Full?
+    for update in confirmed_updates.read() {
+        let tick = *update.context();
+        if let Ok((confirmed_entity, confirmed_component)) =
+            confirmed_entities.get(*update.entity())
+        {
+            if let Some(p) = confirmed_entity.interpolated {
+                assert!(confirmed_component.is_changed());
+                if confirmed_component.is_changed() {
+                    if let Ok((mut interpolated_component, history_option)) =
+                        interpolated_entities.get_mut(p)
+                    {
+                        match T::mode() {
+                            ComponentSyncMode::Full => {
+                                if let Some(mut history) = history_option {
+                                    history
+                                        .buffer
+                                        .add_item(tick, confirmed_component.deref().clone());
+                                } else {
+                                    error!(
+                                        "Interpolated entity {:?} doesn't have a ComponentHistory",
+                                        p
+                                    );
+                                }
                             }
+                            // for sync-components, we just match the confirmed component
+                            ComponentSyncMode::Simple => {
+                                *interpolated_component = confirmed_component.deref().clone();
+                            }
+                            ComponentSyncMode::Once => {}
                         }
-                        // for sync-components, we just match the confirmed component
-                        ComponentSyncMode::Simple => {
-                            *interpolated_component = confirmed_component.deref().clone();
-                        }
-                        ComponentSyncMode::Once => {}
                     }
                 }
             }
         }
     }
+
+    // for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
+    //     if let Some(p) = confirmed_entity.interpolated {
+    //         if confirmed_component.is_changed() {
+    //             if let Ok((mut interpolated_component, history_option)) =
+    //                 interpolated_entities.get_mut(p)
+    //             {
+    //                 match T::mode() {
+    //                     ComponentSyncMode::Full => {
+    //                         if let Some(mut history) = history_option {
+    //                             history.buffer.add_item(
+    //                                 latest_server_tick,
+    //                                 confirmed_component.deref().clone(),
+    //                             );
+    //                         } else {
+    //                             error!(
+    //                                 "Interpolated entity {:?} doesn't have a ComponentHistory",
+    //                                 p
+    //                             );
+    //                         }
+    //                     }
+    //                     // for sync-components, we just match the confirmed component
+    //                     ComponentSyncMode::Simple => {
+    //                         *interpolated_component = confirmed_component.deref().clone();
+    //                     }
+    //                     ComponentSyncMode::Once => {}
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }

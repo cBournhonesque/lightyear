@@ -1,6 +1,7 @@
 //! Wrapper around [`ConnectionEvents`] that adds client-specific functionality
 //!
 use crate::connection::events::ConnectionEvents;
+use crate::prelude::Tick;
 use crate::protocol::Protocol;
 
 pub struct ClientEvents<P: Protocol> {
@@ -17,7 +18,7 @@ pub type InputEvent<I> = crate::shared::events::InputEvent<I, ()>;
 
 pub type EntitySpawnEvent = crate::shared::events::EntitySpawnEvent<()>;
 pub type EntityDespawnEvent = crate::shared::events::EntityDespawnEvent<()>;
-pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, ()>;
-pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, ()>;
-pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, ()>;
+pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, Tick>;
+pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, Tick>;
+pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, Tick>;
 pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ()>;

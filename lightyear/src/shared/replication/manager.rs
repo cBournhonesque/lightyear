@@ -1,18 +1,23 @@
 //! General struct handling replication
+use bevy::a11y::accesskit::Action;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bevy::prelude::{Entity, World};
+use bevy::utils::EntityHashMap;
 use tracing::{debug, error, info, trace, trace_span};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 use super::entity_map::EntityMap;
-use super::{Replicate, ReplicationMessage};
+use super::{EntityActionMessage, EntityActions, Replicate, ReplicationMessage};
 use crate::connection::message::ProtocolMessage;
+use crate::packet::message::MessageId;
+use crate::prelude::Tick;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
+use crate::shared::replication::components::ReplicationGroup;
 
 // TODO: maybe store additional information about the entity?
 //  (e.g. the value of the replicate component)?
@@ -23,9 +28,130 @@ pub enum EntityStatus {
 }
 
 pub(crate) struct ReplicationManager<P: Protocol> {
-    pub entity_map: EntityMap,
     pub remote_entity_status: HashMap<Entity, EntityStatus>,
+    // pub global_replication_data: &'a ReplicationData,
+}
 
+pub struct ActionChannel<P: Protocol> {
+    pub pending_recv_message_id: MessageId,
+    /// last server tick that we applied to the client world
+    pub latest_tick: Tick,
+    pub recv_message_buffer: BTreeMap<
+        MessageId,
+        (
+            Tick,
+            EntityHashMap<Entity, EntityActions<P::Component, P::ComponentKinds>>,
+        ),
+    >,
+}
+
+impl<P: Protocol> Default for ActionChannel<P> {
+    fn default() -> Self {
+        Self {
+            pending_recv_message_id: MessageId(0),
+            latest_tick: Tick(0),
+            recv_message_buffer: BTreeMap::new(),
+        }
+    }
+}
+
+impl<P: Protocol> ActionChannel<P> {
+    /// Reads a message from the internal buffer to get its content
+    /// Since we are receiving messages in order, we don't return from the buffer
+    /// until we have received the message we are waiting for (the next expected MessageId)
+    /// This assumes that the sender sends all message ids sequentially.
+    fn read_action(
+        &mut self,
+    ) -> Option<(
+        Tick,
+        EntityHashMap<Entity, EntityActions<P::Component, P::ComponentKinds>>,
+    )> {
+        // Check if we have received the message we are waiting for
+        let Some(message) = self
+            .recv_message_buffer
+            .remove(&self.pending_recv_message_id)
+        else {
+            return None;
+        };
+
+        self.pending_recv_message_id += 1;
+        // Update the latest server tick that we have processed
+        self.latest_tick = message.0;
+        Some(message)
+    }
+}
+
+pub struct UpdateChannel<P: Protocol> {
+    /// last server tick for updates that we applied to the client world
+    pub latest_tick: Tick,
+    pub updates_waiting_for_inserts: EntityHashMap<Entity, HashSet<P::Components>>,
+}
+
+pub(crate) struct ReplicationReceiver<P: Protocol> {
+    /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
+    pub entity_map: EntityMap,
+    /// Buffer to so that we have an ordered receiver per group
+    pub action_channels: EntityHashMap<ReplicationGroup, ActionChannel<P>>,
+    /// Buffer for updates, so that when the component insert arrives we can apply updates immediately
+    /// C1 could have updates 14, 15, 16
+    /// C2 could have updates 15 (which means either it was removed on 16, or it didn't change)
+    /// so we know that the updates-tick is 16
+    /// so we need to keep the latest tick per entity
+    /// -> maybe map from Map<entity, Map<ComponentKind, latest-value for that component>>>
+    /// and whenever a value is applied (because component exists), we can remove it from the buffer!
+    /// so just need:
+    /// - keep track of latest server tick received (which means the latest tick per component is either the insert tick or the action tick)
+    /// - keep track of buffered components for components that don't exist yet
+    pub update_buffer: EntityHashMap<ReplicationGroup, UpdateChannel<P>>,
+}
+
+impl<P: Protocol> ReplicationReceiver<P> {
+    fn buffer_action(
+        &mut self,
+        message: EntityActionMessage<P::Components, P::ComponentKinds>,
+        tick: Tick,
+    ) {
+        let channel = self.action_channels.entry(message.group_id).or_default();
+
+        // if the message is too old, ignore it
+        if message.sequence_id < channel.pending_recv_message_id {
+            return;
+        }
+
+        // add the message to the buffer
+        // handle duplicates?
+        channel
+            .recv_message_buffer
+            .insert(message.sequence_id, (tick, message.actions));
+    }
+
+    /// Reads a message from the internal buffer to get its content
+    /// Since we are receiving messages in order, we don't return from the buffer
+    /// until we have received the message we are waiting for (the next expected MessageId)
+    /// This assumes that the sender sends all message ids sequentially.
+    fn read_action(
+        &mut self,
+        group_id: ReplicationGroup,
+    ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
+        let Some(channel) = self.action_channels.get_mut(&group_id) else {
+            return None;
+        };
+        channel.read_action().map(|(tick, actions)| {
+            (
+                tick,
+                EntityActionMessage {
+                    group_id,
+                    sequence_id: channel.pending_recv_message_id,
+                    actions,
+                },
+            )
+        })
+    }
+
+    fn buffer_update()
+}
+
+pub(crate) struct ReplicationSender<P: Protocol> {
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_spawns: HashMap<Entity, Vec<P::Components>>,
@@ -33,9 +159,6 @@ pub(crate) struct ReplicationManager<P: Protocol> {
     pub pending_inserts: HashMap<Entity, Vec<P::Components>>,
     pub pending_removes: HashMap<Entity, Vec<P::ComponentKinds>>,
     pub pending_updates: HashMap<Entity, Vec<P::Components>>,
-    pub entity_actions_channel: HashMap<Entity, ChannelKind>,
-    pub entity_updates_channel: HashMap<Entity, ChannelKind>,
-    // pub global_replication_data: &'a ReplicationData,
 }
 
 impl<P: Protocol> Default for ReplicationManager<P> {

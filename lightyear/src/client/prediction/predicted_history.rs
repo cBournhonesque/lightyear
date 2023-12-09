@@ -1,11 +1,13 @@
 use std::ops::Deref;
 
+use bevy::prelude::GamepadButtonType::C;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, With, Without,
 };
 use tracing::{error, info};
 
 use crate::client::components::SyncComponent;
+use crate::client::interpolation::ConfirmedHistory;
 use crate::client::resource::Client;
 use crate::prelude::Named;
 use crate::protocol::Protocol;
@@ -115,39 +117,51 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
     mut commands: Commands,
     client: Res<Client<P>>,
     predicted_entities: Query<(Entity, Option<Ref<T>>), Without<PredictionHistory<T>>>,
-    confirmed_entities: Query<(&Confirmed, Option<Ref<T>>)>,
+    confirmed_entities: Query<(Entity, &Confirmed, Option<Ref<T>>)>,
 ) {
-    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.predicted {
+    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed.predicted {
             if let Ok((predicted_entity, predicted_component)) = predicted_entities.get(p) {
-                if let Some(predicted_component) = predicted_component {
-                    if predicted_component.is_added() {
-                        // safety: we know the entity exists
-                        let mut predicted_entity_mut =
-                            commands.get_entity(predicted_entity).unwrap();
-
-                        // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                        let mut history = PredictionHistory::<T>::default();
-                        history.buffer.add_item(
-                            client.tick(),
-                            ComponentState::Updated(predicted_component.deref().clone()),
-                        );
-                        if T::mode() == ComponentSyncMode::Full {
+                // component got added on predicted side, add history
+                if T::mode() == ComponentSyncMode::Full {
+                    if let Some(predicted_component) = predicted_component {
+                        if predicted_component.is_added() {
+                            // safety: we know the entity exists
+                            let mut predicted_entity_mut =
+                                commands.get_entity(predicted_entity).unwrap();
+                            // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
+                            let mut history = PredictionHistory::<T>::default();
+                            history.buffer.add_item(
+                                client.tick(),
+                                ComponentState::Updated(predicted_component.deref().clone()),
+                            );
                             predicted_entity_mut.insert(history);
                         }
                     }
                 }
+
+                // component got added on confirmed side:
+                // - full: sync component and add history
+                // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
                     if confirmed_component.is_added() {
                         // safety: we know the entity exists
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();
-                        // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                        let history = PredictionHistory::<T>::default();
                         match T::mode() {
                             ComponentSyncMode::Full => {
+                                // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
+                                let history = PredictionHistory::<T>::default();
                                 predicted_entity_mut
                                     .insert((confirmed_component.deref().clone(), history));
+
+                                // insert a confirmed history for the component, that will be needed for rollback
+                                // safety: we know the entity exists
+                                let mut confirmed_entity_mut =
+                                    commands.get_entity(confirmed_entity).unwrap();
+                                confirmed_entity_mut.insert(ConfirmedHistory::<T>::default());
+                                // TODO: add the value of the component along with the tick!
+                                // TODO: how do we access the tick?
                             }
                             _ => {
                                 // we only sync the components once, but we don't do rollback so no need for a component history

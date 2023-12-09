@@ -82,12 +82,15 @@ impl<T: Component> ComponentBehaviour for T {
 
     // Apply a ComponentUpdate to an entity
     fn update(self, entity: &mut EntityWorldMut) {
-        match entity.get_mut::<T>() {
-            Some(mut c) => *c = self,
-            None => {
-                entity.insert(self);
-            }
+        if let Some(c) = entity.get_mut::<T>() {
+            *c = self;
         }
+        // match entity.get_mut::<T>() {
+        //     Some(mut c) => *c = self,
+        //     None => {
+        //         entity.insert(self);
+        //     }
+        // }
     }
 }
 

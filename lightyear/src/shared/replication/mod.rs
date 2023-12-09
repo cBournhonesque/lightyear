@@ -3,14 +3,16 @@ use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use anyhow::Result;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
+use bevy::utils::{EntityHashMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
+use crate::packet::message::MessageId;
 use crate::prelude::{EntityMap, MapEntities, NetworkTarget};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::Replicate;
+use crate::shared::replication::components::{Replicate, ReplicationGroup};
 
 pub mod components;
 
@@ -22,22 +24,51 @@ pub mod resources;
 
 pub mod systems;
 
-// NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
-//  better to not add trait bounds on structs directly anyway
-#[cfg_attr(feature = "debug", derive(Debug))]
+// // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
+// //  better to not add trait bounds on structs directly anyway
+// #[cfg_attr(feature = "debug", derive(Debug))]
+// #[derive(Serialize, Deserialize, Clone)]
+// pub enum ReplicationMessage<C, K> {
+//     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
+//     SpawnEntity(Entity, Vec<C>),
+//     DespawnEntity(Entity),
+//     // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
+//     //  unfortunately can't really put entity-updates in the same message because it uses a different channel
+//     /// All the components that are inserted on this entity
+//     InsertComponent(Entity, Vec<C>),
+//     /// All the components that are removed from this entity
+//     RemoveComponent(Entity, Vec<K>),
+//     // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
+//     EntityUpdate(Entity, Vec<C>),
+// }
+
+pub struct EntityActions<C, K> {
+    // TODO: do we even need spawn?
+    spawn: bool,
+    despawn: bool,
+    insert: Vec<C>,
+    remove: Vec<K>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EntityActionMessage<C, K> {
+    group_id: ReplicationGroup,
+    sequence_id: MessageId,
+    actions: EntityHashMap<Entity, EntityActions<C, K>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EntityUpdatesMessage<C, K> {
+    group_id: ReplicationGroup,
+    updates: EntityHashMap<Entity, Vec<C>>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub enum ReplicationMessage<C, K> {
-    // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
-    SpawnEntity(Entity, Vec<C>),
-    DespawnEntity(Entity),
-    // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
-    //  unfortunately can't really put entity-updates in the same message because it uses a different channel
-    /// All the components that are inserted on this entity
-    InsertComponent(Entity, Vec<C>),
-    /// All the components that are removed from this entity
-    RemoveComponent(Entity, Vec<K>),
-    // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
-    EntityUpdate(Entity, Vec<C>),
+    /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
+    Actions(EntityActionMessage<C, K>),
+    /// All the entity updates for a given group
+    Updates(EntityUpdatesMessage<C, K>),
 }
 
 impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
@@ -45,27 +76,20 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
     // because the replication logic (`apply_world`) expects the entities to be the remote entities
     fn map_entities(&mut self, entity_map: &EntityMap) {
         match self {
-            ReplicationMessage::SpawnEntity(e, components) => {
-                for component in components {
-                    component.map_entities(entity_map);
-                }
+            ReplicationMessage::Actions { actions, .. } => {
+                actions.values_mut().for_each(|entity_actions| {
+                    entity_actions
+                        .insert
+                        .iter_mut()
+                        .for_each(|c| c.map_entities(entity_map));
+                })
             }
-            ReplicationMessage::DespawnEntity(e) => {}
-            ReplicationMessage::InsertComponent(e, components) => {
-                // c.map_entities(entity_map);
-                for component in components {
-                    component.map_entities(entity_map);
-                }
-            }
-            ReplicationMessage::RemoveComponent(e, component_kinds) => {
-                for component_kind in component_kinds {
-                    component_kind.map_entities(entity_map);
-                }
-            }
-            ReplicationMessage::EntityUpdate(e, components) => {
-                for component in components {
-                    component.map_entities(entity_map);
-                }
+            ReplicationMessage::Updates { updates, .. } => {
+                updates.values_mut().for_each(|entity_updates| {
+                    entity_updates
+                        .iter_mut()
+                        .for_each(|c| c.map_entities(entity_map));
+                })
             }
         }
     }

@@ -3,7 +3,7 @@ use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChanne
 use crate::netcode::ClientId;
 use crate::protocol::channel::ChannelKind;
 use crate::server::room::{ClientVisibility, RoomId};
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Entity};
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -16,11 +16,6 @@ pub struct DespawnTracker;
 /// in the world that sends replication updates.
 #[derive(Component, Clone)]
 pub struct Replicate {
-    // TODO: be able to specify channel separately for entiy spawn/despawn and component insertion/removal?
-    /// The channel to use for replication (indicated by the generic type)
-    pub actions_channel: ChannelKind,
-    pub updates_channel: ChannelKind,
-
     /// Which clients should this entity be replicated to
     pub replication_target: NetworkTarget,
     /// Which clients should predict this entity
@@ -37,6 +32,16 @@ pub struct Replicate {
     pub replication_mode: ReplicationMode,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
+    pub replication_group: ReplicationGroup,
+}
+
+#[derive(Default)]
+pub enum ReplicationGroup {
+    // the groups's id is the entity id
+    #[default]
+    FromEntity,
+    // choose a different group id
+    Group(u64),
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -48,21 +53,9 @@ pub enum ReplicationMode {
     NetworkTarget,
 }
 
-impl Replicate {
-    pub fn with_channel<C: Channel>() -> Self {
-        Self {
-            actions_channel: ChannelKind::of::<C>(),
-            updates_channel: ChannelKind::of::<C>(),
-            ..Default::default()
-        }
-    }
-}
-
 impl Default for Replicate {
     fn default() -> Self {
         Self {
-            actions_channel: ChannelKind::of::<EntityActionsChannel>(),
-            updates_channel: ChannelKind::of::<EntityUpdatesChannel>(),
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,

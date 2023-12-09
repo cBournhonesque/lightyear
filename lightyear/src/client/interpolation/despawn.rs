@@ -44,6 +44,7 @@ pub(crate) fn removed_components<C: SyncComponent>(
 }
 
 /// Despawn interpolated entities when the confirmed entity gets despawned
+/// TODO: we should despawn interpolated only when it reaches the latest confirmed snapshot?
 pub(crate) fn despawn_interpolated(
     mut commands: Commands,
     mut mapping: ResMut<InterpolationMapping>,
