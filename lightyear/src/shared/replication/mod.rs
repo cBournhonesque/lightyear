@@ -45,15 +45,28 @@ pub mod systems;
 //     EntityUpdate(Entity, Vec<C>),
 // }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct EntityActions<C, K> {
     // TODO: do we even need spawn?
-    spawn: bool,
-    despawn: bool,
+    pub(crate) spawn: bool,
+    pub(crate) despawn: bool,
     // TODO: do we want HashSets to avoid double-inserts, double-removes?
-    insert: Vec<C>,
-    remove: Vec<K>,
+    pub(crate) insert: Vec<C>,
+    pub(crate) remove: Vec<K>,
     // We also include the updates for the current tick in the actions, if there are any
-    updates: Vec<C>,
+    pub(crate) updates: Vec<C>,
+}
+
+impl<C, K> Default for EntityActions<C, K> {
+    fn default() -> Self {
+        Self {
+            spawn: false,
+            despawn: false,
+            insert: Vec::new(),
+            remove: Vec::new(),
+            updates: Vec::new(),
+        }
+    }
 }
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
@@ -65,7 +78,7 @@ pub struct EntityActionMessage<C, K> {
     //  because if we want to send a group of entities together, presumably it's because there's a hierarchy
     //  between the elements of the group
     //  E1: head, E2: arm, parent=head. So we need to read E1 first.
-    actions: BTreeMap<Entity, EntityActions<C, K>>,
+    pub(crate) actions: BTreeMap<Entity, EntityActions<C, K>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -73,7 +86,7 @@ pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     last_action_tick: Tick,
     /// TODO: consider EntityHashMap or Vec if order doesn't matter
-    updates: BTreeMap<Entity, Vec<C>>,
+    pub(crate) updates: BTreeMap<Entity, Vec<C>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -94,17 +107,17 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
     // NOTE: we do NOT map the entities for these messages (apart from those contained in the components)
     // because the replication logic (`apply_world`) expects the entities to be the remote entities
     fn map_entities(&mut self, entity_map: &EntityMap) {
-        match self {
-            ReplicationMessage::Actions { actions, .. } => {
-                actions.values_mut().for_each(|entity_actions| {
+        match &mut self.data {
+            ReplicationMessageData::Actions(m) => {
+                m.actions.values_mut().for_each(|entity_actions| {
                     entity_actions
                         .insert
                         .iter_mut()
                         .for_each(|c| c.map_entities(entity_map));
                 })
             }
-            ReplicationMessage::Updates { updates, .. } => {
-                updates.values_mut().for_each(|entity_updates| {
+            ReplicationMessageData::Updates(m) => {
+                m.updates.values_mut().for_each(|entity_updates| {
                     entity_updates
                         .iter_mut()
                         .for_each(|c| c.map_entities(entity_map));

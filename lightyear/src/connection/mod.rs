@@ -6,15 +6,16 @@ pub mod events;
 
 pub(crate) mod message;
 
-use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use anyhow::Result;
 use bevy::prelude::{Entity, World};
-use bitcode::__private::Serialize;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{trace, trace_span};
 
+use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
+use crate::channel::senders::ChannelSend;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::ProtocolMessage;
+use crate::connection::message::ProtocolMessage::Replication;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::MapEntities;
@@ -40,16 +41,21 @@ pub struct Connection<P: Protocol> {
 
 impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
-        let updates_ack_tracker = channel_registry
-            .channels()
-            .get(&ChannelKind::of::<EntityUpdatesChannel>())
+        // create the message manager and the channels
+        let mut message_manager = MessageManager::new(channel_registry);
+        // get the acks-tracker for entity updates
+        let update_acks_tracker = message_manager
+            .channels
+            .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
             .unwrap()
             .sender
             .subscribe_acks();
+
+        let replication_manager = ReplicationManager::new(update_acks_tracker);
         Self {
             ping_manager: PingManager::new(ping_config),
-            message_manager: MessageManager::new(channel_registry),
-            replication_manager: ReplicationManager::new(updates_ack_tracker),
+            message_manager,
+            replication_manager,
             events: ConnectionEvents::new(),
         }
     }
@@ -83,6 +89,7 @@ impl<P: Protocol> Connection<P> {
             .finalize(tick)
             .into_iter()
             .try_for_each(|(channel, group_id, message_data)| {
+                let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
                 let channel_name = self
                     .message_manager
                     .channel_registry
@@ -100,7 +107,7 @@ impl<P: Protocol> Connection<P> {
                     .expect("The EntityUpdatesChannel should always return a message_id");
 
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
-                if matches!(message_data, ReplicationMessageData::Updates(_)) {
+                if should_track_ack {
                     self.replication_manager
                         .updates_message_id_to_group_id
                         .insert(message_id, group_id);
@@ -161,7 +168,8 @@ impl<P: Protocol> Connection<P> {
                 // TODO: maybe only run apply world if the client is time-synced!
                 //  that would mean that for now, apply_world only runs on client, and not on server :)
                 for (group, replication_list) in self.replication_manager.read_messages() {
-                    replication_list.into_iter().for_each(|replication| {
+                    replication_list.into_iter().for_each(|(_, replication)| {
+                        // TODO: we could include the server tick when this replication_message was sent.
                         self.replication_manager
                             .apply_world(world, replication, &mut self.events);
                     });
@@ -206,7 +214,8 @@ impl<P: Protocol> Connection<P> {
                     pong.pong_sent_time = time_manager.current_time();
                     let message = ProtocolMessage::Sync(SyncMessage::Pong(pong));
                     let channel = ChannelKind::of::<PingChannel>();
-                    self.message_manager.buffer_send(message, channel)
+                    self.message_manager.buffer_send(message, channel)?;
+                    Ok::<(), anyhow::Error>(())
                 })?;
         }
         self.message_manager

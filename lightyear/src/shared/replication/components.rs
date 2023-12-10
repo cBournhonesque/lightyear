@@ -46,7 +46,7 @@ impl Replicate {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Copy, Clone)]
 pub enum ReplicationGroup {
     // the group id is the entity id
     #[default]

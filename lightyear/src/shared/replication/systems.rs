@@ -159,7 +159,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 /// (currently we only check for the second condition, which is enough but less efficient)
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, Ref<C>, &Replicate)>,
-    system_bevy_ticks: &SystemChangeTick,
+    system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
     <P as Protocol>::Components: From<C>,

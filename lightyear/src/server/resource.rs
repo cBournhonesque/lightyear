@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use bevy::prelude::{Entity, Resource, World};
 use crossbeam_channel::Sender;
-use tracing::{debug, debug_span, info, trace_span};
+use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
@@ -486,7 +486,16 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .get(&group)
                 .context("group not found")?
                 .latest_updates_ack_bevy_tick;
-            replication_manager.prepare_entity_update(entity, group, component.clone());
+            // send the update for all changes newer than the last ack bevy tick for the group
+            trace!(
+                change_tick = ?component_change_tick,
+                last_ack_tick = ?last_updates_ack_bevy_tick,
+                current_tick = ?system_current_tick,
+                "prepare entity update changed check");
+            if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick)
+            {
+                replication_manager.prepare_entity_update(entity, group, component.clone());
+            }
             Ok(())
         })
     }

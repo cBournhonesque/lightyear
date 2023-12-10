@@ -13,6 +13,7 @@ use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
 use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
+use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::channel::senders::ChannelSender;
 use crate::utils::named::TypeNamed;
 
@@ -48,6 +49,10 @@ impl ChannelContainer {
         let sender: ChannelSender;
         let settings_clone = settings.clone();
         match settings.mode {
+            ChannelMode::UnorderedUnreliableWithAcks => {
+                receiver = UnorderedUnreliableReceiver::new().into();
+                sender = UnorderedUnreliableWithAcksSender::new().into();
+            }
             ChannelMode::UnorderedUnreliable => {
                 receiver = UnorderedUnreliableReceiver::new().into();
                 sender = UnorderedUnreliableSender::new().into();

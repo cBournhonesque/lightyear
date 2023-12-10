@@ -69,6 +69,8 @@ pub struct GroupChannel<P: Protocol> {
 
     // updates
     // map from necessary_last_action_tick to the buffered message
+    // the first tick is the last_action_tick
+    // the second tick is the update's server tick when it was sent
     pub updates_waiting_for_insert:
         BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
     // list of update messages that we can apply immediately (in order)
@@ -132,22 +134,23 @@ impl<P: Protocol> GroupChannel<P> {
         let not_ready = self.updates_waiting_for_insert.split_off(&self.latest_tick);
 
         let mut res = vec![];
-        for (_, updates) in self.updates_ready_to_apply.into_iter() {
-            for (tick, update) in updates {
-                // if we have applied a more recent tick, just discard the update
-                if tick > self.latest_tick {
+        let buffered_updates_to_consider = std::mem::take(&mut self.updates_waiting_for_insert);
+        for (necessary_action_tick, updates) in buffered_updates_to_consider.into_iter() {
+            // only push the update if the entity is at more recent tick than the last_action_tick
+            if necessary_action_tick < self.latest_tick {
+                for (tick, update) in updates {
                     self.latest_tick = tick;
-                    res.push((update.last_action_tick, update.clone()));
+                    res.push((tick, update));
                 }
             }
         }
-        std::mem::replace(&mut self.updates_waiting_for_insert, not_ready);
+        self.updates_waiting_for_insert = not_ready;
         res
     }
 }
 
 impl<P: Protocol> ReplicationManager<P> {
-    fn new(updates_ack_tracker: Receiver<MessageId>) -> Self {
+    pub(crate) fn new(updates_ack_tracker: Receiver<MessageId>) -> Self {
         Self {
             entity_map: EntityMap::default(),
             remote_entity_status: HashMap::new(),
@@ -167,9 +170,8 @@ impl<P: Protocol> ReplicationManager<P> {
         while let Ok(message_id) = self.updates_ack_tracker.try_recv() {
             if let Some(group_id) = self.updates_message_id_to_group_id.get(&message_id) {
                 let channel = self.group_channels.entry(*group_id).or_default();
-                // TODO: doesn't seem like we need to do a MAX
-                channel.latest_updates_ack_bevy_tick =
-                    std::cmp::max(channel.latest_updates_ack_bevy_tick, bevy_tick);
+                // TODO: should we do a max?
+                channel.latest_updates_ack_bevy_tick = bevy_tick;
             } else {
                 error!(
                     "Received an update message-id ack but we don't have the corresponding group"
@@ -224,30 +226,49 @@ impl<P: Protocol> ReplicationManager<P> {
     }
 
     /// Return the list of replication messages that are ready to be applied to the World
+    /// Also include the server_tick when that replication message was emitted
+    ///
     /// Updates the `latest_tick` for this group
     pub(crate) fn read_messages(
         &mut self,
-    ) -> impl Iterator<
-        Item = (
-            ReplicationGroup,
-            Vec<ReplicationMessageData<P::Components, P::ComponentKinds>>,
-        ),
-    > {
-        self.group_channels.iter_mut().map(|(group_id, channel)| {
-            let mut res = Vec::new();
-            // check for any actions that are ready to be applied
-            while let Some((tick, actions)) = channel.read_action() {
-                res.push(ReplicationMessageData::Actions(actions));
-            }
+    ) -> Vec<(
+        ReplicationGroupId,
+        Vec<(
+            Tick,
+            ReplicationMessageData<P::Components, P::ComponentKinds>,
+        )>,
+    )> {
+        self.group_channels
+            .iter_mut()
+            .map(|(group_id, channel)| {
+                let mut res = Vec::new();
 
-            // check for any updates that are ready to be applied
-            res.extend(channel.read_update());
+                // check for any actions that are ready to be applied
+                while let Some((tick, actions)) = channel.read_action() {
+                    res.push((tick, ReplicationMessageData::Actions(actions)));
+                }
 
-            // check for any buffered updates that are ready to be applied now that we have applied more actions/updates
-            res.extend(channel.read_buffered_updates());
+                // TODO: (IMPORTANT): should we try to get the updates in order of tick?
 
-            (group_id, res)
-        })
+                // check for any updates that are ready to be applied
+                res.extend(
+                    channel
+                        .read_update()
+                        .into_iter()
+                        .map(|(tick, updates)| (tick, ReplicationMessageData::Updates(updates))),
+                );
+
+                // check for any buffered updates that are ready to be applied now that we have applied more actions/updates
+                res.extend(
+                    channel
+                        .read_buffered_updates()
+                        .into_iter()
+                        .map(|(tick, updates)| (tick, ReplicationMessageData::Updates(updates))),
+                );
+
+                (*group_id, res)
+            })
+            .collect()
     }
 }
 
@@ -264,7 +285,7 @@ impl<P: Protocol> ReplicationManager<P> {
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
     pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group: ReplicationGroupId) {
-        let mut actions = self
+        let actions = self
             .pending_actions
             .entry(group)
             .or_default()
@@ -397,7 +418,9 @@ impl<P: Protocol> ReplicationManager<P> {
                 for (entity, actions) in m.actions.into_iter() {
                     debug!(remote_entity = ?entity, "Received entity actions");
 
-                    // spawn
+                    assert!(!(actions.spawn && actions.despawn));
+
+                    // spawn/despawn
                     let mut local_entity: EntityWorldMut;
                     if actions.spawn {
                         // TODO: optimization: spawn the bundle of insert components
@@ -406,16 +429,7 @@ impl<P: Protocol> ReplicationManager<P> {
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
                         events.push_spawn(local_entity.id());
-                    } else {
-                        if let Ok(l) = self.entity_map.get_by_remote(world, entity) {
-                            local_entity = l;
-                        } else {
-                            continue;
-                        }
-                    }
-
-                    // despawn
-                    if actions.despawn {
+                    } else if actions.despawn {
                         debug!(remote_entity = ?entity, "Received entity despawn");
                         if let Some(local_entity) = self.entity_map.remove_by_remote(entity) {
                             events.push_despawn(local_entity);
@@ -423,7 +437,16 @@ impl<P: Protocol> ReplicationManager<P> {
                         } else {
                             error!("Received despawn for an entity that does not exist")
                         }
+                        continue;
+                    } else {
+                        if let Ok(l) = self.entity_map.get_by_remote(world, entity) {
+                            local_entity = l;
+                        } else {
+                            error!("cannot find entity");
+                            continue;
+                        }
                     }
+
                     // inserts
                     let kinds = actions
                         .insert
@@ -433,14 +456,18 @@ impl<P: Protocol> ReplicationManager<P> {
                     debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
                     for component in actions.insert {
                         // TODO: figure out what to do with tick here
-                        events.push_insert_component(local_entity.id(), component.into(), Tick(0));
+                        events.push_insert_component(
+                            local_entity.id(),
+                            (&component).into(),
+                            Tick(0),
+                        );
                         component.insert(&mut local_entity);
                     }
 
                     // removals
                     debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
-                        events.push_remove_component(local_entity.id(), kind, Tick(0));
+                        events.push_remove_component(local_entity.id(), kind.clone(), Tick(0));
                         kind.remove(&mut local_entity);
                     }
 
@@ -454,7 +481,11 @@ impl<P: Protocol> ReplicationManager<P> {
                         .collect::<Vec<P::ComponentKinds>>();
                     debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
                     for component in actions.updates {
-                        events.push_update_component(local_entity.id(), component.into(), Tick(0));
+                        events.push_update_component(
+                            local_entity.id(),
+                            (&component).into(),
+                            Tick(0),
+                        );
                         component.update(&mut local_entity);
                     }
                 }
@@ -472,7 +503,7 @@ impl<P: Protocol> ReplicationManager<P> {
                         for component in components {
                             events.push_update_component(
                                 local_entity.id(),
-                                component.into(),
+                                (&component).into(),
                                 Tick(0),
                             );
                             component.update(&mut local_entity);

@@ -29,7 +29,7 @@ pub struct MessageManager<M: BitSerializable> {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,
     // TODO: add ordering of channels per priority
-    channels: HashMap<ChannelKind, ChannelContainer>,
+    pub(crate) channels: HashMap<ChannelKind, ChannelContainer>,
     pub(crate) channel_registry: ChannelRegistry,
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that

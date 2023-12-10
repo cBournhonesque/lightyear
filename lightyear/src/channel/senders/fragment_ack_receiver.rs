@@ -45,7 +45,7 @@ impl FragmentAckReceiver {
         fragment_index: FragmentIndex,
         current_time: Option<WrappedTime>,
     ) -> bool {
-        let mut fragment_ack_tracker = self.fragment_messages.get(&message_id) else {
+        let Some(fragment_ack_tracker) = self.fragment_messages.get_mut(&message_id) else {
             error!("Received fragment ack for unknown message id");
             return false;
         };

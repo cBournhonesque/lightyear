@@ -35,7 +35,7 @@ impl EntityMap {
     ) -> anyhow::Result<EntityWorldMut<'a>> {
         self.get_local(remote_entity)
             .and_then(|e| world.get_entity_mut(*e))
-            .with_context("Failed to get local entity")
+            .context("Failed to get local entity")
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
