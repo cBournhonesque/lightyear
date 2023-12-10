@@ -1,10 +1,12 @@
 //! Module to handle replicating entities and components from server to client
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use anyhow::Result;
+use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
 use bevy::utils::{EntityHashMap, HashMap};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
@@ -13,6 +15,7 @@ use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
+use crate::shared::replication::manager::BevyTick;
 
 pub mod components;
 
@@ -46,6 +49,7 @@ pub struct EntityActions<C, K> {
     // TODO: do we even need spawn?
     spawn: bool,
     despawn: bool,
+    // TODO: do we want HashSets to avoid double-inserts, double-removes?
     insert: Vec<C>,
     remove: Vec<K>,
     // We also include the updates for the current tick in the actions, if there are any
@@ -57,14 +61,19 @@ pub struct EntityActions<C, K> {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EntityActionMessage<C, K> {
     sequence_id: MessageId,
-    actions: EntityHashMap<Entity, EntityActions<C, K>>,
+    // TODO: maybe we want a sorted hash map here?
+    //  because if we want to send a group of entities together, presumably it's because there's a hierarchy
+    //  between the elements of the group
+    //  E1: head, E2: arm, parent=head. So we need to read E1 first.
+    actions: BTreeMap<Entity, EntityActions<C, K>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct EntityUpdatesMessage<C, K> {
+pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     last_action_tick: Tick,
-    updates: EntityHashMap<Entity, Vec<C>>,
+    /// TODO: consider EntityHashMap or Vec if order doesn't matter
+    updates: BTreeMap<Entity, Vec<C>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -72,13 +81,13 @@ pub enum ReplicationMessageData<C, K> {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
     Actions(EntityActionMessage<C, K>),
     /// All the entity updates for a given group
-    Updates(EntityUpdatesMessage<C, K>),
+    Updates(EntityUpdatesMessage<C>),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ReplicationMessage<C, K> {
-    group_id: ReplicationGroupId,
-    data: ReplicationMessageData<C, K>,
+    pub(crate) group_id: ReplicationGroupId,
+    pub(crate) data: ReplicationMessageData<C, K>,
 }
 
 impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
@@ -106,6 +115,8 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
+    // type Manager: ReplicationManager;
+
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
     fn new_remote_peers(&self) -> Vec<ClientId>;
@@ -113,7 +124,6 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        components: Vec<P::Components>,
         replicate: &Replicate,
         target: NetworkTarget,
     ) -> Result<()>;
@@ -147,6 +157,10 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         component: P::Components,
         replicate: &Replicate,
         target: NetworkTarget,
+        // bevy_tick when the component changes
+        component_change_tick: BevyTick,
+        // bevy_tick for the current system run
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     /// Any operation that needs to happen before we can send the replication messages

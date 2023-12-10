@@ -7,7 +7,7 @@ use tracing::{info, trace};
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageAck, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::packet::packet::{Packet, PacketId};
 use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
@@ -70,7 +70,12 @@ impl<M: BitSerializable> MessageManager<M> {
     }
 
     /// Buffer a message to be sent on this connection
-    pub fn buffer_send(&mut self, message: M, channel_kind: ChannelKind) -> anyhow::Result<()> {
+    /// Returns the message id associated with the message, if there is one
+    pub fn buffer_send(
+        &mut self,
+        message: M,
+        channel_kind: ChannelKind,
+    ) -> anyhow::Result<Option<MessageId>> {
         let channel = self
             .channels
             .get_mut(&channel_kind)
@@ -78,8 +83,7 @@ impl<M: BitSerializable> MessageManager<M> {
         self.writer.start_write();
         message.encode(&mut self.writer)?;
         let message_bytes: Vec<u8> = self.writer.finish_write().into();
-        channel.sender.buffer_send(message_bytes.into());
-        Ok(())
+        Ok(channel.sender.buffer_send(message_bytes.into()))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -137,7 +141,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
             // TODO: update this to be cleaner
             // TODO: should we update this to include fragment info as well?
-            // Step 3. Update the packet_to_message_id_map (only for reliable channels)
+            // Step 3. Update the packet_to_message_id_map (only for channels that care about acks)
             packet
                 .message_acks()
                 .iter()
@@ -150,7 +154,7 @@ impl<M: BitSerializable> MessageManager<M> {
                         .channels
                         .get(channel_kind)
                         .context("Channel not found")?;
-                    if channel.setting.mode.is_reliable() {
+                    if channel.setting.mode.is_watching_acks() {
                         self.packet_to_message_ack_map
                             .entry(packet_id)
                             .or_default()

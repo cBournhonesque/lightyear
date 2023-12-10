@@ -19,6 +19,7 @@ use crate::shared::ping::manager::PingManager;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
 use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
+use crate::shared::replication::manager::BevyTick;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};
@@ -303,14 +304,13 @@ impl<P: Protocol> Server<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub fn recv_packets(&mut self) -> Result<()> {
+    pub fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
         while let Some((mut reader, client_id)) = self.netcode.recv() {
             // TODO: use connection to apply on BOTH message manager and replication manager
             self.user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .base
-                .recv_packet(&mut reader)?;
+                .recv_packet(&mut reader, bevy_tick)?;
         }
         Ok(())
     }
@@ -348,7 +348,6 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        components: Vec<P::Components>,
         replicate: &Replicate,
         target: NetworkTarget,
     ) -> Result<()> {
@@ -356,24 +355,32 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             "Send entity spawn for tick {:?}",
             self.tick_manager.current_tick()
         );
+        let group = replicate.group_id(Some(entity));
         // debug!(?entity, "Spawning entity");
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         self.apply_replication(target).try_for_each(|client_id| {
-            let mut components = components.clone();
-
-            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-            if replicate.prediction_target.should_send_to(&client_id) {
-                components.push(P::Components::from(ShouldBePredicted));
-            }
-            if replicate.interpolation_target.should_send_to(&client_id) {
-                components.push(P::Components::from(ShouldBeInterpolated));
-            }
-            self.user_connections
+            let replication_manager = &mut self
+                .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
                 .base
-                .replication_manager
-                .prepare_entity_spawn(entity, components, replicate.actions_channel);
+                .replication_manager;
+            replication_manager.prepare_entity_spawn(entity, group);
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if replicate.prediction_target.should_send_to(&client_id) {
+                replication_manager.prepare_component_insert(
+                    entity,
+                    group,
+                    P::Components::from(ShouldBePredicted),
+                );
+            }
+            if replicate.interpolation_target.should_send_to(&client_id) {
+                replication_manager.prepare_component_insert(
+                    entity,
+                    group,
+                    P::Components::from(ShouldBeInterpolated),
+                );
+            }
             Ok(())
         })
     }
@@ -388,6 +395,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             "Send entity despawn for tick {:?}",
             self.tick_manager.current_tick()
         );
+        let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             self.user_connections
@@ -395,11 +403,12 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .context("client not found")?
                 .base
                 .replication_manager
-                .prepare_entity_despawn(entity, replicate.actions_channel);
+                .prepare_entity_despawn(entity, group);
             Ok(())
         })
     }
 
+    // TODO: perf gain if we batch this? (send vec of components) (same for update/removes)
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
@@ -413,6 +422,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             component = ?kind,
             "Inserting single component"
         );
+        let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             self.user_connections
@@ -420,7 +430,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .context("client not found")?
                 .base
                 .replication_manager
-                .prepare_component_insert(entity, component.clone(), replicate.actions_channel);
+                .prepare_component_insert(entity, group, component.clone());
             Ok(())
         })
     }
@@ -433,6 +443,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         target: NetworkTarget,
     ) -> Result<()> {
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
+        let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             self.user_connections
@@ -440,11 +451,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .context("client not found")?
                 .base
                 .replication_manager
-                .prepare_component_remove(
-                    entity,
-                    component_kind.clone(),
-                    replicate.actions_channel,
-                );
+                .prepare_component_remove(entity, group, component_kind.clone());
             Ok(())
         })
     }
@@ -455,6 +462,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         component: P::Components,
         replicate: &Replicate,
         target: NetworkTarget,
+        component_change_tick: BevyTick,
+        system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
         info!(
@@ -463,14 +472,21 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             tick = ?self.tick_manager.current_tick(),
             "Updating single component"
         );
+        let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            self.user_connections
+            let replication_manager = &mut self
+                .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
                 .base
-                .replication_manager
-                .prepare_entity_update(entity, component.clone(), replicate.updates_channel);
+                .replication_manager;
+            let last_updates_ack_bevy_tick = replication_manager
+                .group_channels
+                .get(&group)
+                .context("group not found")?
+                .latest_updates_ack_bevy_tick;
+            replication_manager.prepare_entity_update(entity, group, component.clone());
             Ok(())
         })
     }

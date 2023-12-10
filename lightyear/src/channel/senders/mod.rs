@@ -1,19 +1,25 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
+use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
 
-use crate::packet::message::{FragmentData, MessageAck, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
+pub(crate) mod fragment_ack_receiver;
 pub(crate) mod fragment_sender;
 pub(crate) mod reliable;
 pub(crate) mod sequenced_unreliable;
 pub(crate) mod tick_unreliable;
 pub(crate) mod unordered_unreliable;
+pub(crate) mod unordered_unreliable_with_acks;
 
+// TODO: separate trait into multiple traits
+// - buffer send should be public
+// - all other methods should be private
 /// A trait for sending messages to a channel.
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
@@ -27,7 +33,8 @@ pub trait ChannelSend {
     );
 
     /// Queues a message to be transmitted
-    fn buffer_send(&mut self, message: Bytes);
+    /// Returns the MessageId of the message that was queued, if there is one
+    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId>;
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel
@@ -43,11 +50,15 @@ pub trait ChannelSend {
 
     /// Returns true if there are messages in the buffer that are ready to be sent
     fn has_messages_to_send(&self) -> bool;
+
+    /// Create a new receiver that will receive a message id when a sent message is acked
+    fn subscribe_acks(&mut self) -> Receiver<MessageId>;
 }
 
 /// Enum dispatch lets us derive ChannelSend on each enum variant
 #[enum_dispatch(ChannelSend)]
 pub enum ChannelSender {
+    UnorderedUnreliableWithAcks(unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender),
     UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableSender),
     SequencedUnreliable(sequenced_unreliable::SequencedUnreliableSender),
     Reliable(reliable::ReliableSender),

@@ -2,26 +2,32 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use bytes::Bytes;
-use tracing::trace;
+use tracing::{error, trace};
 
-use crate::packet::message::{FragmentData, MessageId, SingleData};
+use crate::packet::message::{FragmentData, FragmentIndex, MessageAck, MessageId, SingleData};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::shared::time_manager::WrappedTime;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
-pub struct FragmentReceiver {
-    fragment_messages: HashMap<MessageId, FragmentConstructor>,
+pub struct FragmentAckReceiver {
+    fragment_messages: HashMap<MessageId, FragmentAckTracker>,
 }
 
-impl FragmentReceiver {
+impl FragmentAckReceiver {
     pub fn new() -> Self {
         Self {
             fragment_messages: HashMap::new(),
         }
     }
 
-    /// Discard all messages for which the latest fragment was received before the cleanup time
-    /// (i.e. we probably lost some fragments and we will never complete the message)
+    pub fn add_new_fragment_to_wait_for(&mut self, message_id: MessageId, num_fragments: usize) {
+        self.fragment_messages
+            .entry(message_id)
+            .or_insert_with(|| FragmentAckTracker::new(num_fragments));
+    }
+
+    /// Discard all messages for which the latest ack was received before the cleanup time
+    /// (i.e. we probably lost some fragments and we will never get all the acks for this fragmented message)
     ///
     /// If we don't keep track of the last received time, we will never clean up the messages.
     pub fn cleanup(&mut self, cleanup_time: WrappedTime) {
@@ -32,88 +38,65 @@ impl FragmentReceiver {
         })
     }
 
-    pub fn receive_fragment(
+    /// We receive a fragment ack, and return true if the entire fragment was acked.
+    pub fn receive_fragment_ack(
         &mut self,
-        fragment: FragmentData,
+        message_id: MessageId,
+        fragment_index: FragmentIndex,
         current_time: Option<WrappedTime>,
-    ) -> Result<Option<SingleData>> {
-        let fragment_message = self
-            .fragment_messages
-            .entry(fragment.message_id)
-            .or_insert_with(|| FragmentConstructor::new(fragment.num_fragments as usize));
+    ) -> bool {
+        let mut fragment_ack_tracker = self.fragment_messages.get(&message_id) else {
+            error!("Received fragment ack for unknown message id");
+            return false;
+        };
 
         // completed the fragmented message!
-        if let Some(payload) = fragment_message.receive_fragment(
-            fragment.fragment_id as usize,
-            fragment.bytes.as_ref(),
-            current_time,
-        )? {
-            self.fragment_messages.remove(&fragment.message_id);
-            let mut data = SingleData::new(Some(fragment.message_id), payload);
-            // TODO: verify that all fragments had the same tick
-            data.tick = fragment.tick;
-            return Ok(Some(data));
+        if fragment_ack_tracker.receive_ack(fragment_index as usize, current_time) {
+            self.fragment_messages.remove(&message_id);
+            return true;
         }
 
-        Ok(None)
+        false
     }
 }
 
 #[derive(Debug, Clone)]
-/// Data structure to reconstruct a single fragmented message from individual fragments
-pub struct FragmentConstructor {
+/// Data structure to keep track of when an entire fragment message is acked
+pub struct FragmentAckTracker {
     num_fragments: usize,
     num_received_fragments: usize,
     received: Vec<bool>,
-    // bytes: Bytes,
-    bytes: Vec<u8>,
-
     last_received: Option<WrappedTime>,
 }
 
-impl FragmentConstructor {
+impl FragmentAckTracker {
     pub fn new(num_fragments: usize) -> Self {
         Self {
             num_fragments,
             num_received_fragments: 0,
             received: vec![false; num_fragments],
-            bytes: vec![0; num_fragments * FRAGMENT_SIZE],
             last_received: None,
         }
     }
 
-    pub fn receive_fragment(
+    /// Receive a fragment index ack, and return true if the entire fragment was acked.
+    pub fn receive_ack(
         &mut self,
         fragment_index: usize,
-        bytes: &[u8],
         received_time: Option<WrappedTime>,
-    ) -> Result<Option<Bytes>> {
+    ) -> bool {
         self.last_received = received_time;
-
-        let is_last_fragment = fragment_index == self.num_fragments - 1;
-        // TODO: check sizes?
 
         if !self.received[fragment_index] {
             self.received[fragment_index] = true;
             self.num_received_fragments += 1;
-
-            if is_last_fragment {
-                let len = (self.num_fragments - 1) * FRAGMENT_SIZE + bytes.len();
-                self.bytes.resize(len, 0);
-            }
-
-            let start = fragment_index * FRAGMENT_SIZE;
-            let end = start + bytes.len();
-            self.bytes[start..end].copy_from_slice(bytes);
         }
 
         if self.num_received_fragments == self.num_fragments {
-            trace!("Received all fragments!");
-            let payload = std::mem::take(&mut self.bytes);
-            return Ok(Some(payload.into()));
+            trace!("Received all fragments ack!");
+            return true;
         }
-
-        Ok(None)
+        false
     }
 }
 

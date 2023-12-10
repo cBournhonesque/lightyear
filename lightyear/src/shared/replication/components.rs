@@ -35,9 +35,20 @@ pub struct Replicate {
     pub replication_group: ReplicationGroup,
 }
 
+impl Replicate {
+    pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
+        match self.replication_group {
+            ReplicationGroup::FromEntity => {
+                ReplicationGroupId(entity.expect("need to provide an entity").to_bits())
+            }
+            ReplicationGroup::Group(id) => ReplicationGroupId(id),
+        }
+    }
+}
+
 #[derive(Default)]
 pub enum ReplicationGroup {
-    // the groups's id is the entity id
+    // the group id is the entity id
     #[default]
     FromEntity,
     // choose a different group id
@@ -66,6 +77,7 @@ impl Default for Replicate {
             interpolation_target: NetworkTarget::None,
             replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
+            replication_group: Default::default(),
         }
     }
 }

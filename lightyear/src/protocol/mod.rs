@@ -133,7 +133,7 @@ macro_rules! protocolize {
                         direction: ChannelDirection::Bidirectional,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
-                        mode: ChannelMode::SequencedUnreliable,
+                        mode: ChannelMode::UnorderedUnreliableWithAcks,
                         direction: ChannelDirection::Bidirectional,
                     });
                     protocol.add_channel::<PingChannel>(ChannelSettings {

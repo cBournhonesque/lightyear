@@ -19,11 +19,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         // update client state, send keep-alives, receive packets from io
         server.update(time.delta()).unwrap();
         // buffer packets into message managers
-        server.recv_packets().unwrap();
+        server.recv_packets(world.change_tick()).unwrap();
 
         // receive events
         server.receive(world);
-        // let mut events = server.receive(world);
 
         // Write the received events into bevy events
         if !server.events.is_empty() {

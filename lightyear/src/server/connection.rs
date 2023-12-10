@@ -2,6 +2,7 @@
 use std::pin::pin;
 use std::time::Duration;
 
+use crate::_reexport::ReadBuffer;
 use anyhow::Result;
 use bevy::prelude::World;
 use tracing::trace;
@@ -15,6 +16,7 @@ use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::Protocol;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
+use crate::shared::replication::manager::BevyTick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
@@ -31,6 +33,19 @@ impl<P: Protocol> Connection<P> {
             base: crate::connection::Connection::new(channel_registry, ping_config),
             input_buffer: InputBuffer::default(),
         }
+    }
+
+    /// Receive a packet and buffer it
+    /// Also handle any acks that we read from that packet
+    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer, bevy_tick: BevyTick) -> Result<()> {
+        // receive packet
+        self.base.recv_packet(reader)?;
+
+        // TODO: maybe do this also on client connection? Instead of only on server connection?
+        // update the bevy ticks associated with the update messages
+        self.base.replication_manager.recv_update_acks(bevy_tick);
+
+        Ok(())
     }
 
     /// Read messages received from buffer (either messages or replication events) and push them to events

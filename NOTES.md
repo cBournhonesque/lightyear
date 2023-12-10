@@ -135,6 +135,23 @@ ReplicationManager:
   - when we receive a server update for tick T, don't apply server updates immediately, but buffer them wait for k * packet_loss + k' * jitter.
     - then we consider that we got the entire consistent world state for tick T, and apply everything. 
 
+
+
+ACK SYSTEM: 
+- we can receive an ack for a given packet, but systems can't be notified right now if a single given message they sent got received
+- 2 problems: can't track acks for unreliable-sender [A], and can't notify other systems [B]
+- [A]:
+  - create an unordered unreliable sender with ACKs management.
+  - includes message-ids, message-acks
+- [B]:
+  - calling BufferSend returns Option<MessageId> with the id we want to track
+  - add a function Channel::follow_acks() -> Receiver<MessageId> that tells us that the message was received.
+- SEND message (with notif) -> create a custom id for the notif (re-use message-id for sequenced/reliable senders)
+- then store the info in packet-to-message-ack. Maybe MessageAck contains ack-id instead of message-id; or store in dedicated AckId.
+- we update packet-to-message-acks if: channel is reliable (message-id is set)
+- when we receive, we remove the bundle of message-acks from packet-to-message-ack for the packet we just got
+- for each message-ack, we send a 'ACK' via a crossbeam channel?
+
 NEW REPLICATION APPROACH:
 - priority:
   - accumulate priority score per entity (or group)

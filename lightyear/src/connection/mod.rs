@@ -6,7 +6,7 @@ pub mod events;
 
 pub(crate) mod message;
 
-use crate::_reexport::PingChannel;
+use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use anyhow::Result;
 use bevy::prelude::{Entity, World};
 use bitcode::__private::Serialize;
@@ -24,7 +24,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::manager::ReplicationManager;
-use crate::shared::replication::ReplicationMessage;
+use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -40,10 +40,16 @@ pub struct Connection<P: Protocol> {
 
 impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
+        let updates_ack_tracker = channel_registry
+            .channels()
+            .get(&ChannelKind::of::<EntityUpdatesChannel>())
+            .unwrap()
+            .sender
+            .subscribe_acks();
         Self {
             ping_manager: PingManager::new(ping_config),
             message_manager: MessageManager::new(channel_registry),
-            replication_manager: ReplicationManager::default(),
+            replication_manager: ReplicationManager::new(updates_ack_tracker),
             events: ConnectionEvents::new(),
         }
     }
@@ -67,7 +73,8 @@ impl<P: Protocol> Connection<P> {
             .to_string();
         let message = ProtocolMessage::Message(message);
         message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message, channel)
+        self.message_manager.buffer_send(message, channel)?;
+        Ok(())
     }
 
     /// Buffer any replication messages
@@ -75,15 +82,30 @@ impl<P: Protocol> Connection<P> {
         self.replication_manager
             .finalize(tick)
             .into_iter()
-            .try_for_each(|(channel, message)| {
+            .try_for_each(|(channel, group_id, message_data)| {
                 let channel_name = self
                     .message_manager
                     .channel_registry
                     .name(&channel)
                     .unwrap_or("unknown")
                     .to_string();
+                let message = ProtocolMessage::Replication(ReplicationMessage {
+                    group_id,
+                    data: message_data,
+                });
                 message.emit_send_logs(&channel_name);
-                self.message_manager.buffer_send(message, channel)
+                let message_id = self
+                    .message_manager
+                    .buffer_send(message, channel)?
+                    .expect("The EntityUpdatesChannel should always return a message_id");
+
+                // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
+                if matches!(message_data, ReplicationMessageData::Updates(_)) {
+                    self.replication_manager
+                        .updates_message_id_to_group_id
+                        .insert(message_id, group_id);
+                }
+                Ok(())
             })
     }
 

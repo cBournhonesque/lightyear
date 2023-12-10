@@ -90,20 +90,23 @@ pub struct ChannelSettings {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-/// ChannelMode specifies how packets are sent and received
+/// ChannelMode specifies how messages are sent and received
 /// See more information [here](http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
 pub enum ChannelMode {
-    /// Packets may arrive out-of-order, or not at all
+    /// Messages may arrive out-of-order, or not at all.
+    /// Still keep track of which messages got received.
+    UnorderedUnreliableWithAcks,
+    /// Messages may arrive out-of-order, or not at all
     UnorderedUnreliable,
-    /// Same as unordered unreliable, but only the newest packet is ever accepted, older packets
+    /// Same as unordered unreliable, but only the newest message is ever accepted, older messages
     /// are ignored
     SequencedUnreliable,
-    /// Packets may arrive out-of-order, but we make sure (with retries, acks) that the packet
+    /// Messages may arrive out-of-order, but we make sure (with retries, acks) that the message
     /// will arrive
     UnorderedReliable(ReliableSettings),
-    /// Same as unordered reliable, but the packets are sequenced (only the newest packet is accepted)
+    /// Same as unordered reliable, but the messages are sequenced (only the newest message is accepted)
     SequencedReliable(ReliableSettings),
-    /// Packets will arrive in the correct order at the destination
+    /// Messages will arrive in the correct order at the destination
     OrderedReliable(ReliableSettings),
     /// Inputs from the client are associated with the current tick on the client.
     /// The server will buffer them and only receive them on the same tick.
@@ -113,6 +116,20 @@ pub enum ChannelMode {
 impl ChannelMode {
     pub fn is_reliable(&self) -> bool {
         match self {
+            ChannelMode::UnorderedUnreliableWithAcks => false,
+            ChannelMode::UnorderedUnreliable => false,
+            ChannelMode::SequencedUnreliable => false,
+            ChannelMode::UnorderedReliable(_) => true,
+            ChannelMode::SequencedReliable(_) => true,
+            ChannelMode::OrderedReliable(_) => true,
+            ChannelMode::TickBuffered => false,
+        }
+    }
+
+    /// Returns true if the channel cares about tracking ACKs of messages
+    pub(crate) fn is_watching_acks(&self) -> bool {
+        match self {
+            ChannelMode::UnorderedUnreliableWithAcks => true,
             ChannelMode::UnorderedUnreliable => false,
             ChannelMode::SequencedUnreliable => false,
             ChannelMode::UnorderedReliable(_) => true,

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
+use crossbeam_channel::Receiver;
 
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
@@ -39,7 +40,7 @@ impl ChannelSend for UnorderedUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) {
+    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments(
                 self.next_send_fragmented_message_id,
@@ -49,9 +50,11 @@ impl ChannelSend for UnorderedUnreliableSender {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
             self.next_send_fragmented_message_id += 1;
+            return Some(self.next_send_fragmented_message_id - 1);
         } else {
             let single_data = SingleData::new(None, message);
             self.single_messages_to_send.push_back(single_data);
+            return None;
         }
     }
 
@@ -74,6 +77,10 @@ impl ChannelSend for UnorderedUnreliableSender {
 
     fn has_messages_to_send(&self) -> bool {
         !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
+    }
+
+    fn subscribe_acks(&mut self) -> Receiver<MessageId> {
+        unreachable!()
     }
 }
 

@@ -1,4 +1,5 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
+use bevy::ecs::system::SystemChangeTick;
 use std::ops::Deref;
 
 use bevy::prelude::{
@@ -38,7 +39,7 @@ fn add_despawn_tracker(
 
 fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
-    query: Query<(Entity, Ref<Replicate>)>,
+    query: Query<(Entity, &Replicate)>,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
     mut despawn_removed: RemovedComponents<DespawnTracker>,
@@ -66,6 +67,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
                 });
         }
     });
+
     // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
         if let Some(replicate) = replication.owned_entities.remove(&entity) {
@@ -102,7 +104,6 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                                     sender
                                         .prepare_entity_spawn(
                                             entity,
-                                            vec![],
                                             &replicate,
                                             NetworkTarget::Only(*client_id),
                                         )
@@ -120,7 +121,6 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                                         sender
                                             .prepare_entity_spawn(
                                                 entity,
-                                                vec![],
                                                 replicate.deref(),
                                                 NetworkTarget::Only(*client_id),
                                             )
@@ -139,7 +139,6 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                     sender
                         .prepare_entity_spawn(
                             entity,
-                            vec![],
                             replicate.deref(),
                             replicate.replication_target,
                         )
@@ -153,8 +152,14 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 /// This system sends updates for all components that were added or changed
 /// Sends both ComponentInsert for newly added components
 /// and ComponentUpdates otherwise
+///
+/// Updates are sent only for any components that were changed since the most recent of:
+/// - last time we sent an action for that group
+/// - last time we sent an update for that group which got acked.
+/// (currently we only check for the second condition, which is enough but less efficient)
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, Ref<C>, &Replicate)>,
+    system_bevy_ticks: &SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
     <P as Protocol>::Components: From<C>,
@@ -191,13 +196,15 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                             )
                                             .unwrap();
                                         // only update components that were not newly added
-                                    } else if component.is_changed() {
+                                    } else {
                                         sender
                                             .prepare_entity_update(
                                                 entity,
                                                 component.clone().into(),
                                                 replicate,
                                                 NetworkTarget::Only(*client_id),
+                                                component.last_changed(),
+                                                system_bevy_ticks.this_run(),
                                             )
                                             .unwrap();
                                     }
@@ -217,14 +224,17 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             replicate.replication_target,
                         )
                         .unwrap();
-                    // only update components that were not newly added
-                } else if component.is_changed() {
+                } else {
+                    // otherwise send an update for all components that changed since the
+                    // last update we have ack-ed
                     sender
                         .prepare_entity_update(
                             entity,
                             component.clone().into(),
                             replicate,
                             replicate.replication_target,
+                            component.last_changed(),
+                            system_bevy_ticks.this_run(),
                         )
                         .unwrap();
                 }
