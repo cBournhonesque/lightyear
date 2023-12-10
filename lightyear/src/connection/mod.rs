@@ -71,9 +71,9 @@ impl<P: Protocol> Connection<P> {
     }
 
     /// Buffer any replication messages
-    pub fn buffer_replication_messages(&mut self) -> Result<()> {
+    pub fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
         self.replication_manager
-            .finalize()
+            .finalize(tick)
             .into_iter()
             .try_for_each(|(channel, message)| {
                 let channel_name = self
@@ -105,19 +105,19 @@ impl<P: Protocol> Connection<P> {
 
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
-                for (tick, mut message) in messages {
+                for (tick, mut message) in messages.into_iter() {
                     // map entities from remote to local
                     message.map_entities(&self.replication_manager.entity_map);
+
                     // other message-handling logic
                     match message {
-                        ProtocolMessage::Replication(ref replication) => {
-                            // TODO: maybe only apply to the world if the tick is more recent than
-                            //  what we have for that (component/entity) ?
-
-                            // TODO: maybe only run apply world if the client is time-synced!
-                            //  that would mean that for now, apply_world only runs on client, and not on server :)
-                            self.replication_manager
-                                .apply_world(world, replication.clone());
+                        ProtocolMessage::Message(message) => {
+                            // buffer the message
+                            self.events.push_message(channel_kind, message);
+                        }
+                        ProtocolMessage::Replication(replication) => {
+                            // buffer the replication message
+                            self.replication_manager.recv_message(replication, tick);
                         }
                         ProtocolMessage::Sync(ref sync) => {
                             match sync {
@@ -132,21 +132,20 @@ impl<P: Protocol> Connection<P> {
                                 }
                             }
                         }
-                        _ => {}
                     }
-                    // update events
-                    message.push_to_events(
-                        channel_kind,
-                        &mut self.events,
-                        &self.replication_manager.entity_map,
-                        time_manager,
-                        tick,
-                    );
+                }
+
+                // Check if we have any replication messages we can apply to the World (and emit events)
+                // TODO: maybe only run apply world if the client is time-synced!
+                //  that would mean that for now, apply_world only runs on client, and not on server :)
+                for (group, replication_list) in self.replication_manager.read_messages() {
+                    replication_list.into_iter().for_each(|replication| {
+                        self.replication_manager
+                            .apply_world(world, replication, &mut self.events);
+                    });
                 }
             }
         }
-
-        // HERE: we are clearing the input buffers from every connection, which is not what we want!
 
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?

@@ -41,8 +41,13 @@ pub enum ReplicationGroup {
     #[default]
     FromEntity,
     // choose a different group id
+    // note: it must not be the same as any entity id!
+    // TODO: how can i generate one that doesn't conflict? maybe take u32 as input, and apply generation = u32::MAX - 1?
     Group(u64),
 }
+
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ReplicationGroupId(u64);
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub enum ReplicationMode {

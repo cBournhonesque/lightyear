@@ -10,9 +10,14 @@
     - ordering is done per group, with a sequenced id (1,2,3)
     - thus we cannot receive a despawn before a spawn, or a component removal before a component insert
     - actions are still buffered in advance, so that whenever the latest arrives we apply all of them
+    - if there are any actions for an entity, we also send all updates for that entity in the same message!
   - send all updates per group on an unreliable unordered channel
     - sequencing is done per group
     - updates only modify components, do not create them
+    - we send all updates since the last SEND system run for which we received an ACK back.
+      - so that, if we receive update-17, update-18 and we miss 17, we know that by applying 18 we have a correct world state
+      - and we're not missing an update that only happened on 17.
+    - we include in the message the latest tick where we sent actions for that entity
     - we do not send an update for a component that has an insert
     - we apply updates immediately for components that exist, and we buffer updates for components/entities that don't exist (this means not in a component)
       - this means that some components (at insert time), can be stuck behind other components; but it's quickly fixed afterwards. All update components are always on the same tick
@@ -29,6 +34,11 @@
     - can specify a group for an entity, and then all entities in that group are in the same group and have their actions / updates sent together
       - useful for hierarchical entities (parent/children)
       - need to make sure parents are sent first in groups I think ? for entity mapping
+    - the thing is that groups might be different for each player? not sure if that would ever happen. Not important now
+      - rocket league: predict all player entities + ball -> just put all players and ball in the same group
+      - normal: predict only the player entity -> no need to put them in the same group.
+      - RTS: each player predicts multiple entities -> each player must have their OWN entities in the same group.
+        - still fine to put all a player's entities in the same group
   - events:
     - for actions: send an event for each action
     - for updates: send an event for each component update received (buffer)? or applied? applied would be in order, which be better
@@ -76,6 +86,7 @@ ReplicationManager:
         C2 is updated to tick 14. When we receive action13, we apply it for C1, and apply the buffered update for C1 so we bring it 14 immediately
         (so that all update ticks are consistent, important for interpolation/prediction)
         -> we still know for each component at which tick we are, but we could be at a state never reached by the server
+        -> can't, because some components could depend on actions (for example could reference an entity that doesn't exist)
       - option 2: we apply it for all components, spawning those that don't exist.
         C2 is updated to tick 14, C1 is spawned and set to tick 14.
         -> problem, could get some inconsistency in the entity's archetype. When we receive action13, we don't apply it for C1 (since it exists)
@@ -86,6 +97,35 @@ ReplicationManager:
         -> also if we receive action-13 but update-13 gets lost then it's ok, because they are for different components
            - for each component we still know at which tick we are (important for interpolation/prediction)
         -> so basically we are as far as the latest actions received
+        -> on the SEND side, we also have buffers. We buffer updates later than the latest one actions we sent
+        -> lets say C1-insert-13, C1-update-14.
+      - option 4: on the ticks where there are actions, we send actions+updates reliably!
+        on the ticks with no actions, we send updates unreliably.
+        In updates, we include the latest action tick we sent.
+        On the receive side, we buffer updates, and we apply them only after we received the latest action tick we sent. 
+        Example:
+        - we send actions-13, updated-17 (with latest actions 13). we receive 17 first, so we buffer it because we haven't received actions-13 yet.
+          we receive actions-13, (containing some updates-13 as well), and then apply 17 from the buffer.
+          Entity is at 17
+        - we send actions-13, updated-17 (with latest actions 13). we receive actions-13 first, so we apply it (entity is at tick 13). Then we receive updates-17, we already received
+          the latest actions (13) so we also apply it. The entity is at tick 17.
+        - we send actions-13, updates-16(latest-action-13), actions-17, updates-18(latest-action-17)
+          - we receive actions-17, we buffer it (ordered reliable)
+          - we receive updates-18, we buffer it (cuz we wait for actions-17 to have been applied to client world)
+          - we receive updates-16, we buffer it (cuz we wait for actions-13 to have been applied to client world)
+          - we receive actions-13, we apply it. we also apply any buffered actions, so actions 17.
+          - we flush.
+          - we apply updates 16 because actions-13 is reached, and we apply updates-18 cuz actions-17 is reached.
+          - (could we do without the flush, and have updates also insert the component ?)
+          - entity is at tick 18.
+        - we send updates-17 (latest action 12) for C1, updates-18 (latest action 12) for C2. Actions 12 has been received first.
+          - we receive update-18 first, we apply it. No need to receive updates-17.
+          - that means updates-18 needs to contain ALL CHANGES SINCE ACTIONS-12, not just changes since last sent ?
+          - so updates-18 actually contains changes for BOTH C1 and C2
+          - or, we just apply updates-18 first, and then when we receive u
+        - we could, every 500ms, send all updates as reliable, and between that just send the diff of all components since the reliable state. (delta compression)
+            
+       
     - actions are applied in order. (if we receive actions 14, we buffer them and wait for actions 13.) 
       How do we make sure of that? For every group, the actions are sent with an id that is incremented in order (1,2,3,4,etc.)
       We wait until we receive the one from the previous id before applying the actions.

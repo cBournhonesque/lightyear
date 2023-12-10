@@ -486,7 +486,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                     .get_mut(client_id)
                     .context("client not found")?
                     .base
-                    .buffer_replication_messages()
+                    .buffer_replication_messages(self.tick_manager.current_tick())
             })
     }
 }

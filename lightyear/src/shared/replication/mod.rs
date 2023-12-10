@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMap, MapEntities, NetworkTarget};
+use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{Replicate, ReplicationGroup};
+use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
 
 pub mod components;
 
@@ -48,27 +48,37 @@ pub struct EntityActions<C, K> {
     despawn: bool,
     insert: Vec<C>,
     remove: Vec<K>,
+    // We also include the updates for the current tick in the actions, if there are any
+    updates: Vec<C>,
 }
 
+// TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
+//  have an optimization for that
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EntityActionMessage<C, K> {
-    group_id: ReplicationGroup,
     sequence_id: MessageId,
     actions: EntityHashMap<Entity, EntityActions<C, K>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EntityUpdatesMessage<C, K> {
-    group_id: ReplicationGroup,
+    /// The last tick for which we sent an EntityActionsMessage for this group
+    last_action_tick: Tick,
     updates: EntityHashMap<Entity, Vec<C>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub enum ReplicationMessage<C, K> {
+pub enum ReplicationMessageData<C, K> {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
     Actions(EntityActionMessage<C, K>),
     /// All the entity updates for a given group
     Updates(EntityUpdatesMessage<C, K>),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ReplicationMessage<C, K> {
+    group_id: ReplicationGroupId,
+    data: ReplicationMessageData<C, K>,
 }
 
 impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {

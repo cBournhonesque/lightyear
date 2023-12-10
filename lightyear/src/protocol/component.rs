@@ -75,9 +75,9 @@ impl<T: Component> ComponentBehaviour for T {
         // because otherwise the insert could override an component-update that was received later?
 
         // but this could cause some issues if we wanted the component to be updated from the insert
-        if entity.get::<T>().is_none() {
-            entity.insert(self);
-        }
+        // if entity.get::<T>().is_none() {
+        entity.insert(self);
+        // }
     }
 
     // Apply a ComponentUpdate to an entity
