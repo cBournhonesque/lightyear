@@ -130,8 +130,48 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
 #[cfg(test)]
 mod tests {
-    // #[test]
-    // fn test_unordered_unreliable_sender_internals() {
-    //     todo!()
-    // }
+    use super::*;
+    use crate::channel::senders::fragment_ack_receiver::FragmentAckTracker;
+    use crate::packet::packet::FRAGMENT_SIZE;
+    use crossbeam_channel::TryRecvError;
+
+    #[test]
+    fn test_receive_ack() {
+        let mut sender = UnorderedUnreliableWithAcksSender::new();
+
+        // create subscriber
+        let receiver = sender.subscribe_acks();
+
+        // single message
+        let message_id = sender.buffer_send(Bytes::from("hello")).unwrap();
+        assert_eq!(message_id, MessageId(0));
+        assert_eq!(sender.next_send_message_id, MessageId(1));
+
+        // ack it
+        sender.notify_message_delivered(&MessageAck {
+            message_id,
+            fragment_id: None,
+        });
+        assert_eq!(receiver.try_recv().unwrap(), message_id);
+
+        // fragment message
+        const NUM_BYTES: usize = (FRAGMENT_SIZE as f32 * 1.5) as usize;
+        let bytes = Bytes::from(vec![0; NUM_BYTES]);
+        let message_id = sender.buffer_send(bytes).unwrap();
+        assert_eq!(message_id, MessageId(1));
+        let mut expected = FragmentAckReceiver::new();
+        expected.add_new_fragment_to_wait_for(message_id, 2);
+        assert_eq!(&sender.fragment_ack_receiver, &expected);
+
+        sender.notify_message_delivered(&MessageAck {
+            message_id,
+            fragment_id: Some(0),
+        });
+        assert!(receiver.try_recv().unwrap_err().is_empty());
+        sender.notify_message_delivered(&MessageAck {
+            message_id,
+            fragment_id: Some(1),
+        });
+        assert_eq!(receiver.try_recv().unwrap(), message_id);
+    }
 }

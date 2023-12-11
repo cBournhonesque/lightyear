@@ -9,7 +9,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::{Authentication, Client};
 use lightyear::prelude::*;
-use lightyear_examples::protocol::{Channel2, MyProtocol};
+use lightyear_examples::protocol::MyProtocol;
 
 fn client_init(mut client: ResMut<Client<MyProtocol>>) {
     info!("Connecting to server");
@@ -19,7 +19,6 @@ fn client_init(mut client: ResMut<Client<MyProtocol>>) {
 fn server_init(mut commands: Commands) {
     info!("Spawning entity on server");
     commands.spawn(Replicate {
-        updates_channel: ChannelKind::of::<Channel2>(),
         ..Default::default()
     });
 }

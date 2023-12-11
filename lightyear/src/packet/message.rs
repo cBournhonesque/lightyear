@@ -323,12 +323,12 @@ impl MessageContainer {
     pub fn set_tick(&mut self, tick: Tick) {
         match self {
             MessageContainer::Single(data) => {
-                if data.tick.is_some() {
+                if data.tick.is_none() {
                     data.tick = Some(tick);
                 }
             }
             MessageContainer::Fragment(data) => {
-                if data.tick.is_some() {
+                if data.tick.is_none() {
                     data.tick = Some(tick);
                 }
             }

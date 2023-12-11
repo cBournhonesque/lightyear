@@ -18,7 +18,7 @@ pub type InputEvent<I> = crate::shared::events::InputEvent<I, ()>;
 
 pub type EntitySpawnEvent = crate::shared::events::EntitySpawnEvent<()>;
 pub type EntityDespawnEvent = crate::shared::events::EntityDespawnEvent<()>;
-pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, Tick>;
-pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, Tick>;
-pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, Tick>;
+pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, ()>;
+pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, ()>;
+pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, ()>;
 pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ()>;

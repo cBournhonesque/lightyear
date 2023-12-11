@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use bevy::utils::HashMap;
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -9,6 +9,7 @@ use crate::packet::packet::FRAGMENT_SIZE;
 use crate::shared::time_manager::WrappedTime;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
+#[derive(Debug, PartialEq)]
 pub struct FragmentAckReceiver {
     fragment_messages: HashMap<MessageId, FragmentAckTracker>,
 }
@@ -60,7 +61,7 @@ impl FragmentAckReceiver {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 /// Data structure to keep track of when an entire fragment message is acked
 pub struct FragmentAckTracker {
     num_fragments: usize,
@@ -107,22 +108,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_receiver() -> Result<()> {
-        let mut receiver = FragmentReceiver::new();
-        let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
-        let message_bytes = Bytes::from(vec![1u8; num_bytes]);
-        let fragments =
-            FragmentSender::new().build_fragments(MessageId(0), None, message_bytes.clone());
+    fn test_receive_fragments() {
+        let mut receiver = FragmentAckReceiver::new();
 
-        assert_eq!(receiver.receive_fragment(fragments[0].clone(), None)?, None);
-        assert_eq!(
-            receiver.receive_fragment(fragments[1].clone(), None)?,
-            Some(SingleData {
-                id: Some(MessageId(0)),
-                tick: None,
-                bytes: message_bytes.clone(),
-            })
-        );
+        receiver.add_new_fragment_to_wait_for(MessageId(0), 2);
+
+        assert!(!receiver.receive_fragment_ack(MessageId(0), 0, None));
+        // receiving the same fragment twice should do nothing
+        assert!(!receiver.receive_fragment_ack(MessageId(0), 0, None));
+        // we receive the entire fragment: should return true
+        assert!(receiver.receive_fragment_ack(MessageId(0), 1, None));
+
+        assert!(receiver.fragment_messages.is_empty());
+    }
+
+    #[test]
+    fn test_cleanup() -> Result<()> {
+        let mut receiver = FragmentAckReceiver::new();
+
+        receiver.add_new_fragment_to_wait_for(MessageId(0), 2);
+
+        assert!(!receiver.receive_fragment_ack(MessageId(0), 0, Some(WrappedTime::new(150))));
+        receiver.cleanup(WrappedTime::new(170));
+        assert!(receiver.fragment_messages.is_empty());
         Ok(())
     }
 }

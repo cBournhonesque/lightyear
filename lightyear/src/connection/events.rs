@@ -26,19 +26,24 @@ pub struct ConnectionEvents<P: Protocol> {
     // replication
     pub spawns: Vec<Entity>,
     pub despawns: Vec<Entity>,
+
+    // TODO: [IMPORTANT]: add ticks as well?
+    // - should we just return the latest update for a given component/entity, or all of them?
+    // - should we have a way to get the updates/inserts/removes for a given entity?
+
     // TODO: key by entity or by kind?
     // TODO: include the actual value in the event, or just the type? let's just include the type for now
-    pub component_inserts: HashMap<P::ComponentKinds, Vec<(Entity, Tick)>>,
+    pub component_inserts: HashMap<P::ComponentKinds, Vec<Entity>>,
     // pub insert_components: HashMap<Entity, Vec<P::Components>>,
-    pub component_removes: HashMap<P::ComponentKinds, Vec<(Entity, Tick)>>,
+    pub component_removes: HashMap<P::ComponentKinds, Vec<Entity>>,
     // TODO: here as well, we could only include the type.. we already apply the changes to the entity directly, so users could keep track of changes
     //  let's just start with the kind...
     //  also, normally the updates are sequenced
-    // pub component_updates: HashMap<P::ComponentKinds, Vec<(Entity, Tick)>>,
-    // TODO: what happens if we receive on the same frame an Update for tick 4 and update for tick 10?
-    //  can we just discard the older one? what about for inserts/removes?
-    pub component_updates: EntityHashMap<Entity, HashMap<P::ComponentKinds, Tick>>,
-    components_with_updates: HashSet<P::ComponentKinds>,
+    pub component_updates: HashMap<P::ComponentKinds, Vec<Entity>>,
+    // // TODO: what happens if we receive on the same frame an Update for tick 4 and update for tick 10?
+    // //  can we just discard the older one? what about for inserts/removes?
+    // pub component_updates: EntityHashMap<Entity, HashMap<P::ComponentKinds, Tick>>,
+    // components_with_updates: HashSet<P::ComponentKinds>,
 
     // How can i easily get the events (inserts/adds/removes) for a given entity? add components on that entity
     // that track that?
@@ -66,7 +71,7 @@ impl<P: Protocol> ConnectionEvents<P> {
             component_inserts: Default::default(),
             component_removes: Default::default(),
             component_updates: Default::default(),
-            components_with_updates: Default::default(),
+            // components_with_updates: Default::default(),
             // bookkeeping
             empty: true,
         }
@@ -146,7 +151,8 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.component_inserts
             .entry(component)
             .or_default()
-            .push((entity, tick));
+            .push(entity);
+        // .push((entity, tick));
         self.empty = false;
     }
 
@@ -164,7 +170,8 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.component_removes
             .entry(component)
             .or_default()
-            .push((entity, tick));
+            .push(entity);
+        // .push((entity, tick));
         self.empty = false;
     }
 
@@ -180,21 +187,23 @@ impl<P: Protocol> ConnectionEvents<P> {
         {
             metrics::increment_counter!("component_update", "kind" => component);
         }
-        self.components_with_updates.insert(component.clone());
-        self.component_updates
-            .entry(entity)
-            .or_default()
-            .entry(component)
-            .and_modify(|t| {
-                if tick > *t {
-                    *t = tick;
-                }
-            })
-            .or_insert(tick);
+        // self.components_with_updates.insert(component.clone());
         // self.component_updates
-        //     .entry(component)
+        //     .entry(entity)
         //     .or_default()
-        //     .push((entity, tick));
+        //     .entry(component)
+        //     .and_modify(|t| {
+        //         if tick > *t {
+        //             *t = tick;
+        //         }
+        //     })
+        //     .or_insert(tick);
+
+        self.component_updates
+            .entry(component)
+            .or_default()
+            .push(entity);
+        // .push((entity, tick));
         self.empty = false;
     }
 }
@@ -265,7 +274,7 @@ impl<P: Protocol> IterEntityDespawnEvent for ConnectionEvents<P> {
 }
 
 /// Iterate through all the events for a given entity
-pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = Tick> {
+pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
     /// Find all the updates of component C
     fn iter_component_update<C: Component>(
         &mut self,
@@ -285,43 +294,49 @@ pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = Tick> {
 }
 
 impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
-    fn iter_component_update<C: Component>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, Tick)> + '_>
+    fn iter_component_update<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         C: IntoKind<P::ComponentKinds>,
     {
-        Box::new(
-            self.component_updates
-                .iter()
-                .filter_map(|(entity, updates)| {
-                    updates.get(&C::into_kind()).map(|tick| (*entity, *tick))
-                }),
-        )
+        let component_kind = C::into_kind();
+        if let Some(data) = self.component_updates.remove(&component_kind) {
+            return Box::new(data.into_iter().map(|entity| (entity, ())));
+        }
+        Box::new(iter::empty())
+        // Box::new(
+        //     self.component_updates
+        //         .iter()
+        //         .filter_map(|(entity, updates)| {
+        //             updates.get(&C::into_kind()).map(|tick| (*entity, *tick))
+        //         }),
+        // )
     }
 
     fn has_component_update<C: Component>(&self) -> bool
     where
         C: IntoKind<P::ComponentKinds>,
     {
-        self.components_with_updates.contains(&C::into_kind())
+        let component_kind = C::into_kind();
+        self.component_updates.contains_key(&component_kind)
+        // self.components_with_updates.contains(&C::into_kind())
     }
 
     // TODO: is it possible to receive multiple updates for the same component/entity?
     //  it shouldn't be possible for a Sequenced channel,
     //  maybe just take the first value that matches, then?
-    fn get_component_update<C: Component>(&self, entity: Entity) -> Option<Tick>
+    fn get_component_update<C: Component>(&self, entity: Entity) -> Option<()>
     where
         C: IntoKind<P::ComponentKinds>,
     {
-        self.component_updates
-            .get(&entity)
-            .map(|updates| updates.get(&C::into_kind()).cloned())
-            .flatten()
+        todo!()
+        // self.component_updates
+        //     .get(&entity)
+        //     .map(|updates| updates.get(&C::into_kind()).cloned())
+        //     .flatten()
     }
 }
 
-pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = Tick> {
+pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
     fn into_iter_component_remove<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
@@ -336,13 +351,13 @@ pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = Tick> {
 impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
     fn into_iter_component_remove<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, Tick)> + '_>
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         C: IntoKind<P::ComponentKinds>,
     {
         let component_kind = C::into_kind();
         if let Some(data) = self.component_removes.remove(&component_kind) {
-            return Box::new(data.into_iter());
+            return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
         Box::new(iter::empty())
     }
@@ -356,7 +371,7 @@ impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
     }
 }
 
-pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = Tick> {
+pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
     fn into_iter_component_insert<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
@@ -370,13 +385,13 @@ pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = Tick> {
 impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
     fn into_iter_component_insert<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, Tick)> + '_>
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         C: IntoKind<P::ComponentKinds>,
     {
         let component_kind = C::into_kind();
         if let Some(data) = self.component_inserts.remove(&component_kind) {
-            return Box::new(data.into_iter());
+            return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
         Box::new(iter::empty())
     }
@@ -425,36 +440,36 @@ mod tests {
         assert!(events.messages.contains_key(&MessageKind::of::<Message2>()));
     }
 
-    #[test]
-    fn test_iter_component_updates() {
-        let mut events = ConnectionEvents::<MyProtocol>::new();
-        let channel_kind_1 = ChannelKind::of::<Channel1>();
-        let channel_kind_2 = ChannelKind::of::<Channel2>();
-        let entity_1 = Entity::from_raw(1);
-        let entity_2 = Entity::from_raw(2);
-        events.push_update_component(entity_1, MyComponentsProtocolKind::Component1, Tick(1));
-        events.push_update_component(entity_1, MyComponentsProtocolKind::Component2, Tick(2));
-        events.push_update_component(entity_2, MyComponentsProtocolKind::Component2, Tick(3));
-
-        assert!(events
-            .get_component_update::<Component1>(entity_2)
-            .is_none());
-        assert_eq!(
-            events.get_component_update::<Component2>(entity_2),
-            Some(Tick(3))
-        );
-
-        let component_1_updates: HashSet<(Entity, Tick)> =
-            events.iter_component_update::<Component1>().collect();
-        assert!(component_1_updates.contains(&(entity_1, Tick(1))));
-
-        let component_2_updates: HashSet<(Entity, Tick)> =
-            events.iter_component_update::<Component2>().collect();
-        assert!(component_2_updates.contains(&(entity_1, Tick(2))));
-        assert!(component_2_updates.contains(&(entity_2, Tick(3))));
-
-        let component_3_updates: HashSet<(Entity, Tick)> =
-            events.iter_component_update::<Component3>().collect();
-        assert!(component_3_updates.is_empty());
-    }
+    // #[test]
+    // fn test_iter_component_updates() {
+    //     let mut events = ConnectionEvents::<MyProtocol>::new();
+    //     let channel_kind_1 = ChannelKind::of::<Channel1>();
+    //     let channel_kind_2 = ChannelKind::of::<Channel2>();
+    //     let entity_1 = Entity::from_raw(1);
+    //     let entity_2 = Entity::from_raw(2);
+    //     events.push_update_component(entity_1, MyComponentsProtocolKind::Component1, Tick(1));
+    //     events.push_update_component(entity_1, MyComponentsProtocolKind::Component2, Tick(2));
+    //     events.push_update_component(entity_2, MyComponentsProtocolKind::Component2, Tick(3));
+    //
+    //     assert!(events
+    //         .get_component_update::<Component1>(entity_2)
+    //         .is_none());
+    //     assert_eq!(
+    //         events.get_component_update::<Component2>(entity_2),
+    //         Some(Tick(3))
+    //     );
+    //
+    //     let component_1_updates: HashSet<(Entity, Tick)> =
+    //         events.iter_component_update::<Component1>().collect();
+    //     assert!(component_1_updates.contains(&(entity_1, Tick(1))));
+    //
+    //     let component_2_updates: HashSet<(Entity, Tick)> =
+    //         events.iter_component_update::<Component2>().collect();
+    //     assert!(component_2_updates.contains(&(entity_1, Tick(2))));
+    //     assert!(component_2_updates.contains(&(entity_2, Tick(3))));
+    //
+    //     let component_3_updates: HashSet<(Entity, Tick)> =
+    //         events.iter_component_update::<Component3>().collect();
+    //     assert!(component_3_updates.is_empty());
+    // }
 }

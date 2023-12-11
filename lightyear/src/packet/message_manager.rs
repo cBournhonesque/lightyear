@@ -240,7 +240,7 @@ impl<M: BitSerializable> MessageManager<M> {
                 // TODO: why do we need finish read? to check for errors?
                 // reader.finish_read()?;
 
-                // SAFETY: when we read, we set the tick of the message to the header tick
+                // SAFETY: when we receive the message, we set the tick of the message to the header tick
                 // so every message has a tick
                 messages.push((single_data.tick.unwrap(), message));
             }

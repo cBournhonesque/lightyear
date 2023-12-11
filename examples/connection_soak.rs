@@ -1,3 +1,4 @@
+use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -90,7 +91,7 @@ fn main() -> anyhow::Result<()> {
         let mut rng = rand::thread_rng();
         loop {
             server.update(start.elapsed())?;
-            server.recv_packets()?;
+            server.recv_packets(BevyTick::new(0))?;
             server.send_packets()?;
             server.receive(&mut world);
 

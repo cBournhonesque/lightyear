@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::connection::events::ConnectionEvents;
+use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, EntityWorldMut, World};
 use bevy::utils::EntityHashMap;
 use crossbeam_channel::Receiver;
@@ -33,8 +34,6 @@ pub enum EntityStatus {
     Spawning,
     Spawned,
 }
-
-pub type BevyTick = bevy::ecs::component::Tick;
 
 pub(crate) struct ReplicationManager<P: Protocol> {
     pub remote_entity_status: HashMap<Entity, EntityStatus>,

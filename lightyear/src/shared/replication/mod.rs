@@ -1,6 +1,7 @@
 //! Module to handle replicating entities and components from server to client
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use anyhow::Result;
+use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
@@ -15,7 +16,6 @@ use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
-use crate::shared::replication::manager::BevyTick;
 
 pub mod components;
 

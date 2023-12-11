@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
 use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, info, trace, trace_span};
@@ -19,7 +20,6 @@ use crate::shared::ping::manager::PingManager;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
 use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
-use crate::shared::replication::manager::BevyTick;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};
