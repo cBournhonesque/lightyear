@@ -466,12 +466,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        info!(
-            ?entity,
-            component = ?kind,
-            tick = ?self.tick_manager.current_tick(),
-            "Updating single component"
-        );
+
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
@@ -487,13 +482,20 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .context("group not found")?
                 .latest_updates_ack_bevy_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
-            trace!(
+            info!(
                 change_tick = ?component_change_tick,
                 last_ack_tick = ?last_updates_ack_bevy_tick,
                 current_tick = ?system_current_tick,
-                "prepare entity update changed check");
+                "prepare entity update changed check"
+            );
             if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick)
             {
+                info!(
+                    ?entity,
+                    component = ?kind,
+                    tick = ?self.tick_manager.current_tick(),
+                    "Updating single component"
+                );
                 replication_manager.prepare_entity_update(entity, group, component.clone());
             }
             Ok(())

@@ -19,8 +19,8 @@ impl PlayerBundle {
             position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(id),
+                prediction_target: NetworkTarget::None,
+                // prediction_target: NetworkTarget::Only(id),
                 interpolation_target: NetworkTarget::AllExcept(id),
                 ..default()
             },
