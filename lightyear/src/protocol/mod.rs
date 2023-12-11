@@ -9,6 +9,7 @@ use bevy::prelude::App;
 use lightyear_macros::ChannelInternal;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::fmt::Debug;
 
 use crate::channel::builder::{Channel, ChannelSettings};
 use crate::inputs::UserInput;
@@ -66,7 +67,7 @@ pub(crate) mod registry;
 ///
 ///# fn main() {}
 /// ```
-pub trait Protocol: Send + Sync + Clone + 'static {
+pub trait Protocol: Send + Sync + Clone + Debug + 'static {
     type Input: UserInput;
     type Message: MessageProtocol<Protocol = Self>;
     type Components: ComponentProtocol<Protocol = Self>;

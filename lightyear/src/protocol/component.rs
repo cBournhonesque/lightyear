@@ -25,6 +25,7 @@ pub trait ComponentProtocol:
     + DeserializeOwned
     + MapEntities
     + ComponentBehaviour
+    + Debug
     + Send
     + Sync
     + From<ShouldBePredicted>

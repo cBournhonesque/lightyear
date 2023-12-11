@@ -12,7 +12,7 @@ pub struct Message1(pub String);
 #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[message_protocol_internal(protocol = "MyProtocol")]
+#[message_protocol_internal(protocol = "MyProtocol", derive(Debug))]
 pub enum MyMessageProtocol {
     Message1(Message1),
     Message2(Message2),
@@ -38,7 +38,7 @@ impl MapEntities for Component4 {
     }
 }
 
-#[component_protocol_internal(protocol = "MyProtocol")]
+#[component_protocol_internal(protocol = "MyProtocol", derive(Debug))]
 pub enum MyComponentsProtocol {
     #[sync(full)]
     Component1(Component1),
@@ -58,7 +58,6 @@ pub struct MyInput(pub i16);
 impl UserInput for MyInput {}
 
 // Protocol
-
 protocolize! {
     Self = MyProtocol,
     Message = MyMessageProtocol,
@@ -77,11 +76,11 @@ pub struct Channel2;
 pub fn protocol() -> MyProtocol {
     let mut p = MyProtocol::default();
     p.add_channel::<Channel1>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+        mode: ChannelMode::UnorderedUnreliable,
         direction: ChannelDirection::Bidirectional,
     });
     p.add_channel::<Channel2>(ChannelSettings {
-        mode: ChannelMode::UnorderedUnreliable,
+        mode: ChannelMode::UnorderedUnreliableWithAcks,
         direction: ChannelDirection::Bidirectional,
     });
     p

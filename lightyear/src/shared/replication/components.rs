@@ -58,7 +58,7 @@ pub enum ReplicationGroup {
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ReplicationGroupId(u64);
+pub struct ReplicationGroupId(pub u64);
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub enum ReplicationMode {

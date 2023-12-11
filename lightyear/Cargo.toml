@@ -62,8 +62,8 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 byteorder = "1.5.0"
 
 # derive
-#lightyear_macros = { path = "../macros" }
-lightyear_macros = "0.1.0"
+lightyear_macros = { path = "../macros" }
+#lightyear_macros = "0.1.0"
 
 # tracing
 tracing = "0.1.40"

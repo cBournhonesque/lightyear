@@ -187,6 +187,13 @@ pub fn component_protocol_impl(
                 #add_sync_systems_method
             }
 
+            impl std::fmt::Debug for #enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                    let kind: #enum_kind_name = self.into();
+                    kind.fmt(f)
+                }
+            }
+
             #sync_component_impl
             #delegate_method
 

@@ -56,7 +56,8 @@ impl MapEntities for PlayerParent {
     }
 }
 
-#[component_protocol(protocol = "MyProtocol", derive(Debug))]
+// #[component_protocol(protocol = "MyProtocol", derive(Debug))]
+#[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),

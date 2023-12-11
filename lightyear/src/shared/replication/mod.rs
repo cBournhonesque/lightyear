@@ -45,7 +45,7 @@ pub mod systems;
 //     EntityUpdate(Entity, Vec<C>),
 // }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityActions<C, K> {
     // TODO: do we even need spawn?
     pub(crate) spawn: bool,
@@ -71,7 +71,7 @@ impl<C, K> Default for EntityActions<C, K> {
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityActionMessage<C, K> {
     sequence_id: MessageId,
     // TODO: maybe we want a sorted hash map here?
@@ -81,7 +81,7 @@ pub struct EntityActionMessage<C, K> {
     pub(crate) actions: BTreeMap<Entity, EntityActions<C, K>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     last_action_tick: Tick,
@@ -89,7 +89,7 @@ pub struct EntityUpdatesMessage<C> {
     pub(crate) updates: BTreeMap<Entity, Vec<C>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum ReplicationMessageData<C, K> {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
     Actions(EntityActionMessage<C, K>),
@@ -97,7 +97,7 @@ pub enum ReplicationMessageData<C, K> {
     Updates(EntityUpdatesMessage<C>),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct ReplicationMessage<C, K> {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) data: ReplicationMessageData<C, K>,

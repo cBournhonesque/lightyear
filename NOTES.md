@@ -5,6 +5,16 @@
   - one server: 1 game room per core?
 
 
+- DEBUGGING SIMPLE_BOX:
+  - inputs aren't propagated.
+  - we don't receive any update acks either.
+  - need to add replication-specific tests. Also step-style tests.
+
+  - Right now, we are sending some updates at the beginning at the same time of inserts, even though nothing changes since the insert.
+    - need to make sure we send updates since the most recent of 'last_ack_updates' or 'last_sent_actions'
+  - THE PROBLEM IS EITHER IN READ_BUFFERED_UPDATES OR APPLY_WORLD!
+
+
 - FINAL CHOICE:
   - send all actions per group on an reliable unordered channel
     - ordering is done per group, with a sequenced id (1,2,3)

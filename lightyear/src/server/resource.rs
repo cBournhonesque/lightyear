@@ -482,14 +482,15 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .context("group not found")?
                 .latest_updates_ack_bevy_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
-            info!(
-                change_tick = ?component_change_tick,
-                last_ack_tick = ?last_updates_ack_bevy_tick,
-                current_tick = ?system_current_tick,
-                "prepare entity update changed check"
-            );
+
             if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick)
             {
+                info!(
+                    change_tick = ?component_change_tick,
+                    last_ack_tick = ?last_updates_ack_bevy_tick,
+                    current_tick = ?system_current_tick,
+                    "prepare entity update changed check"
+                );
                 info!(
                     ?entity,
                     component = ?kind,

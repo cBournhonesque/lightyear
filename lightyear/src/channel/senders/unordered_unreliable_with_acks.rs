@@ -72,7 +72,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
         } else {
-            let single_data = SingleData::new(None, message);
+            let single_data = SingleData::new(Some(message_id), message);
             self.single_messages_to_send.push_back(single_data);
         }
         self.next_send_message_id += 1;

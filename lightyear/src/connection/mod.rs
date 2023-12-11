@@ -9,7 +9,7 @@ pub(crate) mod message;
 use anyhow::Result;
 use bevy::prelude::{Entity, World};
 use serde::{Deserialize, Serialize};
-use tracing::{trace, trace_span};
+use tracing::{info, trace, trace_span};
 
 use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -96,7 +96,7 @@ impl<P: Protocol> Connection<P> {
                     .name(&channel)
                     .unwrap_or("unknown")
                     .to_string();
-                let message = ProtocolMessage::Replication(ReplicationMessage {
+                let message = Replication(ReplicationMessage {
                     group_id,
                     data: message_data,
                 });
@@ -168,6 +168,7 @@ impl<P: Protocol> Connection<P> {
                 // TODO: maybe only run apply world if the client is time-synced!
                 //  that would mean that for now, apply_world only runs on client, and not on server :)
                 for (group, replication_list) in self.replication_manager.read_messages() {
+                    info!(?replication_list, "read replication messages");
                     replication_list.into_iter().for_each(|(_, replication)| {
                         // TODO: we could include the server tick when this replication_message was sent.
                         self.replication_manager
@@ -226,4 +227,22 @@ impl<P: Protocol> Connection<P> {
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<Tick> {
         self.message_manager.recv_packet(reader)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::protocol::*;
+
+    // #[test]
+    // fn test_notify_ack() -> Result<()> {
+    //     let protocol = protocol();
+    //     let ping_config = PingConfig::default();
+    //     let mut connection = Connection::new(protocol.channel_registry(), &ping_config);
+    //
+    //     con
+    //
+    //
+    //     Ok(())
+    // }
 }

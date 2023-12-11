@@ -27,7 +27,8 @@ pub struct Component2(pub f32);
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component3(pub f32);
 
-#[component_protocol(protocol = "MyProtocol", derive(Debug))]
+// #[component_protocol(protocol = "MyProtocol", derive(Debug))]
+#[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     #[sync(full)]
     Component1(Component1),
