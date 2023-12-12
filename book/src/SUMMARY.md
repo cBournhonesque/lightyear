@@ -28,6 +28,7 @@
     - [Server](./concepts/bevy_integration/server.md)
     - [Events](./concepts/bevy_integration/events.md)
   - [Advanced Replication](./concepts/advanced_replication/title.md)
+    - [Replication Logic](./concepts/advanced_replication/replication_logic.md)
     - [Inputs](./concepts/advanced_replication/inputs.md)
     - [Interpolation](./boncepts/advanced_replication/interpolation.md)
     - [Prediction](./concepts/advanced_replication/prediction.md)

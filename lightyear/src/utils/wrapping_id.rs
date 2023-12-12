@@ -1,3 +1,4 @@
+//! u16 that wraps around when it reaches the maximum value
 pub trait WrappedId {
     // return self % total
     // used for sequence buffers

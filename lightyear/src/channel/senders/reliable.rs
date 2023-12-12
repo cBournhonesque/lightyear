@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 use bytes::Bytes;
+use crossbeam_channel::Receiver;
 use tracing::{info, trace};
 
 use crate::channel::builder::ReliableSettings;
@@ -89,11 +90,12 @@ impl ChannelSend for ReliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) {
+    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
+        let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
-            let fragments =
-                self.fragment_sender
-                    .build_fragments(self.next_send_message_id, None, message);
+            let fragments = self
+                .fragment_sender
+                .build_fragments(message_id, None, message);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -110,9 +112,9 @@ impl ChannelSend for ReliableSender {
                 last_sent: None,
             }
         };
-        self.unacked_messages
-            .insert(self.next_send_message_id, unacked_message);
+        self.unacked_messages.insert(message_id, unacked_message);
         self.next_send_message_id += 1;
+        Some(message_id)
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets
@@ -235,6 +237,10 @@ impl ChannelSend for ReliableSender {
 
     fn has_messages_to_send(&self) -> bool {
         !self.single_messages_to_send.is_empty() || !self.fragmented_messages_to_send.is_empty()
+    }
+
+    fn subscribe_acks(&mut self) -> Receiver<MessageId> {
+        todo!()
     }
 }
 

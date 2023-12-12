@@ -1,16 +1,21 @@
 //! Module to handle replicating entities and components from server to client
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use anyhow::Result;
+use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
+use bevy::utils::{EntityHashMap, HashMap};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
-use crate::prelude::{EntityMap, MapEntities, NetworkTarget};
+use crate::packet::message::MessageId;
+use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::Replicate;
+use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
 
 pub mod components;
 
@@ -22,66 +27,123 @@ pub mod resources;
 
 pub mod systems;
 
-// NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
-//  better to not add trait bounds on structs directly anyway
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[derive(Serialize, Deserialize, Clone)]
-pub enum ReplicationMessage<C, K> {
-    // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
-    SpawnEntity(Entity, Vec<C>),
-    DespawnEntity(Entity),
-    // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
-    //  unfortunately can't really put entity-updates in the same message because it uses a different channel
-    /// All the components that are inserted on this entity
-    InsertComponent(Entity, Vec<C>),
-    /// All the components that are removed from this entity
-    RemoveComponent(Entity, Vec<K>),
-    // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
-    EntityUpdate(Entity, Vec<C>),
+// // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
+// //  better to not add trait bounds on structs directly anyway
+// #[cfg_attr(feature = "debug", derive(Debug))]
+// #[derive(Serialize, Deserialize, Clone)]
+// pub enum ReplicationMessage<C, K> {
+//     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
+//     SpawnEntity(Entity, Vec<C>),
+//     DespawnEntity(Entity),
+//     // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
+//     //  unfortunately can't really put entity-updates in the same message because it uses a different channel
+//     /// All the components that are inserted on this entity
+//     InsertComponent(Entity, Vec<C>),
+//     /// All the components that are removed from this entity
+//     RemoveComponent(Entity, Vec<K>),
+//     // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
+//     EntityUpdate(Entity, Vec<C>),
+// }
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct EntityActions<C, K> {
+    // TODO: do we even need spawn?
+    pub(crate) spawn: bool,
+    pub(crate) despawn: bool,
+    // TODO: do we want HashSets to avoid double-inserts, double-removes?
+    pub(crate) insert: Vec<C>,
+    pub(crate) remove: Vec<K>,
+    // We also include the updates for the current tick in the actions, if there are any
+    pub(crate) updates: Vec<C>,
+}
+
+impl<C, K> Default for EntityActions<C, K> {
+    fn default() -> Self {
+        Self {
+            spawn: false,
+            despawn: false,
+            insert: Vec::new(),
+            remove: Vec::new(),
+            updates: Vec::new(),
+        }
+    }
+}
+
+// TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
+//  have an optimization for that
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct EntityActionMessage<C, K> {
+    sequence_id: MessageId,
+    // TODO: maybe we want a sorted hash map here?
+    //  because if we want to send a group of entities together, presumably it's because there's a hierarchy
+    //  between the elements of the group
+    //  E1: head, E2: arm, parent=head. So we need to read E1 first.
+    pub(crate) actions: BTreeMap<Entity, EntityActions<C, K>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct EntityUpdatesMessage<C> {
+    /// The last tick for which we sent an EntityActionsMessage for this group
+    last_action_tick: Tick,
+    /// TODO: consider EntityHashMap or Vec if order doesn't matter
+    pub(crate) updates: BTreeMap<Entity, Vec<C>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum ReplicationMessageData<C, K> {
+    /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
+    Actions(EntityActionMessage<C, K>),
+    /// All the entity updates for a given group
+    Updates(EntityUpdatesMessage<C>),
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct ReplicationMessage<C, K> {
+    pub(crate) group_id: ReplicationGroupId,
+    pub(crate) data: ReplicationMessageData<C, K>,
 }
 
 impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
     // NOTE: we do NOT map the entities for these messages (apart from those contained in the components)
     // because the replication logic (`apply_world`) expects the entities to be the remote entities
     fn map_entities(&mut self, entity_map: &EntityMap) {
-        match self {
-            ReplicationMessage::SpawnEntity(e, components) => {
-                for component in components {
-                    component.map_entities(entity_map);
-                }
+        match &mut self.data {
+            ReplicationMessageData::Actions(m) => {
+                m.actions.values_mut().for_each(|entity_actions| {
+                    entity_actions
+                        .insert
+                        .iter_mut()
+                        .for_each(|c| c.map_entities(entity_map));
+                    entity_actions
+                        .updates
+                        .iter_mut()
+                        .for_each(|c| c.map_entities(entity_map));
+                })
             }
-            ReplicationMessage::DespawnEntity(e) => {}
-            ReplicationMessage::InsertComponent(e, components) => {
-                // c.map_entities(entity_map);
-                for component in components {
-                    component.map_entities(entity_map);
-                }
-            }
-            ReplicationMessage::RemoveComponent(e, component_kinds) => {
-                for component_kind in component_kinds {
-                    component_kind.map_entities(entity_map);
-                }
-            }
-            ReplicationMessage::EntityUpdate(e, components) => {
-                for component in components {
-                    component.map_entities(entity_map);
-                }
+            ReplicationMessageData::Updates(m) => {
+                m.updates.values_mut().for_each(|entity_updates| {
+                    entity_updates
+                        .iter_mut()
+                        .for_each(|c| c.map_entities(entity_map));
+                })
             }
         }
     }
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
+    // type Manager: ReplicationManager;
+
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
-    fn new_remote_peers(&self) -> Vec<ClientId>;
+    fn new_connected_clients(&self) -> &Vec<ClientId>;
 
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        components: Vec<P::Components>,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_entity_despawn(
@@ -89,6 +151,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         entity: Entity,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_insert(
@@ -97,6 +160,9 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         component: P::Components,
         replicate: &Replicate,
         target: NetworkTarget,
+        // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
+        //  last update ack OR last action sent)
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_remove(
@@ -105,6 +171,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         component_kind: P::ComponentKinds,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_entity_update(
@@ -113,6 +180,10 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         component: P::Components,
         replicate: &Replicate,
         target: NetworkTarget,
+        // bevy_tick when the component changes
+        component_change_tick: BevyTick,
+        // bevy_tick for the current system run
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     /// Any operation that needs to happen before we can send the replication messages

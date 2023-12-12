@@ -1,4 +1,5 @@
 //! Map between local and remote entities
+use anyhow::Context;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
@@ -24,6 +25,17 @@ impl EntityMap {
 
     pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
         self.local_to_remote.get(&local_entity)
+    }
+
+    /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
+    pub(super) fn get_by_remote<'a>(
+        &mut self,
+        world: &'a mut World,
+        remote_entity: Entity,
+    ) -> anyhow::Result<EntityWorldMut<'a>> {
+        self.get_local(remote_entity)
+            .and_then(|e| world.get_entity_mut(*e))
+            .context("Failed to get local entity")
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.

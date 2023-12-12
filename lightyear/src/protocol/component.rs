@@ -25,6 +25,7 @@ pub trait ComponentProtocol:
     + DeserializeOwned
     + MapEntities
     + ComponentBehaviour
+    + Debug
     + Send
     + Sync
     + From<ShouldBePredicted>
@@ -75,19 +76,22 @@ impl<T: Component> ComponentBehaviour for T {
         // because otherwise the insert could override an component-update that was received later?
 
         // but this could cause some issues if we wanted the component to be updated from the insert
-        if entity.get::<T>().is_none() {
-            entity.insert(self);
-        }
+        // if entity.get::<T>().is_none() {
+        entity.insert(self);
+        // }
     }
 
     // Apply a ComponentUpdate to an entity
     fn update(self, entity: &mut EntityWorldMut) {
-        match entity.get_mut::<T>() {
-            Some(mut c) => *c = self,
-            None => {
-                entity.insert(self);
-            }
+        if let Some(mut c) = entity.get_mut::<T>() {
+            *c = self;
         }
+        // match entity.get_mut::<T>() {
+        //     Some(mut c) => *c = self,
+        //     None => {
+        //         entity.insert(self);
+        //     }
+        // }
     }
 }
 

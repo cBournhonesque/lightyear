@@ -95,7 +95,7 @@ pub fn push_component_update_events<
         let mut event_writer = world
             .get_resource_mut::<Events<ComponentUpdateEvent<C, Ctx>>>()
             .unwrap();
-        for (entity, ctx) in events.into_iter_component_update::<C>() {
+        for (entity, ctx) in events.iter_component_update::<C>() {
             let event = ComponentUpdateEvent::new(entity, ctx);
             event_writer.send(event);
         }

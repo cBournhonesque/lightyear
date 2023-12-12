@@ -1,6 +1,7 @@
 //! Wrapper around [`ConnectionEvents`] that adds client-specific functionality
 //!
 use crate::connection::events::ConnectionEvents;
+use crate::prelude::Tick;
 use crate::protocol::Protocol;
 
 pub struct ClientEvents<P: Protocol> {

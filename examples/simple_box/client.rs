@@ -1,4 +1,5 @@
-use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, PlayerPosition};
+use crate::protocol::Direction;
+use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
@@ -27,9 +28,9 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.00,
+            incoming_latency: Duration::from_millis(200),
+            incoming_jitter: Duration::from_millis(20),
+            incoming_loss: 0.05,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -52,7 +53,7 @@ impl Plugin for MyClientPlugin {
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
         };
-        let plugin_config = PluginConfig::new(config, io, MyProtocol::default(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         app.insert_resource(self.clone());
@@ -174,7 +175,7 @@ pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>
 // - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.2);
+        color.0.set_s(0.3);
     }
 }
 
@@ -185,6 +186,6 @@ pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {
     for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.2);
+        color.0.set_s(0.1);
     }
 }

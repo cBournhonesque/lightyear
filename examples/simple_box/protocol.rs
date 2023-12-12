@@ -20,8 +20,8 @@ impl PlayerBundle {
             color: PlayerColor(color),
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(id),
-                interpolation_target: NetworkTarget::AllExcept(id),
+                prediction_target: NetworkTarget::Only(vec![id]),
+                interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
         }
@@ -56,7 +56,8 @@ impl MapEntities for PlayerParent {
     }
 }
 
-#[component_protocol(protocol = "MyProtocol", derive(Debug))]
+// #[component_protocol(protocol = "MyProtocol", derive(Debug))]
+#[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),

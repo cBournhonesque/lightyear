@@ -1,18 +1,21 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
+use bevy::ecs::system::SystemChangeTick;
 use std::ops::Deref;
 
+use crate::connection::events::ConnectionEvents;
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs, Mut,
     PostUpdate, Query, Ref, RemovedComponents, ResMut,
 };
+use bevy::utils::HashSet;
 use tracing::{debug, info};
 
 use crate::netcode::ClientId;
 use crate::prelude::NetworkTarget;
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
+use crate::server::events::ConnectEvent;
 use crate::server::room::ClientVisibility;
-use crate::shared::events::ConnectEvent;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
 use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::ReplicationSend;
@@ -38,7 +41,8 @@ fn add_despawn_tracker(
 
 fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
-    query: Query<(Entity, Ref<Replicate>)>,
+    query: Query<(Entity, &Replicate)>,
+    system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
     mut despawn_removed: RemovedComponents<DespawnTracker>,
@@ -58,14 +62,16 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
                         sender
                             .prepare_entity_despawn(
                                 entity,
-                                &replicate,
-                                NetworkTarget::Only(*client_id),
+                                replicate,
+                                NetworkTarget::Only(vec![*client_id]),
+                                system_bevy_ticks.this_run(),
                             )
                             .unwrap();
                     }
                 });
         }
     });
+
     // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
         if let Some(replicate) = replication.owned_entities.remove(&entity) {
@@ -73,7 +79,12 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
             //  and only despawn for the entities in the cache?
             //  but that means we have to update the owned_entity value every time the replication_clients_cache is updated
             sender
-                .prepare_entity_despawn(entity, &replicate, replicate.replication_target)
+                .prepare_entity_despawn(
+                    entity,
+                    &replicate,
+                    replicate.replication_target.clone(),
+                    system_bevy_ticks.this_run(),
+                )
                 .unwrap();
         }
     }
@@ -84,12 +95,15 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
 //  we can also separate the on_connect part to a separate system
 fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     mut replication: ResMut<ReplicationData>,
+    system_bevy_ticks: SystemChangeTick,
     query: Query<(Entity, Ref<Replicate>)>,
     mut sender: ResMut<R>,
 ) {
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate)| {
         match replicate.replication_mode {
+            // for room mode, no need to handle newly-connected clients specially; they just need
+            // to be added to the correct room
             ReplicationMode::Room => {
                 replicate
                     .replication_clients_cache
@@ -102,9 +116,9 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                                     sender
                                         .prepare_entity_spawn(
                                             entity,
-                                            vec![],
                                             &replicate,
-                                            NetworkTarget::Only(*client_id),
+                                            NetworkTarget::Only(vec![*client_id]),
+                                            system_bevy_ticks.this_run(),
                                         )
                                         .unwrap();
                                 }
@@ -120,9 +134,9 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                                         sender
                                             .prepare_entity_spawn(
                                                 entity,
-                                                vec![],
                                                 replicate.deref(),
-                                                NetworkTarget::Only(*client_id),
+                                                NetworkTarget::Only(vec![*client_id]),
+                                                system_bevy_ticks.this_run(),
                                             )
                                             .unwrap();
                                     }
@@ -132,16 +146,30 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                     });
             }
             ReplicationMode::NetworkTarget => {
+                let new_connected_clients = sender.new_connected_clients().clone();
+                // replicate all entities to newly connected clients
+                sender
+                    .prepare_entity_spawn(
+                        entity,
+                        &replicate,
+                        NetworkTarget::Only(new_connected_clients.clone()),
+                        system_bevy_ticks.this_run(),
+                    )
+                    .unwrap();
+
                 // only try to replicate if the replicate component was just added
                 if replicate.is_added() {
                     debug!("send entity spawn to maintained");
                     replication.owned_entities.insert(entity, replicate.clone());
+                    // don't re-send to newly connection client
+                    let mut target = replicate.replication_target.clone();
+                    target.exclude(new_connected_clients.clone());
                     sender
                         .prepare_entity_spawn(
                             entity,
-                            vec![],
                             replicate.deref(),
-                            replicate.replication_target,
+                            target,
+                            system_bevy_ticks.this_run(),
                         )
                         .unwrap();
                 }
@@ -153,8 +181,16 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 /// This system sends updates for all components that were added or changed
 /// Sends both ComponentInsert for newly added components
 /// and ComponentUpdates otherwise
+///
+/// Updates are sent only for any components that were changed since the most recent of:
+/// - last time we sent an action for that group
+/// - last time we sent an update for that group which got acked.
+/// (currently we only check for the second condition, which is enough but less efficient)
+///
+/// NOTE: cannot use ConnectEvents because they are reset every frame
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, Ref<C>, &Replicate)>,
+    system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
     <P as Protocol>::Components: From<C>,
@@ -174,7 +210,8 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                             entity,
                                             component.clone().into(),
                                             replicate,
-                                            NetworkTarget::Only(*client_id),
+                                            NetworkTarget::Only(vec![*client_id]),
+                                            system_bevy_ticks.this_run(),
                                         )
                                         .unwrap();
                                 }
@@ -187,17 +224,20 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                                 entity,
                                                 component.clone().into(),
                                                 replicate,
-                                                NetworkTarget::Only(*client_id),
+                                                NetworkTarget::Only(vec![*client_id]),
+                                                system_bevy_ticks.this_run(),
                                             )
                                             .unwrap();
                                         // only update components that were not newly added
-                                    } else if component.is_changed() {
+                                    } else {
                                         sender
                                             .prepare_entity_update(
                                                 entity,
                                                 component.clone().into(),
                                                 replicate,
-                                                NetworkTarget::Only(*client_id),
+                                                NetworkTarget::Only(vec![*client_id]),
+                                                component.last_changed(),
+                                                system_bevy_ticks.this_run(),
                                             )
                                             .unwrap();
                                     }
@@ -207,6 +247,22 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                     })
             }
             ReplicationMode::NetworkTarget => {
+                let new_connected_clients = sender.new_connected_clients().clone();
+                // replicate all components to newly connected clients
+                sender
+                    .prepare_component_insert(
+                        entity,
+                        component.clone().into(),
+                        replicate,
+                        NetworkTarget::Only(new_connected_clients.clone()),
+                        system_bevy_ticks.this_run(),
+                    )
+                    .unwrap();
+
+                // don't re-send to newly connection client
+                let mut target = replicate.replication_target.clone();
+                target.exclude(new_connected_clients.clone());
+
                 // send an component_insert for components that were newly added
                 if component.is_added() {
                     sender
@@ -214,17 +270,21 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             entity,
                             component.clone().into(),
                             replicate,
-                            replicate.replication_target,
+                            target,
+                            system_bevy_ticks.this_run(),
                         )
                         .unwrap();
-                    // only update components that were not newly added
-                } else if component.is_changed() {
+                } else {
+                    // otherwise send an update for all components that changed since the
+                    // last update we have ack-ed
                     sender
                         .prepare_entity_update(
                             entity,
                             component.clone().into(),
                             replicate,
-                            replicate.replication_target,
+                            target,
+                            component.last_changed(),
+                            system_bevy_ticks.this_run(),
                         )
                         .unwrap();
                 }
@@ -237,6 +297,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
 fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     // only remove the component for entities that are being actively replicated
     query: Query<&Replicate>,
+    system_bevy_ticks: SystemChangeTick,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
 ) where
@@ -256,7 +317,8 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                                             entity,
                                             C::into_kind(),
                                             replicate,
-                                            NetworkTarget::Only(*client_id),
+                                            NetworkTarget::Only(vec![*client_id]),
+                                            system_bevy_ticks.this_run(),
                                         )
                                         .unwrap();
                                 }
@@ -270,7 +332,8 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                             entity,
                             C::into_kind(),
                             replicate,
-                            replicate.replication_target,
+                            replicate.replication_target.clone(),
+                            system_bevy_ticks.this_run(),
                         )
                         .unwrap();
                 }

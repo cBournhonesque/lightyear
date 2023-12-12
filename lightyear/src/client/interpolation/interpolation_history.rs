@@ -1,12 +1,13 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
+    Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::events::ComponentUpdateEvent;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::Interpolated;
 use crate::client::resource::Client;
@@ -119,31 +120,42 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
 pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
     client: Res<Client<P>>,
     mut interpolated_entities: Query<
+        // TODO: handle missing T?
         (&mut T, Option<&mut ConfirmedHistory<T>>),
         (With<Interpolated>, Without<Confirmed>),
     >,
-    confirmed_entities: Query<(&Confirmed, Ref<T>)>,
+    confirmed_entities: Query<(Entity, &Confirmed, Ref<T>)>,
 ) {
-    let latest_server_tick = client.latest_received_server_tick();
-    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.interpolated {
+    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() {
                 if let Ok((mut interpolated_component, history_option)) =
                     interpolated_entities.get_mut(p)
                 {
                     match T::mode() {
                         ComponentSyncMode::Full => {
-                            if let Some(mut history) = history_option {
-                                history.buffer.add_item(
-                                    latest_server_tick,
-                                    confirmed_component.deref().clone(),
-                                );
-                            } else {
+                            let Some(mut history) = history_option else {
                                 error!(
                                     "Interpolated entity {:?} doesn't have a ComponentHistory",
                                     p
                                 );
-                            }
+                                continue;
+                            };
+                            let Some(channel) = client
+                                .replication_manager()
+                                .channel_by_local(confirmed_entity)
+                            else {
+                                error!(
+                                    "Could not find replication channel for entity {:?}",
+                                    confirmed_entity
+                                );
+                                continue;
+                            };
+                            trace!(tick = ?channel.latest_tick, "adding confirmed update to history");
+                            // assign the history at the value that the entity currently is
+                            history
+                                .buffer
+                                .add_item(channel.latest_tick, confirmed_component.deref().clone());
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {

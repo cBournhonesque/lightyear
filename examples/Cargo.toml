@@ -22,10 +22,6 @@ name = "simple_box"
 path = "simple_box/main.rs"
 
 [[example]]
-name = "connection_soak"
-path = "connection_soak.rs"
-
-[[example]]
 name = "bevy_headless"
 path = "bevy_headless.rs"
 

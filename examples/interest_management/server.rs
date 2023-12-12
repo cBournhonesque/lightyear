@@ -29,7 +29,7 @@ impl Plugin for MyServerPlugin {
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(5),
+            incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
@@ -137,7 +137,7 @@ pub(crate) fn handle_connections(
 pub(crate) fn log(server: Res<Server<MyProtocol>>, position: Query<&Position, With<PlayerId>>) {
     let server_tick = server.tick();
     for pos in position.iter() {
-        info!(?server_tick, "Confirmed position: {:?}", pos);
+        debug!(?server_tick, "Confirmed position: {:?}", pos);
     }
 }
 
@@ -178,7 +178,7 @@ pub(crate) fn movement(
     for input in input_reader.read() {
         let client_id = input.context();
         if let Some(input) = input.input() {
-            info!(server_tick = ?server.tick(), ?input, "Recv input");
+            debug!(server_tick = ?server.tick(), ?input, "Recv input");
             debug!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
@@ -201,7 +201,7 @@ pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<In
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .broadcast_send::<Channel1, Message1>(Message1(5))
+            .send_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

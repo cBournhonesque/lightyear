@@ -6,15 +6,16 @@ pub mod events;
 
 pub(crate) mod message;
 
-use crate::_reexport::PingChannel;
 use anyhow::Result;
 use bevy::prelude::{Entity, World};
-use bitcode::__private::Serialize;
-use serde::Deserialize;
-use tracing::{trace, trace_span};
+use serde::{Deserialize, Serialize};
+use tracing::{info, trace, trace_span};
 
+use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
+use crate::channel::senders::ChannelSend;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::ProtocolMessage;
+use crate::connection::message::ProtocolMessage::Replication;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::MapEntities;
@@ -24,7 +25,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::manager::ReplicationManager;
-use crate::shared::replication::ReplicationMessage;
+use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -40,10 +41,21 @@ pub struct Connection<P: Protocol> {
 
 impl<P: Protocol> Connection<P> {
     pub fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
+        // create the message manager and the channels
+        let mut message_manager = MessageManager::new(channel_registry);
+        // get the acks-tracker for entity updates
+        let update_acks_tracker = message_manager
+            .channels
+            .get_mut(&ChannelKind::of::<EntityUpdatesChannel>())
+            .unwrap()
+            .sender
+            .subscribe_acks();
+
+        let replication_manager = ReplicationManager::new(update_acks_tracker);
         Self {
             ping_manager: PingManager::new(ping_config),
-            message_manager: MessageManager::new(channel_registry),
-            replication_manager: ReplicationManager::default(),
+            message_manager,
+            replication_manager,
             events: ConnectionEvents::new(),
         }
     }
@@ -67,23 +79,40 @@ impl<P: Protocol> Connection<P> {
             .to_string();
         let message = ProtocolMessage::Message(message);
         message.emit_send_logs(&channel_name);
-        self.message_manager.buffer_send(message, channel)
+        self.message_manager.buffer_send(message, channel)?;
+        Ok(())
     }
 
     /// Buffer any replication messages
-    pub fn buffer_replication_messages(&mut self) -> Result<()> {
+    pub fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
         self.replication_manager
-            .finalize()
+            .finalize(tick)
             .into_iter()
-            .try_for_each(|(channel, message)| {
+            .try_for_each(|(channel, group_id, message_data)| {
+                let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
                 let channel_name = self
                     .message_manager
                     .channel_registry
                     .name(&channel)
                     .unwrap_or("unknown")
                     .to_string();
+                let message = Replication(ReplicationMessage {
+                    group_id,
+                    data: message_data,
+                });
                 message.emit_send_logs(&channel_name);
-                self.message_manager.buffer_send(message, channel)
+                let message_id = self
+                    .message_manager
+                    .buffer_send(message, channel)?
+                    .expect("The EntityUpdatesChannel should always return a message_id");
+
+                // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
+                if should_track_ack {
+                    self.replication_manager
+                        .updates_message_id_to_group_id
+                        .insert(message_id, group_id);
+                }
+                Ok(())
             })
     }
 
@@ -105,16 +134,19 @@ impl<P: Protocol> Connection<P> {
 
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
-                for mut message in messages {
+                for (tick, mut message) in messages.into_iter() {
                     // map entities from remote to local
                     message.map_entities(&self.replication_manager.entity_map);
+
                     // other message-handling logic
                     match message {
-                        ProtocolMessage::Replication(ref replication) => {
-                            // TODO: maybe only run apply world if the client is time-synced!
-                            //  that would mean that for now, apply_world only runs on client, and not on server :)
-                            self.replication_manager
-                                .apply_world(world, replication.clone());
+                        ProtocolMessage::Message(message) => {
+                            // buffer the message
+                            self.events.push_message(channel_kind, message);
+                        }
+                        ProtocolMessage::Replication(replication) => {
+                            // buffer the replication message
+                            self.replication_manager.recv_message(replication, tick);
                         }
                         ProtocolMessage::Sync(ref sync) => {
                             match sync {
@@ -129,20 +161,24 @@ impl<P: Protocol> Connection<P> {
                                 }
                             }
                         }
-                        _ => {}
                     }
-                    // update events
-                    message.push_to_events(
-                        channel_kind,
-                        &mut self.events,
-                        &self.replication_manager.entity_map,
-                        time_manager,
-                    );
+                }
+                // NOTE: ON THE RECEIVING SIDE, THE CHANNELS USE THE REMOTE_ENTITY AS KEY!
+                //  - either map all entities in map_entities (requires World access to spawn entities if needed)
+
+                // Check if we have any replication messages we can apply to the World (and emit events)
+                // TODO: maybe only run apply world if the client is time-synced!
+                //  that would mean that for now, apply_world only runs on client, and not on server :)
+                for (group, replication_list) in self.replication_manager.read_messages() {
+                    trace!(?group, ?replication_list, "read replication messages");
+                    replication_list.into_iter().for_each(|(_, replication)| {
+                        // TODO: we could include the server tick when this replication_message was sent.
+                        self.replication_manager
+                            .apply_world(world, replication, &mut self.events);
+                    });
                 }
             }
         }
-
-        // HERE: we are clearing the input buffers from every connection, which is not what we want!
 
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
@@ -181,7 +217,8 @@ impl<P: Protocol> Connection<P> {
                     pong.pong_sent_time = time_manager.current_time();
                     let message = ProtocolMessage::Sync(SyncMessage::Pong(pong));
                     let channel = ChannelKind::of::<PingChannel>();
-                    self.message_manager.buffer_send(message, channel)
+                    self.message_manager.buffer_send(message, channel)?;
+                    Ok::<(), anyhow::Error>(())
                 })?;
         }
         self.message_manager
@@ -192,4 +229,22 @@ impl<P: Protocol> Connection<P> {
     pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> Result<Tick> {
         self.message_manager.recv_packet(reader)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::protocol::*;
+
+    // #[test]
+    // fn test_notify_ack() -> Result<()> {
+    //     let protocol = protocol();
+    //     let ping_config = PingConfig::default();
+    //     let mut connection = Connection::new(protocol.channel_registry(), &ping_config);
+    //
+    //     con
+    //
+    //
+    //     Ok(())
+    // }
 }

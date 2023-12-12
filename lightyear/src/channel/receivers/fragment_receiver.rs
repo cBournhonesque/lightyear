@@ -21,7 +21,7 @@ impl FragmentReceiver {
     }
 
     /// Discard all messages for which the latest fragment was received before the cleanup time
-    /// (i.e. the message is too old)
+    /// (i.e. we probably lost some fragments and we will never complete the message)
     ///
     /// If we don't keep track of the last received time, we will never clean up the messages.
     pub fn cleanup(&mut self, cleanup_time: WrappedTime) {
