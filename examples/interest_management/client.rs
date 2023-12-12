@@ -1,4 +1,5 @@
-use crate::protocol::{Direction, Inputs, Message1, MyProtocol, PlayerColor, Position};
+use crate::protocol::Direction;
+use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
@@ -57,7 +58,7 @@ impl Plugin for MyClientPlugin {
             ),
             // .with_delay(InterpolationDelay::Ratio(2.0)),
         };
-        let plugin_config = PluginConfig::new(config, io, MyProtocol::default(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         app.insert_resource(self.clone());

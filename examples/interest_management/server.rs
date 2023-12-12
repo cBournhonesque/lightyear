@@ -47,7 +47,7 @@ impl Plugin for MyServerPlugin {
             netcode: netcode_config,
             ping: PingConfig::default(),
         };
-        let plugin_config = PluginConfig::new(config, io, MyProtocol::default());
+        let plugin_config = PluginConfig::new(config, io, protocol());
         app.add_plugins(ServerPlugin::new(plugin_config));
         app.add_plugins(shared::SharedPlugin);
         app.init_resource::<Global>();
