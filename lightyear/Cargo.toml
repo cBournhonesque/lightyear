@@ -63,7 +63,7 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 byteorder = "1.5.0"
 
 # derive
-lightyear_macros = {  version = "0.2.0", path = "../macros" }
+lightyear_macros = { version = "0.2.0", path = "../macros" }
 
 # tracing
 tracing = "0.1.40"
@@ -90,7 +90,7 @@ tokio = { version = "1.34", features = [
   "time",
 ], optional = true }
 
-bevy = { version = "0.12", default-features = false}
+bevy = { version = "0.12", default-features = false }
 
 
 [dev-dependencies]
