@@ -20,9 +20,9 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.00,
+            incoming_latency: Duration::from_millis(200),
+            incoming_jitter: Duration::from_millis(20),
+            incoming_loss: 0.05,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
@@ -39,7 +39,7 @@ impl Plugin for MyServerPlugin {
             netcode: netcode_config,
             ping: PingConfig::default(),
         };
-        let plugin_config = PluginConfig::new(config, io, MyProtocol::default());
+        let plugin_config = PluginConfig::new(config, io, protocol());
         app.add_plugins(server::ServerPlugin::new(plugin_config));
         app.add_plugins(shared::SharedPlugin);
         app.init_resource::<Global>();
@@ -130,7 +130,7 @@ pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<In
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .broadcast_send::<Channel1, Message1>(Message1(5))
+            .send_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

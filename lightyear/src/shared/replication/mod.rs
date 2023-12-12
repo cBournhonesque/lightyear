@@ -114,6 +114,10 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
                         .insert
                         .iter_mut()
                         .for_each(|c| c.map_entities(entity_map));
+                    entity_actions
+                        .updates
+                        .iter_mut()
+                        .for_each(|c| c.map_entities(entity_map));
                 })
             }
             ReplicationMessageData::Updates(m) => {
@@ -132,13 +136,14 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
-    fn new_remote_peers(&self) -> Vec<ClientId>;
+    fn new_connected_clients(&self) -> &Vec<ClientId>;
 
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_entity_despawn(
@@ -146,6 +151,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         entity: Entity,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_insert(
@@ -154,6 +160,9 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         component: P::Components,
         replicate: &Replicate,
         target: NetworkTarget,
+        // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
+        //  last update ack OR last action sent)
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_component_remove(
@@ -162,6 +171,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         component_kind: P::ComponentKinds,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()>;
 
     fn prepare_entity_update(

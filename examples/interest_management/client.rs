@@ -29,7 +29,7 @@ impl Plugin for MyClientPlugin {
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(5),
+            incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
@@ -128,7 +128,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     // TODO: should we only send an input if it's not all NIL?
     // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
     if !input.is_none() {
-        info!(client_tick = ?client.tick(), input = ?&input, "Sending input");
+        debug!(client_tick = ?client.tick(), input = ?&input, "Sending input");
         client.add_input(Inputs::Direction(input));
     }
 }
@@ -147,7 +147,7 @@ pub(crate) fn movement(
     }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
-            info!(?input, "read input");
+            debug!(?input, "read input");
             for mut position in position_query.iter_mut() {
                 shared_movement_behaviour(&mut position, input);
             }
@@ -167,7 +167,18 @@ pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) 
 // - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.2);
+        color.0.set_s(0.3);
+    }
+}
+
+// When the predicted copy of the client-owned entity is spawned, do stuff
+// - assign it a different saturation
+// - keep track of it in the Global resource
+pub(crate) fn handle_interpolated_spawn(
+    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+) {
+    for mut color in interpolated.iter_mut() {
+        color.0.set_s(0.1);
     }
 }
 
@@ -191,16 +202,5 @@ pub(crate) fn log(
     }
     for event in predict_event.read() {
         info!("Predicted event: {:?}", event.entity());
-    }
-}
-
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
-pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
-) {
-    for mut color in interpolated.iter_mut() {
-        color.0.set_s(0.2);
     }
 }

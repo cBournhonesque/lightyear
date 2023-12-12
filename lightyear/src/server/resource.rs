@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
+use bevy::utils::HashSet;
 use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, info, trace, trace_span};
 
@@ -45,7 +46,7 @@ pub struct Server<P: Protocol> {
     // TODO: maybe put this in replication plugin
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
-    new_clients: Vec<ClientId>,
+    pub(crate) new_clients: Vec<ClientId>,
     // Protocol
     pub protocol: P,
     // Events
@@ -169,13 +170,16 @@ impl<P: Protocol> Server<P> {
                 // TODO: maybe only send stuff when the client is time-synced ?
                 Box::new(self.netcode.connected_client_ids().into_iter())
             }
-            NetworkTarget::AllExcept(client_id) => Box::new(
-                self.netcode
-                    .connected_client_ids()
-                    .into_iter()
-                    .filter(move |id| *id != client_id),
-            ),
-            NetworkTarget::Only(client_id) => Box::new(std::iter::once(client_id)),
+            NetworkTarget::AllExcept(client_ids) => {
+                let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
+                Box::new(
+                    self.netcode
+                        .connected_client_ids()
+                        .into_iter()
+                        .filter(move |id| !client_ids.contains(id)),
+                )
+            }
+            NetworkTarget::Only(client_ids) => Box::new(client_ids.into_iter()),
             NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
@@ -183,7 +187,11 @@ impl<P: Protocol> Server<P> {
     // MESSAGES
 
     /// Queues up a message to be sent to all clients
-    pub fn broadcast_send<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    pub fn send_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
     where
         M: Clone,
         P::Message: From<M>,
@@ -198,9 +206,14 @@ impl<P: Protocol> Server<P> {
             metrics::increment_counter!("send_message_server_after_span");
         }
         let channel = ChannelKind::of::<C>();
-        for client_id in self.netcode.connected_client_ids() {
+        for client_id in self
+            .netcode
+            .connected_client_ids()
+            .iter()
+            .filter(|id| target.should_send_to(id))
+        {
             self.user_connections
-                .get_mut(&client_id)
+                .get_mut(client_id)
                 .context("client not found")?
                 .base
                 .buffer_message(message.clone().into(), channel)?;
@@ -257,8 +270,8 @@ impl<P: Protocol> Server<P> {
                 let mut connection =
                     Connection::new(self.protocol.channel_registry(), &self.config.ping);
                 connection.base.events.push_connection();
-                e.insert(connection);
                 self.new_clients.push(client_id);
+                e.insert(connection);
             }
         }
 
@@ -315,11 +328,6 @@ impl<P: Protocol> Server<P> {
         Ok(())
     }
 
-    /// Clear the list of clients that were recently connected but haven't received any replication packages yet
-    pub(crate) fn clear_new_clients(&mut self) {
-        self.new_clients.clear();
-    }
-
     pub fn room_mut(&mut self, id: RoomId) -> RoomMut {
         RoomMut {
             id,
@@ -341,8 +349,8 @@ pub struct ServerContext {
 }
 
 impl<P: Protocol> ReplicationSend<P> for Server<P> {
-    fn new_remote_peers(&self) -> Vec<ClientId> {
-        self.new_clients.clone()
+    fn new_connected_clients(&self) -> &Vec<ClientId> {
+        &self.new_clients
     }
 
     fn prepare_entity_spawn(
@@ -350,21 +358,30 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()> {
-        info!(
-            "Send entity spawn for tick {:?}",
-            self.tick_manager.current_tick()
-        );
         let group = replicate.group_id(Some(entity));
         // debug!(?entity, "Spawning entity");
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         self.apply_replication(target).try_for_each(|client_id| {
+            trace!(
+                ?client_id,
+                ?entity,
+                "Send entity spawn for tick {:?}",
+                self.tick_manager.current_tick()
+            );
             let replication_manager = &mut self
                 .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
                 .base
                 .replication_manager;
+            // update the collect changes tick
+            replication_manager
+                .group_channels
+                .entry(group)
+                .or_default()
+                .update_collect_changes_since_this_tick(system_current_tick);
             replication_manager.prepare_entity_spawn(entity, group);
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
             if replicate.prediction_target.should_send_to(&client_id) {
@@ -390,20 +407,29 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         entity: Entity,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()> {
-        info!(
-            "Send entity despawn for tick {:?}",
-            self.tick_manager.current_tick()
-        );
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            self.user_connections
+            trace!(
+                ?entity,
+                ?client_id,
+                "Send entity despawn for tick {:?}",
+                self.tick_manager.current_tick()
+            );
+            let replication_manager = &mut self
+                .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
                 .base
-                .replication_manager
-                .prepare_entity_despawn(entity, group);
+                .replication_manager;
+            // update the collect changes tick
+            replication_manager
+                .group_channels
+                .entry(group)
+                .or_default()
+                .update_collect_changes_since_this_tick(system_current_tick);
+            replication_manager.prepare_entity_despawn(entity, group);
             Ok(())
         })
     }
@@ -415,22 +441,30 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         component: P::Components,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        debug!(
-            ?entity,
-            component = ?kind,
-            "Inserting single component"
-        );
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            self.user_connections
+            trace!(
+                ?entity,
+                component = ?kind,
+                tick = ?self.tick_manager.current_tick(),
+                "Inserting single component"
+            );
+            let replication_manager = &mut self
+                .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
                 .base
-                .replication_manager
-                .prepare_component_insert(entity, group, component.clone());
+                .replication_manager;
+            // update the collect changes tick
+            replication_manager
+                .group_channels
+                .entry(group)
+                .or_default()
+                .update_collect_changes_since_this_tick(system_current_tick);
+            replication_manager.prepare_component_insert(entity, group, component.clone());
             Ok(())
         })
     }
@@ -441,17 +475,23 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         component_kind: P::ComponentKinds,
         replicate: &Replicate,
         target: NetworkTarget,
+        system_current_tick: BevyTick,
     ) -> Result<()> {
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
-            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            self.user_connections
+            let replication_manager = &mut self
+                .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
                 .base
-                .replication_manager
-                .prepare_component_remove(entity, group, component_kind.clone());
+                .replication_manager;
+            replication_manager
+                .group_channels
+                .entry(group)
+                .or_default()
+                .update_collect_changes_since_this_tick(system_current_tick);
+            replication_manager.prepare_component_remove(entity, group, component_kind.clone());
             Ok(())
         })
     }
@@ -478,20 +518,20 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .replication_manager;
             let last_updates_ack_bevy_tick = replication_manager
                 .group_channels
-                .get(&group)
-                .context("group not found")?
-                .latest_updates_ack_bevy_tick;
+                .entry(group)
+                .or_default()
+                .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
 
             if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick)
             {
-                info!(
+                trace!(
                     change_tick = ?component_change_tick,
                     last_ack_tick = ?last_updates_ack_bevy_tick,
                     current_tick = ?system_current_tick,
                     "prepare entity update changed check"
                 );
-                info!(
+                trace!(
                     ?entity,
                     component = ?kind,
                     tick = ?self.tick_manager.current_tick(),

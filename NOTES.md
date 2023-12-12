@@ -6,13 +6,16 @@
 
 
 - DEBUGGING SIMPLE_BOX:
-  - inputs aren't propagated.
-  - we don't receive any update acks either.
-  - need to add replication-specific tests. Also step-style tests.
+  - If jitter is too big, or there is packet loss? it looks like inputs keep getting sent to client 1.
+    - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
+  
+  
 
-  - Right now, we are sending some updates at the beginning at the same time of inserts, even though nothing changes since the insert.
-    - need to make sure we send updates since the most recent of 'last_ack_updates' or 'last_sent_actions'
-  - THE PROBLEM IS EITHER IN READ_BUFFERED_UPDATES OR APPLY_WORLD!
+- TODO:
+  - implement Message for common bevy transforms
+  - maybe have a ClientReplicate component to transfer all the replication data that is useful to clients? (group, prediciton, interpolation, etc.)
+
+   
 
 
 - FINAL CHOICE:

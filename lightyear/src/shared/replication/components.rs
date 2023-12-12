@@ -4,9 +4,9 @@ use crate::netcode::ClientId;
 use crate::protocol::channel::ChannelKind;
 use crate::server::room::{ClientVisibility, RoomId};
 use bevy::prelude::{Component, Entity};
+use bevy::utils::{HashMap, HashSet};
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
@@ -82,18 +82,18 @@ impl Default for Replicate {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, PartialEq)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]
     /// Message sent to no client
     None,
-    /// Message sent to all clients except for one
-    AllExcept(ClientId),
+    /// Message sent to all clients except for these
+    AllExcept(Vec<ClientId>),
     /// Message sent to all clients
     All,
-    /// Message sent to only one client
-    Only(ClientId),
+    /// Message sent to only these
+    Only(Vec<ClientId>),
 }
 
 impl NetworkTarget {
@@ -101,9 +101,36 @@ impl NetworkTarget {
     pub(crate) fn should_send_to(&self, client_id: &ClientId) -> bool {
         match self {
             NetworkTarget::All => true,
-            NetworkTarget::AllExcept(id) => id != client_id,
-            NetworkTarget::Only(id) => id == client_id,
+            NetworkTarget::AllExcept(client_ids) => !client_ids.contains(client_id),
+            NetworkTarget::Only(client_ids) => client_ids.contains(client_id),
             NetworkTarget::None => false,
+        }
+    }
+
+    pub(crate) fn exclude(&mut self, client_ids: Vec<ClientId>) {
+        match self {
+            NetworkTarget::All => {
+                *self = NetworkTarget::AllExcept(client_ids);
+            }
+            NetworkTarget::AllExcept(existing_client_ids) => {
+                let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                client_ids.into_iter().for_each(|id| {
+                    new_excluded_ids.insert(id);
+                });
+                *existing_client_ids = Vec::from_iter(new_excluded_ids);
+            }
+            NetworkTarget::Only(existing_client_ids) => {
+                let mut new_ids = HashSet::from_iter(existing_client_ids.clone());
+                client_ids.into_iter().for_each(|id| {
+                    new_ids.remove(&id);
+                });
+                if new_ids.is_empty() {
+                    *self = NetworkTarget::None;
+                } else {
+                    *existing_client_ids = Vec::from_iter(new_ids);
+                }
+            }
+            NetworkTarget::None => {}
         }
     }
 }
@@ -119,3 +146,43 @@ pub struct ShouldBeInterpolated;
 //  let's think of another approach later.
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ShouldBePredicted;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::ClientId;
+
+    #[test]
+    fn test_network_target() {
+        let mut target = NetworkTarget::All;
+        assert!(target.should_send_to(&0));
+        target.exclude(vec![1, 2]);
+        assert_eq!(target, NetworkTarget::AllExcept(vec![1, 2]));
+
+        target = NetworkTarget::AllExcept(vec![0]);
+        assert!(!target.should_send_to(&0));
+        assert!(target.should_send_to(&1));
+        target.exclude(vec![0, 1]);
+        assert!(matches!(target, NetworkTarget::AllExcept(_)));
+        match target {
+            NetworkTarget::AllExcept(ids) => {
+                assert!(ids.contains(&0));
+                assert!(ids.contains(&1));
+            }
+            _ => {}
+        }
+
+        target = NetworkTarget::Only(vec![0]);
+        assert!(target.should_send_to(&0));
+        assert!(!target.should_send_to(&1));
+        target.exclude(vec![1]);
+        assert_eq!(target, NetworkTarget::Only(vec![0]));
+        target.exclude(vec![0, 2]);
+        assert_eq!(target, NetworkTarget::None);
+
+        target = NetworkTarget::None;
+        assert!(!target.should_send_to(&0));
+        target.exclude(vec![1]);
+        assert_eq!(target, NetworkTarget::None);
+    }
+}

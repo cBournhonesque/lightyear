@@ -13,7 +13,7 @@ use crate::shared::tick_manager::Tick;
 // - lower values (with a minimum of 1.0) will make the interpolation look better when we receive an update,
 //   but will also make it more likely to have a wrong interpolation when we have packet loss
 // - however we can combat packet loss by having a bigger delay
-const SEND_INTERVAL_TICK_FACTOR: f32 = 1.0;
+const SEND_INTERVAL_TICK_FACTOR: f32 = 1.5;
 
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?
@@ -75,59 +75,59 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         // (we need to call this even if status.end is set, because a new more recent server update could have been received)
         if let Some((new_tick, _)) = history.peek() {
             if end.as_ref().map_or(true, |(tick, _)| new_tick < *tick) {
+                trace!("next value after current_interpolate_tick: {:?}", new_tick);
                 // only pop if we actually put the value in end
                 end = history.pop();
             }
         }
 
-        // NOTE: if we took enough margin, we should always have server snapshots (end tick) to interpolate towards,
-        //  lets consider that this is the case.
+        // // NOTE: if we took enough margin, we should always have server snapshots (end tick) to interpolate towards,
+        // //  lets consider that this is the case.
 
-        // If start_tick < interpolation_tick < end_tick and end_tick - start_tick > UPDATE_FACTOR * send_interval
-        // that means that start_tick stopped chang
-        // ing because the component is fixed (we are not receiving updates)
-        // in that case we need to add a history at the correct time
-        if let (Some((start_tick, _)), Some((end_tick, end_component))) =
-            (&mut start, std::mem::take(&mut end))
-        {
-            if end_tick - *start_tick > send_interval_delta_tick {
-                info!(
-                    ?current_interpolate_tick,
-                    ?send_interval_delta_tick,
-            last_received_server_tick = ?client.latest_received_server_tick(),
-            start_tick = ?(*start_tick),
-            end_tick = ?*end_tick,
-            "situation");
-                let new_tick = end_tick - send_interval_delta_tick as u16;
-                if new_tick > current_interpolate_tick {
-                    // put back the existing end in the history
-                    history.buffer.add_item(end_tick, end_component);
-                    // update end to be the current start component
-                    end = Some((new_tick, component.clone()));
-                } else {
-                    // advance the start
-                    *start_tick = new_tick;
-                    end = Some((end_tick, end_component));
-                }
-            } else {
-                end = Some((end_tick, end_component));
+        // NOTE: this is another solution for the problem of doing interpolation for an entity that hasn't received updates in a while
+
+        // // If start_tick < interpolation_tick < end_tick and end_tick - start_tick > UPDATE_FACTOR * send_interval
+        // // that means that start_tick stopped chang
+        // // ing because the component is fixed (we are not receiving updates)
+        // // in that case we need to add a history at the correct time
+        // let mut temp_end = std::mem::take(&mut end);
+        // if let (Some((start_tick, _)), Some((end_tick, end_component))) =
+        //     (&mut start, &mut temp_end)
+        // {
+        //     if end_tick - *start_tick > send_interval_delta_tick {
+        //         info!(
+        //                 ?current_interpolate_tick,
+        //                 ?send_interval_delta_tick,
+        //         last_received_server_tick = ?client.latest_received_server_tick(),
+        //         start_tick = ?(*start_tick),
+        //         end_tick = ?*end_tick,
+        //         "situation"
+        //             );
+        //         let new_tick = end_tick - send_interval_delta_tick as u16;
+        //         if new_tick > current_interpolate_tick {
+        //             // put back the existing end in the history
+        //             history.buffer.add_item(*end_tick, end_component);
+        //             // update end to be the current start component
+        //             *end_tick = new_tick;
+        //             *end_component = component.clone();
+        //         } else {
+        //             // advance the start
+        //             *start_tick = new_tick;
+        //         }
+        //     }
+        // }
+        // end = temp_end;
+
+        // If it's been too long since we received an update, reset the server tick to None
+        // (so that we wait again until interpolation_tick is between two server updates)
+        let temp_start = std::mem::take(&mut start);
+        if let Some((start_tick, _)) = temp_start {
+            if current_interpolate_tick - start_tick < send_interval_delta_tick {
+                start = temp_start;
             }
         }
 
-        // // if we are not receiving any update for a long time (because there are no entity updates)
-        // // we need to bring the start tick forward so that the interpolation looks good when we receive a new update)
-        // if end.is_none() && start.is_some() {
-        //     start.as_mut().map(|(tick, _)| {
-        //         if current_interpolate_tick - *tick >= update_interpolation_start_tick {
-        //             trace!(
-        //             "no server update received for a long time, bringing the start tick forward"
-        //             );
-        //             *tick = current_interpolate_tick
-        //         }
-        //     });
-        // }
-
-        info!(?current_interpolate_tick,
+        trace!(?current_interpolate_tick,
             last_received_server_tick = ?client.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),

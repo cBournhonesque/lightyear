@@ -8,6 +8,7 @@ use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::connection::events::ConnectionEvents;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::EntityHashMap;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, trace_span};
@@ -20,6 +21,7 @@ use super::{
     ReplicationMessageData,
 };
 use crate::connection::message::ProtocolMessage;
+use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::Tick;
 use crate::protocol::channel::ChannelKind;
@@ -27,26 +29,15 @@ use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{ReplicationGroup, ReplicationGroupId};
 
-// TODO: maybe store additional information about the entity?
-//  (e.g. the value of the replicate component)?
-pub enum EntityStatus {
-    JustSpawned,
-    Spawning,
-    Spawned,
-}
-
+// TODO: maybe separate send/receive side for clarity?
 pub(crate) struct ReplicationManager<P: Protocol> {
-    pub remote_entity_status: HashMap<Entity, EntityStatus>,
     // pub global_replication_data: &'a ReplicationData,
-    /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
-    pub entity_map: EntityMap,
-    /// Buffer to so that we have an ordered receiver per group
-    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel<P>>,
+
+    // SEND
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
     /// Map from message-id to the corresponding group-id that sent this update message
     pub updates_message_id_to_group_id: HashMap<MessageId, ReplicationGroupId>,
-
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<
@@ -54,103 +45,31 @@ pub(crate) struct ReplicationManager<P: Protocol> {
         BTreeMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
     >,
     pub pending_updates: EntityHashMap<ReplicationGroupId, BTreeMap<Entity, Vec<P::Components>>>,
-}
 
-/// Channel to keep track of receiving/sending replication messages for a given Group
-#[derive(Debug)]
-pub struct GroupChannel<P: Protocol> {
-    // actions
-    pub actions_next_send_message_id: MessageId,
-    pub actions_pending_recv_message_id: MessageId,
-    pub actions_recv_message_buffer:
-        BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
-    // last tick for which we sent an action message
-    pub last_action_tick: Tick,
+    // RECEIVE
+    /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
+    pub entity_map: EntityMap,
+    /// Map from remote entity to the replication group-id
+    pub remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
 
-    // updates
-    // map from necessary_last_action_tick to the buffered message
-    // the first tick is the last_action_tick
-    // the second tick is the update's server tick when it was sent
-    pub buffered_updates: BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
-    // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
-    // TODO: maybe this should be an Option, so that we make sure that when we need it's always is_some()
-    // bevy tick when we received an ack of an update for this group
-    pub latest_updates_ack_bevy_tick: BevyTick,
-
-    // both
-    /// last server tick that we applied to the client world
-    pub latest_tick: Tick,
-}
-
-impl<P: Protocol> Default for GroupChannel<P> {
-    fn default() -> Self {
-        Self {
-            actions_next_send_message_id: MessageId(0),
-            actions_pending_recv_message_id: MessageId(0),
-            actions_recv_message_buffer: BTreeMap::new(),
-            last_action_tick: Tick(0),
-            buffered_updates: Default::default(),
-            latest_updates_ack_bevy_tick: BevyTick::new(0),
-            latest_tick: Tick(0),
-        }
-    }
-}
-
-impl<P: Protocol> GroupChannel<P> {
-    /// Reads a message from the internal buffer to get its content
-    /// Since we are receiving messages in order, we don't return from the buffer
-    /// until we have received the message we are waiting for (the next expected MessageId)
-    /// This assumes that the sender sends all message ids sequentially.
-    ///
-    /// If had received updates that were waiting on a given action, we also return them
-    fn read_action(
-        &mut self,
-    ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
-        // Check if we have received the message we are waiting for
-        let Some(message) = self
-            .actions_recv_message_buffer
-            .remove(&self.actions_pending_recv_message_id)
-        else {
-            return None;
-        };
-
-        self.actions_pending_recv_message_id += 1;
-        // Update the latest server tick that we have processed
-        self.latest_tick = message.0;
-        Some(message)
-    }
-
-    fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage<P::Components>)> {
-        // go through all the buffered updates whose last_action_tick has been reached
-        let not_ready = self.buffered_updates.split_off(&(self.latest_tick + 1));
-
-        let mut res = vec![];
-        let buffered_updates_to_consider = std::mem::take(&mut self.buffered_updates);
-        for (necessary_action_tick, updates) in buffered_updates_to_consider.into_iter() {
-            // only push the update if the entity is at more recent tick than the last_action_tick
-            if necessary_action_tick < self.latest_tick {
-                for (tick, update) in updates {
-                    self.latest_tick = tick;
-                    res.push((tick, update));
-                }
-            }
-        }
-        self.buffered_updates = not_ready;
-        res
-    }
+    // BOTH
+    /// Buffer to so that we have an ordered receiver per group
+    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel<P>>,
 }
 
 impl<P: Protocol> ReplicationManager<P> {
     pub(crate) fn new(updates_ack_tracker: Receiver<MessageId>) -> Self {
         Self {
-            entity_map: EntityMap::default(),
-            remote_entity_status: HashMap::new(),
+            // SEND
             pending_actions: EntityHashMap::default(),
             pending_updates: EntityHashMap::default(),
-            // global_replication_data,
-            group_channels: Default::default(),
             updates_ack_tracker,
             updates_message_id_to_group_id: Default::default(),
+            // RECEIVE
+            entity_map: EntityMap::default(),
+            remote_entity_to_group: Default::default(),
+            // BOTH
+            group_channels: Default::default(),
         }
     }
 
@@ -161,16 +80,13 @@ impl<P: Protocol> ReplicationManager<P> {
         while let Ok(message_id) = self.updates_ack_tracker.try_recv() {
             if let Some(group_id) = self.updates_message_id_to_group_id.get(&message_id) {
                 let channel = self.group_channels.entry(*group_id).or_default();
-                // TODO: should we do a max? yes, if we also deal with action tick
-                // if bevy_tick > channel.latest_updates_ack_bevy_tick
-                channel.latest_updates_ack_bevy_tick = bevy_tick;
+                channel.update_collect_changes_since_this_tick(bevy_tick);
             } else {
                 error!(
                     "Received an update message-id ack but we don't have the corresponding group"
                 );
             }
         }
-        // TODO: should we do the same thing for self.actions_ack_tracker?
     }
 
     /// Recv a new replication message and buffer it
@@ -179,10 +95,14 @@ impl<P: Protocol> ReplicationManager<P> {
         message: ReplicationMessage<P::Components, P::ComponentKinds>,
         tick: Tick,
     ) {
-        info!(?message, ?tick, "Received replication message");
+        trace!(?message, ?tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
             ReplicationMessageData::Actions(m) => {
+                // update the mapping from entity to group-id
+                m.actions.keys().for_each(|e| {
+                    self.remote_entity_to_group.insert(*e, message.group_id);
+                });
                 // if the message is too old, ignore it
                 if m.sequence_id < channel.actions_pending_recv_message_id {
                     return;
@@ -195,6 +115,10 @@ impl<P: Protocol> ReplicationManager<P> {
                     .insert(m.sequence_id, (tick, m));
             }
             ReplicationMessageData::Updates(m) => {
+                // update the mapping from entity to group-id
+                m.updates.keys().for_each(|e| {
+                    self.remote_entity_to_group.insert(*e, message.group_id);
+                });
                 // if we have already applied a more recent update for this group, no need to keep this one
                 if tick <= channel.latest_tick {
                     return;
@@ -211,7 +135,7 @@ impl<P: Protocol> ReplicationManager<P> {
                     .or_insert(m);
             }
         }
-        info!(?channel, "group channel after buffering");
+        trace!(?channel, "group channel after buffering");
     }
 
     /// Return the list of replication messages that are ready to be applied to the World
@@ -229,7 +153,7 @@ impl<P: Protocol> ReplicationManager<P> {
     )> {
         self.group_channels
             .iter_mut()
-            .map(|(group_id, channel)| {
+            .filter_map(|(group_id, channel)| {
                 let mut res = Vec::new();
 
                 // check for any actions that are ready to be applied
@@ -247,12 +171,29 @@ impl<P: Protocol> ReplicationManager<P> {
                         .map(|(tick, updates)| (tick, ReplicationMessageData::Updates(updates))),
                 );
 
-                (*group_id, res)
+                (!res.is_empty()).then_some((*group_id, res))
             })
             .collect()
     }
+
+    // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
+    /// Get the group channel associated with a given entity
+    pub(crate) fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel<P>> {
+        self.entity_map
+            .get_remote(local_entity)
+            .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
+    }
+
+    // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
+    /// Get the group channel associated with a given entity
+    pub(crate) fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel<P>> {
+        self.remote_entity_to_group
+            .get(&remote_entity)
+            .and_then(|group_id| self.group_channels.get(group_id))
+    }
 }
 
+// TODO: handle duplicate inserts/updates/removes?
 /// We want:
 /// - entity actions to be done reliably
 /// - entity updates (component updates) to be done unreliably
@@ -344,14 +285,22 @@ impl<P: Protocol> ReplicationManager<P> {
 
         // if there are any entity actions, send EntityActions
         for (group_id, mut actions) in self.pending_actions.drain() {
-            // add any updates for that group
+            // add any updates for that group into the actions message
             if let Some(updates) = self.pending_updates.remove(&group_id) {
                 for (entity, components) in updates {
-                    actions
+                    // for any update that was not already in insert, add it to the update list
+                    // TODO: also check if it's not already in updates?
+                    let existing_inserts = actions
                         .entry(entity)
                         .or_default()
-                        .updates
-                        .extend(components);
+                        .insert
+                        .iter()
+                        .map(|c| c.into())
+                        .collect::<HashSet<P::ComponentKinds>>();
+                    components
+                        .into_iter()
+                        .filter(|c| !existing_inserts.contains(&c.into()))
+                        .for_each(|c| actions.entry(entity).or_default().updates.push(c));
                 }
             }
             let channel = self.group_channels.entry(group_id).or_default();
@@ -379,6 +328,10 @@ impl<P: Protocol> ReplicationManager<P> {
                     updates,
                 }),
             ));
+        }
+
+        if !messages.is_empty() {
+            trace!(?messages, "Sending replication messages");
         }
 
         messages
@@ -498,101 +451,102 @@ impl<P: Protocol> ReplicationManager<P> {
             }
         }
     }
+}
 
-    // /// Apply any replication messages to the world
-    // pub(crate) fn apply_world(
-    //     &mut self,
-    //     world: &mut World,
-    //     replication: ReplicationMessage<P::Components, P::ComponentKinds>,
-    // ) {
-    //     let _span = trace_span!("Apply received replication message to world").entered();
-    //     match replication {
-    //         ReplicationMessage::SpawnEntity(entity, components) => {
-    //             let component_kinds = components
-    //                 .iter()
-    //                 .map(|c| c.into())
-    //                 .collect::<Vec<P::ComponentKinds>>();
-    //             debug!(remote_entity = ?entity, ?component_kinds, "Received spawn entity");
-    //
-    //             // TODO: we only run spawn_entity if we don't already have an entity in the process of being spawned
-    //             //  so we need a data-structure to keep track of entities that are being spawned
-    //             //  or do we? I'm not sure we would send this twice, because of the bevy system logic
-    //             //  but maybe we would do, if we remove Replicate and then Re-add it?
-    //
-    //             // Ignore if we already received the entity
-    //             if self.entity_map.get_local(entity).is_some() {
-    //                 return;
-    //             }
-    //             let mut local_entity_mut = world.spawn_empty();
-    //
-    //             // TODO: optimize by using batch functions?
-    //             for component in components {
-    //                 component.insert(&mut local_entity_mut);
-    //             }
-    //             self.entity_map.insert(entity, local_entity_mut.id());
-    //         }
-    //         ReplicationMessage::DespawnEntity(entity) => {
-    //             // TODO: we only run this if the entity has been confirmed to be spawned on client?
-    //             //  or should we send the message right away and let the receiver handle the ordering?
-    //             //  (what if they receive despawn before spawn?)
-    //             if let Some(local_entity) = self.entity_map.remove_by_remote(entity) {
-    //                 world.despawn(local_entity);
-    //             }
-    //         }
-    //         ReplicationMessage::InsertComponent(entity, components) => {
-    //             let kinds = components
-    //                 .iter()
-    //                 .map(|c| c.into())
-    //                 .collect::<Vec<P::ComponentKinds>>();
-    //             debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
-    //             // it's possible that we received InsertComponent before the entity actually exists.
-    //             // In that case, we need to spawn the entity first.
-    //             // TODO: this might not be what we want? imagine we receive a DespawnEntity or RemoveComponent right before that?
-    //             let mut local_entity_mut = self.entity_map.get_by_remote_or_spawn(world, entity);
-    //             // TODO: maybe check if the component already exists?
-    //             for component in components {
-    //                 component.insert(&mut local_entity_mut);
-    //             }
-    //         }
-    //         ReplicationMessage::RemoveComponent(entity, component_kinds) => {
-    //             debug!(remote_entity = ?entity, kinds = ?component_kinds, "Received RemoveComponent");
-    //             if let Some(local_entity) = self.entity_map.get_local(entity) {
-    //                 if let Some(mut entity_mut) = world.get_entity_mut(*local_entity) {
-    //                     for kind in component_kinds {
-    //                         kind.remove(&mut entity_mut);
-    //                     }
-    //                 } else {
-    //                     debug!(
-    //                         "Could not remove component because local entity {:?} was not found",
-    //                         local_entity
-    //                     );
-    //                 }
-    //             }
-    //             debug!(
-    //                 "Could not remove component because remote entity {:?} was not found",
-    //                 entity
-    //             );
-    //         }
-    //         ReplicationMessage::EntityUpdate(entity, components) => {
-    //             let kinds = components
-    //                 .iter()
-    //                 .map(|c| c.into())
-    //                 .collect::<Vec<P::ComponentKinds>>();
-    //             trace!(?entity, ?kinds, "Received entity update");
-    //             // if the entity does not exist, create it
-    //             let mut local_entity_mut = self.entity_map.get_by_remote_or_spawn(world, entity);
-    //             // TODO: keep track of the components inserted?
-    //             for component in components {
-    //                 component.update(&mut local_entity_mut);
-    //             }
-    //         }
-    //     }
-    // }
+/// Channel to keep track of receiving/sending replication messages for a given Group
+#[derive(Debug)]
+pub struct GroupChannel<P: Protocol> {
+    // SEND
+    pub actions_next_send_message_id: MessageId,
+    // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
+    // TODO: maybe this should be an Option, so that we make sure that when we need it's always is_some()
+    // bevy tick when we received an ack of an update for this group
+    pub collect_changes_since_this_tick: BevyTick,
+    // last tick for which we sent an action message
+    pub last_action_tick: Tick,
 
-    // pub fn buffer_spawn_entity<C: Channel>(&mut self, entity: Entity) {
-    //     let message = MessageContainer::new(ReplicationMessage::SpawnEntity(entity));
-    //     self.message_manager.buffer_send::<C>(message);
-    // }
+    // RECEIVE
+    pub actions_pending_recv_message_id: MessageId,
+    pub actions_recv_message_buffer:
+        BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
+    // updates
+    // map from necessary_last_action_tick to the buffered message
+    // the first tick is the last_action_tick
+    // the second tick is the update's server tick when it was sent
+    pub buffered_updates: BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
+
+    // BOTH SEND/RECEIVE
+    /// last server tick that we applied to the client world
+    pub latest_tick: Tick,
+}
+
+impl<P: Protocol> Default for GroupChannel<P> {
+    fn default() -> Self {
+        Self {
+            actions_next_send_message_id: MessageId(0),
+            actions_pending_recv_message_id: MessageId(0),
+            actions_recv_message_buffer: BTreeMap::new(),
+            last_action_tick: Tick(0),
+            buffered_updates: Default::default(),
+            collect_changes_since_this_tick: BevyTick::new(0),
+            latest_tick: Tick(0),
+        }
+    }
+}
+
+impl<P: Protocol> GroupChannel<P> {
+    pub(crate) fn update_collect_changes_since_this_tick(&mut self, bevy_tick: BevyTick) {
+        // the bevy_tick passed is either at receive or send, and is always more recent
+        // than the previous bevy_tick
+
+        // if bevy_tick is bigger than current tick, set current_tick to bevy_tick
+        // if bevy_tick.is_newer_than(self.collect_changes_since_this_tick, BevyTick::MAX) {
+        self.collect_changes_since_this_tick = bevy_tick;
+        // }
+    }
+
+    /// Reads a message from the internal buffer to get its content
+    /// Since we are receiving messages in order, we don't return from the buffer
+    /// until we have received the message we are waiting for (the next expected MessageId)
+    /// This assumes that the sender sends all message ids sequentially.
+    ///
+    /// If had received updates that were waiting on a given action, we also return them
+    fn read_action(
+        &mut self,
+    ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
+        // Check if we have received the message we are waiting for
+        let Some(message) = self
+            .actions_recv_message_buffer
+            .remove(&self.actions_pending_recv_message_id)
+        else {
+            return None;
+        };
+
+        self.actions_pending_recv_message_id += 1;
+        // Update the latest server tick that we have processed
+        self.latest_tick = message.0;
+        Some(message)
+    }
+
+    fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage<P::Components>)> {
+        // go through all the buffered updates whose last_action_tick has been reached
+        // (the update's last_action_tick <= latest_tick)
+        let not_ready = self.buffered_updates.split_off(&(self.latest_tick + 1));
+
+        let mut res = vec![];
+        let buffered_updates_to_consider = std::mem::take(&mut self.buffered_updates);
+        for (necessary_action_tick, updates) in buffered_updates_to_consider.into_iter() {
+            for (tick, update) in updates {
+                // only push the update if the update's tick is more recent than the entity's current latest_tick
+                if self.latest_tick < tick {
+                    self.latest_tick = tick;
+                    res.push((tick, update));
+                }
+            }
+        }
+        self.buffered_updates = not_ready;
+        res
+    }
 }
 
 #[cfg(test)]
@@ -794,6 +748,62 @@ mod tests {
             .get(&Tick(1))
             .is_some());
 
-        // TODO: add more tests
+        // add updates before actions (last_action_tick is 2)
+        manager.recv_message(
+            ReplicationMessage {
+                group_id: ReplicationGroupId(0),
+                data: ReplicationMessageData::Updates(EntityUpdatesMessage {
+                    last_action_tick: Tick(2),
+                    updates: Default::default(),
+                }),
+            },
+            Tick(4),
+        );
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .buffered_updates
+            .get(&Tick(2))
+            .unwrap()
+            .get(&Tick(4))
+            .is_some());
+
+        // read messages: only read the first action and update
+        let read_messages = manager.read_messages();
+        let replication_data = &read_messages.first().unwrap().1;
+        assert_eq!(replication_data.get(0).unwrap().0, Tick(0));
+        assert_eq!(replication_data.get(1).unwrap().0, Tick(1));
+
+        // recv actions-3: should be buffered, we are still waiting for actions-2
+        manager.recv_message(
+            ReplicationMessage {
+                group_id: ReplicationGroupId(0),
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(2),
+                    actions: Default::default(),
+                }),
+            },
+            Tick(3),
+        );
+        assert!(manager.read_messages().is_empty());
+
+        // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
+        manager.recv_message(
+            ReplicationMessage {
+                group_id: ReplicationGroupId(0),
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(1),
+                    actions: Default::default(),
+                }),
+            },
+            Tick(2),
+        );
+        let read_messages = manager.read_messages();
+        let replication_data = &read_messages.first().unwrap().1;
+        assert_eq!(replication_data.len(), 3);
+        assert_eq!(replication_data.get(0).unwrap().0, Tick(2));
+        assert_eq!(replication_data.get(1).unwrap().0, Tick(3));
+        assert_eq!(replication_data.get(2).unwrap().0, Tick(4));
     }
 }

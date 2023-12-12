@@ -38,7 +38,8 @@ impl MapEntities for Component4 {
     }
 }
 
-#[component_protocol_internal(protocol = "MyProtocol", derive(Debug))]
+// #[component_protocol_internal(protocol = "MyProtocol", derive(Debug))]
+#[component_protocol_internal(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     #[sync(full)]
     Component1(Component1),

@@ -10,7 +10,7 @@ use bevy::prelude::{
     Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, RemovedComponents,
     Res, ResMut, Resource, SystemSet,
 };
-use std::collections::{HashMap, HashSet};
+use bevy::utils::{HashMap, HashSet};
 use tracing::info;
 
 // Id for a room, used to perform interest management

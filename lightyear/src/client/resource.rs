@@ -15,6 +15,7 @@ use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
+use crate::shared::replication::manager::ReplicationManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};
 use crate::shared::time_manager::TimeManager;
@@ -185,9 +186,12 @@ impl<P: Protocol> Client<P> {
     }
 
     // REPLICATION
+    pub(crate) fn replication_manager(&self) -> &ReplicationManager<P> {
+        &self.connection.base.replication_manager
+    }
 
     /// Maintain connection with server, queues up any packet received from the server
-    pub fn update(&mut self, delta: Duration, overstep: Duration) -> Result<()> {
+    pub(crate) fn update(&mut self, delta: Duration, overstep: Duration) -> Result<()> {
         self.time_manager.update(delta, overstep);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 
@@ -207,7 +211,7 @@ impl<P: Protocol> Client<P> {
     /// - server prediction time is computed from time, which has been update via delta
     /// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
     /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
-    pub fn sync_update(&mut self) {
+    pub(crate) fn sync_update(&mut self) {
         if self.netcode.is_connected() {
             self.connection.sync_manager.update(
                 &mut self.time_manager,
@@ -229,13 +233,13 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive messages from the server
-    pub fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
+    pub(crate) fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
         self.connection.base.receive(world, &self.time_manager)
     }
 
     /// Send packets that are ready from the message manager through the transport layer
-    pub fn send_packets(&mut self) -> Result<()> {
+    pub(crate) fn send_packets(&mut self) -> Result<()> {
         let packet_bytes = self
             .connection
             .base
@@ -247,7 +251,7 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub fn recv_packets(&mut self) -> Result<()> {
+    pub(crate) fn recv_packets(&mut self) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
             self.connection
                 .recv_packet(&mut reader, &self.time_manager, &self.tick_manager)?;

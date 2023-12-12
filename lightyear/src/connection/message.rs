@@ -53,7 +53,7 @@ impl<P: Protocol> ProtocolMessage<P> {
         match self {
             ProtocolMessage::Message(message) => {
                 let message_name = message.name();
-                info!(channel = ?channel_name, message = ?message_name, "Sending message");
+                trace!(channel = ?channel_name, message = ?message_name, "Sending message");
                 #[cfg(metrics)]
                 metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
             }
@@ -66,12 +66,12 @@ impl<P: Protocol> ProtocolMessage<P> {
                         for (entity, actions) in &m.actions {
                             let _span = info_span!("send replication actions", ?entity);
                             if actions.spawn {
-                                info!("Send entity spawn");
+                                trace!("Send entity spawn");
                                 #[cfg(metrics)]
                                 metrics::increment_counter!("send_entity_spawn");
                             }
                             if actions.despawn {
-                                info!("Send entity despawn");
+                                trace!("Send entity despawn");
                                 #[cfg(metrics)]
                                 metrics::increment_counter!("send_entity_despawn");
                             }
@@ -81,7 +81,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                                     .iter()
                                     .map(|c| c.into())
                                     .collect::<Vec<P::ComponentKinds>>();
-                                info!(?components, "Sending component insert");
+                                trace!(?components, "Sending component insert");
                                 #[cfg(metrics)]
                                 {
                                     for component in components {
@@ -90,7 +90,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                                 }
                             }
                             if !actions.remove.is_empty() {
-                                info!(?actions.remove, "Sending component remove");
+                                trace!(?actions.remove, "Sending component remove");
                                 #[cfg(metrics)]
                                 {
                                     for kind in actions.remove {
@@ -104,7 +104,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                                     .iter()
                                     .map(|c| c.into())
                                     .collect::<Vec<P::ComponentKinds>>();
-                                info!(?components, "Sending component update");
+                                trace!(?components, "Sending component update");
                                 #[cfg(metrics)]
                                 {
                                     for component in components {
@@ -121,7 +121,7 @@ impl<P: Protocol> ProtocolMessage<P> {
                                 .iter()
                                 .map(|c| c.into())
                                 .collect::<Vec<P::ComponentKinds>>();
-                            info!(?components, "Sending component update");
+                            trace!(?components, "Sending component update");
                             #[cfg(metrics)]
                             {
                                 for component in components {

@@ -89,7 +89,7 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     // send buffered packets to io
     server.send_packets().unwrap();
 
-    server.clear_new_clients();
+    server.new_clients.clear();
 }
 
 pub(crate) fn clear_events<P: Protocol>(mut server: ResMut<Server<P>>) {

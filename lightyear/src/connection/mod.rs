@@ -163,12 +163,14 @@ impl<P: Protocol> Connection<P> {
                         }
                     }
                 }
+                // NOTE: ON THE RECEIVING SIDE, THE CHANNELS USE THE REMOTE_ENTITY AS KEY!
+                //  - either map all entities in map_entities (requires World access to spawn entities if needed)
 
                 // Check if we have any replication messages we can apply to the World (and emit events)
                 // TODO: maybe only run apply world if the client is time-synced!
                 //  that would mean that for now, apply_world only runs on client, and not on server :)
                 for (group, replication_list) in self.replication_manager.read_messages() {
-                    info!(?replication_list, "read replication messages");
+                    trace!(?group, ?replication_list, "read replication messages");
                     replication_list.into_iter().for_each(|(_, replication)| {
                         // TODO: we could include the server tick when this replication_message was sent.
                         self.replication_manager
