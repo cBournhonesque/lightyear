@@ -40,6 +40,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     if !client.is_synced() {
         return;
     }
+
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
     let send_interval_delta_tick =
         (SEND_INTERVAL_TICK_FACTOR * client.config().shared.server_send_interval.as_secs_f32()

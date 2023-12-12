@@ -23,6 +23,8 @@ use super::{spawn_predicted_entity, ComponentSyncMode, Rollback, RollbackState};
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin
     disable: bool,
+    /// If true, we always rollback whenever we receive a server update, instead of checking
+    /// ff the confirmed state matches the predicted state history
     always_rollback: bool,
 }
 
@@ -93,7 +95,8 @@ pub enum PredictionSet {
     UpdateHistory,
 }
 
-pub fn should_rollback<C: SyncComponent>() -> bool {
+/// Returns true if the component is registered for rollback checks
+pub fn is_eligible_for_rollback<C: SyncComponent>() -> bool {
     matches!(C::mode(), ComponentSyncMode::Full)
 }
 
@@ -119,7 +122,7 @@ pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut A
             // for SyncMode::Simple, just copy the confirmed components
             (apply_confirmed_update::<C, P>).in_set(PredictionSet::CheckRollback),
             // for SyncMode::Full, we need to check if we need to rollback
-            (client_rollback_check::<C, P>.run_if(should_rollback::<C>))
+            (client_rollback_check::<C, P>.run_if(is_eligible_for_rollback::<C>))
                 .in_set(PredictionSet::CheckRollback),
         ),
     );
@@ -127,7 +130,7 @@ pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut A
         FixedUpdate,
         // we need to run this during fixed update to know accurately the history for each tick
         update_prediction_history::<C, P>
-            .run_if(should_rollback::<C>)
+            .run_if(is_eligible_for_rollback::<C>)
             .in_set(PredictionSet::UpdateHistory),
     );
     app.add_systems(

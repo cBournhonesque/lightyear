@@ -151,17 +151,13 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
                         match T::mode() {
                             ComponentSyncMode::Full => {
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
-                                let history = PredictionHistory::<T>::default();
+                                let mut history = PredictionHistory::<T>::default();
+                                history.buffer.add_item(
+                                    client.tick(),
+                                    ComponentState::Updated(confirmed_component.deref().clone()),
+                                );
                                 predicted_entity_mut
                                     .insert((confirmed_component.deref().clone(), history));
-
-                                // insert a confirmed history for the component, that will be needed for rollback
-                                // safety: we know the entity exists
-                                let mut confirmed_entity_mut =
-                                    commands.get_entity(confirmed_entity).unwrap();
-                                confirmed_entity_mut.insert(ConfirmedHistory::<T>::default());
-                                // TODO: add the value of the component along with the tick!
-                                // TODO: how do we access the tick?
                             }
                             _ => {
                                 // we only sync the components once, but we don't do rollback so no need for a component history

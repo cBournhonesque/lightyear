@@ -372,13 +372,11 @@ impl<P: Protocol> ReplicationManager<P> {
                             error!("Received despawn for an entity that does not exist")
                         }
                         continue;
+                    } else if let Ok(l) = self.entity_map.get_by_remote(world, entity) {
+                        local_entity = l;
                     } else {
-                        if let Ok(l) = self.entity_map.get_by_remote(world, entity) {
-                            local_entity = l;
-                        } else {
-                            error!("cannot find entity");
-                            continue;
-                        }
+                        error!("cannot find entity");
+                        continue;
                     }
 
                     // inserts
@@ -676,6 +674,7 @@ mod tests {
         );
     }
 
+    #[allow(clippy::get_first)]
     #[test]
     fn test_recv_replication_messages() {
         let (sender, receiver) = crossbeam_channel::unbounded();

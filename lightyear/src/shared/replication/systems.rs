@@ -62,7 +62,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
                         sender
                             .prepare_entity_despawn(
                                 entity,
-                                &replicate,
+                                replicate,
                                 NetworkTarget::Only(vec![*client_id]),
                                 system_bevy_ticks.this_run(),
                             )
@@ -253,7 +253,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                     .prepare_component_insert(
                         entity,
                         component.clone().into(),
-                        &replicate,
+                        replicate,
                         NetworkTarget::Only(new_connected_clients.clone()),
                         system_bevy_ticks.this_run(),
                     )

@@ -12,7 +12,7 @@ pub mod some_component {
     #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
     pub struct Component2(pub f32);
 
-    #[component_protocol(protocol = "MyProtocol", derive(Debug))]
+    #[component_protocol(protocol = "MyProtocol")]
     pub enum MyComponentProtocol {
         #[sync(full)]
         Component1(Component1),

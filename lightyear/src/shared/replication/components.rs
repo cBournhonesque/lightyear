@@ -164,12 +164,10 @@ mod tests {
         assert!(target.should_send_to(&1));
         target.exclude(vec![0, 1]);
         assert!(matches!(target, NetworkTarget::AllExcept(_)));
-        match target {
-            NetworkTarget::AllExcept(ids) => {
-                assert!(ids.contains(&0));
-                assert!(ids.contains(&1));
-            }
-            _ => {}
+
+        if let NetworkTarget::AllExcept(ids) = target {
+            assert!(ids.contains(&0));
+            assert!(ids.contains(&1));
         }
 
         target = NetworkTarget::Only(vec![0]);

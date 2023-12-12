@@ -3,7 +3,7 @@ use std::ops::Deref;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};

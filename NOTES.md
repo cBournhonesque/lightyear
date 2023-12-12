@@ -8,6 +8,8 @@
 - DEBUGGING SIMPLE_BOX:
   - If jitter is too big, or there is packet loss? it looks like inputs keep getting sent to client 1.
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
+  - on interest management, we still have this problem where interpolation is stuck at the beginning and doesn't move. Probably 
+    because start tick or end tick are not updated correctly in some edge cases.
   
   
 

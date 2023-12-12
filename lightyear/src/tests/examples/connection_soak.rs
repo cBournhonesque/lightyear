@@ -1,3 +1,5 @@
+//! The connection soak test how sending messages/packets works with a real connection, and loss/jitter
+//! We put this test here because it uses some private methods.
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
 use std::net::SocketAddr;
@@ -7,13 +9,15 @@ use std::time::Duration;
 use rand::Rng;
 use tracing::debug;
 
-use lightyear::connection::events::IterMessageEvent;
-use lightyear::prelude::client::{Authentication, Client, ClientConfig, SyncConfig};
-use lightyear::prelude::server::{NetcodeConfig, Server, ServerConfig};
-use lightyear::prelude::*;
-use lightyear_examples::protocol::{protocol, Channel1, Message1};
+use crate::connection::events::IterMessageEvent;
+use crate::prelude::client::{Authentication, Client, ClientConfig, SyncConfig};
+use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use crate::prelude::*;
+use crate::tests::protocol::*;
 
-fn main() -> anyhow::Result<()> {
+#[test]
+#[ignore]
+fn test_connection_soak() -> anyhow::Result<()> {
     tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::DEBUG)
         .init();
@@ -109,7 +113,7 @@ fn main() -> anyhow::Result<()> {
                     .collect();
                 let message = Message1(s);
                 debug!("Sending message {message:?}");
-                server.broadcast_send::<Channel1, Message1>(message)?;
+                server.send_to_target::<Channel1, Message1>(message, NetworkTarget::All)?;
             }
             std::thread::sleep(tick_rate_secs);
         }

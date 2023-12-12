@@ -1,3 +1,4 @@
+//! Wrapper around a list where the index is a wrapping key
 use std::marker::PhantomData;
 
 use crate::utils::wrapping_id::WrappedId;

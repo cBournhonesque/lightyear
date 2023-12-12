@@ -55,12 +55,12 @@ impl ChannelSend for TickUnreliableSender {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
             self.next_send_fragmented_message_id += 1;
-            return Some(self.next_send_fragmented_message_id - 1);
+            Some(self.next_send_fragmented_message_id - 1)
         } else {
             let mut single_data = SingleData::new(None, message);
             single_data.tick = Some(self.current_tick);
             self.single_messages_to_send.push_back(single_data);
-            return None;
+            None
         }
     }
 
