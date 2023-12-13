@@ -1,5 +1,4 @@
-/// Purely local io for testing
-/// Messages are sent via channels
+//! Purely local io for testing: messages are sent via channels
 use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};

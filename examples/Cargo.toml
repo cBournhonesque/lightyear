@@ -13,6 +13,10 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 publish = false
 
+# for wasm-pack
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [[example]]
 name = "interest_management"
 path = "interest_management/main.rs"
@@ -70,3 +74,4 @@ tokio = { version = "1.34", features = [
     "net",
     "time",
 ], optional = true }
+

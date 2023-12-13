@@ -33,11 +33,12 @@ impl Plugin for MyServerPlugin {
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
+            // Transports::Udp => TransportConfig::UdpSocket(server_addr),
             // Transports::Webtransport => TransportConfig::WebTransportServer {
             //     server_addr,
             //     certificate: Certificate::self_signed(&["localhost"]),
             // },
+            _ => TransportConfig::LocalChannel,
         };
         let io = Io::from_config(
             &IoConfig::from_transport(transport).with_conditioner(link_conditioner),

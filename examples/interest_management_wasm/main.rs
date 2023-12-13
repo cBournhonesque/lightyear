@@ -28,9 +28,11 @@ use lightyear::prelude::TransportConfig;
 // async fn main() {
 fn main() {
     // let cli = Cli::parse();
-    let cli = Cli::Server {
-        port: 5000,
-        transport: Transports::Udp,
+    let cli = Cli::Client {
+        client_id: 0,
+        client_port: 6000,
+        transport: Transports::Webtransport,
+        server_port: 5000,
     };
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
@@ -48,7 +50,7 @@ pub const KEY: Key = [0; 32];
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Transports {
     Udp,
-    // Webtransport,
+    Webtransport,
 }
 
 #[derive(Parser, PartialEq, Debug)]

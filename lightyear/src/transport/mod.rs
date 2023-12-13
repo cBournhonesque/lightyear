@@ -9,12 +9,14 @@ pub mod io;
 /// The transport is a local channel
 pub(crate) mod local;
 
-/// The transport is a UDP socket
+#[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
 
 /// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
-pub mod webtransport;
+mod webtransport;
+#[cfg(feature = "webtransport")]
+pub use webtransport::current as webtransport;
 
 use std::io::Result;
 use std::net::SocketAddr;

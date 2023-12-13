@@ -1,3 +1,4 @@
+//! The transport is a UDP socket
 use std::io::Result;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

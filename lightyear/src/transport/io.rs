@@ -9,6 +9,8 @@ use metrics;
 
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
+
+#[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocket;
 
 #[cfg(feature = "webtransport")]
@@ -21,6 +23,8 @@ use wtransport::tls::Certificate;
 
 #[derive(Clone)]
 pub enum TransportConfig {
+    // TODO: should we have a features for UDP?
+    #[cfg(not(target_family = "wasm"))]
     UdpSocket(SocketAddr),
     #[cfg(feature = "webtransport")]
     WebTransportClient {
@@ -38,6 +42,7 @@ pub enum TransportConfig {
 impl TransportConfig {
     pub fn get_io(&self) -> Io {
         let mut transport: Box<dyn Transport> = match self {
+            #[cfg(not(target_family = "wasm"))]
             TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
             #[cfg(feature = "webtransport")]
             TransportConfig::WebTransportClient {
@@ -69,7 +74,8 @@ pub struct IoConfig {
 impl Default for IoConfig {
     fn default() -> Self {
         Self {
-            transport: TransportConfig::UdpSocket(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0)),
+            transport: TransportConfig::LocalChannel,
+            // transport: TransportConfig::UdpSocket(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0)),
             conditioner: None,
         }
     }
