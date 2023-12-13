@@ -1,15 +1,13 @@
 //! WebTransport client implementation.
-use crate::transport::webtransport::server::WebTransportServerSocket;
-use crate::transport::webtransport::MTU;
+use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info};
-use wtransport;
-use wtransport::datagram::Datagram;
-use wtransport::ClientConfig;
+
+use xwt::current::{Connection, Datagram, Endpoint};
+use xwt_core::prelude::*;
 
 /// WebTransport client socket
 pub struct WebTransportClientSocket {
@@ -37,21 +35,34 @@ impl Transport for WebTransportClientSocket {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
 
+        cfg_if::cfg_if! {
+            if #[cfg(not(target_family = "wasm"))] {
+                let config = wtransport::ClientConfig::builder()
+                    .with_bind_address(client_addr)
+                    .with_no_cert_validation()
+                    .build();
+                let server_url = format!("https://{}", server_addr);
+                debug!(
+                    "Starting client webtransport task with server url: {}",
+                    &server_url
+                );
+                let endpoint = wtransport::Endpoint::client(config).unwrap();
+            } else {
+                let endpoint = xwt::web_sys::Endpoint {
+                    options: web_sys::WebTransportOptions::new(),
+                };
+            }
+        }
+
         tokio::spawn(async move {
-            let config = ClientConfig::builder()
-                .with_bind_address(client_addr)
-                .with_no_cert_validation()
-                .build();
-            let server_url = format!("https://{}", server_addr);
-            debug!(
-                "Starting client webtransport task with server url: {}",
-                &server_url
-            );
-            let Ok(connection) = wtransport::Endpoint::client(config)
-                .unwrap()
-                .connect(server_url)
-                .await
-            else {
+            // convert the endpoint from wtransport/web_sys to xwt
+            let endpoint = xwt::current::Endpoint(endpoint);
+
+            let Ok(connecting) = endpoint.connect(&server_url).await else {
+                error!("failed to connect to server");
+                return;
+            };
+            let Ok(connection) = connecting.wait_connect().await else {
                 error!("failed to connect to server");
                 return;
             };
@@ -71,7 +82,7 @@ impl Transport for WebTransportClientSocket {
 
                     // send messages to server
                     Some(msg) = to_server_receiver.recv() => {
-                        connection.send_datagram(msg).unwrap_or_else(|e| {
+                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
                             error!("send_datagram error: {:?}", e);
                         });
                     }
@@ -110,8 +121,10 @@ struct WebTransportClientPacketReceiver {
 impl PacketReceiver for WebTransportClientPacketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_server_receiver.try_recv() {
-            Ok(data) => {
-                self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
+            Ok(datagram) => {
+                // convert from datagram to payload via xwt
+                let data = datagram.as_ref();
+                self.buffer[..data.len()].copy_from_slice(data);
                 Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
             }
             Err(e) => {

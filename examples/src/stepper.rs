@@ -35,7 +35,7 @@ pub struct BevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: std::time::Instant,
+    pub current_time: bevy::utils::Instant,
 }
 
 // Do not forget to use --features mock_time when using the LinkConditioner
@@ -106,7 +106,7 @@ impl BevyStepper {
         client_app.add_plugins(plugin);
 
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = std::time::Instant::now();
+        let now = bevy::utils::Instant::now();
         client_app
             .world
             .get_resource_mut::<Time<Real>>()

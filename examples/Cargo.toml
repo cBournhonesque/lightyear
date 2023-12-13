@@ -18,6 +18,10 @@ name = "interest_management"
 path = "interest_management/main.rs"
 
 [[example]]
+name = "interest_management_wasm"
+path = "interest_management_wasm/main.rs"
+
+[[example]]
 name = "simple_box"
 path = "simple_box/main.rs"
 
@@ -44,10 +48,11 @@ path = "prediction_step.rs"
 
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
+webtransport = ["lightyear/webtransport"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-lightyear = { path = "../lightyear", features = ["webtransport"] }
+lightyear = { path = "../lightyear" }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
@@ -59,4 +64,9 @@ clap = { version = "4.4", features = ["derive"] }
 mock_instant = "0.3"
 metrics-exporter-prometheus = { version = "0.12.1", optional = true }
 bevy-inspector-egui = "0.21.0"
-tokio = { version = "1.34.0", features = ["rt", "macros"] }
+tokio = { version = "1.34", features = [
+    "rt",
+    "rt-multi-thread",
+    "net",
+    "time",
+], optional = true }
