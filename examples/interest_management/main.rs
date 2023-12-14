@@ -42,12 +42,13 @@ fn main() {
     };
 
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+    // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+    app.add_plugins(DefaultPlugins.build());
     setup(&mut app, cli);
 
     app.run();
 }
-
+//
 // for server webtransport, we need the Tokio reactor as it's required by Quinn
 // #[tokio::main]
 // async fn main() {

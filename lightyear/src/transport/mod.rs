@@ -22,7 +22,7 @@ use std::net::SocketAddr;
 pub trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
+    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)>;
 
     // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>);
 }

@@ -1,9 +1,9 @@
+use bevy::utils::Duration;
 /**
 Contains the [`LinkConditionerConfig`] struct which can be used to simulate network conditions
 */
 use std::io::Result;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use cfg_if::cfg_if;
 use rand;
@@ -16,7 +16,7 @@ cfg_if! {
     if #[cfg(any(test))] {
         use mock_instant::Instant;
     } else {
-        use std::time::Instant;
+        use bevy::utils::Instant;
     }
 }
 

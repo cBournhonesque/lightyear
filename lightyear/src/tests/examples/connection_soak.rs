@@ -2,9 +2,9 @@
 //! We put this test here because it uses some private methods.
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use rand::Rng;
 use tracing::debug;
@@ -85,7 +85,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
     // Start the connection
     client.connect();
 
-    let start = std::time::Instant::now();
+    let start = bevy::utils::Instant::now();
     let tick_rate_secs = Duration::from_secs_f64(1.0 / 30.0);
 
     // Run the server and client in parallel

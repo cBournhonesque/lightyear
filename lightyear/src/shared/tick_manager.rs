@@ -1,5 +1,5 @@
 //! Module to handle the [`Tick`], a sequence number incremented at each [`bevy::prelude::FixedUpdate`] schedule run
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use bevy::prelude::Resource;
 use tracing::trace;

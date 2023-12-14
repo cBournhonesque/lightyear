@@ -1,6 +1,6 @@
 //! This module contains the [`Channel`] trait
+use bevy::utils::Duration;
 use lightyear_macros::ChannelInternal;
-use std::time::Duration;
 
 use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
 use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;

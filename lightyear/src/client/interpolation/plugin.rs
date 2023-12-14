@@ -1,5 +1,5 @@
+use bevy::utils::Duration;
 use std::marker::PhantomData;
-use std::time::Duration;
 
 use bevy::prelude::{
     apply_deferred, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate, SystemSet,

@@ -1,5 +1,5 @@
 //! Manages sending/receiving pings and computing network statistics
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use bevy::prelude::Res;
 use bevy::time::Stopwatch;

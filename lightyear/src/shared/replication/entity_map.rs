@@ -105,7 +105,7 @@ mod tests {
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     // An entity gets replicated from server to client,
     // then a component gets removed from that entity on server,

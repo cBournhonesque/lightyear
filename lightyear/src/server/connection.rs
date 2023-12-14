@@ -1,6 +1,6 @@
 //! Wrapper around [`crate::connection::Connection`] that adds server-specific functionality
+use bevy::utils::Duration;
 use std::pin::pin;
-use std::time::Duration;
 
 use crate::_reexport::ReadBuffer;
 use anyhow::Result;

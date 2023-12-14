@@ -68,6 +68,8 @@ clap = { version = "4.4", features = ["derive"] }
 mock_instant = "0.3"
 metrics-exporter-prometheus = { version = "0.12.1", optional = true }
 bevy-inspector-egui = "0.21.0"
+getrandom = { version = "0.2.11", features = ["js"] }
+base64 = "0.21.5"
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 tokio = { version = "1.34", features = [

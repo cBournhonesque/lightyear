@@ -63,7 +63,7 @@ impl TransportConfig {
             TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
         };
         let addr = transport.local_addr();
-        let (sender, receiver) = transport.listen();
+        let (sender, receiver) = transport.listen().unwrap();
         Io::new(addr, sender, receiver)
     }
 }

@@ -1,6 +1,6 @@
 //! Defines the client bevy resource
+use bevy::utils::Duration;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::{Resource, Time, Virtual, World};

@@ -615,8 +615,8 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
     use std::collections::{BTreeMap, VecDeque};
-    use std::time::Duration;
 
     use bytes::Bytes;
 

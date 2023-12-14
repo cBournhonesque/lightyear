@@ -1,5 +1,5 @@
 //! Defines server-specific configuration options
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use crate::netcode::Key;
 use crate::shared::config::SharedConfig;

@@ -301,7 +301,7 @@ impl<Ctx> ServerConfig<Ctx> {
 /// ```
 /// # use crate::lightyear::netcode::{generate_key, Server};
 /// # use std::net::{SocketAddr, Ipv4Addr};
-/// # use std::time::{Instant, Duration};
+/// # use bevy::utils::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(
@@ -765,7 +765,7 @@ impl<Ctx> Server<Ctx> {
     /// # use crate::lightyear::netcode::{Server, ServerConfig, MAX_PACKET_SIZE};
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # use std::net::{SocketAddr, Ipv4Addr};
-    /// # use std::time::Instant;
+    /// # use bevy::utils::Instant;
     /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];

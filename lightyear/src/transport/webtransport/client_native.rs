@@ -30,7 +30,7 @@ impl Transport for WebTransportClientSocket {
         self.client_addr
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
@@ -51,14 +51,20 @@ impl Transport for WebTransportClientSocket {
             // convert the endpoint from wtransport/web_sys to xwt
             let endpoint = xwt::current::Endpoint(endpoint);
 
-            let Ok(connecting) = endpoint.connect(&server_url).await else {
-                error!("failed to connect to server");
-                return;
-            };
-            let Ok(connection) = connecting.wait_connect().await else {
-                error!("failed to connect to server");
-                return;
-            };
+            let connecting = endpoint
+                .connect(&server_url)
+                .await
+                .map_err(|e| {
+                    error!("failed to connect to server: {:?}", e);
+                })
+                .unwrap();
+            let connection = connecting
+                .wait_connect()
+                .await
+                .map_err(|e| {
+                    error!("failed to connect to server: {:?}", e);
+                })
+                .unwrap();
             loop {
                 tokio::select! {
                     // receive messages from server
@@ -88,7 +94,7 @@ impl Transport for WebTransportClientSocket {
             from_server_receiver,
             buffer: [0; MTU],
         };
-        (Box::new(packet_sender), Box::new(packet_receiver))
+        Ok((Box::new(packet_sender), Box::new(packet_receiver)))
     }
 }
 

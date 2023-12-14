@@ -276,7 +276,7 @@ pub(crate) fn increment_rollback_tick(mut rollback: ResMut<Rollback>) {
 //
 // #[cfg(test)]
 // mod tests {
-//     use std::time::Duration;
+//     use bevy::utils::Duration;
 //
 //     use bevy::prelude::*;
 //     use tracing::{debug, info};

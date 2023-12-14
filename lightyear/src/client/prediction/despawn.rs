@@ -116,7 +116,7 @@ pub(crate) fn remove_despawn_marker(
 //     use crate::tests::protocol::*;
 //     use crate::tests::stepper::{BevyStepper, Step};
 //     use bevy::prelude::*;
-//     use std::time::Duration;
+//     use bevy::utils::Duration;
 //
 //     fn increment_component_and_despawn(
 //         mut commands: Commands,

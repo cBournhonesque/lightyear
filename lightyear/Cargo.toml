@@ -55,11 +55,14 @@ webtransport = [
 [dependencies]
 # utils
 anyhow = "1.0"
+base64 = "0.21.5"
 chrono = "0.4.31"
 cfg-if = "1.0"
 derive_more = "0.99.17"
 enum_delegate = "0.2"
 enum_dispatch = "0.3"
+# used to have the same instant in wasm and native. (maybe can be replaced by bevy_utils in 0.13)
+instant = "0.1.12"
 mock_instant = { version = "0.3.1", optional = true }
 paste = "1.0"
 rand = "0.8"
@@ -128,8 +131,10 @@ wtransport = { version = "0.1.9", optional = true, features = [
 ]}
 
 [target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook = { version = "0.1.7"}
 web-sys = { version = "0.3", optional = true, features = [
   "WebTransport",
+  "WebTransportHash",
   "WebTransportOptions",
   "WebTransportBidirectionalStream",
   "WebTransportSendStream",

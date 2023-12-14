@@ -2,11 +2,11 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
 
 pub struct MyServerPlugin {
     pub(crate) port: u16,

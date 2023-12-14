@@ -456,7 +456,7 @@ mod tests {
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::{EventReader, Events};
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     fn setup() -> BevyStepper {
         let frame_duration = Duration::from_millis(10);

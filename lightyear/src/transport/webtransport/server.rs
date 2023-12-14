@@ -88,7 +88,7 @@ impl Transport for WebTransportServerSocket {
         self.server_addr
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
         // TODO: should i create my own task pool?
         let server_addr = self.server_addr;
         let certificate = std::mem::take(&mut self.certificate).unwrap();
@@ -136,7 +136,7 @@ impl Transport for WebTransportServerSocket {
                 ));
             }
         });
-        (Box::new(packet_sender), Box::new(packet_receiver))
+        Ok((Box::new(packet_sender), Box::new(packet_receiver)))
     }
 }
 

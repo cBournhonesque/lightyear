@@ -2,6 +2,7 @@
 //! WebTransport client implementation.
 use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
+use anyhow::Context;
 use bevy::tasks::{IoTaskPool, TaskPool};
 use futures_lite::future;
 use std::net::SocketAddr;
@@ -9,6 +10,11 @@ use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info};
+use web_sys::js_sys::{Array, Uint8Array};
+use web_sys::wasm_bindgen::JsValue;
+use web_sys::WebTransportHash;
+
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 
 use xwt::current::{Connection, Endpoint};
 use xwt_core::prelude::*;
@@ -28,12 +34,21 @@ impl WebTransportClientSocket {
     }
 }
 
+fn js_array(values: &[&str]) -> JsValue {
+    return JsValue::from(
+        values
+            .into_iter()
+            .map(|x| JsValue::from_str(x))
+            .collect::<Array>(),
+    );
+}
+
 impl Transport for WebTransportClientSocket {
     fn local_addr(&self) -> SocketAddr {
         self.client_addr
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
@@ -45,23 +60,43 @@ impl Transport for WebTransportClientSocket {
             &server_url
         );
 
-        let endpoint = xwt::web_sys::Endpoint {
-            options: web_sys::WebTransportOptions::new(),
-        };
+        let mut options = web_sys::WebTransportOptions::new();
+        let hashes = Array::new();
+        // cert_hash = base
+        let base64_hashes = ["8GLWBL0MAlhPcZ4RbFSn7oULnIOAG6bQak3pf5yqx48="];
+        let decoded_hashes = base64_hashes
+            .iter()
+            .map(|x| BASE64_STANDARD.decode(x).unwrap())
+            .collect::<Vec<_>>();
+        for hash in decoded_hashes {
+            let digest = Uint8Array::from(hash.as_slice());
+
+            let mut jshash = WebTransportHash::new();
+            jshash.algorithm("sha-256").value(&digest);
+
+            hashes.push(&jshash);
+        }
+        options.server_certificate_hashes(&hashes);
+        let endpoint = xwt::web_sys::Endpoint { options };
 
         IoTaskPool::get().spawn(async move {
             // convert the endpoint from wtransport/web_sys to xwt
             // let endpoint = xwt::current::Endpoint(endpoint);
 
-            let Ok(connecting) = endpoint.connect(&server_url).await else {
-                error!("failed to connect to server");
-                return;
-            };
-            let Ok(connection) = connecting.wait_connect().await else {
-                error!("failed to connect to server");
-                return;
-            };
-
+            let connecting = endpoint
+                .connect(&server_url)
+                .await
+                .map_err(|e| {
+                    error!("failed to connect to server: {:?}", e);
+                })
+                .unwrap();
+            let connection = connecting
+                .wait_connect()
+                .await
+                .map_err(|e| {
+                    error!("failed to connect to server: {:?}", e);
+                })
+                .unwrap();
             loop {
                 tokio::select! {
                     // receive messages from server
@@ -113,7 +148,7 @@ impl Transport for WebTransportClientSocket {
             from_server_receiver,
             buffer: [0; MTU],
         };
-        (Box::new(packet_sender), Box::new(packet_receiver))
+        Ok((Box::new(packet_sender), Box::new(packet_receiver)))
     }
 }
 

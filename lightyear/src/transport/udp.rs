@@ -44,8 +44,8 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        (Box::new(self.clone()), Box::new(self.clone()))
+    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
+        Ok((Box::new(self.clone()), Box::new(self.clone())))
     }
 }
 
@@ -84,9 +84,9 @@ impl PacketReceiver for UdpSocket {
 
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::time::Duration;
 
     use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
     use crate::transport::udp::UdpSocket;

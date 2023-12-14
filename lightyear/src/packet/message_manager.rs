@@ -256,8 +256,8 @@ impl<M: BitSerializable> MessageManager<M> {
 
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
     use std::collections::HashMap;
-    use std::time::Duration;
 
     use serde::{Deserialize, Serialize};
 

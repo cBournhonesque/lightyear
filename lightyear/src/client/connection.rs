@@ -1,6 +1,6 @@
 //! Wrapper around [`crate::connection::Connection`] that adds client-specific functionality
 
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use anyhow::Result;
 use bevy::prelude::World;

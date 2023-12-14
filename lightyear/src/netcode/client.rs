@@ -19,7 +19,7 @@ use super::{
     },
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
-    MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    utils, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
 };
 
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
@@ -164,7 +164,7 @@ pub enum ClientState {
 /// ```
 /// use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
 /// # use std::net::{Ipv4Addr, SocketAddr};
-/// # use std::time::{Instant, Duration};
+/// # use bevy::utils::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
@@ -477,7 +477,8 @@ impl<Ctx> Client<Ctx> {
     }
 
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        // number of seconds since unix epoch
+        let now = utils::now();
         while let Some((buf, addr)) = io.recv().map_err(Error::from)? {
             self.recv_packet(buf, now, addr)?;
         }
@@ -535,7 +536,7 @@ impl<Ctx> Client<Ctx> {
     /// ```
     /// # use std::net::SocketAddr;
     /// # use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
-    /// # use std::time::{Instant, Duration};
+    /// # use bevy::utils::{Instant, Duration};
     /// # use std::thread;
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));

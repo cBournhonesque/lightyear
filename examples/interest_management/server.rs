@@ -3,12 +3,12 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
 
 pub struct MyServerPlugin {
     pub(crate) port: u16,
@@ -35,10 +35,17 @@ impl Plugin for MyServerPlugin {
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::WebTransport => TransportConfig::WebTransportServer {
-                server_addr,
-                certificate: Certificate::self_signed(&["localhost"]),
-            },
+            Transports::WebTransport => {
+                let certificate = Certificate::self_signed(&["localhost"]);
+                dbg!(
+                    "Generated self-signed certificate with fingerprint: {:?}",
+                    certificate.fingerprints()
+                );
+                TransportConfig::WebTransportServer {
+                    server_addr,
+                    certificate,
+                }
+            }
         };
         let io = Io::from_config(
             &IoConfig::from_transport(transport).with_conditioner(link_conditioner),

@@ -1,6 +1,6 @@
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;

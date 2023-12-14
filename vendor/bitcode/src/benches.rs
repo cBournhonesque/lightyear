@@ -267,7 +267,7 @@ bench!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
+    use bevy::utils::{Duration, Instant};
 
     // cargo test comparison1 --release -- --nocapture --include-ignored
     #[test]

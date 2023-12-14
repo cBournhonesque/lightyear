@@ -20,7 +20,7 @@ mod tests {
     use super::server::*;
     use crate::transport::{PacketReceiver, PacketSender, Transport};
     use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
-    use std::time::Duration;
+    use bevy::utils::Duration;
     use tracing::info;
     use tracing_subscriber::fmt::format::FmtSpan;
     use wtransport::tls::Certificate;

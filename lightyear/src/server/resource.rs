@@ -1,8 +1,8 @@
 //! Defines the server bevy resource
+use bevy::utils::Duration;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use bevy::ecs::component::Tick as BevyTick;

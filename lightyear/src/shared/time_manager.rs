@@ -8,10 +8,10 @@ It will interact with bevy's [`Time`] resource, and potentially change the relat
 [`WrappedTime`] is a struct representing time, that wraps around 1 hour.
 It contains some helper functions to compute the difference between two times.
 */
+use bevy::utils::Duration;
 use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
-use std::time::Duration;
 
 use bevy::prelude::{Time, Timer, TimerMode, Virtual};
 use bitcode::{Decode, Encode};

@@ -1,7 +1,7 @@
+use bevy::utils::{Duration, Instant};
 use derive_more::{AddAssign, SubAssign};
 use std::collections::{HashMap, HashSet};
 use std::thread::current;
-use std::time::{Duration, Instant};
 
 use crate::_reexport::{ReadyBuffer, TimeManager, WrappedTime};
 use bitcode::{Decode, Encode};

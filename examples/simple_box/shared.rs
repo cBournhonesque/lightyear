@@ -1,8 +1,8 @@
 use crate::protocol::*;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::*;
-use std::time::Duration;
 use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {

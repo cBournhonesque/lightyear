@@ -171,7 +171,7 @@ mod tests {
     //
     // use std::net::SocketAddr;
     // use std::str::FromStr;
-    // use std::time::{Duration, Instant};
+    // use bevy::utils::{Duration, Instant};
     //
     // use bevy::log::LogPlugin;
     // use bevy::prelude::{

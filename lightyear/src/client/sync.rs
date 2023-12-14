@@ -1,7 +1,7 @@
 /*! Handles syncing the time between the client and the server
 */
+use bevy::utils::Duration;
 use std::pin::pin;
-use std::time::Duration;
 
 use bevy::prelude::Res;
 use bevy::time::Stopwatch;

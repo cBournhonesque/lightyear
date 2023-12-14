@@ -33,14 +33,14 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
         let (send, recv) = crossbeam_channel::unbounded();
         let sender = LocalChannelSender { send };
         let receiver = LocalChannelReceiver {
             buffer: vec![],
             recv,
         };
-        (Box::new(sender), Box::new(receiver))
+        Ok((Box::new(sender), Box::new(receiver)))
     }
 }
 
