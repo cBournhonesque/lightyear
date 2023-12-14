@@ -9,17 +9,20 @@ use metrics;
 
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocket;
 
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "webtransport", not(target_family = "wasm")))] {
+        use wtransport::tls::Certificate;
+        use crate::transport::webtransport::server::WebTransportServerSocket;
+    }
+}
+
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocket;
-#[cfg(feature = "webtransport")]
-use crate::transport::webtransport::server::WebTransportServerSocket;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-#[cfg(feature = "webtransport")]
-use wtransport::tls::Certificate;
 
 #[derive(Clone)]
 pub enum TransportConfig {
@@ -31,7 +34,7 @@ pub enum TransportConfig {
         client_addr: SocketAddr,
         server_addr: SocketAddr,
     },
-    #[cfg(feature = "webtransport")]
+    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     WebTransportServer {
         server_addr: SocketAddr,
         certificate: Certificate,
@@ -49,7 +52,7 @@ impl TransportConfig {
                 client_addr,
                 server_addr,
             } => Box::new(WebTransportClientSocket::new(*client_addr, *server_addr)),
-            #[cfg(feature = "webtransport")]
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportServer {
                 server_addr,
                 certificate,

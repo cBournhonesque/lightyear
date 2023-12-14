@@ -19,7 +19,7 @@ metrics = [
   "metrics-util",
   "metrics-tracing-context",
   "metrics-exporter-prometheus",
-  "tokio",
+  "dep:tokio",
 ]
 mock_time = ["dep:mock_instant"]
 render = ["bevy/bevy_render"]
@@ -35,9 +35,11 @@ render = ["bevy/bevy_render"]
 #  "web-sys/WebTransportOptions",
 #]
 webtransport = [
+  "dep:wtransport",
   "dep:xwt",
   "dep:xwt-core",
-#  "dep:web-sys",
+  "dep:web-sys",
+  "dep:tokio",
 #  "web-sys/WebTransport",
 #  "web-sys/WebTransportOptions",
 #  "web-sys/WebTransportBidirectionalStream",
@@ -65,7 +67,7 @@ ringbuffer = "0.15"
 thiserror = "1.0.50"
 
 # transport
-wtransport = { version = "0.1.9", optional = true }
+#wtransport = { version = "0.1.9", optional = true }
 xwt = { version = "0.3", optional = true }
 xwt-core = { version = "0.2", optional = true }
 xwt-web-sys = "0.3.1"
@@ -108,14 +110,22 @@ metrics-exporter-prometheus = { version = "0.12.1", optional = true, default-fea
   "http-listener",
 ] }
 tokio = { version = "1.34", features = [
+  "macros",
   "rt",
-  "rt-multi-thread",
+  # "rt-multi-thread" is only valid in native.
+#  "rt-multi-thread",
+  "sync",
 #  "net",
   "time",
 ], optional = true }
 
 bevy = { version = "0.12", default-features = false }
 
+
+[target."cfg(not(target_family = \"wasm\"))".dependencies]
+wtransport = { version = "0.1.9", optional = true, features = [
+  "dangerous-configuration"
+]}
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-sys = { version = "0.3", optional = true, features = [

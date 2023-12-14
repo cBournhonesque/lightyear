@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
 use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -35,24 +36,16 @@ impl Transport for WebTransportClientSocket {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
 
-        cfg_if::cfg_if! {
-            if #[cfg(not(target_family = "wasm"))] {
-                let config = wtransport::ClientConfig::builder()
-                    .with_bind_address(client_addr)
-                    .with_no_cert_validation()
-                    .build();
-                let server_url = format!("https://{}", server_addr);
-                debug!(
-                    "Starting client webtransport task with server url: {}",
-                    &server_url
-                );
-                let endpoint = wtransport::Endpoint::client(config).unwrap();
-            } else {
-                let endpoint = xwt::web_sys::Endpoint {
-                    options: web_sys::WebTransportOptions::new(),
-                };
-            }
-        }
+        let config = wtransport::ClientConfig::builder()
+            .with_bind_address(client_addr)
+            .with_no_cert_validation()
+            .build();
+        let server_url = format!("https://{}", server_addr);
+        debug!(
+            "Starting client webtransport task with server url: {}",
+            &server_url
+        );
+        let endpoint = wtransport::Endpoint::client(config).unwrap();
 
         tokio::spawn(async move {
             // convert the endpoint from wtransport/web_sys to xwt

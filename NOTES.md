@@ -14,10 +14,15 @@
   
 
 - TODO:
-  - implement Message for common bevy transforms
   - maybe have a ClientReplicate component to transfer all the replication data that is useful to clients? (group, prediciton, interpolation, etc.)
+  - add smoothing to interpolation time
+  - add an example to MapEntities, maybe apply topological sort when creating the ReplicationMessage.
+  - improve rooms:
+    - can rooms be a component attached to an entity?
+    - can RoomEvents just be bevy events?
+  - understand better what works with webtransport:
+    - server doesn't work if we use the IoTaskPool; probably because the quinn futures need the tokio reactor
 
-   
 
 
 - FINAL CHOICE:

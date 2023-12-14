@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
@@ -34,10 +35,10 @@ impl Plugin for MyServerPlugin {
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            // Transports::Webtransport => TransportConfig::WebTransportServer {
-            //     server_addr,
-            //     certificate: Certificate::self_signed(&["localhost"]),
-            // },
+            Transports::WebTransport => TransportConfig::WebTransportServer {
+                server_addr,
+                certificate: Certificate::self_signed(&["localhost"]),
+            },
         };
         let io = Io::from_config(
             &IoConfig::from_transport(transport).with_conditioner(link_conditioner),

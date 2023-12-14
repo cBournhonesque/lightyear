@@ -12,11 +12,8 @@ pub(crate) mod local;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
 
-/// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
-mod webtransport;
-#[cfg(feature = "webtransport")]
-pub use webtransport::current as webtransport;
+pub(crate) mod webtransport;
 
 use std::io::Result;
 use std::net::SocketAddr;

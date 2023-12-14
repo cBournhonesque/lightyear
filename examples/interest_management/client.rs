@@ -34,11 +34,12 @@ impl Plugin for MyClientPlugin {
             incoming_loss: 0.00,
         };
         let transport = match self.transport {
+            #[cfg(not(target_family = "wasm"))]
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            // Transports::Webtransport => TransportConfig::WebTransportClient {
-            //     client_addr,
-            //     server_addr,
-            // },
+            Transports::WebTransport => TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+            },
         };
         let io = Io::from_config(
             &IoConfig::from_transport(transport).with_conditioner(link_conditioner),

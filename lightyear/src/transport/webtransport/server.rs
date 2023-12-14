@@ -107,23 +107,16 @@ impl Transport for WebTransportServerSocket {
             from_client_receiver,
         };
 
-        cfg_if::cfg_if! {
-            if #[cfg(not(target_family = "wasm"))] {
-                let config = ServerConfig::builder()
-                    .with_bind_address(server_addr)
-                    .with_certificate(certificate)
-                    .build();
-                let endpoint = wtransport::Endpoint::server(config).unwrap();
-            } else {
-
-            }
-        }
+        let config = ServerConfig::builder()
+            .with_bind_address(server_addr)
+            .with_certificate(certificate)
+            .build();
+        let wtransport_endpoint = wtransport::Endpoint::server(config).unwrap();
+        // convert the endpoint from wtransport/web_sys to xwt
+        let endpoint = xwt::current::Endpoint(wtransport_endpoint);
 
         tokio::spawn(async move {
             debug!("Starting server webtransport task");
-
-            // convert the endpoint from wtransport/web_sys to xwt
-            let endpoint = xwt::current::Endpoint(endpoint);
 
             loop {
                 // clone the channel for each client
