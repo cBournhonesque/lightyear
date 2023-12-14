@@ -22,6 +22,11 @@
     - can RoomEvents just be bevy events?
   - understand better what works with webtransport:
     - server doesn't work if we use the IoTaskPool; probably because the quinn futures need the tokio reactor
+    - client:
+      - how can i set the client local address?
+      - how can i use clap in wasm?
+      - problem with netcode::token in wasm?
+      - maybe we can still use tokio runtime (single-threaded) and tokio-spawn
 
 
 

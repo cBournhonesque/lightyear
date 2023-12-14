@@ -31,9 +31,6 @@ use tokio;
 use lightyear::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
-// for server webtransport, we need the Tokio reactor as it's required by Quinn
-// #[tokio::main]
-// async fn main() {
 fn main() {
     // let cli = Cli::parse();
 
@@ -44,17 +41,29 @@ fn main() {
         transport: Transports::WebTransport,
     };
 
-    // let cli = Cli::Server {
-    //     port: SERVER_PORT,
-    //     transport: Transports::WebTransport,
-    // };
-
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     setup(&mut app, cli);
 
     app.run();
 }
+
+// for server webtransport, we need the Tokio reactor as it's required by Quinn
+// #[tokio::main]
+// async fn main() {
+//     // let cli = Cli::parse();
+//
+//     let cli = Cli::Server {
+//         port: SERVER_PORT,
+//         transport: Transports::WebTransport,
+//     };
+//
+//     let mut app = App::new();
+//     app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+//     setup(&mut app, cli);
+//
+//     app.run();
+// }
 
 pub const CLIENT_PORT: u16 = 6000;
 pub const SERVER_PORT: u16 = 5000;

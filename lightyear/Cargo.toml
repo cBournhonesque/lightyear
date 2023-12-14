@@ -139,6 +139,8 @@ web-sys = { version = "0.3", optional = true, features = [
   "WebTransportDatagramDuplexStream",
 ]}
 futures-lite = {  version = "2.1.0", optional = true }
+# feature 'js' is required for wasm
+getrandom = { version = "0.2.11", features = ["js"] }
 
 
 [dev-dependencies]
