@@ -19,6 +19,11 @@ Then you can launch multiple clients with the commands:
 
 - `cargo run --example interest_management -- client -c 2 --client-port 2000`
 
+### Testing webtransport
+
+- `cargo run --example interest_management -- server --transport web-transport`
+- `cargo run --example interest_management -- client -c 1 --transport web-transport`
+
 
 ### Testing in wasm
 
