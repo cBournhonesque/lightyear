@@ -36,6 +36,8 @@ pub fn message_impl(
     let gen = quote! {
         pub mod #module_name {
             use super::#struct_name;
+            use bevy::prelude::*;
+            use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::prelude::*;
 
             impl #impl_generics Message for #struct_name #type_generics #where_clause {}
@@ -61,6 +63,9 @@ fn map_entities_trait(input: &DeriveInput, ident_map: bool) -> TokenStream {
         quote! {
             impl #impl_generics MapEntities for #struct_name #type_generics #where_clause {
                 fn map_entities(&mut self, entity_map: &EntityMap) {}
+                fn entities(&self) -> EntityHashSet<Entity> {
+                    EntityHashSet::default()
+                }
             }
         }
     } else {
@@ -131,7 +136,8 @@ pub fn message_protocol_impl(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use bevy::prelude::{App, World};
+            use bevy::prelude::{App, Entity, World};
+            use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::connection::events::{IterMessageEvent};
@@ -150,6 +156,12 @@ pub fn message_protocol_impl(
 
                 #add_events_method
                 #push_message_events_method
+            }
+
+            impl std::fmt::Debug for #enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                    self.name().fmt(f)
+                }
             }
 
             // #from_into_methods
@@ -208,6 +220,7 @@ fn delegate_method(input: &ItemEnum) -> TokenStream {
     let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut name_body = quote! {};
     let mut map_entities_body = quote! {};
+    let mut entities_body = quote! {};
     for variant in input.variants.iter() {
         let ident = &variant.ident;
         name_body = quote! {
@@ -217,6 +230,10 @@ fn delegate_method(input: &ItemEnum) -> TokenStream {
         map_entities_body = quote! {
             #map_entities_body
             #enum_name::#ident(ref mut x) => x.map_entities(entity_map),
+        };
+        entities_body = quote! {
+            #entities_body
+            #enum_name::#ident(ref mut x) => x.entities(entity_map),
         };
     }
 
@@ -232,6 +249,11 @@ fn delegate_method(input: &ItemEnum) -> TokenStream {
             fn map_entities(&mut self, entity_map: &EntityMap) {
                 match self {
                     #map_entities_body
+                }
+            }
+            fn entities(&self) -> EntityHashSet<Entity> {
+                match self {
+                    #entities_body
                 }
             }
         }

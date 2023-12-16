@@ -10,6 +10,8 @@ use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::time_manager::TimeManager;
 use crate::utils::named::Named;
+use bevy::prelude::Entity;
+use bevy::utils::EntityHashSet;
 use serde::{Deserialize, Serialize};
 use tracing::{info, info_span, trace, trace_span};
 
@@ -22,8 +24,7 @@ use tracing::{info, info_span, trace, trace_span};
 //     ShouldBeInterpolated(ShouldBeInterpolated),
 // }
 
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ProtocolMessage<P: Protocol> {
     Message(P::Message),
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
@@ -44,6 +45,14 @@ impl<P: Protocol> MapEntities for ProtocolMessage<P> {
             ProtocolMessage::Sync(x) => {
                 x.map_entities(entity_map);
             }
+        }
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        match self {
+            ProtocolMessage::Message(x) => x.entities(),
+            ProtocolMessage::Replication(x) => x.entities(),
+            ProtocolMessage::Sync(x) => x.entities(),
         }
     }
 }

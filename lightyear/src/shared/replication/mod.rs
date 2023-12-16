@@ -5,7 +5,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
-use bevy::utils::{EntityHashMap, HashMap};
+use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -74,19 +74,14 @@ impl<C, K> Default for EntityActions<C, K> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityActionMessage<C, K> {
     sequence_id: MessageId,
-    // TODO: maybe we want a sorted hash map here?
-    //  because if we want to send a group of entities together, presumably it's because there's a hierarchy
-    //  between the elements of the group
-    //  E1: head, E2: arm, parent=head. So we need to read E1 first.
-    pub(crate) actions: BTreeMap<Entity, EntityActions<C, K>>,
+    pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     last_action_tick: Tick,
-    /// TODO: consider EntityHashMap or Vec if order doesn't matter
-    pub(crate) updates: BTreeMap<Entity, Vec<C>>,
+    pub(crate) updates: Vec<(Entity, Vec<C>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -109,7 +104,7 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
     fn map_entities(&mut self, entity_map: &EntityMap) {
         match &mut self.data {
             ReplicationMessageData::Actions(m) => {
-                m.actions.values_mut().for_each(|entity_actions| {
+                m.actions.iter_mut().for_each(|(_, entity_actions)| {
                     entity_actions
                         .insert
                         .iter_mut()
@@ -121,13 +116,17 @@ impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
                 })
             }
             ReplicationMessageData::Updates(m) => {
-                m.updates.values_mut().for_each(|entity_updates| {
+                m.updates.iter_mut().for_each(|(_, entity_updates)| {
                     entity_updates
                         .iter_mut()
                         .for_each(|c| c.map_entities(entity_map));
                 })
             }
         }
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        todo!()
     }
 }
 

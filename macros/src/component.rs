@@ -488,11 +488,16 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     let enum_name = &input.ident;
     let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut map_entities_body = quote! {};
+    let mut entities_body = quote! {};
     for variant in input.variants.iter() {
         let ident = &variant.ident;
         map_entities_body = quote! {
             #map_entities_body
             #enum_name::#ident(ref mut x) => x.map_entities(entity_map),
+        };
+        entities_body = quote! {
+            #entities_body
+            #enum_name::#ident(ref mut x) => x.entities(entity_map),
         };
     }
 
@@ -503,9 +508,17 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
                     #map_entities_body
                 }
             }
+            fn entities(&self) -> EntityHashSet<Entity> {
+                match self {
+                    #entities_body
+                }
+            }
         }
         impl MapEntities for #enum_kind_name {
             fn map_entities(&mut self, entity_map: &EntityMap) {}
+            fn entities(&self) -> EntityHashSet<Entity> {
+                EntityHashSet::default()
+            }
         }
     }
 }

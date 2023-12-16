@@ -33,7 +33,8 @@ impl PlayerBundle {
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                interpolation_target: NetworkTarget::None,
+                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // this is the default: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
                 replication_group: ReplicationGroup::FromEntity,
                 ..default()
@@ -151,6 +152,12 @@ pub enum Components {
     PlayerPosition(PlayerPosition),
     #[sync(once)]
     PlayerColor(PlayerColor),
+    #[sync(once)]
+    TailLength(TailLength),
+    #[sync(simple)]
+    TailPoints(TailPoints),
+    #[sync(once)]
+    PlayerParent(PlayerParent),
 }
 
 // Channels
@@ -163,7 +170,7 @@ pub struct Channel1;
 #[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
-#[message_protocol(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     Message1(Message1),
 }

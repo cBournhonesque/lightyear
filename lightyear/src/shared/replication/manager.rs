@@ -8,7 +8,10 @@ use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::connection::events::ConnectionEvents;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::utils::petgraph::algo::toposort;
 use bevy::utils::petgraph::data::ElementIterator;
+use bevy::utils::petgraph::graphmap::DiGraphMap;
+use bevy::utils::petgraph::prelude::DiGraph;
 use bevy::utils::EntityHashMap;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, trace_span};
@@ -23,7 +26,7 @@ use super::{
 use crate::connection::message::ProtocolMessage;
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::Tick;
+use crate::prelude::{MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
@@ -42,9 +45,13 @@ pub(crate) struct ReplicationManager<P: Protocol> {
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<
         ReplicationGroupId,
-        BTreeMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
+        HashMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
     >,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, BTreeMap<Entity, Vec<P::Components>>>,
+    pub pending_updates: EntityHashMap<ReplicationGroupId, HashMap<Entity, Vec<P::Components>>>,
+    // Get the graph of dependencies between entities within a same group.
+    // (for example if a component of entity1 refers to entity2, then entity2 must be spawned before entity1.
+    // In that case we add an edge entity2 -> entity1 in the graph
+    pub group_dependencies: EntityHashMap<ReplicationGroupId, DiGraphMap<Entity, ()>>,
 
     // RECEIVE
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
@@ -61,10 +68,11 @@ impl<P: Protocol> ReplicationManager<P> {
     pub(crate) fn new(updates_ack_tracker: Receiver<MessageId>) -> Self {
         Self {
             // SEND
-            pending_actions: EntityHashMap::default(),
-            pending_updates: EntityHashMap::default(),
             updates_ack_tracker,
             updates_message_id_to_group_id: Default::default(),
+            pending_actions: EntityHashMap::default(),
+            pending_updates: EntityHashMap::default(),
+            group_dependencies: EntityHashMap::default(),
             // RECEIVE
             entity_map: EntityMap::default(),
             remote_entity_to_group: Default::default(),
@@ -100,7 +108,7 @@ impl<P: Protocol> ReplicationManager<P> {
         match message.data {
             ReplicationMessageData::Actions(m) => {
                 // update the mapping from entity to group-id
-                m.actions.keys().for_each(|e| {
+                m.actions.iter().for_each(|(e, _)| {
                     self.remote_entity_to_group.insert(*e, message.group_id);
                 });
                 // if the message is too old, ignore it
@@ -116,7 +124,7 @@ impl<P: Protocol> ReplicationManager<P> {
             }
             ReplicationMessageData::Updates(m) => {
                 // update the mapping from entity to group-id
-                m.updates.keys().for_each(|e| {
+                m.updates.iter().for_each(|(e, _)| {
                     self.remote_entity_to_group.insert(*e, message.group_id);
                 });
                 // if we have already applied a more recent update for this group, no need to keep this one
@@ -214,6 +222,10 @@ impl<P: Protocol> ReplicationManager<P> {
             .entry(entity)
             .or_default();
         actions.spawn = true;
+        self.group_dependencies
+            .entry(group)
+            .or_default()
+            .add_node(entity);
     }
 
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group: ReplicationGroupId) {
@@ -223,6 +235,10 @@ impl<P: Protocol> ReplicationManager<P> {
             .entry(entity)
             .or_default()
             .despawn = true;
+        self.group_dependencies
+            .entry(group)
+            .or_default()
+            .add_node(entity);
     }
 
     // we want to send all component inserts that happen together for the same entity in a single message
@@ -234,6 +250,13 @@ impl<P: Protocol> ReplicationManager<P> {
         group: ReplicationGroupId,
         component: P::Components,
     ) {
+        // if component contains entities, add an edge in the dependency graph
+        let graph = self.group_dependencies.entry(group).or_default();
+        graph.add_node(entity);
+        component.entities().iter().for_each(|e| {
+            // `e` must be spawned before `entity`
+            graph.add_edge(*e, entity, ());
+        });
         self.pending_actions
             .entry(group)
             .or_default()
@@ -256,6 +279,10 @@ impl<P: Protocol> ReplicationManager<P> {
             .or_default()
             .remove
             .push(component);
+        self.group_dependencies
+            .entry(group)
+            .or_default()
+            .add_node(entity);
     }
 
     pub(crate) fn prepare_entity_update(
@@ -264,6 +291,13 @@ impl<P: Protocol> ReplicationManager<P> {
         group: ReplicationGroupId,
         component: P::Components,
     ) {
+        // if component contains entities, add an edge in the dependency graph
+        let graph = self.group_dependencies.entry(group).or_default();
+        graph.add_node(entity);
+        component.entities().iter().for_each(|e| {
+            // `e` must be spawned before `entity`
+            graph.add_edge(*e, entity, ());
+        });
         self.pending_updates
             .entry(group)
             .or_default()
@@ -283,53 +317,88 @@ impl<P: Protocol> ReplicationManager<P> {
     )> {
         let mut messages = Vec::new();
 
-        // if there are any entity actions, send EntityActions
-        for (group_id, mut actions) in self.pending_actions.drain() {
-            // add any updates for that group into the actions message
-            if let Some(updates) = self.pending_updates.remove(&group_id) {
-                for (entity, components) in updates {
-                    // for any update that was not already in insert, add it to the update list
-                    // TODO: also check if it's not already in updates?
-                    let existing_inserts = actions
-                        .entry(entity)
-                        .or_default()
-                        .insert
-                        .iter()
-                        .map(|c| c.into())
-                        .collect::<HashSet<P::ComponentKinds>>();
-                    components
-                        .into_iter()
-                        .filter(|c| !existing_inserts.contains(&c.into()))
-                        .for_each(|c| actions.entry(entity).or_default().updates.push(c));
+        // get the list of entities in topological order
+        for (group_id, dependency_graph) in self.group_dependencies.drain() {
+            match toposort(&dependency_graph, None) {
+                Ok(entities) => {
+                    // create an actions message
+                    self.pending_actions.remove(&group_id).map(|mut actions| {
+                        let channel = self.group_channels.entry(group_id).or_default();
+                        let message_id = channel.actions_next_send_message_id;
+                        channel.actions_next_send_message_id += 1;
+                        channel.last_action_tick = tick;
+                        let mut actions_message = vec![];
+
+                        // add any updates for that group into the actions message
+                        let updates = self.pending_updates.remove(&group_id);
+
+                        // add actions to the message in topological order
+                        entities.iter().for_each(|e| {
+                            actions.remove(e).map(|mut a| {
+                                // for any update that was not already in insert/updates, add it to the update list
+                                if let Some(mut updates) = updates {
+                                    let existing_inserts = a
+                                        .insert
+                                        .iter()
+                                        .map(|c| c.into())
+                                        .collect::<HashSet<P::ComponentKinds>>();
+                                    let existing_updates = a
+                                        .updates
+                                        .iter()
+                                        .map(|c| c.into())
+                                        .collect::<HashSet<P::ComponentKinds>>();
+                                    updates.remove(e).map(|u| {
+                                        u.into_iter()
+                                            .filter(|c| {
+                                                !existing_inserts.contains(&(c.into()))
+                                                    && !existing_updates.contains(&(c.into()))
+                                            })
+                                            .for_each(|c| a.updates.push(c));
+                                    });
+                                }
+                                actions_message.push((*e, a));
+                            });
+                        });
+
+                        messages.push((
+                            ChannelKind::of::<EntityActionsChannel>(),
+                            group_id,
+                            ReplicationMessageData::Actions(EntityActionMessage {
+                                sequence_id: message_id,
+                                actions: actions_message,
+                            }),
+                        ));
+                    });
+
+                    // create an updates message
+                    self.pending_updates.remove(&group_id).map(|mut updates| {
+                        let channel = self.group_channels.entry(group_id).or_default();
+                        let mut updates_message = vec![];
+
+                        // add updates to the message in topological order
+                        entities.iter().for_each(|e| {
+                            updates.remove(e).map(|u| {
+                                updates_message.push((*e, u));
+                            });
+                        });
+
+                        messages.push((
+                            ChannelKind::of::<EntityUpdatesChannel>(),
+                            group_id,
+                            ReplicationMessageData::Updates(EntityUpdatesMessage {
+                                last_action_tick: channel.last_action_tick,
+                                updates: updates_message,
+                            }),
+                        ));
+                    });
+                }
+                Err(e) => {
+                    error!("There is a cyclic dependency in the group (with entity {:?})! Replication aborted.", e.node_id());
                 }
             }
-            let channel = self.group_channels.entry(group_id).or_default();
-            let message_id = channel.actions_next_send_message_id;
-            channel.actions_next_send_message_id += 1;
-            channel.last_action_tick = tick;
-            messages.push((
-                ChannelKind::of::<EntityActionsChannel>(),
-                group_id,
-                ReplicationMessageData::Actions(EntityActionMessage {
-                    sequence_id: message_id,
-                    actions,
-                }),
-            ));
         }
-
-        // send the remaining updates
-        for (group_id, updates) in self.pending_updates.drain() {
-            let channel = self.group_channels.entry(group_id).or_default();
-            messages.push((
-                ChannelKind::of::<EntityUpdatesChannel>(),
-                group_id,
-                ReplicationMessageData::Updates(EntityUpdatesMessage {
-                    last_action_tick: channel.last_action_tick,
-                    updates,
-                }),
-            ));
-        }
-
+        self.pending_actions.clear();
+        self.pending_updates.clear();
         if !messages.is_empty() {
             trace!(?messages, "Sending replication messages");
         }
@@ -349,6 +418,7 @@ impl<P: Protocol> ReplicationManager<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
+                // NOTE: order matters here
                 for (entity, actions) in m.actions.into_iter() {
                     debug!(remote_entity = ?entity, "Received entity actions");
 
@@ -386,7 +456,9 @@ impl<P: Protocol> ReplicationManager<P> {
                         .map(|c| c.into())
                         .collect::<Vec<P::ComponentKinds>>();
                     debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
-                    for component in actions.insert {
+                    for mut component in actions.insert {
+                        // map any entities inside the component
+                        component.map_entities(&self.entity_map);
                         // TODO: figure out what to do with tick here
                         events.push_insert_component(
                             local_entity.id(),
@@ -412,7 +484,9 @@ impl<P: Protocol> ReplicationManager<P> {
                         .map(|c| c.into())
                         .collect::<Vec<P::ComponentKinds>>();
                     debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
-                    for component in actions.updates {
+                    for mut component in actions.updates {
+                        // map any entities inside the component
+                        component.map_entities(&self.entity_map);
                         events.push_update_component(
                             local_entity.id(),
                             (&component).into(),

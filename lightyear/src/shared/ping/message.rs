@@ -1,5 +1,7 @@
 //! Defines the actual ping/pong messages
 use crate::prelude::MapEntities;
+use bevy::prelude::Entity;
+use bevy::utils::EntityHashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::ping::store::PingId;
@@ -31,4 +33,8 @@ pub enum SyncMessage {
 
 impl MapEntities for SyncMessage {
     fn map_entities(&mut self, _entity_map: &crate::prelude::EntityMap) {}
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::default()
+    }
 }

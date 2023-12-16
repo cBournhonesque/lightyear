@@ -1,4 +1,5 @@
 use std::any::TypeId;
+use std::fmt::Debug;
 
 use bevy::prelude::{App, World};
 use serde::de::DeserializeOwned;
@@ -24,6 +25,7 @@ pub trait MessageProtocol:
     + MapEntities
     + MessageBehaviour
     + Named
+    + Debug
     + Send
     + Sync
     + From<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>>

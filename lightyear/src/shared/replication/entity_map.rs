@@ -1,15 +1,14 @@
 //! Map between local and remote entities
 use anyhow::Context;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-
 use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::utils::hashbrown::hash_map::Entry;
+use bevy::utils::{EntityHashMap, EntityHashSet};
 
 #[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct EntityMap {
-    remote_to_local: HashMap<Entity, Entity>,
-    local_to_remote: HashMap<Entity, Entity>,
+    remote_to_local: EntityHashMap<Entity, Entity>,
+    local_to_remote: EntityHashMap<Entity, Entity>,
 }
 
 impl EntityMap {
@@ -65,12 +64,12 @@ impl EntityMap {
     }
 
     #[inline]
-    pub fn to_local(&self) -> &HashMap<Entity, Entity> {
+    pub fn to_local(&self) -> &EntityHashMap<Entity, Entity> {
         &self.remote_to_local
     }
 
     #[inline]
-    pub fn to_remote(&self) -> &HashMap<Entity, Entity> {
+    pub fn to_remote(&self) -> &EntityHashMap<Entity, Entity> {
         &self.local_to_remote
     }
 
@@ -84,6 +83,9 @@ impl EntityMap {
 pub trait MapEntities {
     /// Map the entities inside the message or component from the remote World to the local World
     fn map_entities(&mut self, entity_map: &EntityMap);
+
+    /// Get all the entities that are present in that message or component
+    fn entities(&self) -> EntityHashSet<Entity>;
 }
 
 impl MapEntities for Entity {
@@ -95,7 +97,16 @@ impl MapEntities for Entity {
         //  - if it appears, we finish the mapping and spawn the entity
         if let Some(local) = entity_map.get_local(*self) {
             *self = *local;
+        } else {
+            panic!(
+                "cannot map entity {:?} because it doesn't exist in the entity map!",
+                self
+            );
         }
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![*self])
     }
 }
 

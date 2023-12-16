@@ -108,5 +108,4 @@ pub(crate) fn draw_snakes(
             gizmos.line_2d(start.0, end.0, color.0);
         }
     }
-    for (position, color) in &players {}
 }

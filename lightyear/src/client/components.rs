@@ -16,6 +16,7 @@ pub trait SyncComponent: Component + Clone + PartialEq {
     fn mode() -> ComponentSyncMode;
 }
 
+// TODO: add a default here?
 #[derive(Debug, PartialEq)]
 /// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated
 ///
