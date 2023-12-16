@@ -12,6 +12,9 @@ pub(crate) mod local;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
 
+#[cfg(target_family = "wasm")]
+mod certificate;
+
 #[cfg(feature = "webtransport")]
 pub(crate) mod webtransport;
 

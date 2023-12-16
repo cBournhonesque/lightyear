@@ -11,8 +11,7 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
 pub struct MyServerPlugin {
-    pub(crate) port: u16,
-    pub(crate) transport: Transports,
+    pub(crate) transport_config: TransportConfig,
 }
 
 const GRID_SIZE: f32 = 50.0;
@@ -22,9 +21,39 @@ const INTEREST_RADIUS: f32 = 200.0;
 // Special room for the player entities (so that all player entities always see each other)
 const PLAYER_ROOM: RoomId = RoomId(6000);
 
+pub(crate) async fn create_plugin(port: u16, transport: Transports) -> MyServerPlugin {
+    let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
+    let transport_config = match transport {
+        Transports::Udp => TransportConfig::UdpSocket(server_addr),
+        Transports::WebTransport => {
+            let certificate = Certificate::load(
+                "examples/certificates/cert.pem",
+                "examples/certificates/key.pem",
+            )
+            .await
+            .unwrap();
+            // let certificate = Certificate::self_signed(&["localhost", "127.0.0.1:1334"]);
+            let digest = utils::digest_certificate(&certificate);
+            error!(
+                "Generated self-signed certificate with digest: {:?}",
+                digest
+            );
+            dbg!(
+                "Generated self-signed certificate with digest: {:?}",
+                digest
+            );
+            TransportConfig::WebTransportServer {
+                server_addr,
+                certificate,
+            }
+        }
+    };
+    MyServerPlugin { transport_config }
+}
+
 impl Plugin for MyServerPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.port);
+        error!("log");
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
@@ -33,22 +62,9 @@ impl Plugin for MyServerPlugin {
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::WebTransport => {
-                let certificate = Certificate::self_signed(&["localhost"]);
-                dbg!(
-                    "Generated self-signed certificate with fingerprint: {:?}",
-                    certificate.fingerprints()
-                );
-                TransportConfig::WebTransportServer {
-                    server_addr,
-                    certificate,
-                }
-            }
-        };
         let io = Io::from_config(
-            &IoConfig::from_transport(transport).with_conditioner(link_conditioner),
+            &IoConfig::from_transport(self.transport_config.clone())
+                .with_conditioner(link_conditioner),
         );
         let config = ServerConfig {
             shared: shared_config().clone(),
@@ -66,6 +82,27 @@ impl Plugin for MyServerPlugin {
             Update,
             (handle_connections, send_message, interest_management, log),
         );
+    }
+}
+
+mod utils {
+    use super::Certificate;
+    use ring::digest::digest;
+    use ring::digest::SHA256;
+
+    // Generate a hex-encoded hash of the certificate
+    pub fn digest_certificate(certificate: &Certificate) -> String {
+        assert_eq!(certificate.certificates().len(), 1);
+        certificate
+            .certificates()
+            .iter()
+            .map(|cert| digest(&SHA256, cert).as_ref().to_vec())
+            .next()
+            .unwrap()
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect::<Vec<_>>()
+            .join("")
     }
 }
 

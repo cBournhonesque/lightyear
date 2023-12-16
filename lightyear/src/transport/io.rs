@@ -33,6 +33,8 @@ pub enum TransportConfig {
     WebTransportClient {
         client_addr: SocketAddr,
         server_addr: SocketAddr,
+        #[cfg(target_family = "wasm")]
+        certificate_digest: String,
     },
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     WebTransportServer {
@@ -47,11 +49,21 @@ impl TransportConfig {
         let mut transport: Box<dyn Transport> = match self {
             #[cfg(not(target_family = "wasm"))]
             TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
-            #[cfg(feature = "webtransport")]
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
             } => Box::new(WebTransportClientSocket::new(*client_addr, *server_addr)),
+            #[cfg(all(feature = "webtransport", target_family = "wasm"))]
+            TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                certificate_digest,
+            } => Box::new(WebTransportClientSocket::new(
+                *client_addr,
+                *server_addr,
+                certificate_digest.clone(),
+            )),
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportServer {
                 server_addr,

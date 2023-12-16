@@ -7,8 +7,9 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info};
 
-use xwt::current::{Connection, Datagram, Endpoint};
-use xwt_core::prelude::*;
+use wtransport;
+use wtransport::datagram::Datagram;
+use wtransport::ClientConfig;
 
 /// WebTransport client socket
 pub struct WebTransportClientSocket {
@@ -36,7 +37,7 @@ impl Transport for WebTransportClientSocket {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
 
-        let config = wtransport::ClientConfig::builder()
+        let config = ClientConfig::builder()
             .with_bind_address(client_addr)
             .with_no_cert_validation()
             .build();
@@ -48,23 +49,20 @@ impl Transport for WebTransportClientSocket {
         let endpoint = wtransport::Endpoint::client(config).unwrap();
 
         tokio::spawn(async move {
-            // convert the endpoint from wtransport/web_sys to xwt
-            let endpoint = xwt::current::Endpoint(endpoint);
-
-            let connecting = endpoint
+            let connection = endpoint
                 .connect(&server_url)
                 .await
                 .map_err(|e| {
                     error!("failed to connect to server: {:?}", e);
                 })
                 .unwrap();
-            let connection = connecting
-                .wait_connect()
-                .await
-                .map_err(|e| {
-                    error!("failed to connect to server: {:?}", e);
-                })
-                .unwrap();
+            // let connection = connecting
+            //     .wait_connect()
+            //     .await
+            //     .map_err(|e| {
+            //         error!("failed to connect to server: {:?}", e);
+            //     })
+            //     .unwrap();
             loop {
                 tokio::select! {
                     // receive messages from server
@@ -81,7 +79,7 @@ impl Transport for WebTransportClientSocket {
 
                     // send messages to server
                     Some(msg) = to_server_receiver.recv() => {
-                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
+                        connection.send_datagram(msg).unwrap_or_else(|e| {
                             error!("send_datagram error: {:?}", e);
                         });
                     }
@@ -120,10 +118,9 @@ struct WebTransportClientPacketReceiver {
 impl PacketReceiver for WebTransportClientPacketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_server_receiver.try_recv() {
-            Ok(datagram) => {
+            Ok(data) => {
                 // convert from datagram to payload via xwt
-                let data = datagram.as_ref();
-                self.buffer[..data.len()].copy_from_slice(data);
+                self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
                 Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
             }
             Err(e) => {

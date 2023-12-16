@@ -8,13 +8,13 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 use wtransport;
+use wtransport::datagram::Datagram;
+use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Certificate;
 use wtransport::{ClientConfig, ServerConfig};
-
-use xwt::current::{Connection, Datagram, Endpoint, IncomingSession};
-use xwt_core::prelude::*;
+use wtransport::{Connection, Endpoint};
 
 /// WebTransport client socket
 pub struct WebTransportServerSocket {
@@ -35,18 +35,23 @@ impl WebTransportServerSocket {
         from_client_sender: UnboundedSender<(Datagram, SocketAddr)>,
         to_client_channels: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Box<[u8]>>>>>,
     ) {
-        // TODO: handle errors properly
-        let Ok(session_request) = incoming_session.wait_accept().await else {
-            error!("failed to accept new client");
-            return;
-        };
-        let Ok(connection) = session_request.ok().await else {
-            error!("failed to accept new client");
-            return;
-        };
-        let client_addr = connection.0.remote_address();
+        let session_request = incoming_session
+            .await
+            .map_err(|e| {
+                error!("failed to accept new client: {:?}", e);
+            })
+            .unwrap();
 
-        debug!(
+        let connection = session_request
+            .accept()
+            .await
+            .map_err(|e| {
+                error!("failed to accept new client: {:?}", e);
+            })
+            .unwrap();
+        let client_addr = connection.remote_address();
+
+        info!(
             "Spawning new task to create connection with client: {}",
             client_addr
         );
@@ -65,16 +70,20 @@ impl WebTransportServerSocket {
                 x = connection.receive_datagram() => {
                     match x {
                         Ok(data) => {
+                            trace!("received datagram from client!: {:?}", &data);
                             from_client_sender.send((data, client_addr)).unwrap();
                         }
                         Err(e) => {
-                            error!("receive_datagram error: {:?}", e);
+                            error!("receive_datagram connection error: {:?}", e);
+                            to_client_channels.lock().unwrap().remove(&client_addr);
+                            break;
                         }
                     }
                 }
                 // send messages to client
                 Some(msg) = to_client_receiver.recv() => {
-                    connection.send_datagram(msg.as_ref()).await.unwrap_or_else(|e| {
+                    trace!("sending datagram to client!: {:?}", &msg);
+                    connection.send_datagram(msg.as_ref()).unwrap_or_else(|e| {
                         error!("send_datagram error: {:?}", e);
                     });
                 }
@@ -111,12 +120,10 @@ impl Transport for WebTransportServerSocket {
             .with_bind_address(server_addr)
             .with_certificate(certificate)
             .build();
-        let wtransport_endpoint = wtransport::Endpoint::server(config).unwrap();
-        // convert the endpoint from wtransport/web_sys to xwt
-        let endpoint = xwt::current::Endpoint(wtransport_endpoint);
+        let endpoint = wtransport::Endpoint::server(config).unwrap();
 
         tokio::spawn(async move {
-            debug!("Starting server webtransport task");
+            info!("Starting server webtransport task");
 
             loop {
                 // clone the channel for each client
@@ -124,10 +131,7 @@ impl Transport for WebTransportServerSocket {
                 let to_client_senders = to_client_senders.clone();
 
                 // new client connecting
-                let Ok(Some(incoming_session)) = endpoint.accept().await else {
-                    error!("failed to accept new client");
-                    continue;
-                };
+                let incoming_session = endpoint.accept().await;
 
                 tokio::spawn(Self::handle_client(
                     incoming_session,
@@ -168,9 +172,8 @@ struct WebTransportServerSocketReceiver {
 impl PacketReceiver for WebTransportServerSocketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_client_receiver.try_recv() {
-            Ok((datagram, addr)) => {
-                let data = datagram.as_ref();
-                self.buffer[..data.len()].copy_from_slice(data);
+            Ok((data, addr)) => {
+                self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
                 Ok(Some((&mut self.buffer[..data.len()], addr)))
             }
             Err(e) => {

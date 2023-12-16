@@ -44,6 +44,7 @@ pub struct Client<P: Protocol> {
     tick_manager: TickManager,
 }
 
+#[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
 /// Struct used to authenticate with the server
 pub enum Authentication {

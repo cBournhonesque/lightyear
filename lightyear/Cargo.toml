@@ -23,34 +23,18 @@ metrics = [
 ]
 mock_time = ["dep:mock_instant"]
 render = ["bevy/bevy_render"]
-
-#webtransport = [
-#  "dep:wtransport",
-#  "tokio/sync",
-#  "wtransport/dangerous-configuration",
-#  "dep:xwt",
-#  "dep:xwt-core",
-#  "dep:web-sys",
-#  "web-sys/WebTransport",
-#  "web-sys/WebTransportOptions",
-#]
 webtransport = [
   "dep:wtransport",
-  "dep:xwt",
   "dep:xwt-core",
+  "dep:xwt-web-sys",
   "dep:web-sys",
   "dep:tokio",
-#  "web-sys/WebTransport",
-#  "web-sys/WebTransportOptions",
-#  "web-sys/WebTransportBidirectionalStream",
-#  "web-sys/WebTransportSendStream",
-#  "web-sys/WebTransportReceiveStream",
-#  "web-sys/ReadableStreamDefaultReader",
-#  "web-sys/WritableStreamDefaultWriter",
-#  "web-sys/WebTransportDatagramDuplexStream",
-  "dep:futures-lite",
+  "dep:ring",
+#  "dep:futures-lite",
+#  "dep:rcgen",
+#  "dep:rustls",
+#  "dep:rustls-pemfile",
 ]
-
 
 [dependencies]
 # utils
@@ -71,9 +55,8 @@ thiserror = "1.0.50"
 
 # transport
 #wtransport = { version = "0.1.9", optional = true }
-xwt = { version = "0.3", optional = true }
-xwt-core = { version = "0.2", optional = true }
-xwt-web-sys = "0.3.1"
+#xwt = { version = "0.3", optional = true }
+
 
 
 # serialization
@@ -85,7 +68,7 @@ bitcode = { version = "0.4.0", package = "bitcode_lightyear_patch", features = [
 #] }
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
-serde = { version = "1.0.188", features = ["derive"] }
+serde = { version = "1.0.193", features = ["derive"] }
 
 # netcode
 chacha20poly1305 = { version = "0.10", features = ["std"] }
@@ -122,16 +105,18 @@ tokio = { version = "1.34", features = [
   "time",
 ], optional = true }
 
+# bevy
 bevy = { version = "0.12", default-features = false }
 
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
-wtransport = { version = "0.1.9", optional = true, features = [
+wtransport = { git = "https://github.com/BiagioFesta/wtransport.git", rev = "ba03a8497be26d4f11c62a2d5c12932d6c13ea96", optional = true, features = [
   "dangerous-configuration"
 ]}
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7"}
+ring = { version = "0.17.7", optional = true }
 web-sys = { version = "0.3", optional = true, features = [
   "WebTransport",
   "WebTransportHash",
@@ -144,8 +129,12 @@ web-sys = { version = "0.3", optional = true, features = [
   "WebTransportDatagramDuplexStream",
 ]}
 futures-lite = {  version = "2.1.0", optional = true }
-# feature 'js' is required for wasm
-getrandom = { version = "0.2.11", features = ["js"] }
+getrandom = { version = "0.2.11", features = ["js"] }  # feature 'js' is required for wasm
+#rcgen = { version = "0.11.3", optional = true }
+#rustls = { version = "0.22.1", optional = true }
+#rustls-pemfile = { version = "2.0.0", optional = true }
+xwt-core = { version = "0.2", optional = true }
+xwt-web-sys = { version = "0.3.1", optional = true }
 
 
 [dev-dependencies]

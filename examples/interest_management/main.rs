@@ -5,6 +5,9 @@
 //! Run with
 //! - `cargo run --example bevy_cli server`
 //! - `cargo run --example bevy_cli client`
+//!
+//! For webtransport:
+//! - server: `cargo run --example interest_management --features webtransport -- server --transport web-transport`
 mod client;
 mod protocol;
 
@@ -12,9 +15,13 @@ mod protocol;
 mod server;
 mod shared;
 
+use std::net::{Ipv4Addr, SocketAddr};
+#[cfg(target_family = "wasm")]
+use web_sys;
+
 use std::str::FromStr;
 
-use bevy::log::LogPlugin;
+use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use clap::{Parser, ValueEnum};
@@ -28,43 +35,65 @@ use crate::server::MyServerPlugin;
 #[cfg(not(target_family = "wasm"))]
 use tokio;
 
-use lightyear::netcode::{ClientId, Key};
-use lightyear::prelude::TransportConfig;
+use lightyear::prelude::Key;
+#[cfg(target_family = "wasm")]
+use wasm_bindgen_test::*;
+#[cfg(target_family = "wasm")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn main() {
-    // let cli = Cli::parse();
+cfg_if::cfg_if! {
+    if #[cfg(target_family = "wasm")] {
+        #[wasm_bindgen_test]
+        fn test_client() {
+            // let cli = Cli::parse();
+            let cli = Cli::Client {
+                client_id: 0,
+                client_port: CLIENT_PORT,
+                server_port: SERVER_PORT,
+                transport: Transports::WebTransport,
+            };
 
-    let cli = Cli::Client {
-        client_id: 0,
-        client_port: CLIENT_PORT,
-        server_port: SERVER_PORT,
-        transport: Transports::WebTransport,
-    };
+            let mut app = App::new();
+            // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+            // app.add_plugins(DefaultPlugins.build());
+            app.add_plugins(DefaultPlugins.set(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+            }));
+            if let Cli::Client {
+                client_id,
+                client_port,
+                server_port,
+                transport,
+            } = cli
+            {
+                let client_plugin =
+                    client::create_plugin(client_id, client_port, server_port, transport);
+                app.add_plugins(client_plugin);
+            }
+            // setup(&mut app, cli).await;
 
-    let mut app = App::new();
-    // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-    app.add_plugins(DefaultPlugins.build());
-    setup(&mut app, cli);
+            app.run();
+        }
+        fn main() {}
+    } else {
+        #[tokio::main]
+        async fn main() {
+            let cli = Cli::parse();
+            let mut app = App::new();
+            // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+            // app.add_plugins(DefaultPlugins.build());
+            app.add_plugins(DefaultPlugins.set(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+            }));
+            setup(&mut app, cli).await;
 
-    app.run();
+            app.run();
+        }
+
+    }
 }
-//
-// for server webtransport, we need the Tokio reactor as it's required by Quinn
-// #[tokio::main]
-// async fn main() {
-//     // let cli = Cli::parse();
-//
-//     let cli = Cli::Server {
-//         port: SERVER_PORT,
-//         transport: Transports::WebTransport,
-//     };
-//
-//     let mut app = App::new();
-//     app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-//     setup(&mut app, cli);
-//
-//     app.run();
-// }
 
 pub const CLIENT_PORT: u16 = 6000;
 pub const SERVER_PORT: u16 = 5000;
@@ -106,12 +135,12 @@ enum Cli {
     },
 }
 
-fn setup(app: &mut App, cli: Cli) {
+async fn setup(app: &mut App, cli: Cli) {
     match cli {
         Cli::SinglePlayer => {}
         #[cfg(not(target_family = "wasm"))]
         Cli::Server { port, transport } => {
-            let server_plugin = MyServerPlugin { port, transport };
+            let server_plugin = server::create_plugin(port, transport).await;
             app.add_plugins(server_plugin);
         }
         Cli::Client {
@@ -120,12 +149,8 @@ fn setup(app: &mut App, cli: Cli) {
             server_port,
             transport,
         } => {
-            let client_plugin = MyClientPlugin {
-                client_id,
-                client_port,
-                server_port,
-                transport,
-            };
+            let client_plugin =
+                client::create_plugin(client_id, client_port, server_port, transport);
             app.add_plugins(client_plugin);
         }
     }

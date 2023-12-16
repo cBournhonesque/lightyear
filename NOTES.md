@@ -10,6 +10,7 @@
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
   - on interest management, we still have this problem where interpolation is stuck at the beginning and doesn't move. Probably 
     because start tick or end tick are not updated correctly in some edge cases.
+  - long running connections seem to go completely out of sync
   
   
 
@@ -17,6 +18,7 @@
   - maybe have a ClientReplicate component to transfer all the replication data that is useful to clients? (group, prediciton, interpolation, etc.)
   - add smoothing to interpolation time
   - add an example to MapEntities, maybe apply topological sort when creating the ReplicationMessage.
+    - example with head/arm, head must always be replicated first!
   - improve rooms:
     - can rooms be a component attached to an entity?
     - can RoomEvents just be bevy events?
@@ -24,9 +26,12 @@
     - server doesn't work if we use the IoTaskPool; probably because the quinn futures need the tokio reactor
     - client:
       - how can i set the client local address?
-      - how can i use clap in wasm?
-      - problem with netcode::token in wasm?
-      - maybe we can still use tokio runtime (single-threaded) and tokio-spawn
+      - how can i use clap in wasm? -> maybe cant?
+      - maybe we can still use tokio runtime (single-threaded) and tokio-spawn in wasm
+      - certificates -> FIXED
+      - connection timed out in wasm
+      - i got it to work once!!!!!
+      - passing arguments doesn't work, even with wasm-pack, causes panic
 
 
 
