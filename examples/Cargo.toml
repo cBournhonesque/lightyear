@@ -18,6 +18,10 @@ name = "interest_management"
 path = "interest_management/main.rs"
 
 [[example]]
+name = "replication_groups"
+path = "replication_groups/main.rs"
+
+[[example]]
 name = "simple_box"
 path = "simple_box/main.rs"
 

@@ -28,6 +28,7 @@ pub struct Replicate {
     //  or force users to use `Replicate::default().with...`?
     /// List of clients that we the entity is currently replicated to.
     /// Will be updated before the other replication systems
+    #[doc(hidden)]
     pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
     pub replication_mode: ReplicationMode,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
