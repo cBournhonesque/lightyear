@@ -322,7 +322,7 @@ impl<P: Protocol> ReplicationManager<P> {
             match toposort(&dependency_graph, None) {
                 Ok(entities) => {
                     // create an actions message
-                    self.pending_actions.remove(&group_id).map(|mut actions| {
+                    if let Some(mut actions) = self.pending_actions.remove(&group_id) {
                         let channel = self.group_channels.entry(group_id).or_default();
                         let message_id = channel.actions_next_send_message_id;
                         channel.actions_next_send_message_id += 1;
@@ -330,13 +330,14 @@ impl<P: Protocol> ReplicationManager<P> {
                         let mut actions_message = vec![];
 
                         // add any updates for that group into the actions message
-                        let updates = self.pending_updates.remove(&group_id);
+                        let mut my_updates = self.pending_updates.remove(&group_id);
 
-                        // add actions to the message in topological order
-                        entities.iter().for_each(|e| {
-                            actions.remove(e).map(|mut a| {
+                        // add actions to the message for entities in topological order
+                        for e in entities.iter() {
+                            if let Some(mut a) = actions.remove(e) {
                                 // for any update that was not already in insert/updates, add it to the update list
-                                if let Some(mut updates) = updates {
+                                if let Some(ref mut updates) = my_updates {
+                                    // TODO: this suggests that we should already store inserts/updates as HashSet!
                                     let existing_inserts = a
                                         .insert
                                         .iter()
@@ -357,8 +358,8 @@ impl<P: Protocol> ReplicationManager<P> {
                                     });
                                 }
                                 actions_message.push((*e, a));
-                            });
-                        });
+                            }
+                        }
 
                         messages.push((
                             ChannelKind::of::<EntityActionsChannel>(),
@@ -368,7 +369,7 @@ impl<P: Protocol> ReplicationManager<P> {
                                 actions: actions_message,
                             }),
                         ));
-                    });
+                    }
 
                     // create an updates message
                     self.pending_updates.remove(&group_id).map(|mut updates| {
@@ -455,7 +456,7 @@ impl<P: Protocol> ReplicationManager<P> {
                         .iter()
                         .map(|c| c.into())
                         .collect::<Vec<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
+                    info!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
                     for mut component in actions.insert {
                         // map any entities inside the component
                         component.map_entities(&self.entity_map);
@@ -628,6 +629,7 @@ mod tests {
     use crate::tests::protocol::*;
     use bevy::prelude::*;
 
+    // TODO: add tests for replication with entity relations!
     #[test]
     fn test_buffer_replication_messages() {
         let (sender, receiver) = crossbeam_channel::unbounded();

@@ -233,7 +233,7 @@ fn delegate_method(input: &ItemEnum) -> TokenStream {
         };
         entities_body = quote! {
             #entities_body
-            #enum_name::#ident(ref mut x) => x.entities(entity_map),
+            #enum_name::#ident(ref x) => x.entities(),
         };
     }
 

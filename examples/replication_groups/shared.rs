@@ -27,7 +27,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_plugins(WorldInspectorPlugin::new());
+        app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, draw_snakes);
     }
 }
@@ -49,7 +49,7 @@ pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &I
     }
 }
 
-// This system defines how we update the player's tails when we the head is updated
+// This system defines how we update the player's tails when the head is updated
 pub(crate) fn shared_tail_behaviour(
     player_position: Query<&PlayerPosition>,
     mut tails: Query<(&mut TailPoints, &PlayerParent, &TailLength)>,
@@ -91,6 +91,7 @@ pub(crate) fn draw_snakes(
     tails: Query<(&PlayerParent, &TailPoints)>,
 ) {
     for (parent, points) in tails.iter() {
+        info!("drawing snake with parent: {:?}", parent.0);
         let Ok((position, color)) = players.get(parent.0) else {
             panic!("Tail entity has no parent entity!");
         };

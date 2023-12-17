@@ -1,4 +1,5 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
@@ -56,7 +57,8 @@ impl TailBundle {
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                interpolation_target: NetworkTarget::None,
+                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // replicate this entity within the same replication group as the parent
                 replication_group: ReplicationGroup::Group(parent.to_bits()),
                 ..default()
@@ -140,7 +142,12 @@ pub struct PlayerParent(pub(crate) Entity);
 
 impl MapEntities for PlayerParent {
     fn map_entities(&mut self, entity_map: &EntityMap) {
+        info!("mapping entity {:?}", self.0);
         self.0.map_entities(entity_map);
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![self.0])
     }
 }
 

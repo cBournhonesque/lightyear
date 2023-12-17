@@ -163,7 +163,8 @@ pub fn component_protocol_impl(
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
-            use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut, World};
+            use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
+            use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::shared::replication::systems::add_per_component_replication_send_systems;
             use #shared_crate_name::connection::events::{IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
             use #shared_crate_name::shared::systems::events::{
@@ -497,7 +498,7 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
         };
         entities_body = quote! {
             #entities_body
-            #enum_name::#ident(ref mut x) => x.entities(entity_map),
+            #enum_name::#ident(ref x) => x.entities(),
         };
     }
 

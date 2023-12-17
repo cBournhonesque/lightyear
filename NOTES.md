@@ -10,6 +10,15 @@
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
   - on interest management, we still have this problem where interpolation is stuck at the beginning and doesn't move. Probably 
     because start tick or end tick are not updated correctly in some edge cases.
+
+
+- DEBUGGING REPLICATION BOX:
+  - I think the general map_entities logic works pretty well (with the topological sort)
+  - the problem is that the PlayerEntity component gets replicated from Confirmed to Predicted, but it must now refer 
+    to another entity (the predicted head!)
+    - I guess we need a similar MapEntities to map entities inside components from Confirmed to Predicted?
+    - Similarly, we need a topological order in which we spawn the Predicted entities?
+    - complicated...
   
   
 
