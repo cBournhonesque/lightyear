@@ -1,6 +1,7 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Reflect, Vec2};
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
+use lightyear::prelude::client::InterpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
 use serde::{Deserialize, Serialize};
@@ -87,6 +88,13 @@ pub struct TailLength(pub(crate) f32);
 // tail inflection points, from front (point closest to the head) to back (tail end point)
 pub struct TailPoints(pub(crate) VecDeque<(Vec2, Direction)>);
 
+pub struct TailPointsInterpolation;
+impl InterpFn<TailPoints> for TailPointsInterpolation {
+    fn lerp(start: TailPoints, other: TailPoints, t: f32) -> TailPoints {
+        start
+    }
+}
+
 pub fn segment_length(from: Vec2, to: Vec2) -> f32 {
     (from - to).length()
 }
@@ -162,7 +170,7 @@ pub enum Components {
     PlayerColor(PlayerColor),
     #[sync(once)]
     TailLength(TailLength),
-    #[sync(simple)]
+    #[sync(full, lerp = "TailPointsInterpolation")]
     TailPoints(TailPoints),
     #[sync(once)]
     PlayerParent(PlayerParent),
