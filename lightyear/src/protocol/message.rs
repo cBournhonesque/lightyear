@@ -22,7 +22,7 @@ pub trait MessageProtocol:
     + Serialize
     + DeserializeOwned
     + Clone
-    + MapEntities
+    + for<'a> MapEntities<'a>
     + MessageBehaviour
     + Named
     + Debug

@@ -16,8 +16,7 @@ pub trait SyncComponent: Component + Clone + PartialEq {
     fn mode() -> ComponentSyncMode;
 }
 
-// TODO: add a default here?
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 /// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated
 ///
 /// We use a single enum instead of 2 separate enums because we want to be able to use the same enum for both predicted and interpolated components
@@ -38,4 +37,8 @@ pub enum ComponentSyncMode {
     /// The component will be copied only-once from the confirmed to the interpolated/predicted entity, and then won't stay in sync
     /// Useful for components that you want to modify yourself on the predicted/interpolated entity
     Once,
+
+    #[default]
+    /// The component is not copied from the Confirmed entity to the interpolated/predicted entity
+    None,
 }

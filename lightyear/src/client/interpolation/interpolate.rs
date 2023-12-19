@@ -145,7 +145,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     }
 }
 
-pub(crate) fn interpolate<C: InterpolatedComponent>(
+pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {
     for (mut component, status) in query.iter_mut() {

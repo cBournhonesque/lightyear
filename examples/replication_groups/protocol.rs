@@ -1,4 +1,4 @@
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Reflect, Vec2};
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
@@ -140,10 +140,11 @@ impl TailPoints {
 #[message(custom_map)]
 pub struct PlayerParent(pub(crate) Entity);
 
-impl MapEntities for PlayerParent {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        info!("mapping entity {:?}", self.0);
-        self.0.map_entities(entity_map);
+impl<'a> MapEntities<'a> for PlayerParent {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        info!("mapping parent entity {:?}", self.0);
+        self.0.map_entities(entity_mapper);
+        info!("After mapping: {:?}", self.0);
     }
 
     fn entities(&self) -> EntityHashSet<Entity> {

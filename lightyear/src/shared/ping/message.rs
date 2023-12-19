@@ -30,11 +30,3 @@ pub enum SyncMessage {
     Ping(Ping),
     Pong(Pong),
 }
-
-impl MapEntities for SyncMessage {
-    fn map_entities(&mut self, _entity_map: &crate::prelude::EntityMap) {}
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::default()
-    }
-}

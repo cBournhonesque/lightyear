@@ -2,6 +2,7 @@ use crate::protocol::Direction;
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 use std::time::Duration;
 use tracing::Level;
@@ -74,7 +75,7 @@ pub(crate) fn shared_tail_behaviour(
             };
             let new_front_dir = Direction::from_points(inflection_pos, parent_position.0).unwrap();
             points.0.push_front((inflection_pos, new_front_dir));
-            trace!(?points, "new points");
+            info!(?points, "new points");
         }
 
         // Update the back
@@ -87,11 +88,11 @@ pub(crate) fn shared_tail_behaviour(
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_snakes(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor)>,
-    tails: Query<(&PlayerParent, &TailPoints)>,
+    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    tails: Query<(&PlayerParent, &TailPoints), Without<Confirmed>>,
 ) {
     for (parent, points) in tails.iter() {
-        info!("drawing snake with parent: {:?}", parent.0);
+        debug!("drawing snake with parent: {:?}", parent.0);
         let Ok((position, color)) = players.get(parent.0) else {
             panic!("Tail entity has no parent entity!");
         };

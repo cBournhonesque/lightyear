@@ -1,5 +1,5 @@
 //! Implement lightyear traits for some common bevy types
-use crate::prelude::{EntityMap, MapEntities, Message, Named};
+use crate::prelude::{EntityMapper, MapEntities, Message, Named, RemoteEntityMap};
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
 
@@ -9,8 +9,8 @@ impl Named for Transform {
     }
 }
 
-impl MapEntities for Transform {
-    fn map_entities(&mut self, entity_map: &EntityMap) {}
+impl<'a> MapEntities<'a> for Transform {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
 
     fn entities(&self) -> EntityHashSet<Entity> {
         EntityHashSet::default()
@@ -28,8 +28,8 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl MapEntities for Color {
-            fn map_entities(&mut self, entity_map: &EntityMap) {}
+        impl<'a> MapEntities<'a> for Color {
+            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
 
             fn entities(&self) -> EntityHashSet<Entity> {
                 EntityHashSet::default()
@@ -44,8 +44,8 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl MapEntities for Visibility {
-            fn map_entities(&mut self, entity_map: &EntityMap) {}
+        impl<'a> MapEntities<'a> for Visibility {
+            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
 
             fn entities(&self) -> EntityHashSet<Entity> {
                 EntityHashSet::default()

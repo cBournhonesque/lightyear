@@ -1,4 +1,5 @@
 use bevy::prelude::{Component, Entity};
+use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +13,7 @@ pub struct Message1(pub String);
 #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[message_protocol_internal(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol_internal(protocol = "MyProtocol")]
 pub enum MyMessageProtocol {
     Message1(Message1),
     Message2(Message2),
@@ -33,8 +34,12 @@ pub struct Component3(pub f32);
 pub struct Component4(pub Entity);
 
 impl MapEntities for Component4 {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        self.0.map_entities(entity_map);
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper>) {
+        self.0.map_entities(entity_mapper);
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![self.0])
     }
 }
 

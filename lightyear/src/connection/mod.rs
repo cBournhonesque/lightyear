@@ -146,7 +146,9 @@ impl<P: Protocol> Connection<P> {
                     match message {
                         ProtocolMessage::Message(mut message) => {
                             // map any entities inside the message
-                            message.map_entities(&self.replication_manager.entity_map);
+                            message.map_entities(Box::new(
+                                &self.replication_manager.remote_entity_map,
+                            ));
                             // buffer the message
                             self.events.push_message(channel_kind, message);
                         }

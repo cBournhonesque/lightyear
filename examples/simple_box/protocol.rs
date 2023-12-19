@@ -51,7 +51,7 @@ pub struct PlayerColor(pub(crate) Color);
 pub struct PlayerParent(Entity);
 
 impl MapEntities for PlayerParent {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
+    fn map_entities(&mut self, entity_map: &RemoteEntityMap) {
         self.0.map_entities(entity_map);
     }
 }

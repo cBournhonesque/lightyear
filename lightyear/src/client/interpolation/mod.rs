@@ -8,7 +8,7 @@ pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_lerp_systems};
 
-use crate::client::components::{Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::interpolation::despawn::InterpolationMapping;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
@@ -35,28 +35,52 @@ pub mod plugin;
 // TODO: maybe merge this with PredictedComponent?
 //  basically it is a HistoryComponent. And we can have modes for Prediction or Interpolation
 
-// TODO: only require the Add/Mul bounds if we're using the linear lerp function
-pub trait InterpolatedComponent:
-    SyncComponent + Mul<f32, Output = Self> + Add<Self, Output = Self> + Sized
-{
-    /// Which interpolation function to use
-    /// By default, it will be a linear interpolation
-    fn lerp_mode() -> LerpMode<Self>;
+pub trait InterpFn<C> {
+    fn lerp(start: C, other: C, t: f32) -> C;
+}
 
-    fn lerp(start: Self, other: Self, t: f32) -> Self {
-        match Self::lerp_mode() {
-            LerpMode::Linear => start * (1.0 - t) + other * t,
-            LerpMode::Custom(lerp) => lerp(start, other, t),
-        }
+pub struct LinearInterpolation;
+impl<C> InterpFn<C> for LinearInterpolation
+where
+    C: Mul<f32, Output = C> + Add<C, Output = C>,
+{
+    fn lerp(start: C, other: C, t: f32) -> C {
+        start * (1.0 - t) + other * t
     }
 }
 
-#[derive(Debug)]
-pub enum LerpMode<C: InterpolatedComponent> {
-    Linear,
-    // TODO: change this to a trait object?
-    Custom(fn(C, C, f32) -> C),
+pub trait InterpolatedComponent<C>: SyncComponent {
+    type Fn: InterpFn<C>;
+
+    fn lerp(start: C, other: C, t: f32) -> C {
+        Self::Fn::lerp(start, other, t)
+    }
 }
+
+// pub trait InterpolatedComponent<C>: SyncComponent + Sized {
+//     type Fn: InterpFn<C>;
+//     /// Which interpolation function to use
+//     /// By default, it will be a linear interpolation
+//     fn lerp_mode() -> LerpMode<Self>;
+//
+//     fn lerp_linear(start: Self, other: Self, t: f32) -> Self
+//     where
+//         Self: Mul<f32, Output = Self> + Add<Self, Output = Self>,
+//     {
+//         start * (1.0 - t) + other * t
+//     }
+//
+//     fn lerp_custom(start: Self, other: Self, t: f32, lerp: fn(Self, Self, f32) -> Self) -> Self {
+//         lerp(start, other, t)
+//     }
+// }
+
+// #[derive(Debug)]
+// pub enum LerpMode<C: InterpolatedComponent> {
+//     Linear,
+//     // TODO: change this to a trait object?
+//     Custom(fn(C, C, f32) -> C),
+// }
 
 /// Marks an entity that is being interpolated by the client
 #[derive(Component, Debug)]

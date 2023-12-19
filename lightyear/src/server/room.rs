@@ -595,7 +595,7 @@ mod tests {
             .connection()
             .base()
             .replication_manager
-            .entity_map
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
 
@@ -752,7 +752,7 @@ mod tests {
             .connection()
             .base()
             .replication_manager
-            .entity_map
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
 

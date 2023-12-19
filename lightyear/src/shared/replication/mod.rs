@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, RemoteEntityMap, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
@@ -96,38 +96,6 @@ pub enum ReplicationMessageData<C, K> {
 pub struct ReplicationMessage<C, K> {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) data: ReplicationMessageData<C, K>,
-}
-
-impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
-    // NOTE: we do NOT map the entities for these messages (apart from those contained in the components)
-    // because the replication logic (`apply_world`) expects the entities to be the remote entities
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        match &mut self.data {
-            ReplicationMessageData::Actions(m) => {
-                m.actions.iter_mut().for_each(|(_, entity_actions)| {
-                    entity_actions
-                        .insert
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                    entity_actions
-                        .updates
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                })
-            }
-            ReplicationMessageData::Updates(m) => {
-                m.updates.iter_mut().for_each(|(_, entity_updates)| {
-                    entity_updates
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                })
-            }
-        }
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        todo!()
-    }
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
@@ -256,7 +224,7 @@ mod tests {
             .connection()
             .base()
             .replication_manager
-            .entity_map
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
         assert_eq!(

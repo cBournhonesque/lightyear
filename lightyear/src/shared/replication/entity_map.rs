@@ -4,14 +4,49 @@ use bevy::prelude::{Entity, EntityWorldMut, World};
 use bevy::utils::hashbrown::hash_map::Entry;
 use bevy::utils::{EntityHashMap, EntityHashSet};
 
+pub trait EntityMapper {
+    /// Map an entity
+    fn map(&self, entity: Entity) -> Option<Entity>;
+}
+
+impl<T: EntityMapper> EntityMapper for &T {
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        (*self).map(entity)
+    }
+}
+
 #[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
-pub struct EntityMap {
+pub struct RemoteEntityMap {
     remote_to_local: EntityHashMap<Entity, Entity>,
     local_to_remote: EntityHashMap<Entity, Entity>,
 }
 
-impl EntityMap {
+#[derive(Default, Debug)]
+pub struct PredictedEntityMap {
+    // map from the remote entity to the predicted entity
+    pub(crate) remote_to_predicted: EntityHashMap<Entity, Entity>,
+}
+
+impl EntityMapper for PredictedEntityMap {
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.remote_to_predicted.get(&entity).copied()
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct InterpolatedEntityMap {
+    // map from the remote entity to the interpolated entity
+    pub(crate) remote_to_interpolated: EntityHashMap<Entity, Entity>,
+}
+
+impl EntityMapper for InterpolatedEntityMap {
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.remote_to_interpolated.get(&entity).copied()
+    }
+}
+
+impl RemoteEntityMap {
     #[inline]
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
         self.remote_to_local.insert(remote_entity, local_entity);
@@ -79,24 +114,25 @@ impl EntityMap {
     }
 }
 
+impl EntityMapper for RemoteEntityMap {
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.get_local(entity).copied()
+    }
+}
+
 /// Trait that Messages or Components must implement to be able to map entities
-pub trait MapEntities {
+pub trait MapEntities<'a> {
     /// Map the entities inside the message or component from the remote World to the local World
-    fn map_entities(&mut self, entity_map: &EntityMap);
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>);
 
     /// Get all the entities that are present in that message or component
     fn entities(&self) -> EntityHashSet<Entity>;
 }
 
-impl MapEntities for Entity {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        // TODO: if the entity is inside a component, then we don't want to just use the remote entity in the component
-        //  instead we should say:
-        //  - there is a remote entity that we haven't mapped yet
-        //  - wait for it to appear
-        //  - if it appears, we finish the mapping and spawn the entity
-        if let Some(local) = entity_map.get_local(*self) {
-            *self = *local;
+impl<'a> MapEntities<'a> for Entity {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        if let Some(local) = entity_mapper.map(*self) {
+            *self = local;
         } else {
             panic!(
                 "cannot map entity {:?} because it doesn't exist in the entity map!",
@@ -170,7 +206,7 @@ mod tests {
             .connection()
             .base()
             .replication_manager
-            .entity_map
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
         assert_eq!(
@@ -198,7 +234,7 @@ mod tests {
             .connection()
             .base()
             .replication_manager
-            .entity_map
+            .remote_entity_map
             .get_local(server_entity_2)
             .unwrap();
         // the 'server entity' inside the Component4 component got mapped to the corresponding entity on the client

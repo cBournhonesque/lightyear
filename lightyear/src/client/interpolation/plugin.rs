@@ -65,6 +65,9 @@ impl InterpolationDelay {
 #[derive(Clone)]
 pub struct InterpolationConfig {
     pub(crate) delay: InterpolationDelay,
+    /// If true, disable the interpolation logic (but still keep the internal component history buffers)
+    /// The user will have to manually implement
+    pub(crate) custom_interpolation_logic: bool,
     // How long are we keeping the history of the confirmed entities so we can interpolate between them?
     // pub(crate) interpolation_buffer_size: Duration,
 }
@@ -74,7 +77,7 @@ impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
             delay: InterpolationDelay::default(),
-            // TODO: change
+            custom_interpolation_logic: false,
             // interpolation_buffer_size: Duration::from_millis(100),
         }
     }
@@ -157,7 +160,7 @@ pub fn add_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
 
 // We add the interpolate system in different function because we don't want the non
 // ComponentSyncMode::Full components to need the InterpolatedComponent bounds (in particular Add/Mul)
-pub fn add_lerp_systems<C: InterpolatedComponent, P: Protocol>(app: &mut App) {
+pub fn add_lerp_systems<C: InterpolatedComponent<C>, P: Protocol>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         (interpolate::<C>
@@ -168,7 +171,9 @@ pub fn add_lerp_systems<C: InterpolatedComponent, P: Protocol>(app: &mut App) {
 
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
-        P::Components::add_interpolation_systems(app);
+        if !self.config.custom_interpolation_logic {
+            P::Components::add_interpolation_systems(app);
+        }
 
         // RESOURCES
         app.init_resource::<InterpolationMapping>();

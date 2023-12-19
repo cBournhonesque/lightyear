@@ -4,8 +4,11 @@ use bevy::a11y::accesskit::Action;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
+use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind, ShouldBePredicted};
+use crate::client::components::{ComponentSyncMode, Confirmed};
+use crate::client::prediction::Predicted;
 use crate::connection::events::ConnectionEvents;
+use crate::protocol::component::ComponentProtocol;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, EntityWorldMut, World};
 use bevy::utils::petgraph::algo::toposort;
@@ -18,7 +21,7 @@ use tracing::{debug, error, info, trace, trace_span};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use super::entity_map::EntityMap;
+use super::entity_map::{PredictedEntityMap, RemoteEntityMap};
 use super::{
     EntityActionMessage, EntityActions, EntityUpdatesMessage, Replicate, ReplicationMessage,
     ReplicationMessageData,
@@ -55,7 +58,10 @@ pub(crate) struct ReplicationManager<P: Protocol> {
 
     // RECEIVE
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
-    pub entity_map: EntityMap,
+    pub remote_entity_map: RemoteEntityMap,
+    /// Map between remote and predicted entities
+    pub predicted_entity_map: PredictedEntityMap,
+
     /// Map from remote entity to the replication group-id
     pub remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
 
@@ -74,7 +80,8 @@ impl<P: Protocol> ReplicationManager<P> {
             pending_updates: EntityHashMap::default(),
             group_dependencies: EntityHashMap::default(),
             // RECEIVE
-            entity_map: EntityMap::default(),
+            remote_entity_map: RemoteEntityMap::default(),
+            predicted_entity_map: PredictedEntityMap::default(),
             remote_entity_to_group: Default::default(),
             // BOTH
             group_channels: Default::default(),
@@ -187,7 +194,7 @@ impl<P: Protocol> ReplicationManager<P> {
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
     pub(crate) fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel<P>> {
-        self.entity_map
+        self.remote_entity_map
             .get_remote(local_entity)
             .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
     }
@@ -419,61 +426,116 @@ impl<P: Protocol> ReplicationManager<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                // NOTE: order matters here
+                info!(?m, "Received replication actions");
+                // NOTE: order matters here, the entities are stored in the message in topological order
+                // i.e. entities that depend on other entities are read later on
                 for (entity, actions) in m.actions.into_iter() {
-                    debug!(remote_entity = ?entity, "Received entity actions");
+                    info!(remote_entity = ?entity, "Received entity actions");
 
                     assert!(!(actions.spawn && actions.despawn));
 
                     // spawn/despawn
-                    let mut local_entity: EntityWorldMut;
                     if actions.spawn {
                         // TODO: optimization: spawn the bundle of insert components
-                        local_entity = world.spawn_empty();
-                        self.entity_map.insert(entity, local_entity.id());
+                        let local_entity = world.spawn_empty();
+                        self.remote_entity_map.insert(entity, local_entity.id());
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
                         events.push_spawn(local_entity.id());
                     } else if actions.despawn {
                         debug!(remote_entity = ?entity, "Received entity despawn");
-                        if let Some(local_entity) = self.entity_map.remove_by_remote(entity) {
+                        if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
+                        {
                             events.push_despawn(local_entity);
                             world.despawn(local_entity);
                         } else {
                             error!("Received despawn for an entity that does not exist")
                         }
                         continue;
-                    } else if let Ok(l) = self.entity_map.get_by_remote(world, entity) {
-                        local_entity = l;
-                    } else {
+                    } else if self.remote_entity_map.get_by_remote(world, entity).is_err() {
                         error!("cannot find entity");
                         continue;
                     }
 
-                    // inserts
+                    // safety: we know by this point that the entity exists
+                    let local_entity = *self.remote_entity_map.get_local(entity).unwrap();
+
+                    // prediction / interpolation
                     let kinds = actions
                         .insert
                         .iter()
                         .map(|c| c.into())
-                        .collect::<Vec<P::ComponentKinds>>();
+                        .collect::<HashSet<P::ComponentKinds>>();
+
+                    // NOTE: we handle it here because we want to spawn the predicted/interpolated entities
+                    //  for the group in topological sort as well, and to maintain a new entity mapping
+                    //  i.e. if ComponentA contains an entity E,
+                    //  predicted component A' must contain an entity E' that is predicted
+                    let predicted_kind =
+                        P::ComponentKinds::from(&P::Components::from(ShouldBePredicted));
+                    if kinds.contains(&predicted_kind) {
+                        // spawn a new predicted entity
+                        let mut predicted_entity_mut = world.spawn(Predicted {
+                            confirmed_entity: local_entity,
+                        });
+
+                        let predicted_entity = predicted_entity_mut.id();
+                        self.predicted_entity_map
+                            .remote_to_predicted
+                            .insert(entity, predicted_entity);
+
+                        // TODO: I don't like having coupling between the manager and prediction/interpolation
+                        //  now every component needs to implement ComponentSyncMode...
+                        // sync components that have ComponentSyncMode != None
+                        for mut component in actions
+                            .insert
+                            .iter()
+                            .filter(|c| !matches!(c.mode(), ComponentSyncMode::None))
+                            .cloned()
+                        {
+                            info!("syncing component {:?} for predicted entity", component);
+                            // map any entities inside the component
+                            component.map_entities(Box::new(&self.predicted_entity_map));
+                            component.insert(&mut predicted_entity_mut);
+                        }
+
+                        // add Confirmed to the confirmed entity
+                        // safety: we know the entity exists
+                        let mut local_entity_mut = world.entity_mut(local_entity);
+                        if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                            confirmed.predicted = Some(predicted_entity);
+                        } else {
+                            local_entity_mut.insert(Confirmed {
+                                predicted: Some(predicted_entity),
+                                interpolated: None,
+                            });
+                        }
+                        info!(
+                            "Spawn predicted entity {:?} for confirmed: {:?}",
+                            predicted_entity, local_entity,
+                        );
+                        #[cfg(feature = "metrics")]
+                        {
+                            metrics::increment_counter!("spawn_predicted_entity");
+                        }
+                    }
+
+                    // inserts
                     info!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
+                    let mut local_entity_mut = world.entity_mut(local_entity);
                     for mut component in actions.insert {
                         // map any entities inside the component
-                        component.map_entities(&self.entity_map);
+                        component.map_entities(Box::new(&self.remote_entity_map));
                         // TODO: figure out what to do with tick here
-                        events.push_insert_component(
-                            local_entity.id(),
-                            (&component).into(),
-                            Tick(0),
-                        );
-                        component.insert(&mut local_entity);
+                        events.push_insert_component(local_entity, (&component).into(), Tick(0));
+                        component.insert(&mut local_entity_mut);
                     }
 
                     // removals
                     debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
-                        events.push_remove_component(local_entity.id(), kind.clone(), Tick(0));
-                        kind.remove(&mut local_entity);
+                        events.push_remove_component(local_entity, kind.clone(), Tick(0));
+                        kind.remove(&mut local_entity_mut);
                     }
 
                     // (no need to run apply_deferred after applying actions, that is only for Commands)
@@ -487,14 +549,15 @@ impl<P: Protocol> ReplicationManager<P> {
                     debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
                     for mut component in actions.updates {
                         // map any entities inside the component
-                        component.map_entities(&self.entity_map);
-                        events.push_update_component(
-                            local_entity.id(),
-                            (&component).into(),
-                            Tick(0),
-                        );
-                        component.update(&mut local_entity);
+                        component.map_entities(Box::new(&self.remote_entity_map));
+                        events.push_update_component(local_entity, (&component).into(), Tick(0));
+                        component.update(&mut local_entity_mut);
                     }
+
+                    // TODO:
+                    // prediction/interpolation
+                    // sync updates for ComponentSyncMode = simple or full
+                    // NOTE: again we apply the replication here because we want to apply it in topological order
                 }
             }
             ReplicationMessageData::Updates(m) => {
@@ -506,7 +569,9 @@ impl<P: Protocol> ReplicationManager<P> {
                         .collect::<Vec<P::ComponentKinds>>();
                     debug!(?entity, ?kinds, "Received UpdateComponent");
                     // if the entity does not exist, create it
-                    if let Ok(mut local_entity) = self.entity_map.get_by_remote(world, entity) {
+                    if let Ok(mut local_entity) =
+                        self.remote_entity_map.get_by_remote(world, entity)
+                    {
                         for component in components {
                             events.push_update_component(
                                 local_entity.id(),

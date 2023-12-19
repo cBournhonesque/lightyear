@@ -161,7 +161,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Simple => {
                             *interpolated_component = confirmed_component.deref().clone();
                         }
-                        ComponentSyncMode::Once => {}
+                        _ => {}
                     }
                 }
             }

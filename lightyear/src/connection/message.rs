@@ -3,7 +3,7 @@ Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible me
 */
 use crate::_reexport::{InputMessage, ShouldBeInterpolated, ShouldBePredicted, TickManager};
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::{EntityMap, MapEntities, Tick};
+use crate::prelude::{EntityMapper, MapEntities, RemoteEntityMap, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
@@ -31,30 +31,6 @@ pub enum ProtocolMessage<P: Protocol> {
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
     Sync(SyncMessage),
-}
-
-impl<P: Protocol> MapEntities for ProtocolMessage<P> {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        match self {
-            ProtocolMessage::Message(x) => {
-                x.map_entities(entity_map);
-            }
-            ProtocolMessage::Replication(x) => {
-                x.map_entities(entity_map);
-            }
-            ProtocolMessage::Sync(x) => {
-                x.map_entities(entity_map);
-            }
-        }
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        match self {
-            ProtocolMessage::Message(x) => x.entities(),
-            ProtocolMessage::Replication(x) => x.entities(),
-            ProtocolMessage::Sync(x) => x.entities(),
-        }
-    }
 }
 
 impl<P: Protocol> ProtocolMessage<P> {

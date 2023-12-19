@@ -12,13 +12,28 @@
     because start tick or end tick are not updated correctly in some edge cases.
 
 
+- Interpolation:
+  - should let users do interpolation for multiple components themselves (for better splines)
+    - i.e. they handle completely interpolation!
+  - or for a given component, let them use linear or custom interpolation
+
+
 - DEBUGGING REPLICATION BOX:
   - I think the general map_entities logic works pretty well (with the topological sort)
-  - the problem is that the PlayerEntity component gets replicated from Confirmed to Predicted, but it must now refer 
-    to another entity (the predicted head!)
-    - I guess we need a similar MapEntities to map entities inside components from Confirmed to Predicted?
-    - Similarly, we need a topological order in which we spawn the Predicted entities?
-    - complicated...
+  - the sync from confirmed to predict might not only be for replicated components, but also components that were
+    spawned on confirmed world directly.
+    - which means it's not to apply topological sort during replication; we need to apply it on prediction level directly
+    - maybe maintain a topological sort for each predicted replication group?
+      - what about adding new entities to the prediction group? because that's the main problem, otherwise if all the entities
+        are known at the beginning we are good!
+      - maybe don't need toplogical sort but can just use the vec from the replication to have the order
+      - but then how do we iterate through the entities in that order?
+    - the components during prediction sync need to be mapped!
+    - do we need to introduce the concept of a PredictionGroup, which is a super-set of a replicationGroup? (because some of the entities
+        might not come from replication?)
+  - how to get smooth interpolation when there can be diagonal movements?
+    - allow custom interpolation, so that we can make sure that interpolation respects corners as well
+
   
   
 
