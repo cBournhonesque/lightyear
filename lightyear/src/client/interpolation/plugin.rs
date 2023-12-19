@@ -209,7 +209,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         app.add_systems(
             PreUpdate,
             (
-                spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
+                // spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
             ),
         );

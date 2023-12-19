@@ -5,6 +5,7 @@ use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
@@ -181,5 +182,94 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
+    }
+}
+
+// Here, we want to have a custom interpolation logic, because we need to query two components
+// at once to do the interpolation correctly.
+// We want the interpolated entity to stay on the tail path of the confirmed entity at all times.
+// The `InterpolateStatus` provides the start and end tick + component value, making it easy to perform interpolation.
+pub(crate) fn interpolate(
+    mut parent_query: Query<(&mut PlayerPosition, &InterpolateStatus<PlayerPosition>)>,
+    mut tail_query: Query<(
+        &PlayerParent,
+        &TailLength,
+        &mut TailPoints,
+        &InterpolateStatus<TailPoints>,
+    )>,
+) {
+    for (parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
+        let (mut parent_position, parent_status) = parent_query
+            .get_mut(parent.0)
+            .expect("Tail entity has no parent entity!");
+        // the ticks should be the same for both components
+        if let (Some((start_tick, tail_start_value)), Some((end_tick, tail_end_value))) =
+            (&tail_status.start, &tail_status.end)
+        {
+            let pos_start = &parent_status.start.as_ref().unwrap().1;
+            let pos_end = &parent_status.end.as_ref().unwrap().1;
+
+            if start_tick != end_tick {
+                // the new tail will be similar to the new tail, with some added points
+                *tail = tail_start_value.clone();
+
+                // interpolation ratio
+                let t =
+                    (tail_status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
+
+                let mut tail_diff_length = 0.0;
+                // find in which end tail segment the previous head_position is
+                // deal with the first segment separately
+                if let Some(ratio) =
+                    pos_start.is_between(tail_end_value.0.front().unwrap().0, pos_end.0)
+                {
+                    assert_eq!(ratio, t);
+                    // the path is straight! just move the head and adjust the tail
+                    *parent_position =
+                        PlayerPosition::lerp(pos_start.clone(), pos_end.clone(), ratio);
+                    tail.shorten_back(parent_position.0, tail_length.0);
+                    continue;
+                }
+                tail_diff_length += segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
+
+                // amount of distance we need to move the player by, while remaining on the path
+                let mut pos_distance_to_do = 0.0;
+                // segment [segment_idx-1, segment_idx] is the segment where the starting pos is.
+                let mut segment_idx = 0;
+                // else, keep trying to find in the remaining segments
+                for i in 1..tail_end_value.0.len() {
+                    let segment_length =
+                        segment_length(tail_end_value.0[i - 1].0, tail_end_value.0[i].0);
+                    if let Some(ratio) =
+                        pos_start.is_between(tail_end_value.0[i - 1].0, tail_end_value.0[i].0)
+                    {
+                        // we found the segment where the starting pos is.
+                        // let's find the total amount that the tail moved
+                        tail_diff_length += (1.0 - ratio) * segment_length;
+                        pos_distance_to_do = t * tail_diff_length;
+                        segment_idx = i;
+                        break;
+                    } else {
+                        tail_diff_length += segment_length;
+                    }
+                }
+
+                // now move the head by `pos_distance_to_do` while remaining on the tail path
+                for i in 1..segment_idx {
+                    let dist = segment_length(parent_position.0, tail_end_value.0[i].0);
+                    if dist > pos_distance_to_do {
+                        // the head must go through this tail point
+                        parent_position.0 = tail_end_value.0[i].0;
+                        tail.0.push_front(tail_end_value.0[i]);
+                        pos_distance_to_do -= dist;
+                    } else {
+                        // we found the final segment where the head will be
+                        parent_position.0 = tail_end_value.0[i - 1]
+                            .1
+                            .get_tail(tail_end_value.0[i].0, dist - pos_distance_to_do);
+                    }
+                }
+            }
+        }
     }
 }

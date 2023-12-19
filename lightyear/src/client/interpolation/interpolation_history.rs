@@ -95,7 +95,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Full => {
                             debug!("spawn interpolation history");
                             interpolated_entity_mut.insert((
-                                confirmed_component.deref().clone(),
+                                // confirmed_component.deref().clone(),
                                 history,
                                 InterpolateStatus::<T> {
                                     start: None,
@@ -106,7 +106,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                         }
                         _ => {
                             debug!("copy interpolation component");
-                            interpolated_entity_mut.insert(confirmed_component.deref().clone());
+                            // interpolated_entity_mut.insert(confirmed_component.deref().clone());
                         }
                     }
                 }
@@ -153,13 +153,15 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                             };
                             trace!(tick = ?channel.latest_tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
+                            // TODO: think about mapping entities!
                             history
                                 .buffer
                                 .add_item(channel.latest_tick, confirmed_component.deref().clone());
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {
-                            *interpolated_component = confirmed_component.deref().clone();
+                            // TODO: think about mapping entities!
+                            // *interpolated_component = confirmed_component.deref().clone();
                         }
                         _ => {}
                     }

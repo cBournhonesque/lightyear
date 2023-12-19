@@ -164,6 +164,11 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
                                     ComponentState::Updated(confirmed_component.deref().clone()),
                                 );
                                 predicted_entity_mut.insert(history);
+                                // TODO: we do not insert the component here because we need to map entities!
+                                //  also we already added the component during replication
+                                //  but we might to handle components that are not replicated...
+                                //  for components that are not replicated, no need to apply any mapping!
+                                //  so maybe just check if the component existed already?
                                 // predicted_entity_mut
                                 //     .insert((confirmed_component.deref().clone(), history));
                             }

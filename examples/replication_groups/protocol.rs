@@ -35,8 +35,8 @@ impl PlayerBundle {
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::None,
-                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                // interpolation_target: NetworkTarget::None,
+                interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // this is the default: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
                 replication_group: ReplicationGroup::FromEntity,
                 ..default()
@@ -58,8 +58,8 @@ impl TailBundle {
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::None,
-                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                // interpolation_target: NetworkTarget::None,
+                interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // replicate this entity within the same replication group as the parent
                 replication_group: ReplicationGroup::Group(parent.to_bits()),
                 ..default()
@@ -77,6 +77,44 @@ pub struct PlayerId(ClientId);
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
 pub struct PlayerPosition(pub(crate) Vec2);
+
+impl PlayerPosition {
+    /// Checks if the position is between two other positions.
+    /// (the positions must have the same x or y)
+    /// Will return None if it's not in between, otherwise will return where it is between a and b
+    pub(crate) fn is_between(&self, a: Vec2, b: Vec2) -> Option<f32> {
+        if a.x == b.x {
+            if a.y < b.y {
+                if a.y <= self.y && self.y <= b.y {
+                    return Some((self.y - a.y) / (b.y - a.y));
+                } else {
+                    return None;
+                }
+            } else {
+                if b.y <= self.y && self.y <= a.y {
+                    return Some((self.y - b.y) / (a.y - b.y));
+                } else {
+                    return None;
+                }
+            }
+        } else if a.y == b.y {
+            if a.x < b.x {
+                if a.x <= self.x && self.x <= b.x {
+                    return Some((self.x - a.x) / (b.x - a.x));
+                } else {
+                    return None;
+                }
+            } else {
+                if b.x <= self.x && self.x <= a.x {
+                    return Some((self.x - b.x) / (a.x - b.x));
+                } else {
+                    return None;
+                }
+            }
+        }
+        unreachable!("a and b should be on the same x or y")
+    }
+}
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);

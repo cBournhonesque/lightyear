@@ -4,7 +4,9 @@ use bevy::a11y::accesskit::Action;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind, ShouldBePredicted};
+use crate::_reexport::{
+    EntityActionsChannel, EntityUpdatesChannel, IntoKind, ShouldBeInterpolated, ShouldBePredicted,
+};
 use crate::client::components::{ComponentSyncMode, Confirmed};
 use crate::client::prediction::Predicted;
 use crate::connection::events::ConnectionEvents;
@@ -21,7 +23,7 @@ use tracing::{debug, error, info, trace, trace_span};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use super::entity_map::{PredictedEntityMap, RemoteEntityMap};
+use super::entity_map::{InterpolatedEntityMap, PredictedEntityMap, RemoteEntityMap};
 use super::{
     EntityActionMessage, EntityActions, EntityUpdatesMessage, Replicate, ReplicationMessage,
     ReplicationMessageData,
@@ -29,6 +31,7 @@ use super::{
 use crate::connection::message::ProtocolMessage;
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
+use crate::prelude::client::Interpolated;
 use crate::prelude::{MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
@@ -61,6 +64,8 @@ pub(crate) struct ReplicationManager<P: Protocol> {
     pub remote_entity_map: RemoteEntityMap,
     /// Map between remote and predicted entities
     pub predicted_entity_map: PredictedEntityMap,
+    /// Map between remote and interpolated entities
+    pub interpolated_entity_map: InterpolatedEntityMap,
 
     /// Map from remote entity to the replication group-id
     pub remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
@@ -82,6 +87,7 @@ impl<P: Protocol> ReplicationManager<P> {
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
             predicted_entity_map: PredictedEntityMap::default(),
+            interpolated_entity_map: InterpolatedEntityMap::default(),
             remote_entity_to_group: Default::default(),
             // BOTH
             group_channels: Default::default(),
@@ -517,6 +523,62 @@ impl<P: Protocol> ReplicationManager<P> {
                         #[cfg(feature = "metrics")]
                         {
                             metrics::increment_counter!("spawn_predicted_entity");
+                        }
+                    }
+                    // NOTE: we handle it here because we want to spawn the predicted/interpolated entities
+                    //  for the group in topological sort as well, and to maintain a new entity mapping
+                    //  i.e. if ComponentA contains an entity E,
+                    //  predicted component A' must contain an entity E' that is predicted
+                    //  maybe instead there should be an entity dependency graph that clients are aware of and maintain,
+                    //  and replication between confirmed/predicted should use that graph (even for non replicated components)
+                    //  For example what happens if on confirm we spawn a particle HasParent(ConfirmedEntity)?
+                    //  most probably it wouldn't get synced, but if it is we need to perform a mapping as well.
+                    //
+                    let interpolated_kind =
+                        P::ComponentKinds::from(&P::Components::from(ShouldBeInterpolated));
+                    if kinds.contains(&interpolated_kind) {
+                        // spawn a new interpolated entity
+                        let mut interpolated_entity_mut = world.spawn(Interpolated {
+                            confirmed_entity: local_entity,
+                        });
+
+                        let interpolated_entity = interpolated_entity_mut.id();
+                        self.interpolated_entity_map
+                            .remote_to_interpolated
+                            .insert(entity, interpolated_entity);
+
+                        // TODO: I don't like having coupling between the manager and prediction/interpolation
+                        //  now every component needs to implement ComponentSyncMode...
+                        // sync components that have ComponentSyncMode != None
+                        for mut component in actions
+                            .insert
+                            .iter()
+                            .filter(|c| !matches!(c.mode(), ComponentSyncMode::None))
+                            .cloned()
+                        {
+                            // map any entities inside the component
+                            component.map_entities(Box::new(&self.interpolated_entity_map));
+                            component.insert(&mut interpolated_entity_mut);
+                        }
+
+                        // add Confirmed to the confirmed entity
+                        // safety: we know the entity exists
+                        let mut local_entity_mut = world.entity_mut(local_entity);
+                        if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                            confirmed.interpolated = Some(interpolated_entity);
+                        } else {
+                            local_entity_mut.insert(Confirmed {
+                                interpolated: Some(interpolated_entity),
+                                predicted: None,
+                            });
+                        }
+                        info!(
+                            "Spawn interpolated entity {:?} for confirmed: {:?}/remote: {:?}",
+                            interpolated_entity, local_entity, entity,
+                        );
+                        #[cfg(feature = "metrics")]
+                        {
+                            metrics::increment_counter!("spawn_interpolated_entity");
                         }
                     }
 
