@@ -6,7 +6,7 @@ use crate::utils::wrapping_id::wrapping_id;
 
 wrapping_id!(PingId);
 
-const PING_BUFFER_SIZE: usize = 32;
+const PING_BUFFER_SIZE: usize = 128;
 
 /// Data structure to store the latest pings sent to remote
 pub struct PingStore {

@@ -65,6 +65,7 @@ impl<P: Protocol> Connection<P> {
         let tick = self.base.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
         if tick >= self.sync_manager.latest_received_server_tick {
+            trace!("new last recv server tick: {:?}", tick);
             self.sync_manager.latest_received_server_tick = tick;
             // TODO: add 'received_new_server_tick' ?
             // we probably actually physically received the packet some time between our last `receive` and now.

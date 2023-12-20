@@ -33,15 +33,12 @@
     - WEIRD: when we just do normal interpolation for player heads, and just use 'interp=start' for tails, it actually looks really smooth!
     - TODO: tried to make my custom interpolation logic working, but there still seems to be edge cases that are not handled well.
       - there's weird panics now, and sometimes the interpolated entity doesn't move at all
+  - INTERP TIME is sometimes too late; i.e. we receive updates that are way after interp time.
+  - PREDICTION; rollback is weird and fucked
+    - looks like sending pings more frequently fixed the issue?, to investigate..
 
   
   
-
-- TODO:
-  - implement Message for common bevy transforms
-  - maybe have a ClientReplicate component to transfer all the replication data that is useful to clients? (group, prediciton, interpolation, etc.)
-
-   
 
 
 - FINAL CHOICE:
@@ -385,6 +382,10 @@ ROUGH EDGES:
 
 
 TODO:
+
+- Inputs:
+  - instead of sending the last 15 inputs, send all inputs until the last acked input message (with a max)
+  - also remember to keep around inputs that we might need for prediction!
 
 - Serialization:
   - have a NetworkMessage macro that all network messages must derive (Input, Message, Component)

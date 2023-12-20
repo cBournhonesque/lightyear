@@ -84,6 +84,9 @@ impl PlayerPosition {
     /// Will return None if it's not in between, otherwise will return where it is between a and b
     pub(crate) fn is_between(&self, a: Vec2, b: Vec2) -> Option<f32> {
         if a.x == b.x {
+            if self.x != a.x {
+                return None;
+            }
             if a.y < b.y {
                 if a.y <= self.y && self.y <= b.y {
                     return Some((self.y - a.y) / (b.y - a.y));
@@ -98,6 +101,9 @@ impl PlayerPosition {
                 }
             }
         } else if a.y == b.y {
+            if self.y != a.y {
+                return None;
+            }
             if a.x < b.x {
                 if a.x <= self.x && self.x <= b.x {
                     return Some((self.x - a.x) / (b.x - a.x));

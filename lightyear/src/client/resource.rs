@@ -34,14 +34,14 @@ pub struct Client<P: Protocol> {
     // netcode
     netcode: crate::netcode::Client,
     // connection
-    connection: Connection<P>,
+    pub(crate) connection: Connection<P>,
     // protocol
     protocol: P,
     // events
     events: ConnectionEvents<P>,
     // syncing
     pub(crate) time_manager: TimeManager,
-    tick_manager: TickManager,
+    pub(crate) tick_manager: TickManager,
 }
 
 #[allow(clippy::large_enum_variant)]

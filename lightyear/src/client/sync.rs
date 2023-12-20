@@ -57,8 +57,8 @@ impl Default for SyncConfig {
             handshake_pings: 7,
             stats_buffer_duration: Duration::from_secs(2),
             error_margin: 1.0,
-            speedup_factor: 1.03,
-            server_time_estimate_smoothing: 0.1,
+            speedup_factor: 1.1,
+            server_time_estimate_smoothing: 0.7,
         }
     }
 }
@@ -148,7 +148,11 @@ impl SyncManager {
                 interpolation_delay,
                 server_send_interval,
                 tick_manager,
-            )
+            );
+            info!(
+                "interpolation_tick: {:?}",
+                self.interpolation_tick(tick_manager)
+            );
         }
 
         if self.synced {
@@ -239,14 +243,14 @@ impl SyncManager {
         //     self.latest_received_server_tick.0 as u32 * tick_manager.config.tick_duration
         //         + self.duration_since_latest_received_server_tick,
         // );
-        let objective_time = self.server_time_estimate();
+        // let objective_time = self.server_time_estimate();
         // how much we want interpolation time to be behind the latest received server tick?
         // TODO: use a specified config margin + add std of time_between_server_updates?
         let objective_delta =
             chrono::Duration::from_std(interpolation_delay.to_duration(server_send_interval))
                 .unwrap();
         // info!("objective_delta: {:?}", objective_delta);
-        objective_time - objective_delta
+        self.server_time_estimate() - objective_delta
     }
 
     pub(crate) fn interpolation_tick(&self, tick_manager: &TickManager) -> Tick {
@@ -271,12 +275,19 @@ impl SyncManager {
         let objective_time =
             self.interpolation_objective(interpolation_delay, server_update_rate, tick_manager);
         let delta = objective_time - self.interpolation_time;
+        trace!(
+            ?objective_time,
+            interpolation_time = ?self.interpolation_time,
+            interpolation_tick = ?self.interpolation_tick(tick_manager),
+            "interpolation data");
 
         let error_margin = chrono::Duration::milliseconds(10);
         if delta > error_margin {
             // interpolation time is too far behind, speed-up!
             self.interpolation_speed_ratio = 1.0 * self.config.speedup_factor;
+            trace!("interpolation is too far behind, speed up!");
         } else if delta < -error_margin {
+            trace!("interpolation is too far ahead, slow down!");
             self.interpolation_speed_ratio = 1.0 / self.config.speedup_factor;
         } else {
             self.interpolation_speed_ratio = 1.0;

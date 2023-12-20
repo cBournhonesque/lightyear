@@ -2,6 +2,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use lightyear::inputs::input_buffer::InputBuffer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;
@@ -52,6 +53,7 @@ impl Plugin for MyServerPlugin {
                 .in_set(FixedUpdateSet::Main),
         );
         app.add_systems(Update, (handle_connections, send_message));
+        app.add_systems(Update, debug_inputs);
     }
 }
 
@@ -108,6 +110,7 @@ pub(crate) fn handle_connections(
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
+            // TODO: also despawn tail, maybe by emitting an event?
             commands.entity(entity).despawn();
         }
     }
@@ -150,4 +153,8 @@ pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<In
                 error!("Failed to send message: {:?}", e);
             });
     }
+}
+
+pub(crate) fn debug_inputs(server: Res<Server<MyProtocol>>) {
+    info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(0), "debug");
 }

@@ -159,8 +159,8 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                     };
                     if should_rollback {
                         info!(
-                                "Rollback check: mismatch for component between predicted and confirmed {:?}",
-                                confirmed_entity
+                                "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?}",
+                                confirmed_entity, tick,
                             );
 
                         // we need to clear the history so we can write a new one
@@ -242,7 +242,7 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
     // TODO: might not need to check the state, because we only run this system if we are in rollback
     if let RollbackState::ShouldRollback { current_tick } = rollback.state {
         let num_rollback_ticks = client.tick() - current_tick;
-        debug!(
+        info!(
             "Rollback between {:?} and {:?}",
             current_tick,
             client.tick()

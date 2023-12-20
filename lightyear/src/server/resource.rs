@@ -12,6 +12,7 @@ use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
+use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
@@ -130,6 +131,13 @@ impl<P: Protocol> Server<P> {
     }
 
     // INPUTS
+
+    // TODO: exposed only for debugging
+    pub fn get_input_buffer(&self, client_id: ClientId) -> Option<&InputBuffer<P::Input>> {
+        self.user_connections
+            .get(&client_id)
+            .map(|connection| &connection.input_buffer)
+    }
 
     /// Get the inputs for all clients for the given tick
     pub fn pop_inputs(&mut self) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
