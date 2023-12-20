@@ -170,14 +170,7 @@ pub fn component_protocol_impl(
             use #shared_crate_name::prelude::client::*;
             use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
             use bevy::utils::{EntityHashMap, EntityHashSet};
-            use #shared_crate_name::shared::replication::systems::add_per_component_replication_send_systems;
-            use #shared_crate_name::connection::events::{IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
-            use #shared_crate_name::shared::systems::events::{
-                push_component_insert_events, push_component_remove_events, push_component_update_events,
-            };
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
-            use #shared_crate_name::client::prediction::{add_prediction_systems};
-            use #shared_crate_name::client::interpolation::{add_interpolation_systems, add_lerp_systems, InterpolatedComponent};
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]
             #extra_derives
@@ -374,6 +367,7 @@ fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenS
 
 fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
     let mut prediction_body = quote! {};
+    let mut prepare_interpolation_body = quote! {};
     let mut interpolation_body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -381,14 +375,14 @@ fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> To
             #prediction_body
             add_prediction_systems::<#component_type, #protocol_name>(app);
         };
-        interpolation_body = quote! {
-            #interpolation_body
-            add_interpolation_systems::<#component_type, #protocol_name>(app);
+        prepare_interpolation_body = quote! {
+            #prepare_interpolation_body
+            add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
         };
         if field.full {
             interpolation_body = quote! {
                 #interpolation_body
-                add_lerp_systems::<#component_type, #protocol_name>(app);
+                add_interpolation_systems::<#component_type, #protocol_name>(app);
             };
         }
     }
@@ -396,6 +390,10 @@ fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> To
         fn add_prediction_systems(app: &mut App)
         {
             #prediction_body
+        }
+        fn add_prepare_interpolation_systems(app: &mut App)
+        {
+            #prepare_interpolation_body
         }
         fn add_interpolation_systems(app: &mut App)
         {

@@ -6,7 +6,7 @@ use tracing::info;
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
-pub use plugin::{add_interpolation_systems, add_lerp_systems};
+pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::interpolation::despawn::InterpolationMapping;

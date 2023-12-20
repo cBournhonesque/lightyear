@@ -71,7 +71,7 @@ impl<P: Protocol> Connection<P> {
             // Let's add delta / 2 as a compromise
             self.sync_manager.duration_since_latest_received_server_tick = Duration::default();
             // self.sync_manager.duration_since_latest_received_server_tick = time_manager.delta() / 2;
-            self.sync_manager.update_current_server_time(
+            self.sync_manager.update_server_time_estimate(
                 tick_manager.config.tick_duration,
                 self.base.ping_manager.rtt(),
             );

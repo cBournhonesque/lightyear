@@ -25,6 +25,13 @@ pub mod _reexport {
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
     pub use crate::client::interpolation::LinearInterpolation;
+    pub use crate::client::interpolation::{
+        add_interpolation_systems, add_prepare_interpolation_systems, InterpolatedComponent,
+    };
+    pub use crate::client::prediction::add_prediction_systems;
+    pub use crate::connection::events::{
+        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    };
     pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
@@ -36,8 +43,15 @@ pub mod _reexport {
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     pub use crate::serialize::wordbuffer::writer::WriteWordBuffer;
     pub use crate::serialize::writer::WriteBuffer;
+    pub use crate::shared::events::{
+        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    };
     pub use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
+    pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
+    pub use crate::shared::systems::events::{
+        push_component_insert_events, push_component_remove_events, push_component_update_events,
+    };
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::time_manager::{TimeManager, WrappedTime};
     pub use crate::utils::ready_buffer::ReadyBuffer;

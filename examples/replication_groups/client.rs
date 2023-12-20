@@ -3,6 +3,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use lightyear::client::interpolation::plugin::InterpolationSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;
@@ -51,14 +52,27 @@ impl Plugin for MyClientPlugin {
             sync: SyncConfig::default(),
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
-            interpolation: InterpolationConfig::default()
-                .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
+            interpolation: InterpolationConfig {
+                delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
+                // let's us completely override the interpolation logic
+                custom_interpolation_logic: true,
+            },
         };
         let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
+        // app.add_systems(
+        //     PostUpdate,
+        //     debug_interpolate
+        //         .before(InterpolationSet::PrepareInterpolation)
+        //         .after(InterpolationSet::DespawnFlush),
+        // );
+        app.add_systems(
+            PostUpdate,
+            interpolate.in_set(InterpolationSet::Interpolate),
+        );
         app.add_systems(
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
@@ -185,6 +199,28 @@ pub(crate) fn handle_interpolated_spawn(
     }
 }
 
+pub(crate) fn debug_interpolate(
+    client: Res<Client<MyProtocol>>,
+    parent_query: Query<(
+        &InterpolateStatus<PlayerPosition>,
+        &ConfirmedHistory<PlayerPosition>,
+    )>,
+    tail_query: Query<(
+        &PlayerParent,
+        &InterpolateStatus<TailPoints>,
+        &ConfirmedHistory<TailPoints>,
+    )>,
+) {
+    info!(tick = ?client.tick(), "interpolation debug");
+    for (parent, tail_status, tail_history) in tail_query.iter() {
+        let (parent_status, parent_history) = parent_query
+            .get(parent.0)
+            .expect("Tail entity has no parent entity!");
+        info!(?parent_status, ?parent_history, "parent");
+        info!(?tail_status, ?tail_history, "tail");
+    }
+}
+
 // Here, we want to have a custom interpolation logic, because we need to query two components
 // at once to do the interpolation correctly.
 // We want the interpolated entity to stay on the tail path of the confirmed entity at all times.
@@ -206,9 +242,38 @@ pub(crate) fn interpolate(
         if let (Some((start_tick, tail_start_value)), Some((end_tick, tail_end_value))) =
             (&tail_status.start, &tail_status.end)
         {
+            info!(
+                ?parent_position,
+                ?tail,
+                ?parent_status,
+                ?tail_start_value,
+                ?tail_end_value,
+                "interpolate situation"
+            );
+            // NOTE: there's actually no guarantee that the interpolation ticks will be the same between
+            // components, need to be smarter about this.
             let pos_start = &parent_status.start.as_ref().unwrap().1;
             let pos_end = &parent_status.end.as_ref().unwrap().1;
 
+            // if tail_status.current == *start_tick {
+            //     assert_eq!(tail_status.current, parent_status.current);
+            //     *tail = tail_start_value.clone();
+            //     *parent_position = pos_start.clone();
+            //     info!(?tail, ?parent_position, "after interpolation");
+            //     continue;
+            // }
+            // if tail_status.current == *end_tick {
+            //     assert_eq!(tail_status.current, parent_status.current);
+            //     *tail = tail_end_value.clone();
+            //     *parent_position = pos_end.clone();
+            //     info!(?tail, ?parent_position, "after interpolation");
+            //     continue;
+            // }
+
+            // // if we are on the first tick, we don't need to do anything
+            // if tail_status.current == *start_tick || tail_status.current == *end_tick {
+            //     continue;
+            // }
             if start_tick != end_tick {
                 // the new tail will be similar to the new tail, with some added points
                 *tail = tail_start_value.clone();
@@ -223,11 +288,10 @@ pub(crate) fn interpolate(
                 if let Some(ratio) =
                     pos_start.is_between(tail_end_value.0.front().unwrap().0, pos_end.0)
                 {
-                    assert_eq!(ratio, t);
                     // the path is straight! just move the head and adjust the tail
-                    *parent_position =
-                        PlayerPosition::lerp(pos_start.clone(), pos_end.clone(), ratio);
+                    *parent_position = PlayerPosition::lerp(pos_start.clone(), pos_end.clone(), t);
                     tail.shorten_back(parent_position.0, tail_length.0);
+                    info!(?tail, ?parent_position, "after interpolation");
                     continue;
                 }
                 tail_diff_length += segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
@@ -257,7 +321,14 @@ pub(crate) fn interpolate(
                 // now move the head by `pos_distance_to_do` while remaining on the tail path
                 for i in 1..segment_idx {
                     let dist = segment_length(parent_position.0, tail_end_value.0[i].0);
-                    if dist > pos_distance_to_do {
+                    if (dist - pos_distance_to_do) < 1000.0 * f32::EPSILON {
+                        // the head is on a point (do not add a new point yet)
+                        parent_position.0 = tail_end_value.0[i].0;
+                        pos_distance_to_do -= dist;
+                        tail.shorten_back(parent_position.0, tail_length.0);
+                        info!(?tail, ?parent_position, "after interpolation");
+                        continue;
+                    } else if dist > pos_distance_to_do {
                         // the head must go through this tail point
                         parent_position.0 = tail_end_value.0[i].0;
                         tail.0.push_front(tail_end_value.0[i]);
@@ -267,6 +338,9 @@ pub(crate) fn interpolate(
                         parent_position.0 = tail_end_value.0[i - 1]
                             .1
                             .get_tail(tail_end_value.0[i].0, dist - pos_distance_to_do);
+                        tail.shorten_back(parent_position.0, tail_length.0);
+                        info!(?tail, ?parent_position, "after interpolation");
+                        continue;
                     }
                 }
             }

@@ -2,7 +2,7 @@ use crate::protocol::Direction;
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use lightyear::prelude::client::Confirmed;
+use lightyear::prelude::client::{Confirmed, Interpolated};
 use lightyear::prelude::*;
 use std::time::Duration;
 use tracing::Level;
@@ -51,14 +51,26 @@ pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &I
 }
 
 // This system defines how we update the player's tails when the head is updated
+// Note: we only apply logic for the Predicted entity on the client (Interpolated is updated
+// during interpolation, and Confirmed is just replicated from Server)
 pub(crate) fn shared_tail_behaviour(
-    player_position: Query<&PlayerPosition>,
-    mut tails: Query<(&mut TailPoints, &PlayerParent, &TailLength)>,
+    player_position: Query<Ref<PlayerPosition>, (Without<Interpolated>, Without<Confirmed>)>,
+    mut tails: Query<
+        (&mut TailPoints, &PlayerParent, &TailLength),
+        (Without<Interpolated>, Without<Confirmed>),
+    >,
 ) {
     for (mut points, parent, length) in tails.iter_mut() {
         let Ok(parent_position) = player_position.get(parent.0) else {
-            panic!("Tail entity has no parent entity!");
+            error!("Tail entity has no parent entity!");
+            continue;
         };
+        // if the parent position didn't change, we don't need to update the tail
+        // (also makes sure we don't trigger change detection for the tail! which would mean we add
+        //  new elements to the tail's history buffer)
+        if !parent_position.is_changed() {
+            continue;
+        }
         // Update the front if the head turned
         let (front_pos, front_dir) = points.0.front().unwrap().clone();
         // NOTE: we do not deal with diagonal directions in this example
@@ -75,7 +87,7 @@ pub(crate) fn shared_tail_behaviour(
             };
             let new_front_dir = Direction::from_points(inflection_pos, parent_position.0).unwrap();
             points.0.push_front((inflection_pos, new_front_dir));
-            info!(?points, "new points");
+            trace!(?points, "new points");
         }
 
         // Update the back
@@ -94,7 +106,8 @@ pub(crate) fn draw_snakes(
     for (parent, points) in tails.iter() {
         debug!("drawing snake with parent: {:?}", parent.0);
         let Ok((position, color)) = players.get(parent.0) else {
-            panic!("Tail entity has no parent entity!");
+            error!("Tail entity has no parent entity!");
+            continue;
         };
         // draw the head
         gizmos.rect(

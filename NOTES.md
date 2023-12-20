@@ -12,17 +12,14 @@
     because start tick or end tick are not updated correctly in some edge cases.
 
 
-- Interpolation:
-  - should let users do interpolation for multiple components themselves (for better splines)
-    - i.e. they handle completely interpolation!
-  - or for a given component, let them use linear or custom interpolation
-
 
 - DEBUGGING REPLICATION BOX:
-  - I think the general map_entities logic works pretty well (with the topological sort)
   - the sync from confirmed to predict might not only be for replicated components, but also components that were
     spawned on confirmed world directly.
     - which means it's not to apply topological sort during replication; we need to apply it on prediction level directly
+    - create a 'PredictionGroup': all predicted entities must be in the same group, and we apply topological sort on that group
+      - we actually could have different prediction groups, for entities that we know are not interacting at all!
+      - each group has a dependency graph as well
     - maybe maintain a topological sort for each predicted replication group?
       - what about adding new entities to the prediction group? because that's the main problem, otherwise if all the entities
         are known at the beginning we are good!
@@ -32,7 +29,10 @@
     - do we need to introduce the concept of a PredictionGroup, which is a super-set of a replicationGroup? (because some of the entities
         might not come from replication?)
   - how to get smooth interpolation when there can be diagonal movements?
-    - allow custom interpolation, so that we can make sure that interpolation respects corners as well
+    - allow custom interpolation, so that we can make sure that interpolation respects corners as well. The interpolation follows the path
+    - WEIRD: when we just do normal interpolation for player heads, and just use 'interp=start' for tails, it actually looks really smooth!
+    - TODO: tried to make my custom interpolation logic working, but there still seems to be edge cases that are not handled well.
+      - there's weird panics now, and sometimes the interpolated entity doesn't move at all
 
   
   

@@ -608,7 +608,7 @@ impl<P: Protocol> ReplicationManager<P> {
                         .iter()
                         .map(|c| c.into())
                         .collect::<Vec<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
+                    info!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
                     for mut component in actions.updates {
                         // map any entities inside the component
                         component.map_entities(Box::new(&self.remote_entity_map));

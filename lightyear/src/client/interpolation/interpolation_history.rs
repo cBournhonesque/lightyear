@@ -151,7 +151,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            trace!(tick = ?channel.latest_tick, "adding confirmed update to history");
+                            info!(component = ?confirmed_component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
                             // TODO: think about mapping entities!
                             history

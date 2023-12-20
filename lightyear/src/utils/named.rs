@@ -4,6 +4,8 @@
 // - derive Reflect for Messages
 // - require to derive Reflect for Components ?
 
+use std::fmt::{Debug, Formatter};
+
 pub trait TypeNamed {
     fn name() -> String;
 }

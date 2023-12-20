@@ -128,7 +128,9 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
             }
         }
 
-        trace!(?current_interpolate_tick,
+        trace!(
+            component = ?component.name(),
+            ?current_interpolate_tick,
             last_received_server_tick = ?client.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
@@ -153,6 +155,14 @@ pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
             (&status.start, &status.end)
         {
             // info!(?start_tick, ?end_tick, "doing interpolation!");
+            if status.current == *start_tick {
+                *component = start_value.clone();
+                continue;
+            }
+            if status.current == *end_tick {
+                *component = end_value.clone();
+                continue;
+            }
             if start_tick != end_tick {
                 let t = (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
                 *component = C::lerp(start_value.clone(), end_value.clone(), t);

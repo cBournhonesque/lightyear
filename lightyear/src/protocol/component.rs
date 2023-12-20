@@ -56,6 +56,11 @@ pub trait ComponentProtocol:
     );
 
     fn add_prediction_systems(app: &mut App);
+
+    /// Add all component systems for the PrepareInterpolation SystemSet
+    fn add_prepare_interpolation_systems(app: &mut App);
+
+    /// Add all component systems for the Interpolation SystemSet
     fn add_interpolation_systems(app: &mut App);
 
     /// Get the sync mode for the component

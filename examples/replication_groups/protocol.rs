@@ -127,8 +127,12 @@ pub struct TailLength(pub(crate) f32);
 pub struct TailPoints(pub(crate) VecDeque<(Vec2, Direction)>);
 
 pub struct TailPointsInterpolation;
+// TODO: annoyingly, we still need to implement InterpFn for TailPointsInterpolation
+//  even if we completely disable interpolation, because the derive macro demands it.
+//  maybe also add an attribute on the derive macro?
 impl InterpFn<TailPoints> for TailPointsInterpolation {
     fn lerp(start: TailPoints, other: TailPoints, t: f32) -> TailPoints {
+        panic!("hi");
         start
     }
 }
