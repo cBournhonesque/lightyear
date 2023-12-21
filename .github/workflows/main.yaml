@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: code-coverage-report
           path: lcov.info
