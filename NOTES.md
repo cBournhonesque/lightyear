@@ -47,12 +47,6 @@
         is it just because of the margin we took?
       - applied a best guess estimate for lost inputs that uses the last input sent as fallback, works well!
 
-  
-
-  
-  
-
-
 - FINAL CHOICE:
   - send all actions per group on an reliable unordered channel
     - ordering is done per group, with a sequenced id (1,2,3)

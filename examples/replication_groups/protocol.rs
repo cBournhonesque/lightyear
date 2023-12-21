@@ -95,7 +95,7 @@ impl PlayerPosition {
                 }
             } else {
                 if b.y <= self.y && self.y <= a.y {
-                    return Some((self.y - b.y) / (a.y - b.y));
+                    return Some((a.y - self.y) / (a.y - b.y));
                 } else {
                     return None;
                 }
@@ -112,7 +112,7 @@ impl PlayerPosition {
                 }
             } else {
                 if b.x <= self.x && self.x <= a.x {
-                    return Some((self.x - b.x) / (a.x - b.x));
+                    return Some((a.x - self.x) / (a.x - b.x));
                 } else {
                     return None;
                 }

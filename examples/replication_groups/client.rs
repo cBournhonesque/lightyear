@@ -33,8 +33,8 @@ impl Plugin for MyClientPlugin {
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.00,
+            incoming_jitter: Duration::from_millis(40),
+            incoming_loss: 0.05,
         };
         // let link_conditioner = LinkConditionerConfig {
         //     incoming_latency: Duration::from_millis(0),
@@ -256,11 +256,11 @@ pub(crate) fn interpolate(
         &InterpolateStatus<TailPoints>,
     )>,
 ) {
-    for (parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
+    'outer: for (parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
         let (mut parent_position, parent_status) = parent_query
             .get_mut(parent.0)
             .expect("Tail entity has no parent entity!");
-        trace!(
+        info!(
             ?parent_position,
             ?tail,
             ?parent_status,
@@ -269,14 +269,16 @@ pub(crate) fn interpolate(
         );
         // the ticks should be the same for both components
         if let Some((start_tick, tail_start_value)) = &tail_status.start {
-            // NOTE: there's actually no guarantee that the interpolation ticks will be the same between
-            // components, need to be smarter about this.
+            if parent_status.start.is_none() {
+                // the parent component has not been confirmed yet, so we can't interpolate
+                continue;
+            }
             let pos_start = &parent_status.start.as_ref().unwrap().1;
             if tail_status.current == *start_tick {
                 assert_eq!(tail_status.current, parent_status.current);
                 *tail = tail_start_value.clone();
                 *parent_position = pos_start.clone();
-                trace!(
+                info!(
                     ?tail,
                     ?parent_position,
                     "after interpolation; CURRENT = START"
@@ -285,12 +287,16 @@ pub(crate) fn interpolate(
             }
 
             if let Some((end_tick, tail_end_value)) = &tail_status.end {
+                if parent_status.end.is_none() {
+                    // the parent component has not been confirmed yet, so we can't interpolate
+                    continue;
+                }
                 let pos_end = &parent_status.end.as_ref().unwrap().1;
                 if tail_status.current == *end_tick {
                     assert_eq!(tail_status.current, parent_status.current);
                     *tail = tail_end_value.clone();
                     *parent_position = pos_end.clone();
-                    trace!(
+                    info!(
                         ?tail,
                         ?parent_position,
                         "after interpolation; CURRENT = END"
@@ -298,8 +304,9 @@ pub(crate) fn interpolate(
                     continue;
                 }
                 if start_tick != end_tick {
-                    // the new tail will be similar to the old tail, with some added points
+                    // the new tail will be similar to the old tail, with some added points at the front
                     *tail = tail_start_value.clone();
+                    *parent_position = pos_start.clone();
 
                     // interpolation ratio
                     let t = (tail_status.current - *start_tick) as f32
@@ -307,6 +314,7 @@ pub(crate) fn interpolate(
 
                     let mut tail_diff_length = 0.0;
                     // find in which end tail segment the previous head_position is
+
                     // deal with the first segment separately
                     if let Some(ratio) =
                         pos_start.is_between(tail_end_value.0.front().unwrap().0, pos_end.0)
@@ -322,13 +330,15 @@ pub(crate) fn interpolate(
                         *parent_position =
                             PlayerPosition::lerp(pos_start.clone(), pos_end.clone(), t);
                         tail.shorten_back(parent_position.0, tail_length.0);
-                        trace!(
+                        info!(
                             ?tail,
                             ?parent_position,
                             "after interpolation; FIRST SEGMENT"
                         );
                         continue;
                     }
+
+                    // else, the final head position is not on the first segment
                     tail_diff_length +=
                         segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
 
@@ -339,10 +349,14 @@ pub(crate) fn interpolate(
                     // else, keep trying to find in the remaining segments
                     for i in 1..tail_end_value.0.len() {
                         let segment_length =
-                            segment_length(tail_end_value.0[i - 1].0, tail_end_value.0[i].0);
+                            segment_length(tail_end_value.0[i].0, tail_end_value.0[i - 1].0);
                         if let Some(ratio) =
-                            pos_start.is_between(tail_end_value.0[i - 1].0, tail_end_value.0[i].0)
+                            pos_start.is_between(tail_end_value.0[i].0, tail_end_value.0[i - 1].0)
                         {
+                            if ratio == 0.0 {
+                                // need to add a new point
+                                tail.0.push_front(tail_end_value.0[i].clone());
+                            }
                             // we found the segment where the starting pos is.
                             // let's find the total amount that the tail moved
                             tail_diff_length += (1.0 - ratio) * segment_length;
@@ -355,12 +369,20 @@ pub(crate) fn interpolate(
                     }
 
                     // now move the head by `pos_distance_to_do` while remaining on the tail path
-                    for i in 1..segment_idx {
+                    for i in (0..segment_idx).rev() {
                         let dist = segment_length(parent_position.0, tail_end_value.0[i].0);
+                        info!(
+                            ?i,
+                            ?dist,
+                            ?pos_distance_to_do,
+                            ?tail_diff_length,
+                            ?segment_idx,
+                            "in other segments"
+                        );
                         if pos_distance_to_do < 1000.0 * f32::EPSILON {
                             info!(?tail, ?parent_position, "after interpolation; ON POINT");
                             // no need to change anything
-                            continue;
+                            continue 'outer;
                         }
                         // if (dist - pos_distance_to_do) < 1000.0 * f32::EPSILON {
                         //     // the head is on a point (do not add a new point yet)
@@ -370,21 +392,34 @@ pub(crate) fn interpolate(
                         //     info!(?tail, ?parent_position, "after interpolation; ON POINT");
                         //     continue;
                         // } else if dist > pos_distance_to_do {
-                        if dist > pos_distance_to_do {
+                        if dist < pos_distance_to_do {
                             // the head must go through this tail point
                             parent_position.0 = tail_end_value.0[i].0;
                             tail.0.push_front(tail_end_value.0[i]);
                             pos_distance_to_do -= dist;
                         } else {
                             // we found the final segment where the head will be
-                            parent_position.0 = tail_end_value.0[i - 1]
+                            parent_position.0 = tail
+                                .0
+                                .front()
+                                .unwrap()
                                 .1
                                 .get_tail(tail_end_value.0[i].0, dist - pos_distance_to_do);
                             tail.shorten_back(parent_position.0, tail_length.0);
                             info!(?tail, ?parent_position, "after interpolation; ELSE");
-                            continue;
+                            continue 'outer;
                         }
                     }
+                    // the final position is on the first segment
+                    let dist = segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
+                    parent_position.0 = tail
+                        .0
+                        .front()
+                        .unwrap()
+                        .1
+                        .get_tail(pos_end.0, dist - pos_distance_to_do);
+                    tail.shorten_back(parent_position.0, tail_length.0);
+                    info!(?tail, ?parent_position, "after interpolation; ELSE FIRST");
                 }
             }
         }
