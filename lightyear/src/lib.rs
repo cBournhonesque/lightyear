@@ -24,6 +24,14 @@ pub mod _reexport {
     pub use crate::channel::builder::{
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
+    pub use crate::client::interpolation::{
+        add_interpolation_systems, add_prepare_interpolation_systems, InterpolatedComponent,
+    };
+    pub use crate::client::interpolation::{LinearInterpolation, NoInterpolation};
+    pub use crate::client::prediction::add_prediction_systems;
+    pub use crate::connection::events::{
+        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    };
     pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
@@ -35,8 +43,15 @@ pub mod _reexport {
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     pub use crate::serialize::wordbuffer::writer::WriteWordBuffer;
     pub use crate::serialize::writer::WriteBuffer;
+    pub use crate::shared::events::{
+        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    };
     pub use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
+    pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
+    pub use crate::shared::systems::events::{
+        push_component_insert_events, push_component_remove_events, push_component_update_events,
+    };
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::time_manager::{TimeManager, WrappedTime};
     pub use crate::utils::ready_buffer::ReadyBuffer;
@@ -62,8 +77,10 @@ pub mod prelude {
     pub use crate::shared::log::LogConfig;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::SharedPlugin;
-    pub use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationMode};
-    pub use crate::shared::replication::entity_map::{EntityMap, MapEntities};
+    pub use crate::shared::replication::components::{
+        NetworkTarget, Replicate, ReplicationGroup, ReplicationMode,
+    };
+    pub use crate::shared::replication::entity_map::{EntityMapper, MapEntities, RemoteEntityMap};
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::transport::conditioner::LinkConditionerConfig;
@@ -81,7 +98,9 @@ pub mod prelude {
         pub use crate::client::input::{InputConfig, InputSystemSet};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
-        pub use crate::client::interpolation::{InterpolateStatus, Interpolated, LerpMode};
+        pub use crate::client::interpolation::{
+            InterpFn, InterpolateStatus, Interpolated, InterpolatedComponent,
+        };
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::plugin::PredictionConfig;
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};

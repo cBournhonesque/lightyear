@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use bevy::prelude::{App, Component, EntityWorldMut, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -23,7 +24,7 @@ pub trait ComponentProtocol:
     BitSerializable
     + Serialize
     + DeserializeOwned
-    + MapEntities
+    + for<'a> MapEntities<'a>
     + ComponentBehaviour
     + Debug
     + Send
@@ -55,7 +56,15 @@ pub trait ComponentProtocol:
     );
 
     fn add_prediction_systems(app: &mut App);
+
+    /// Add all component systems for the PrepareInterpolation SystemSet
+    fn add_prepare_interpolation_systems(app: &mut App);
+
+    /// Add all component systems for the Interpolation SystemSet
     fn add_interpolation_systems(app: &mut App);
+
+    /// Get the sync mode for the component
+    fn mode(&self) -> ComponentSyncMode;
 }
 
 // TODO: enum_delegate doesn't work with generics + cannot be used multiple times since it derives a bunch of Into/From traits
@@ -99,7 +108,7 @@ pub trait ComponentProtocolKind:
     BitSerializable
     + Serialize
     + DeserializeOwned
-    + MapEntities
+    + for<'a> MapEntities<'a>
     + PartialEq
     + Eq
     + Hash

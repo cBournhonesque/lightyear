@@ -1,4 +1,5 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -50,13 +51,16 @@ pub struct PlayerColor(pub(crate) Color);
 #[message(custom_map)]
 pub struct PlayerParent(Entity);
 
-impl MapEntities for PlayerParent {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        self.0.map_entities(entity_map);
+impl<'a> MapEntities<'a> for PlayerParent {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        self.0.map_entities(entity_mapper);
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![self.0])
     }
 }
 
-// #[component_protocol(protocol = "MyProtocol", derive(Debug))]
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
     #[sync(once)]
@@ -77,7 +81,7 @@ pub struct Channel1;
 #[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
-#[message_protocol(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     Message1(Message1),
 }

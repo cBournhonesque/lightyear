@@ -1,8 +1,10 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 // Player
 #[derive(Bundle)]
@@ -56,9 +58,15 @@ pub struct Circle;
 #[message(custom_map)]
 pub struct PlayerParent(Entity);
 
-impl MapEntities for PlayerParent {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        self.0.map_entities(entity_map);
+impl<'a> MapEntities<'a> for PlayerParent {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        info!("mapping parent entity {:?}", self.0);
+        self.0.map_entities(entity_mapper);
+        info!("After mapping: {:?}", self.0);
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![self.0])
     }
 }
 
@@ -84,7 +92,7 @@ pub struct Channel1;
 #[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
-#[message_protocol(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     Message1(Message1),
 }

@@ -26,7 +26,7 @@ pub struct PingConfig {
 impl Default for PingConfig {
     fn default() -> Self {
         PingConfig {
-            ping_interval: Duration::from_millis(100),
+            ping_interval: Duration::from_millis(40),
             stats_buffer_duration: Duration::from_secs(4),
         }
     }
@@ -214,6 +214,7 @@ impl PingManager {
             // round-trip-delay
             let rtt = received_time - ping_sent_time;
             let server_process_time = pong.pong_sent_time - pong.ping_received_time;
+            trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.pong_sent_time, ?pong.ping_received_time, "process pong");
             let round_trip_delay = (rtt - server_process_time).to_std().unwrap();
 
             // update stats buffer
@@ -269,7 +270,10 @@ mod tests {
 
     #[test]
     fn test_send_pings() {
-        let config = PingConfig::default();
+        let config = PingConfig {
+            ping_interval: Duration::from_millis(100),
+            stats_buffer_duration: Duration::from_secs(4),
+        };
         let mut ping_manager = PingManager::new(&config);
         let mut time_manager = TimeManager::new(Duration::default());
 

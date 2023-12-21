@@ -2,7 +2,10 @@
 Defines components that are used for the client-side prediction and interpolation
 */
 
+use crate::prelude::{Named, TypeNamed};
+use bevy::ecs::component::TableStorage;
 use bevy::prelude::{Component, Entity};
+use std::fmt::{Debug, Formatter};
 
 /// Marks an entity that contains the server-updates that are received from the Server
 /// (this entity is a copy of Predicted that is RTT ticks behind)
@@ -12,11 +15,11 @@ pub struct Confirmed {
     pub interpolated: Option<Entity>,
 }
 
-pub trait SyncComponent: Component + Clone + PartialEq {
+pub trait SyncComponent: Component + Clone + PartialEq + Named {
     fn mode() -> ComponentSyncMode;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 /// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated
 ///
 /// We use a single enum instead of 2 separate enums because we want to be able to use the same enum for both predicted and interpolated components
@@ -37,4 +40,8 @@ pub enum ComponentSyncMode {
     /// The component will be copied only-once from the confirmed to the interpolated/predicted entity, and then won't stay in sync
     /// Useful for components that you want to modify yourself on the predicted/interpolated entity
     Once,
+
+    #[default]
+    /// The component is not copied from the Confirmed entity to the interpolated/predicted entity
+    None,
 }

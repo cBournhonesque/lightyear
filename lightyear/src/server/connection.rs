@@ -24,7 +24,11 @@ use crate::shared::time_manager::TimeManager;
 /// (handling client inputs)
 pub struct Connection<P: Protocol> {
     pub(crate) base: crate::connection::Connection<P>,
+    /// Stores the inputs that we have received from the client.
     pub(crate) input_buffer: InputBuffer<P::Input>,
+    /// Stores the last input we have received from the client.
+    /// In case we are missing the client input for a tick, we will fallback to using this.
+    pub(crate) last_input: Option<P::Input>,
 }
 
 impl<P: Protocol> Connection<P> {
@@ -32,6 +36,7 @@ impl<P: Protocol> Connection<P> {
         Self {
             base: crate::connection::Connection::new(channel_registry, ping_config),
             input_buffer: InputBuffer::default(),
+            last_input: None,
         }
     }
 

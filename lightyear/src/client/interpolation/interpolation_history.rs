@@ -65,7 +65,6 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// NOTE: doesn't pop the last value!
-    /// Returns None
     /// CAREFUL:
     /// the component history will only contain the ticks where the component got updated, and otherwise
     /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
@@ -95,7 +94,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Full => {
                             debug!("spawn interpolation history");
                             interpolated_entity_mut.insert((
-                                confirmed_component.deref().clone(),
+                                // confirmed_component.deref().clone(),
                                 history,
                                 InterpolateStatus::<T> {
                                     start: None,
@@ -106,7 +105,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                         }
                         _ => {
                             debug!("copy interpolation component");
-                            interpolated_entity_mut.insert(confirmed_component.deref().clone());
+                            // interpolated_entity_mut.insert(confirmed_component.deref().clone());
                         }
                     }
                 }
@@ -129,7 +128,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() {
-                if let Ok((mut interpolated_component, history_option)) =
+                if let Ok((interpolated_component, history_option)) =
                     interpolated_entities.get_mut(p)
                 {
                     match T::mode() {
@@ -151,17 +150,19 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            trace!(tick = ?channel.latest_tick, "adding confirmed update to history");
+                            info!(component = ?confirmed_component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
+                            // TODO: think about mapping entities!
                             history
                                 .buffer
                                 .add_item(channel.latest_tick, confirmed_component.deref().clone());
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {
-                            *interpolated_component = confirmed_component.deref().clone();
+                            // TODO: think about mapping entities!
+                            // *interpolated_component = confirmed_component.deref().clone();
                         }
-                        ComponentSyncMode::Once => {}
+                        _ => {}
                     }
                 }
             }

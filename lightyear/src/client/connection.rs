@@ -65,13 +65,14 @@ impl<P: Protocol> Connection<P> {
         let tick = self.base.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
         if tick >= self.sync_manager.latest_received_server_tick {
+            trace!("new last recv server tick: {:?}", tick);
             self.sync_manager.latest_received_server_tick = tick;
             // TODO: add 'received_new_server_tick' ?
             // we probably actually physically received the packet some time between our last `receive` and now.
             // Let's add delta / 2 as a compromise
             self.sync_manager.duration_since_latest_received_server_tick = Duration::default();
             // self.sync_manager.duration_since_latest_received_server_tick = time_manager.delta() / 2;
-            self.sync_manager.update_current_server_time(
+            self.sync_manager.update_server_time_estimate(
                 tick_manager.config.tick_duration,
                 self.base.ping_manager.rtt(),
             );

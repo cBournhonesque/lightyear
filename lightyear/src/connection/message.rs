@@ -3,13 +3,15 @@ Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible me
 */
 use crate::_reexport::{InputMessage, ShouldBeInterpolated, ShouldBePredicted, TickManager};
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::{EntityMap, MapEntities, Tick};
+use crate::prelude::{EntityMapper, MapEntities, RemoteEntityMap, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::time_manager::TimeManager;
 use crate::utils::named::Named;
+use bevy::prelude::Entity;
+use bevy::utils::EntityHashSet;
 use serde::{Deserialize, Serialize};
 use tracing::{info, info_span, trace, trace_span};
 
@@ -22,30 +24,13 @@ use tracing::{info, info_span, trace, trace_span};
 //     ShouldBeInterpolated(ShouldBeInterpolated),
 // }
 
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ProtocolMessage<P: Protocol> {
     Message(P::Message),
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
     Sync(SyncMessage),
-}
-
-impl<P: Protocol> MapEntities for ProtocolMessage<P> {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        match self {
-            ProtocolMessage::Message(x) => {
-                x.map_entities(entity_map);
-            }
-            ProtocolMessage::Replication(x) => {
-                x.map_entities(entity_map);
-            }
-            ProtocolMessage::Sync(x) => {
-                x.map_entities(entity_map);
-            }
-        }
-    }
 }
 
 impl<P: Protocol> ProtocolMessage<P> {

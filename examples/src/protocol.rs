@@ -11,7 +11,7 @@ pub struct Message1(pub String);
 #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[message_protocol(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol(protocol = "MyProtocol")]
 pub enum MyMessageProtocol {
     Message1(Message1),
     Message2(Message2),
@@ -27,7 +27,6 @@ pub struct Component2(pub f32);
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component3(pub f32);
 
-// #[component_protocol(protocol = "MyProtocol", derive(Debug))]
 #[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     #[sync(full)]

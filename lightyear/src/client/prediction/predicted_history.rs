@@ -109,6 +109,8 @@ impl<T: SyncComponent> PredictionHistory<T> {
 
 // Copy component insert/remove from confirmed to predicted
 // Currently we will just copy every PredictedComponent
+// TODO: how to handle components that are synced between confirmed/predicted but are not replicated?
+//  I guess they still need to be added here.
 // TODO: add more options:
 //  - copy component and add component history (for rollback)
 //  - copy component to history and don't add component
@@ -140,7 +142,12 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
                     }
                 }
 
-                // component got added on confirmed side:
+                // TODO: need to do entity mapping here as well!
+                // TODO: need to run this only for components that were not replicated; and run this in topological order.
+
+                // component got added on confirmed side
+                //   - via replication -> the component will also be added to predicted, so it's handled above as well..
+                //   - without replication -> need to handle here
                 // - full: sync component and add history
                 // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
@@ -156,12 +163,18 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
                                     client.tick(),
                                     ComponentState::Updated(confirmed_component.deref().clone()),
                                 );
-                                predicted_entity_mut
-                                    .insert((confirmed_component.deref().clone(), history));
+                                predicted_entity_mut.insert(history);
+                                // TODO: we do not insert the component here because we need to map entities!
+                                //  also we already added the component during replication
+                                //  but we might to handle components that are not replicated...
+                                //  for components that are not replicated, no need to apply any mapping!
+                                //  so maybe just check if the component existed already?
+                                // predicted_entity_mut
+                                //     .insert((confirmed_component.deref().clone(), history));
                             }
                             _ => {
                                 // we only sync the components once, but we don't do rollback so no need for a component history
-                                predicted_entity_mut.insert(confirmed_component.deref().clone());
+                                // predicted_entity_mut.insert(confirmed_component.deref().clone());
                             }
                         }
                     }
@@ -241,6 +254,9 @@ pub fn update_prediction_history<T: SyncComponent, P: Protocol>(
     }
 }
 
+// TODO: again,
+//  for replicated components, we could apply the update at replication time directly (for topological sort)
+//  for non-replicated components, it should be applied here, but we need to query with topological sort.
 /// When we receive a server update, we might want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
@@ -271,7 +287,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Simple => {
                             *predicted_component = confirmed_component.deref().clone();
                         }
-                        ComponentSyncMode::Once => {}
+                        _ => {}
                     }
                 }
             }

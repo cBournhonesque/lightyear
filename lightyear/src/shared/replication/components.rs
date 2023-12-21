@@ -1,10 +1,12 @@
 //! Components used for replication
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::netcode::ClientId;
+use crate::prelude::{EntityMapper, MapEntities};
 use crate::protocol::channel::ChannelKind;
 use crate::server::room::{ClientVisibility, RoomId};
 use bevy::prelude::{Component, Entity};
-use bevy::utils::{HashMap, HashSet};
+use bevy::utils::{EntityHashSet, HashMap, HashSet};
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +30,7 @@ pub struct Replicate {
     //  or force users to use `Replicate::default().with...`?
     /// List of clients that we the entity is currently replicated to.
     /// Will be updated before the other replication systems
+    #[doc(hidden)]
     pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
     pub replication_mode: ReplicationMode,
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
@@ -139,13 +142,47 @@ impl NetworkTarget {
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[message(custom_map)]
 pub struct ShouldBeInterpolated;
+
+impl SyncComponent for ShouldBeInterpolated {
+    fn mode() -> ComponentSyncMode {
+        ComponentSyncMode::None
+    }
+}
+
+impl<'a> MapEntities<'a> for ShouldBeInterpolated {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::default()
+    }
+}
 
 // TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[message(custom_map)]
 pub struct ShouldBePredicted;
+
+// NOTE: need to define this here because otherwise we get the error
+// "impl doesn't use only types from inside the current crate"
+// TODO: does this mean that we cannot use existing types such as Transform?
+//  might need a list of pre-existing types?
+impl SyncComponent for ShouldBePredicted {
+    fn mode() -> ComponentSyncMode {
+        ComponentSyncMode::None
+    }
+}
+
+impl<'a> MapEntities<'a> for ShouldBePredicted {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::default()
+    }
+}
 
 #[cfg(test)]
 mod tests {

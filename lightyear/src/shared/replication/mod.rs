@@ -5,14 +5,14 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
-use bevy::utils::{EntityHashMap, HashMap};
+use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, RemoteEntityMap, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
@@ -74,19 +74,14 @@ impl<C, K> Default for EntityActions<C, K> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityActionMessage<C, K> {
     sequence_id: MessageId,
-    // TODO: maybe we want a sorted hash map here?
-    //  because if we want to send a group of entities together, presumably it's because there's a hierarchy
-    //  between the elements of the group
-    //  E1: head, E2: arm, parent=head. So we need to read E1 first.
-    pub(crate) actions: BTreeMap<Entity, EntityActions<C, K>>,
+    pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     last_action_tick: Tick,
-    /// TODO: consider EntityHashMap or Vec if order doesn't matter
-    pub(crate) updates: BTreeMap<Entity, Vec<C>>,
+    pub(crate) updates: Vec<(Entity, Vec<C>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -101,34 +96,6 @@ pub enum ReplicationMessageData<C, K> {
 pub struct ReplicationMessage<C, K> {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) data: ReplicationMessageData<C, K>,
-}
-
-impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
-    // NOTE: we do NOT map the entities for these messages (apart from those contained in the components)
-    // because the replication logic (`apply_world`) expects the entities to be the remote entities
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        match &mut self.data {
-            ReplicationMessageData::Actions(m) => {
-                m.actions.values_mut().for_each(|entity_actions| {
-                    entity_actions
-                        .insert
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                    entity_actions
-                        .updates
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                })
-            }
-            ReplicationMessageData::Updates(m) => {
-                m.updates.values_mut().for_each(|entity_updates| {
-                    entity_updates
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                })
-            }
-        }
-    }
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
@@ -257,7 +224,7 @@ mod tests {
             .connection()
             .base()
             .replication_manager
-            .entity_map
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
         assert_eq!(

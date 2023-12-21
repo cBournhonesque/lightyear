@@ -10,15 +10,57 @@
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
   - on interest management, we still have this problem where interpolation is stuck at the beginning and doesn't move. Probably 
     because start tick or end tick are not updated correctly in some edge cases.
-  
-  
 
-- TODO:
-  - implement Message for common bevy transforms
-  - maybe have a ClientReplicate component to transfer all the replication data that is useful to clients? (group, prediciton, interpolation, etc.)
 
-   
+- add PredictionGroup and InterpolationGroup.
+  - on top of ReplicationGroup?
+  - or do we just re-use the replication group id (that usually will have a remote entity id) and use it to see the prediction/interpolation group?
+  - then we add the prediction group id on the Confirmed or Predicted components?
+- Then we don't really need the Confirmed/Predicted components anymore, we could just have resources on the Prediction or Interpolation plugin
+- The resource needs:
+  - confirmed<->predicted mapping
+  - for a given prediction-group, the dependency graph of the entities (using confirmed entities?)
+- The prediction systems will:
+  - iterate through the dependency graph of the prediction group
+  - for each entity, fetch the confirmed/predicted entity
+  - do entity mapping if needed
+- users can add their own entities in the prediction group (even if thre )
 
+
+
+- DEBUGGING REPLICATION BOX:
+  - the sync from confirmed to predict might not only be for replicated components, but also components that were
+    spawned on confirmed world directly.
+    - which means it's not to apply topological sort during replication; we need to apply it on prediction level directly
+    - create a 'PredictionGroup': all predicted entities must be in the same group, and we apply topological sort on that group
+      - we actually could have different prediction groups, for entities that we know are not interacting at all!
+      - each group has a dependency graph as well
+    - maybe maintain a topological sort for each predicted replication group?
+      - what about adding new entities to the prediction group? because that's the main problem, otherwise if all the entities
+        are known at the beginning we are good!
+      - maybe don't need toplogical sort but can just use the vec from the replication to have the order
+      - but then how do we iterate through the entities in that order?
+    - the components during prediction sync need to be mapped!
+    - do we need to introduce the concept of a PredictionGroup, which is a super-set of a replicationGroup? (because some of the entities
+        might not come from replication?)
+  - how to get smooth interpolation when there can be diagonal movements?
+    - allow custom interpolation, so that we can make sure that interpolation respects corners as well. The interpolation follows the path
+    - WEIRD: when we just do normal interpolation for player heads, and just use 'interp=start' for tails, it actually looks really smooth!
+    - TODO: tried to make my custom interpolation logic working, but there still seems to be edge cases that are not handled well.
+      - there's weird panics now, and sometimes the interpolated entity doesn't move at all
+  - INTERP TIME is sometimes too late; i.e. we receive updates that are way after interp time.
+  - SYNC:
+    - seems to not work well for at the beginning..
+  - PREDICTION; rollback is weird and fucked
+    - looks like sending pings more frequently fixed the issue?, to investigate..
+    - is it that we don't receive the inputs on time at the client?
+    - imagine we lost some packets and server didn't receive the inputs... then when server receives a later packet it should receive the past 15 inputs.
+      server should then use this to rollback?
+      - server should ask client to speed up (via a message), when we have lost inputs (to increase the buffer size)
+      - it should re-use the previous input as a best guess estimate
+      - it looks like our input buffer on server is too big; it contains like 15 ticks worth of inputs, even though the client messages should arrive right before.
+        is it just because of the margin we took?
+      - applied a best guess estimate for lost inputs that uses the last input sent as fallback, works well!
 
 - FINAL CHOICE:
   - send all actions per group on an reliable unordered channel
@@ -361,6 +403,10 @@ ROUGH EDGES:
 
 
 TODO:
+
+- Inputs:
+  - instead of sending the last 15 inputs, send all inputs until the last acked input message (with a max)
+  - also remember to keep around inputs that we might need for prediction!
 
 - Serialization:
   - have a NetworkMessage macro that all network messages must derive (Input, Message, Component)

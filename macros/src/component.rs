@@ -55,6 +55,10 @@ impl SyncField {
             tokens = quote! {
                 ComponentSyncMode::Once
             };
+        } else {
+            tokens = quote! {
+                ComponentSyncMode::None
+            };
         }
         tokens
     }
@@ -70,7 +74,7 @@ impl SyncField {
         if self.once {
             count += 1;
         }
-        if count != 1 {
+        if count > 1 {
             panic!(
                 "The field {:?} cannot have multiple sync attributes set at the same time",
                 self
@@ -121,7 +125,7 @@ pub fn component_protocol_impl(
     // Use darling to parse the attributes for each field
     let sync_fields: Vec<SyncField> = fields
         .iter()
-        .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("sync")))
+        // .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("sync")))
         .map(|field| FromField::from_field(field).unwrap())
         .collect();
     for field in &sync_fields {
@@ -145,6 +149,7 @@ pub fn component_protocol_impl(
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
     let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
+    let mode_method = mode_method(&input, &fields);
     let encode_method = encode_method();
     let decode_method = decode_method();
     let delegate_method = delegate_method(&input, &enum_kind_name);
@@ -163,15 +168,9 @@ pub fn component_protocol_impl(
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
-            use bevy::prelude::{App, IntoSystemConfigs, EntityWorldMut, World};
-            use #shared_crate_name::shared::replication::systems::add_per_component_replication_send_systems;
-            use #shared_crate_name::connection::events::{IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent};
-            use #shared_crate_name::shared::systems::events::{
-                push_component_insert_events, push_component_remove_events, push_component_update_events,
-            };
+            use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
+            use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
-            use #shared_crate_name::client::prediction::{add_prediction_systems};
-            use #shared_crate_name::client::interpolation::{add_interpolation_systems, add_lerp_systems, InterpolatedComponent};
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]
             #extra_derives
@@ -185,6 +184,7 @@ pub fn component_protocol_impl(
                 #add_events_method
                 #push_component_events_method
                 #add_sync_systems_method
+                #mode_method
             }
 
             impl std::fmt::Debug for #enum_name {
@@ -234,6 +234,8 @@ fn get_fields(input: &ItemEnum) -> Vec<Field> {
         let mut component = unnamed.unnamed.first().unwrap().clone();
         // get the attrs from the variant
         component.attrs = variant.attrs.clone();
+        // set the field ident as the variant ident
+        component.ident = Some(variant.ident.clone());
         // make field immutable
         fields.push(component);
     }
@@ -324,6 +326,12 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
 fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
+        // skip components that are defined externally
+        if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
+            || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
+        {
+            continue;
+        }
         let component_type = &field.ty;
         let mode = field.get_mode_tokens();
         body = quote! {
@@ -335,22 +343,20 @@ fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenS
             }
         };
         if field.full {
+            // custom
             let lerp_mode = if let Some(lerp_fn) = &field.lerp {
                 quote! {
-                    fn lerp_mode() -> LerpMode<#component_type> {
-                        LerpMode::Custom(lerm_fn)
-                    }
+                    type Fn = #lerp_fn;
                 }
             } else {
+                // by default, use linear interpolation
                 quote! {
-                    fn lerp_mode() -> LerpMode<#component_type> {
-                        LerpMode::Linear
-                    }
+                    type Fn = LinearInterpolation;
                 }
             };
             body = quote! {
                 #body
-                impl InterpolatedComponent for #component_type {
+                impl InterpolatedComponent<#component_type> for #component_type {
                     #lerp_mode
                 }
             }
@@ -361,6 +367,7 @@ fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenS
 
 fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
     let mut prediction_body = quote! {};
+    let mut prepare_interpolation_body = quote! {};
     let mut interpolation_body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -368,14 +375,14 @@ fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> To
             #prediction_body
             add_prediction_systems::<#component_type, #protocol_name>(app);
         };
-        interpolation_body = quote! {
-            #interpolation_body
-            add_interpolation_systems::<#component_type, #protocol_name>(app);
+        prepare_interpolation_body = quote! {
+            #prepare_interpolation_body
+            add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
         };
         if field.full {
             interpolation_body = quote! {
                 #interpolation_body
-                add_lerp_systems::<#component_type, #protocol_name>(app);
+                add_interpolation_systems::<#component_type, #protocol_name>(app);
             };
         }
     }
@@ -383,6 +390,10 @@ fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> To
         fn add_prediction_systems(app: &mut App)
         {
             #prediction_body
+        }
+        fn add_prepare_interpolation_systems(app: &mut App)
+        {
+            #prepare_interpolation_body
         }
         fn add_interpolation_systems(app: &mut App)
         {
@@ -484,28 +495,63 @@ fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> 
     }
 }
 
-fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
-    let enum_name = &input.ident;
-    let variants = input.variants.iter().map(|v| v.ident.clone());
-    let mut map_entities_body = quote! {};
-    for variant in input.variants.iter() {
-        let ident = &variant.ident;
-        map_entities_body = quote! {
-            #map_entities_body
-            #enum_name::#ident(ref mut x) => x.map_entities(entity_map),
+fn mode_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let ident = &field.ident;
+
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            Self::#ident(_) => #component_type::mode(),
         };
     }
 
     quote! {
-        impl MapEntities for #enum_name {
-            fn map_entities(&mut self, entity_map: &EntityMap) {
+        fn mode(&self) -> ComponentSyncMode {
+            match self {
+                #body
+            }
+        }
+    }
+}
+
+fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
+    let enum_name = &input.ident;
+    let variants = input.variants.iter().map(|v| v.ident.clone());
+    let mut map_entities_body = quote! {};
+    let mut entities_body = quote! {};
+    for variant in input.variants.iter() {
+        let ident = &variant.ident;
+        map_entities_body = quote! {
+            #map_entities_body
+            Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+        };
+        entities_body = quote! {
+            #entities_body
+            Self::#ident(ref x) => x.entities(),
+        };
+    }
+
+    // TODO: make it work with generics
+    quote! {
+        impl<'a> MapEntities<'a> for #enum_name {
+            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
                 match self {
                     #map_entities_body
                 }
             }
+            fn entities(&self) -> EntityHashSet<Entity> {
+                match self {
+                    #entities_body
+                }
+            }
         }
-        impl MapEntities for #enum_kind_name {
-            fn map_entities(&mut self, entity_map: &EntityMap) {}
+        impl<'a> MapEntities<'a> for #enum_kind_name {
+            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
+            fn entities(&self) -> EntityHashSet<Entity> {
+                EntityHashSet::default()
+            }
         }
     }
 }

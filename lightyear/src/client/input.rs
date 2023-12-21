@@ -188,10 +188,17 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
                 error!("Error while sending input message: {:?}", err);
             })
     }
+    // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
+    // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
+    //  maybe at interpolation_tick(), since it's before any latest server update we receive?
+
     // delete old input values
-    client
-        .get_mut_input_buffer()
-        .pop(current_tick - (message_len + 1));
+    let interpolation_tick = client
+        .connection
+        .sync_manager
+        .interpolation_tick(&client.tick_manager);
+    client.get_mut_input_buffer().pop(interpolation_tick);
+    // .pop(current_tick - (message_len + 1));
 }
 
 // on the client:

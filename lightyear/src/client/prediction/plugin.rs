@@ -183,10 +183,11 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             (apply_deferred.in_set(PredictionSet::EntityDespawnFlush),),
         );
 
-        app.add_systems(
-            PreUpdate,
-            spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
-        );
+        // no need, since we spawn predicted entities/components in replication
+        // app.add_systems(
+        //     PreUpdate,
+        //     spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
+        // );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback

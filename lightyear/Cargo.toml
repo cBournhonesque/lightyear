@@ -13,7 +13,6 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
-debug = []
 metrics = [
   "dep:metrics",
   "metrics-util",
@@ -75,6 +74,7 @@ tracing-subscriber = { version = "0.3.17", features = [
 
 # server
 crossbeam-channel = { version = "0.5.8", features = [] }
+#petgraph = "0.6.4"  # for replication
 
 # metrics
 metrics = { version = "0.21", optional = true }
