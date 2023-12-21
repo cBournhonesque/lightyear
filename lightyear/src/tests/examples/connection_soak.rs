@@ -1,11 +1,11 @@
 //! The connection soak test how sending messages/packets works with a real connection, and loss/jitter
 //! We put this test here because it uses some private methods.
-use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::World;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+use bevy::ecs::component::Tick as BevyTick;
+use bevy::prelude::World;
 use rand::Rng;
 use tracing::debug;
 

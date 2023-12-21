@@ -2,15 +2,13 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::prelude::{
-    apply_deferred, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate,
-    SystemSet,
+    apply_deferred, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, SystemSet,
 };
 
 use crate::client::components::SyncComponent;
-use crate::client::interpolation::despawn::{
-    despawn_interpolated, removed_components, InterpolationMapping,
-};
+use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::MainSet;
@@ -179,7 +177,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         }
 
         // RESOURCES
-        app.init_resource::<InterpolationMapping>();
+        app.init_resource::<InterpolationManager>();
         // SETS
         app.configure_sets(
             PostUpdate,
@@ -213,7 +211,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         app.add_systems(
             PostUpdate,
             (
-                // spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
+                spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
             ),
         );

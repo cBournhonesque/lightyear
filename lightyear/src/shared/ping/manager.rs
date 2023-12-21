@@ -1,12 +1,9 @@
 //! Manages sending/receiving pings and computing network statistics
 use std::time::Duration;
 
-use bevy::prelude::Res;
 use bevy::time::Stopwatch;
-use tracing::{debug, error, info, trace};
+use tracing::{error, trace};
 
-use crate::client::resource::Client;
-use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::ping::store::{PingId, PingStore};

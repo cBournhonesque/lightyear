@@ -4,10 +4,9 @@ use std::fmt::Debug;
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
-use crate::inputs::UserInput;
 use lightyear_macros::MessageInternal;
-use tracing::info;
 
+use crate::inputs::UserInput;
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 

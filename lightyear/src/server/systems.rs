@@ -1,14 +1,12 @@
 //! Defines the server bevy systems and run conditions
 use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
-use crate::netcode::ClientId;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::resource::Server;
-use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::ReplicationSend;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
@@ -90,6 +88,8 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     server.send_packets().unwrap();
 
     server.new_clients.clear();
+
+    // TODO: clear the dependency graph for replication groups send
 }
 
 pub(crate) fn clear_events<P: Protocol>(mut server: ResMut<Server<P>>) {

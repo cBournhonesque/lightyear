@@ -3,8 +3,8 @@
 use std::iter;
 
 use bevy::prelude::{Component, Entity};
-use bevy::utils::{EntityHashMap, HashMap, HashSet};
-use tracing::{info, trace};
+use bevy::utils::HashMap;
+use tracing::trace;
 
 use crate::packet::message::Message;
 use crate::prelude::{Named, Tick};
@@ -12,7 +12,6 @@ use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::IntoKind;
 use crate::protocol::message::{MessageBehaviour, MessageKind};
 use crate::protocol::{EventContext, Protocol};
-use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug)]
@@ -407,9 +406,9 @@ impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::tests::protocol::*;
-    use bevy::utils::HashSet;
+
+    use super::*;
 
     #[test]
     fn test_iter_messages() {

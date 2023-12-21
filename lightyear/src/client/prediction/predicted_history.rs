@@ -1,13 +1,12 @@
 use std::ops::Deref;
 
-use bevy::prelude::GamepadButtonType::C;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, With, Without,
 };
-use tracing::{error, info};
+use tracing::error;
 
 use crate::client::components::SyncComponent;
-use crate::client::interpolation::ConfirmedHistory;
+use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::prelude::Named;
 use crate::protocol::Protocol;
@@ -114,8 +113,11 @@ impl<T: SyncComponent> PredictionHistory<T> {
 // TODO: add more options:
 //  - copy component and add component history (for rollback)
 //  - copy component to history and don't add component
+
+// TODO: only run this for SyncComponent where SyncMode != None
 #[allow(clippy::type_complexity)]
 pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
+    manager: Res<PredictionManager>,
     mut commands: Commands,
     client: Res<Client<P>>,
     predicted_entities: Query<(Entity, Option<Ref<T>>), Without<PredictionHistory<T>>>,
@@ -155,6 +157,9 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
                         // safety: we know the entity exists
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();
+                        // map any entities from confirmed to predicted
+                        let mut new_component = confirmed_component.deref().clone();
+                        new_component.map_entities(Box::new(&manager.predicted_entity_map));
                         match T::mode() {
                             ComponentSyncMode::Full => {
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
@@ -163,19 +168,13 @@ pub fn add_component_history<T: SyncComponent + Named, P: Protocol>(
                                     client.tick(),
                                     ComponentState::Updated(confirmed_component.deref().clone()),
                                 );
-                                predicted_entity_mut.insert(history);
-                                // TODO: we do not insert the component here because we need to map entities!
-                                //  also we already added the component during replication
-                                //  but we might to handle components that are not replicated...
-                                //  for components that are not replicated, no need to apply any mapping!
-                                //  so maybe just check if the component existed already?
-                                // predicted_entity_mut
-                                //     .insert((confirmed_component.deref().clone(), history));
+                                predicted_entity_mut.insert((new_component, history));
                             }
-                            _ => {
+                            ComponentSyncMode::Once | ComponentSyncMode::Simple => {
                                 // we only sync the components once, but we don't do rollback so no need for a component history
-                                // predicted_entity_mut.insert(confirmed_component.deref().clone());
+                                predicted_entity_mut.insert(new_component);
                             }
+                            _ => {}
                         }
                     }
                 }
@@ -260,6 +259,7 @@ pub fn update_prediction_history<T: SyncComponent, P: Protocol>(
 /// When we receive a server update, we might want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
+    manager: Res<PredictionManager>,
     client: Res<Client<P>>,
     mut predicted_entities: Query<
         &mut T,
@@ -274,7 +274,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
     let latest_server_tick = client.latest_received_server_tick();
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.predicted {
-            if confirmed_component.is_changed() {
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok(mut predicted_component) = predicted_entities.get_mut(p) {
                     match T::mode() {
                         ComponentSyncMode::Full => {
@@ -285,7 +285,10 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {
-                            *predicted_component = confirmed_component.deref().clone();
+                            // map any entities from confirmed to predicted
+                            let mut component = confirmed_component.deref().clone();
+                            component.map_entities(Box::new(&manager.predicted_entity_map));
+                            *predicted_component = component;
                         }
                         _ => {}
                     }

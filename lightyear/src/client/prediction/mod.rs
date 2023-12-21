@@ -1,7 +1,7 @@
 //! Handles client-side prediction
 use std::fmt::Debug;
 
-use bevy::prelude::{Added, Commands, Component, Entity, Query, Resource};
+use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut, Resource};
 use tracing::info;
 
 pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
@@ -9,6 +9,7 @@ pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
+use crate::client::prediction::resource::PredictionManager;
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::tick_manager::Tick;
 
@@ -28,6 +29,7 @@ use crate::shared::tick_manager::Tick;
 mod despawn;
 pub mod plugin;
 pub mod predicted_history;
+mod resource;
 pub(crate) mod rollback;
 
 /// Marks an entity that is being predicted by the client
@@ -57,20 +59,12 @@ pub enum RollbackState {
     },
 }
 
-// What we want to achieve:
-// - client defines a set of components that are predicted.
-// - several cases:
-//    - not owner prediction: we spawn ball on server, we choose on server to add [Confirmed] component.
-//      Confirmed gets replicated, we spawn a predicted ball on client for the last server tick, we quickly fast-forward it via rollback?
-//    - owner prediction: we spawn player on server, we choose on server to add [Confirmed] component.
-//      Confirmed gets replicated, we spawn a predicted player on client for the last server tick, we quickly fast-forward it with rollback (and apply buffer inputs)
-//
-//  - other approach:
-//    - we know on the client which entity to predict (for example ball + player), we spawn the predicted on client right away. seems worse.
-//
-// - what's annoying is that Confirmed contains some client-specific information that will get replicated. Maybe we can create a specific ShouldBeReplicated marker for this.
-// for now, the easiest option would be to just replicate the entirety of Confirmed ?
+/// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
+/// The `Confirmed` entity could already exist because we share for prediction and interpolation.
+// TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
+//  instead panic if we find an entity that is both predicted and interpolated?)
 pub fn spawn_predicted_entity(
+    mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
 ) {
@@ -78,6 +72,12 @@ pub fn spawn_predicted_entity(
         // spawn a new predicted entity
         let predicted_entity_mut = commands.spawn(Predicted { confirmed_entity });
         let predicted_entity = predicted_entity_mut.id();
+
+        // update the entity mapping
+        manager
+            .predicted_entity_map
+            .remote_to_predicted
+            .insert(confirmed_entity, predicted_entity);
 
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists

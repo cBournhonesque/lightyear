@@ -1,16 +1,15 @@
-use bevy::utils::HashMap;
 use std::collections::VecDeque;
 
 use bytes::Bytes;
+use crossbeam_channel::{Receiver, Sender};
 
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, FragmentIndex, MessageAck, MessageId, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::{TimeManager, WrappedTime};
-use crossbeam_channel::{Receiver, Sender};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
@@ -130,10 +129,9 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::channel::senders::fragment_ack_receiver::FragmentAckTracker;
     use crate::packet::packet::FRAGMENT_SIZE;
-    use crossbeam_channel::TryRecvError;
+
+    use super::*;
 
     #[test]
     fn test_receive_ack() {

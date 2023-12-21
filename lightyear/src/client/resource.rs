@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::prelude::{Resource, Time, Virtual, World};
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;
@@ -14,7 +14,6 @@ use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::manager::ReplicationManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};

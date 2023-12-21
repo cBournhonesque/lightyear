@@ -1,5 +1,4 @@
 //! Handles client-generated inputs
-use anyhow::Context;
 use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,

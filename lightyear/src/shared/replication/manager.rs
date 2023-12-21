@@ -1,42 +1,32 @@
 //! General struct handling replication
-use anyhow::Context;
-use bevy::a11y::accesskit::Action;
-use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
+use std::iter::Extend;
 
-use crate::_reexport::{
-    EntityActionsChannel, EntityUpdatesChannel, IntoKind, ShouldBeInterpolated, ShouldBePredicted,
-};
-use crate::client::components::{ComponentSyncMode, Confirmed};
-use crate::client::prediction::Predicted;
-use crate::connection::events::ConnectionEvents;
-use crate::protocol::component::ComponentProtocol;
+use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, EntityWorldMut, World};
-use bevy::utils::petgraph::algo::toposort;
+use bevy::prelude::{Entity, World};
 use bevy::utils::petgraph::data::ElementIterator;
-use bevy::utils::petgraph::graphmap::DiGraphMap;
-use bevy::utils::petgraph::prelude::DiGraph;
-use bevy::utils::EntityHashMap;
+use bevy::utils::{EntityHashMap, HashMap, HashSet};
 use crossbeam_channel::Receiver;
-use tracing::{debug, error, info, trace, trace_span};
+use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use super::entity_map::{InterpolatedEntityMap, PredictedEntityMap, RemoteEntityMap};
-use super::{
-    EntityActionMessage, EntityActions, EntityUpdatesMessage, Replicate, ReplicationMessage,
-    ReplicationMessageData,
-};
-use crate::connection::message::ProtocolMessage;
-use crate::netcode::ClientId;
+use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind};
+use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
-use crate::prelude::client::Interpolated;
 use crate::prelude::{MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
+use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{ReplicationGroup, ReplicationGroupId};
+use crate::shared::replication::components::ReplicationGroupId;
+
+use super::entity_map::{InterpolatedEntityMap, PredictedEntityMap, RemoteEntityMap};
+use super::{
+    EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessage,
+    ReplicationMessageData,
+};
 
 // TODO: maybe separate send/receive side for clarity?
 pub(crate) struct ReplicationManager<P: Protocol> {
@@ -54,10 +44,9 @@ pub(crate) struct ReplicationManager<P: Protocol> {
         HashMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
     >,
     pub pending_updates: EntityHashMap<ReplicationGroupId, HashMap<Entity, Vec<P::Components>>>,
-    // Get the graph of dependencies between entities within a same group.
-    // (for example if a component of entity1 refers to entity2, then entity2 must be spawned before entity1.
-    // In that case we add an edge entity2 -> entity1 in the graph
-    pub group_dependencies: EntityHashMap<ReplicationGroupId, DiGraphMap<Entity, ()>>,
+    // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
+    pub pending_unique_components:
+        EntityHashMap<ReplicationGroupId, HashMap<Entity, HashSet<P::ComponentKinds>>>,
 
     // RECEIVE
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
@@ -83,7 +72,7 @@ impl<P: Protocol> ReplicationManager<P> {
             updates_message_id_to_group_id: Default::default(),
             pending_actions: EntityHashMap::default(),
             pending_updates: EntityHashMap::default(),
-            group_dependencies: EntityHashMap::default(),
+            pending_unique_components: EntityHashMap::default(),
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
             predicted_entity_map: PredictedEntityMap::default(),
@@ -235,10 +224,6 @@ impl<P: Protocol> ReplicationManager<P> {
             .entry(entity)
             .or_default();
         actions.spawn = true;
-        self.group_dependencies
-            .entry(group)
-            .or_default()
-            .add_node(entity);
     }
 
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group: ReplicationGroupId) {
@@ -248,10 +233,6 @@ impl<P: Protocol> ReplicationManager<P> {
             .entry(entity)
             .or_default()
             .despawn = true;
-        self.group_dependencies
-            .entry(group)
-            .or_default()
-            .add_node(entity);
     }
 
     // we want to send all component inserts that happen together for the same entity in a single message
@@ -263,13 +244,23 @@ impl<P: Protocol> ReplicationManager<P> {
         group: ReplicationGroupId,
         component: P::Components,
     ) {
-        // if component contains entities, add an edge in the dependency graph
-        let graph = self.group_dependencies.entry(group).or_default();
-        graph.add_node(entity);
-        component.entities().iter().for_each(|e| {
-            // `e` must be spawned before `entity`
-            graph.add_edge(*e, entity, ());
-        });
+        let kind: P::ComponentKinds = (&component).into();
+        if self
+            .pending_unique_components
+            .entry(group)
+            .or_default()
+            .entry(entity)
+            .or_default()
+            .contains(&kind)
+        {
+            warn!(
+                ?group,
+                ?entity,
+                ?kind,
+                "Trying to insert a component that is already in the message"
+            );
+            return;
+        }
         self.pending_actions
             .entry(group)
             .or_default()
@@ -277,25 +268,43 @@ impl<P: Protocol> ReplicationManager<P> {
             .or_default()
             .insert
             .push(component);
+        self.pending_unique_components
+            .entry(group)
+            .or_default()
+            .entry(entity)
+            .or_default()
+            .insert(kind);
     }
 
     pub(crate) fn prepare_component_remove(
         &mut self,
         entity: Entity,
         group: ReplicationGroupId,
-        component: P::ComponentKinds,
+        kind: P::ComponentKinds,
     ) {
+        if self
+            .pending_unique_components
+            .entry(group)
+            .or_default()
+            .entry(entity)
+            .or_default()
+            .contains(&kind)
+        {
+            error!(
+                ?group,
+                ?entity,
+                ?kind,
+                "Trying to remove a component that is already in the message as an insert/update"
+            );
+            return;
+        }
         self.pending_actions
             .entry(group)
             .or_default()
             .entry(entity)
             .or_default()
             .remove
-            .push(component);
-        self.group_dependencies
-            .entry(group)
-            .or_default()
-            .add_node(entity);
+            .insert(kind);
     }
 
     pub(crate) fn prepare_entity_update(
@@ -304,19 +313,35 @@ impl<P: Protocol> ReplicationManager<P> {
         group: ReplicationGroupId,
         component: P::Components,
     ) {
-        // if component contains entities, add an edge in the dependency graph
-        let graph = self.group_dependencies.entry(group).or_default();
-        graph.add_node(entity);
-        component.entities().iter().for_each(|e| {
-            // `e` must be spawned before `entity`
-            graph.add_edge(*e, entity, ());
-        });
+        let kind: P::ComponentKinds = (&component).into();
+        if self
+            .pending_unique_components
+            .entry(group)
+            .or_default()
+            .entry(entity)
+            .or_default()
+            .contains(&kind)
+        {
+            warn!(
+                ?group,
+                ?entity,
+                ?kind,
+                "Trying to update a component that is already in the message"
+            );
+            return;
+        }
         self.pending_updates
             .entry(group)
             .or_default()
             .entry(entity)
             .or_default()
             .push(component);
+        self.pending_unique_components
+            .entry(group)
+            .or_default()
+            .entry(entity)
+            .or_default()
+            .insert(kind);
     }
 
     /// Finalize the replication messages
@@ -331,91 +356,51 @@ impl<P: Protocol> ReplicationManager<P> {
         let mut messages = Vec::new();
 
         // get the list of entities in topological order
-        for (group_id, dependency_graph) in self.group_dependencies.drain() {
-            match toposort(&dependency_graph, None) {
-                Ok(entities) => {
-                    // create an actions message
-                    if let Some(mut actions) = self.pending_actions.remove(&group_id) {
-                        let channel = self.group_channels.entry(group_id).or_default();
-                        let message_id = channel.actions_next_send_message_id;
-                        channel.actions_next_send_message_id += 1;
-                        channel.last_action_tick = tick;
-                        let mut actions_message = vec![];
-
-                        // add any updates for that group into the actions message
-                        let mut my_updates = self.pending_updates.remove(&group_id);
-
-                        // add actions to the message for entities in topological order
-                        for e in entities.iter() {
-                            let mut a = actions.remove(e).unwrap_or_else(EntityActions::default);
-                            // for any update that was not already in insert/updates, add it to the update list
-                            if let Some(ref mut updates) = my_updates {
-                                // TODO: this suggests that we should already store inserts/updates as HashSet!
-                                let existing_inserts = a
-                                    .insert
-                                    .iter()
-                                    .map(|c| c.into())
-                                    .collect::<HashSet<P::ComponentKinds>>();
-                                let existing_updates = a
-                                    .updates
-                                    .iter()
-                                    .map(|c| c.into())
-                                    .collect::<HashSet<P::ComponentKinds>>();
-                                if let Some(u) = updates.remove(e) {
-                                    u.into_iter()
-                                        .filter(|c| {
-                                            !existing_inserts.contains(&(c.into()))
-                                                && !existing_updates.contains(&(c.into()))
-                                        })
-                                        .for_each(|c| a.updates.push(c));
-                                }
-                            }
-                            actions_message.push((*e, a));
-                        }
-
-                        messages.push((
-                            ChannelKind::of::<EntityActionsChannel>(),
-                            group_id,
-                            ReplicationMessageData::Actions(EntityActionMessage {
-                                sequence_id: message_id,
-                                actions: actions_message,
-                            }),
-                        ));
-                    }
-
-                    // create an updates message
-                    if let Some(mut updates) = self.pending_updates.remove(&group_id) {
-                        let channel = self.group_channels.entry(group_id).or_default();
-                        let mut updates_message = vec![];
-
-                        // add updates to the message in topological order
-                        entities.iter().for_each(|e| {
-                            if let Some(u) = updates.remove(e) {
-                                updates_message.push((*e, u));
-                            };
-                        });
-
-                        messages.push((
-                            ChannelKind::of::<EntityUpdatesChannel>(),
-                            group_id,
-                            ReplicationMessageData::Updates(EntityUpdatesMessage {
-                                last_action_tick: channel.last_action_tick,
-                                updates: updates_message,
-                            }),
-                        ));
-                    };
-                }
-                Err(e) => {
-                    error!("There is a cyclic dependency in the group (with entity {:?})! Replication aborted.", e.node_id());
+        for (group_id, mut actions) in self.pending_actions.drain() {
+            // add any updates for that group
+            if let Some(updates) = self.pending_updates.remove(&group_id) {
+                for (entity, components) in updates {
+                    actions
+                        .entry(entity)
+                        .or_default()
+                        .updates
+                        .extend(components.into_iter());
                 }
             }
+            let channel = self.group_channels.entry(group_id).or_default();
+            let message_id = channel.actions_next_send_message_id;
+            channel.actions_next_send_message_id += 1;
+            channel.last_action_tick = tick;
+            messages.push((
+                ChannelKind::of::<EntityActionsChannel>(),
+                group_id,
+                ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: message_id,
+                    // TODO: maybe we can just send the HashMap directly?
+                    actions: Vec::from_iter(actions.into_iter()),
+                }),
+            ));
         }
-        self.pending_actions.clear();
-        self.pending_updates.clear();
+        // send the remaining updates
+        for (group_id, updates) in self.pending_updates.drain() {
+            let channel = self.group_channels.entry(group_id).or_default();
+            messages.push((
+                ChannelKind::of::<EntityUpdatesChannel>(),
+                group_id,
+                ReplicationMessageData::Updates(EntityUpdatesMessage {
+                    last_action_tick: channel.last_action_tick,
+                    // TODO: maybe we can just send the HashMap directly?
+                    updates: Vec::from_iter(updates.into_iter()),
+                }),
+            ));
+        }
+
         if !messages.is_empty() {
             trace!(?messages, "Sending replication messages");
         }
 
+        // clear send buffers
+        self.pending_unique_components.clear();
         messages
     }
 
@@ -432,22 +417,28 @@ impl<P: Protocol> ReplicationManager<P> {
         match replication {
             ReplicationMessageData::Actions(m) => {
                 info!(?m, "Received replication actions");
-                // NOTE: order matters here, the entities are stored in the message in topological order
-                // i.e. entities that depend on other entities are read later on
-                for (entity, actions) in m.actions.into_iter() {
-                    info!(remote_entity = ?entity, "Received entity actions");
-
+                // NOTE: order matters here, because some components can depend on other entities.
+                // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
+                // Our solution is to first handle spawn for all entities separately.
+                for (entity, actions) in m.actions.iter() {
+                    debug!(remote_entity = ?entity, "Received entity actions");
                     assert!(!(actions.spawn && actions.despawn));
-
-                    // spawn/despawn
+                    // spawn
                     if actions.spawn {
                         // TODO: optimization: spawn the bundle of insert components
                         let local_entity = world.spawn_empty();
-                        self.remote_entity_map.insert(entity, local_entity.id());
+                        self.remote_entity_map.insert(*entity, local_entity.id());
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
                         events.push_spawn(local_entity.id());
-                    } else if actions.despawn {
+                    }
+                }
+
+                for (entity, actions) in m.actions.into_iter() {
+                    info!(remote_entity = ?entity, "Received entity actions");
+
+                    // despawn
+                    if actions.despawn {
                         debug!(remote_entity = ?entity, "Received entity despawn");
                         if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
                         {
@@ -457,145 +448,39 @@ impl<P: Protocol> ReplicationManager<P> {
                             error!("Received despawn for an entity that does not exist")
                         }
                         continue;
-                    } else if self.remote_entity_map.get_by_remote(world, entity).is_err() {
-                        error!("cannot find entity");
-                        continue;
                     }
 
                     // safety: we know by this point that the entity exists
-                    let local_entity = *self.remote_entity_map.get_local(entity).unwrap();
+                    let Ok(mut local_entity_mut) =
+                        self.remote_entity_map.get_by_remote(world, entity)
+                    else {
+                        error!("cannot find entity");
+                        continue;
+                    };
 
-                    // prediction / interpolation
+                    // inserts
                     let kinds = actions
                         .insert
                         .iter()
                         .map(|c| c.into())
                         .collect::<HashSet<P::ComponentKinds>>();
-
-                    // NOTE: we handle it here because we want to spawn the predicted/interpolated entities
-                    //  for the group in topological sort as well, and to maintain a new entity mapping
-                    //  i.e. if ComponentA contains an entity E,
-                    //  predicted component A' must contain an entity E' that is predicted
-                    let predicted_kind =
-                        P::ComponentKinds::from(&P::Components::from(ShouldBePredicted));
-                    if kinds.contains(&predicted_kind) {
-                        // spawn a new predicted entity
-                        let mut predicted_entity_mut = world.spawn(Predicted {
-                            confirmed_entity: local_entity,
-                        });
-
-                        let predicted_entity = predicted_entity_mut.id();
-                        self.predicted_entity_map
-                            .remote_to_predicted
-                            .insert(entity, predicted_entity);
-
-                        // TODO: I don't like having coupling between the manager and prediction/interpolation
-                        //  now every component needs to implement ComponentSyncMode...
-                        // sync components that have ComponentSyncMode != None
-                        for mut component in actions
-                            .insert
-                            .iter()
-                            .filter(|c| !matches!(c.mode(), ComponentSyncMode::None))
-                            .cloned()
-                        {
-                            info!("syncing component {:?} for predicted entity", component);
-                            // map any entities inside the component
-                            component.map_entities(Box::new(&self.predicted_entity_map));
-                            component.insert(&mut predicted_entity_mut);
-                        }
-
-                        // add Confirmed to the confirmed entity
-                        // safety: we know the entity exists
-                        let mut local_entity_mut = world.entity_mut(local_entity);
-                        if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-                            confirmed.predicted = Some(predicted_entity);
-                        } else {
-                            local_entity_mut.insert(Confirmed {
-                                predicted: Some(predicted_entity),
-                                interpolated: None,
-                            });
-                        }
-                        info!(
-                            "Spawn predicted entity {:?} for confirmed: {:?}",
-                            predicted_entity, local_entity,
-                        );
-                        #[cfg(feature = "metrics")]
-                        {
-                            metrics::increment_counter!("spawn_predicted_entity");
-                        }
-                    }
-                    // NOTE: we handle it here because we want to spawn the predicted/interpolated entities
-                    //  for the group in topological sort as well, and to maintain a new entity mapping
-                    //  i.e. if ComponentA contains an entity E,
-                    //  predicted component A' must contain an entity E' that is predicted
-                    //  maybe instead there should be an entity dependency graph that clients are aware of and maintain,
-                    //  and replication between confirmed/predicted should use that graph (even for non replicated components)
-                    //  For example what happens if on confirm we spawn a particle HasParent(ConfirmedEntity)?
-                    //  most probably it wouldn't get synced, but if it is we need to perform a mapping as well.
-                    //
-                    let interpolated_kind =
-                        P::ComponentKinds::from(&P::Components::from(ShouldBeInterpolated));
-                    if kinds.contains(&interpolated_kind) {
-                        // spawn a new interpolated entity
-                        let mut interpolated_entity_mut = world.spawn(Interpolated {
-                            confirmed_entity: local_entity,
-                        });
-
-                        let interpolated_entity = interpolated_entity_mut.id();
-                        self.interpolated_entity_map
-                            .remote_to_interpolated
-                            .insert(entity, interpolated_entity);
-
-                        // TODO: I don't like having coupling between the manager and prediction/interpolation
-                        //  now every component needs to implement ComponentSyncMode...
-                        // sync components that have ComponentSyncMode != None
-                        for mut component in actions
-                            .insert
-                            .iter()
-                            .filter(|c| !matches!(c.mode(), ComponentSyncMode::None))
-                            .cloned()
-                        {
-                            // map any entities inside the component
-                            component.map_entities(Box::new(&self.interpolated_entity_map));
-                            component.insert(&mut interpolated_entity_mut);
-                        }
-
-                        // add Confirmed to the confirmed entity
-                        // safety: we know the entity exists
-                        let mut local_entity_mut = world.entity_mut(local_entity);
-                        if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-                            confirmed.interpolated = Some(interpolated_entity);
-                        } else {
-                            local_entity_mut.insert(Confirmed {
-                                interpolated: Some(interpolated_entity),
-                                predicted: None,
-                            });
-                        }
-                        info!(
-                            "Spawn interpolated entity {:?} for confirmed: {:?}/remote: {:?}",
-                            interpolated_entity, local_entity, entity,
-                        );
-                        #[cfg(feature = "metrics")]
-                        {
-                            metrics::increment_counter!("spawn_interpolated_entity");
-                        }
-                    }
-
-                    // inserts
                     info!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
-                    let mut local_entity_mut = world.entity_mut(local_entity);
                     for mut component in actions.insert {
                         // map any entities inside the component
                         component.map_entities(Box::new(&self.remote_entity_map));
                         // TODO: figure out what to do with tick here
-                        events.push_insert_component(local_entity, (&component).into(), Tick(0));
+                        events.push_insert_component(
+                            local_entity_mut.id(),
+                            (&component).into(),
+                            Tick(0),
+                        );
                         component.insert(&mut local_entity_mut);
                     }
 
                     // removals
                     debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
-                        events.push_remove_component(local_entity, kind.clone(), Tick(0));
+                        events.push_remove_component(local_entity_mut.id(), kind.clone(), Tick(0));
                         kind.remove(&mut local_entity_mut);
                     }
 
@@ -611,14 +496,13 @@ impl<P: Protocol> ReplicationManager<P> {
                     for mut component in actions.updates {
                         // map any entities inside the component
                         component.map_entities(Box::new(&self.remote_entity_map));
-                        events.push_update_component(local_entity, (&component).into(), Tick(0));
+                        events.push_update_component(
+                            local_entity_mut.id(),
+                            (&component).into(),
+                            Tick(0),
+                        );
                         component.update(&mut local_entity_mut);
                     }
-
-                    // TODO:
-                    // prediction/interpolation
-                    // sync updates for ComponentSyncMode = simple or full
-                    // NOTE: again we apply the replication here because we want to apply it in topological order
                 }
             }
             ReplicationMessageData::Updates(m) => {
@@ -750,10 +634,11 @@ impl<P: Protocol> GroupChannel<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::_reexport::IntoKind;
-    use crate::tests::protocol::*;
     use bevy::prelude::*;
+
+    use crate::tests::protocol::*;
+
+    use super::*;
 
     // TODO: add tests for replication with entity relations!
     #[test]
@@ -827,7 +712,7 @@ mod tests {
                         spawn: true,
                         despawn: false,
                         insert: vec![MyComponentsProtocol::Component1(Component1(1.0))],
-                        remove: vec![MyComponentsProtocolKind::Component2],
+                        remove: HashSet::from_iter(vec![MyComponentsProtocolKind::Component2]),
                         updates: vec![MyComponentsProtocol::Component3(Component3(3.0))],
                     }
                 ),
@@ -837,7 +722,7 @@ mod tests {
                         spawn: false,
                         despawn: false,
                         insert: vec![],
-                        remove: vec![],
+                        remove: HashSet::default(),
                         updates: vec![MyComponentsProtocol::Component2(Component2(4.0))],
                     }
                 )

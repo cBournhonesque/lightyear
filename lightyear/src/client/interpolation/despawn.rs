@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-
-use bevy::prelude::{Commands, Entity, EventReader, Query, RemovedComponents, ResMut, Resource};
+use bevy::prelude::{Commands, EventReader, Query, RemovedComponents, ResMut};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::shared::events::ComponentRemoveEvent;
 
 // Despawn logic:
@@ -16,13 +15,6 @@ use crate::shared::events::ComponentRemoveEvent;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
-
-#[derive(Resource, Default)]
-/// Mapping from confirmed entities to interpolated entities
-/// Needed to despawn interpolated entities when the confirmed entity gets despawned
-pub struct InterpolationMapping {
-    pub confirmed_to_interpolated: HashMap<Entity, Entity>,
-}
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
 pub(crate) fn removed_components<C: SyncComponent>(
@@ -46,12 +38,16 @@ pub(crate) fn removed_components<C: SyncComponent>(
 /// Despawn interpolated entities when the confirmed entity gets despawned
 /// TODO: we should despawn interpolated only when it reaches the latest confirmed snapshot?
 pub(crate) fn despawn_interpolated(
+    mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
-    mut mapping: ResMut<InterpolationMapping>,
     mut query: RemovedComponents<Confirmed>,
 ) {
-    for entity in query.read() {
-        if let Some(interpolated) = mapping.confirmed_to_interpolated.remove(&entity) {
+    for confirmed_entity in query.read() {
+        if let Some(interpolated) = manager
+            .interpolated_entity_map
+            .remote_to_interpolated
+            .remove(&confirmed_entity)
+        {
             if let Some(mut entity_mut) = commands.get_entity(interpolated) {
                 entity_mut.despawn();
             }

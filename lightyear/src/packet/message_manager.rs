@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -259,12 +259,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use serde::{Deserialize, Serialize};
-
     use crate::_reexport::*;
-    use crate::channel::builder::{
-        ChannelDirection, ChannelMode, ChannelSettings, ReliableSettings,
-    };
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::prelude::*;

@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::client::components::{ComponentSyncMode, SyncComponent};
 use bevy::prelude::{App, Component, EntityWorldMut, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use crate::client::components::ComponentSyncMode;
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };

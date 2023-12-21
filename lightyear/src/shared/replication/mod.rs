@@ -1,21 +1,20 @@
 //! Module to handle replicating entities and components from server to client
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use std::hash::Hash;
+
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
-use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
+use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use crate::channel::builder::Channel;
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, RemoteEntityMap, Tick};
-use crate::protocol::channel::ChannelKind;
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, Tick};
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
+use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 pub mod components;
 
@@ -46,24 +45,23 @@ pub mod systems;
 // }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityActions<C, K> {
-    // TODO: do we even need spawn?
+pub struct EntityActions<C, K: Hash + Eq> {
     pub(crate) spawn: bool,
     pub(crate) despawn: bool,
-    // TODO: do we want HashSets to avoid double-inserts, double-removes?
+    // Cannot use HashSet because we would need ComponentProtocol to implement Hash + Eq
     pub(crate) insert: Vec<C>,
-    pub(crate) remove: Vec<K>,
+    pub(crate) remove: HashSet<K>,
     // We also include the updates for the current tick in the actions, if there are any
     pub(crate) updates: Vec<C>,
 }
 
-impl<C, K> Default for EntityActions<C, K> {
+impl<C, K: Hash + Eq> Default for EntityActions<C, K> {
     fn default() -> Self {
         Self {
             spawn: false,
             despawn: false,
             insert: Vec::new(),
-            remove: Vec::new(),
+            remove: HashSet::new(),
             updates: Vec::new(),
         }
     }
@@ -72,8 +70,9 @@ impl<C, K> Default for EntityActions<C, K> {
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityActionMessage<C, K> {
+pub struct EntityActionMessage<C, K: Hash + Eq> {
     sequence_id: MessageId,
+    // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
 }
 
@@ -85,7 +84,7 @@ pub struct EntityUpdatesMessage<C> {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub enum ReplicationMessageData<C, K> {
+pub enum ReplicationMessageData<C, K: Hash + Eq> {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
     Actions(EntityActionMessage<C, K>),
     /// All the entity updates for a given group
@@ -93,7 +92,7 @@ pub enum ReplicationMessageData<C, K> {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct ReplicationMessage<C, K> {
+pub struct ReplicationMessage<C, K: Hash + Eq> {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) data: ReplicationMessageData<C, K>,
 }
@@ -166,11 +165,12 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use std::time::Duration;
 
     // An entity gets replicated from server to client,
     // then a component gets removed from that entity on server,

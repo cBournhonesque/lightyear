@@ -1,10 +1,10 @@
 //! Bevy [`bevy::prelude::Resource`]s used for replication
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::netcode::ClientId;
-use crate::shared::replication::components::Replicate;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::{Entity, FromWorld, Resource, World};
+
+use crate::shared::replication::components::Replicate;
 
 #[derive(Resource)]
 /// Internal resource used to keep track of the state of replication

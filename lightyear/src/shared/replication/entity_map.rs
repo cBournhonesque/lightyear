@@ -10,6 +10,7 @@ pub trait EntityMapper {
 }
 
 impl<T: EntityMapper> EntityMapper for &T {
+    #[inline]
     fn map(&self, entity: Entity) -> Option<Entity> {
         (*self).map(entity)
     }
@@ -29,6 +30,7 @@ pub struct PredictedEntityMap {
 }
 
 impl EntityMapper for PredictedEntityMap {
+    #[inline]
     fn map(&self, entity: Entity) -> Option<Entity> {
         self.remote_to_predicted.get(&entity).copied()
     }
@@ -41,6 +43,7 @@ pub struct InterpolatedEntityMap {
 }
 
 impl EntityMapper for InterpolatedEntityMap {
+    #[inline]
     fn map(&self, entity: Entity) -> Option<Entity> {
         self.remote_to_interpolated.get(&entity).copied()
     }
@@ -53,10 +56,12 @@ impl RemoteEntityMap {
         self.local_to_remote.insert(local_entity, remote_entity);
     }
 
+    #[inline]
     pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
         self.remote_to_local.get(&remote_entity)
     }
 
+    #[inline]
     pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
         self.local_to_remote.get(&local_entity)
     }
@@ -115,6 +120,7 @@ impl RemoteEntityMap {
 }
 
 impl EntityMapper for RemoteEntityMap {
+    #[inline]
     fn map(&self, entity: Entity) -> Option<Entity> {
         self.get_local(entity).copied()
     }
@@ -130,6 +136,7 @@ pub trait MapEntities<'a> {
 }
 
 impl<'a> MapEntities<'a> for Entity {
+    #[inline]
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
         if let Some(local) = entity_mapper.map(*self) {
             *self = local;
@@ -141,6 +148,7 @@ impl<'a> MapEntities<'a> for Entity {
         }
     }
 
+    #[inline]
     fn entities(&self) -> EntityHashSet<Entity> {
         EntityHashSet::from_iter(vec![*self])
     }
@@ -148,11 +156,12 @@ impl<'a> MapEntities<'a> for Entity {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use std::time::Duration;
 
     // An entity gets replicated from server to client,
     // then a component gets removed from that entity on server,
