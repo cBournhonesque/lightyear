@@ -278,7 +278,7 @@ pub(crate) fn interpolate(
                 assert_eq!(tail_status.current, parent_status.current);
                 *tail = tail_start_value.clone();
                 *parent_position = pos_start.clone();
-                info!(
+                debug!(
                     ?tail,
                     ?parent_position,
                     "after interpolation; CURRENT = START"
@@ -296,7 +296,7 @@ pub(crate) fn interpolate(
                     assert_eq!(tail_status.current, parent_status.current);
                     *tail = tail_end_value.clone();
                     *parent_position = pos_end.clone();
-                    info!(
+                    debug!(
                         ?tail,
                         ?parent_position,
                         "after interpolation; CURRENT = END"
@@ -324,13 +324,13 @@ pub(crate) fn interpolate(
                             != tail_start_value.0.front().unwrap().0
                         {
                             tail.0.push_front(tail_end_value.0.front().unwrap().clone());
-                            info!("ADD POINT");
+                            debug!("ADD POINT");
                         }
                         // the path is straight! just move the head and adjust the tail
                         *parent_position =
                             PlayerPosition::lerp(pos_start.clone(), pos_end.clone(), t);
                         tail.shorten_back(parent_position.0, tail_length.0);
-                        info!(
+                        debug!(
                             ?tail,
                             ?parent_position,
                             "after interpolation; FIRST SEGMENT"
@@ -371,7 +371,7 @@ pub(crate) fn interpolate(
                     // now move the head by `pos_distance_to_do` while remaining on the tail path
                     for i in (0..segment_idx).rev() {
                         let dist = segment_length(parent_position.0, tail_end_value.0[i].0);
-                        info!(
+                        debug!(
                             ?i,
                             ?dist,
                             ?pos_distance_to_do,
@@ -380,7 +380,7 @@ pub(crate) fn interpolate(
                             "in other segments"
                         );
                         if pos_distance_to_do < 1000.0 * f32::EPSILON {
-                            info!(?tail, ?parent_position, "after interpolation; ON POINT");
+                            debug!(?tail, ?parent_position, "after interpolation; ON POINT");
                             // no need to change anything
                             continue 'outer;
                         }
@@ -406,7 +406,7 @@ pub(crate) fn interpolate(
                                 .1
                                 .get_tail(tail_end_value.0[i].0, dist - pos_distance_to_do);
                             tail.shorten_back(parent_position.0, tail_length.0);
-                            info!(?tail, ?parent_position, "after interpolation; ELSE");
+                            debug!(?tail, ?parent_position, "after interpolation; ELSE");
                             continue 'outer;
                         }
                     }
@@ -419,7 +419,7 @@ pub(crate) fn interpolate(
                         .1
                         .get_tail(pos_end.0, dist - pos_distance_to_do);
                     tail.shorten_back(parent_position.0, tail_length.0);
-                    info!(?tail, ?parent_position, "after interpolation; ELSE FIRST");
+                    debug!(?tail, ?parent_position, "after interpolation; ELSE FIRST");
                 }
             }
         }
