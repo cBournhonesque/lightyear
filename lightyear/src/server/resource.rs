@@ -9,7 +9,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::HashSet;
 use crossbeam_channel::Sender;
-use tracing::{debug, debug_span, info, trace, trace_span};
+use tracing::{debug, debug_span, info, trace, trace_span, warn};
 
 use crate::channel::builder::Channel;
 use crate::inputs::input_buffer::InputBuffer;
@@ -144,9 +144,39 @@ impl<P: Protocol> Server<P> {
         self.user_connections
             .iter_mut()
             .map(|(client_id, connection)| {
-                let input = connection
+                let received_input = connection
                     .input_buffer
                     .pop(self.tick_manager.current_tick());
+                let fallback = received_input.is_none();
+
+                // NOTE: if there is no input for this tick, we should use the last input that we have
+                //  as a best-effort fallback.
+                let input = match received_input {
+                    None => connection.last_input.clone(),
+                    Some(i) => {
+                        connection.last_input = Some(i.clone());
+                        Some(i)
+                    }
+                };
+                // let input = received_input.map_or_else(
+                //     || connection.last_input.clone(),
+                //     |i| {
+                //         connection.last_input = Some(i.clone());
+                //         Some(i)
+                //     },
+                // );
+                if fallback {
+                    // TODO: do not log this while clients are syncing..
+                    debug!(
+                        ?client_id,
+                        tick = ?self.tick_manager.current_tick(),
+                        fallback_input = ?&input,
+                        "Missed client input!"
+                    )
+                }
+                // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
+                //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
+                //  See Overwatch GDC video
                 (input, *client_id)
             })
     }

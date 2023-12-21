@@ -63,11 +63,21 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
             }
         }
 
+        // TODO: do we need to call this if status.end is set? probably not because the updates are sequenced?
+
+        // TODO: CAREFUL, we need to always leave a value in the history, so that we can compute future values?
+        //  maybe not, because for interpolation we don't care about the value at a given specific tick
+
         // clear all values with a tick <= current_interpolate_tick, and get the last cleared value
         // (we need to call this even if status.start is set, because a new more recent server update could have been received)
         let new_start = history.pop_until_tick(current_interpolate_tick);
         if let Some((new_tick, _)) = new_start {
-            if start.as_ref().map_or(true, |(tick, _)| *tick < new_tick) {
+            if start.as_ref().map_or(true, |(tick, _)| *tick <= new_tick) {
+                trace!(
+                    ?current_interpolate_tick,
+                    old_start = ?start.as_ref().map(|(tick, _)| tick),
+                    new_start = ?new_tick,
+                    "found more recent tick between start and interpolation tick");
                 start = new_start;
             }
         }
@@ -119,12 +129,18 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         // }
         // end = temp_end;
 
-        // If it's been too long since we received an update, reset the server tick to None
+        // If it's been too long since we received an update, reset the start tick to None
         // (so that we wait again until interpolation_tick is between two server updates)
-        let temp_start = std::mem::take(&mut start);
-        if let Some((start_tick, _)) = temp_start {
-            if current_interpolate_tick - start_tick < send_interval_delta_tick {
-                start = temp_start;
+        // otherwise the interpolation will seem weird because the start tick is very old
+        // Only do this when end_tick is None, otherwise it could affect the currently running
+        // interpolation
+        if end.is_none() {
+            let temp_start = std::mem::take(&mut start);
+            if let Some((start_tick, _)) = temp_start {
+                if current_interpolate_tick - start_tick < send_interval_delta_tick {
+                    start = temp_start;
+                }
+                // else (if it's been too long), reset the server tick to None
             }
         }
 
@@ -151,23 +167,25 @@ pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {
     for (mut component, status) in query.iter_mut() {
-        if let (Some((start_tick, start_value)), Some((end_tick, end_value))) =
-            (&status.start, &status.end)
-        {
-            // info!(?start_tick, ?end_tick, "doing interpolation!");
+        // NOTE: it is possible that we reach start_tick when end_tick is not set
+        if let Some((start_tick, start_value)) = &status.start {
             if status.current == *start_tick {
                 *component = start_value.clone();
                 continue;
             }
-            if status.current == *end_tick {
-                *component = end_value.clone();
-                continue;
-            }
-            if start_tick != end_tick {
-                let t = (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
-                *component = C::lerp(start_value.clone(), end_value.clone(), t);
-            } else {
-                *component = start_value.clone();
+            if let Some((end_tick, end_value)) = &status.end {
+                // info!(?start_tick, ?end_tick, "doing interpolation!");
+                if status.current == *end_tick {
+                    *component = end_value.clone();
+                    continue;
+                }
+                if start_tick != end_tick {
+                    let t =
+                        (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
+                    *component = C::lerp(start_value.clone(), end_value.clone(), t);
+                } else {
+                    *component = start_value.clone();
+                }
             }
         }
     }

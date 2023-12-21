@@ -23,7 +23,7 @@ impl Plugin for MyServerPlugin {
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
             incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
+            incoming_loss: 0.00,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
@@ -52,8 +52,8 @@ impl Plugin for MyServerPlugin {
                 .chain()
                 .in_set(FixedUpdateSet::Main),
         );
-        app.add_systems(Update, (handle_connections, send_message));
-        app.add_systems(Update, debug_inputs);
+        app.add_systems(Update, handle_connections);
+        // app.add_systems(Update, debug_inputs);
     }
 }
 
@@ -141,20 +141,6 @@ pub(crate) fn movement(
     }
 }
 
-/// Send messages from server to clients
-pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
-    if input.pressed(KeyCode::M) {
-        // TODO: add way to send message to all
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        server
-            .send_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
-    }
-}
-
 pub(crate) fn debug_inputs(server: Res<Server<MyProtocol>>) {
-    info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(0), "debug");
+    info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(1), "debug");
 }

@@ -34,8 +34,20 @@
     - TODO: tried to make my custom interpolation logic working, but there still seems to be edge cases that are not handled well.
       - there's weird panics now, and sometimes the interpolated entity doesn't move at all
   - INTERP TIME is sometimes too late; i.e. we receive updates that are way after interp time.
+  - SYNC:
+    - seems to not work well for at the beginning..
   - PREDICTION; rollback is weird and fucked
     - looks like sending pings more frequently fixed the issue?, to investigate..
+    - is it that we don't receive the inputs on time at the client?
+    - imagine we lost some packets and server didn't receive the inputs... then when server receives a later packet it should receive the past 15 inputs.
+      server should then use this to rollback?
+      - server should ask client to speed up (via a message), when we have lost inputs (to increase the buffer size)
+      - it should re-use the previous input as a best guess estimate
+      - it looks like our input buffer on server is too big; it contains like 15 ticks worth of inputs, even though the client messages should arrive right before.
+        is it just because of the margin we took?
+      - applied a best guess estimate for lost inputs that uses the last input sent as fallback, works well!
+
+  
 
   
   

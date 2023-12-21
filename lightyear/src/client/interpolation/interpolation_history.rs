@@ -65,7 +65,6 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// NOTE: doesn't pop the last value!
-    /// Returns None
     /// CAREFUL:
     /// the component history will only contain the ticks where the component got updated, and otherwise
     /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
@@ -151,7 +150,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            info!(component = ?confirmed_component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
+                            trace!(component = ?confirmed_component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
                             // TODO: think about mapping entities!
                             history

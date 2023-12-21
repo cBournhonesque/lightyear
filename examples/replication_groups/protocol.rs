@@ -289,6 +289,10 @@ pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
+    // NOTE: the server MUST be able to distinguish between an input saying "the user is not doing any actions" and
+    // "we haven't received the input for this tick", which means that the client must send inputs every tick
+    // even if the user is not doing anything.
+    None,
 }
 
 impl UserInput for Inputs {}
