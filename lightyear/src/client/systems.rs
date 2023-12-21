@@ -1,8 +1,8 @@
 //! Defines the client bevy systems and run conditions
 use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
-use tracing::{debug, info, trace};
+use tracing::trace;
 
-use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::protocol::component::ComponentProtocol;

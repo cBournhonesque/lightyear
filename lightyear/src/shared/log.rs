@@ -6,11 +6,8 @@ use bevy::prelude::{App, Plugin};
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 #[cfg(feature = "metrics")]
 use metrics_util::layers::Layer;
-
-use tracing::{warn, Level};
+use tracing::Level;
 use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
-
-use tracing_log::LogTracer;
 
 /// Adds logging to Apps.
 ///

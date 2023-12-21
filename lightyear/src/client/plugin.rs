@@ -2,7 +2,6 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use crate::client::resource::{Authentication, Client};
 use bevy::prelude::IntoSystemSetConfigs;
 use bevy::prelude::{
     apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
@@ -14,12 +13,12 @@ use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
+use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::plugin::SharedPlugin;
-use crate::shared::replication::resources::ReplicationData;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::systems::tick::increment_tick;
 use crate::transport::io::Io;

@@ -10,7 +10,6 @@ use crate::serialize::writer::WriteBuffer;
 use crate::shared::replication::entity_map::MapEntities;
 use crate::shared::tick_manager::Tick;
 use crate::utils::named::Named;
-use crate::utils::wrapping_id;
 use crate::utils::wrapping_id::wrapping_id;
 
 // strategies to avoid copying:

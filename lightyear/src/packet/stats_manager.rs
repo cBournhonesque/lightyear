@@ -1,8 +1,10 @@
+use std::time::Duration;
+
+use derive_more::{AddAssign, SubAssign};
+use tracing::trace;
+
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
-use derive_more::{AddAssign, SubAssign};
-use std::time::Duration;
-use tracing::{info, trace};
 
 type PacketStatsBuffer = ReadyBuffer<WrappedTime, PacketStats>;
 

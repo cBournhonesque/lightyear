@@ -28,13 +28,9 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, draw_snakes);
     }
 }
-
-// head
-// snake
 
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &Inputs) {
@@ -121,13 +117,13 @@ pub(crate) fn draw_snakes(
         if position.0.x != points.0.front().unwrap().0.x
             && position.0.y != points.0.front().unwrap().0.y
         {
-            info!("DIAGONAL");
+            debug!("DIAGONAL");
         }
         // draw the rest of the lines
         for (start, end) in points.0.iter().zip(points.0.iter().skip(1)) {
             gizmos.line_2d(start.0, end.0, color.0);
             if start.0.x != end.0.x && start.0.y != end.0.y {
-                info!("DIAGONAL");
+                debug!("DIAGONAL");
             }
         }
     }

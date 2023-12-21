@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use bevy::prelude::{
     Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, Without, World,
 };
-use bevy::utils::{EntityHashSet, HashSet};
-use tracing::{debug, error, info, trace, trace_span, warn};
+use bevy::utils::EntityHashSet;
+use tracing::{debug, error, info, trace, trace_span};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};

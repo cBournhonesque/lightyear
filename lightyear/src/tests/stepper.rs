@@ -5,7 +5,6 @@ use std::time::Duration;
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
-use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::netcode::generate_key;
 use crate::prelude::client::{
@@ -14,7 +13,6 @@ use crate::prelude::client::{
 };
 use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
 use crate::prelude::*;
-
 use crate::tests::protocol::{protocol, MyProtocol};
 
 /// Helpers to setup a bevy app where I can just step the world easily

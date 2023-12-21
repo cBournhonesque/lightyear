@@ -17,7 +17,6 @@ use crate::server::resource::Server;
 use crate::server::room::RoomPlugin;
 use crate::server::systems::{clear_events, is_ready_to_send};
 use crate::shared::plugin::SharedPlugin;
-use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::ReplicationSet;
 use crate::shared::sets::{FixedUpdateSet, MainSet};

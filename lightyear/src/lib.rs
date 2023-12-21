@@ -15,10 +15,11 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 pub mod _reexport {
     pub use enum_delegate;
     pub use enum_dispatch::enum_dispatch;
+    pub use paste::paste;
+
     pub use lightyear_macros::{
         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
     };
-    pub use paste::paste;
 
     pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
@@ -109,6 +110,9 @@ pub mod prelude {
         pub use crate::client::sync::SyncConfig;
     }
     pub mod server {
+        #[cfg(feature = "webtransport")]
+        pub use wtransport::tls::Certificate;
+
         pub use crate::server::config::NetcodeConfig;
         pub use crate::server::config::ServerConfig;
         pub use crate::server::events::{
@@ -118,8 +122,6 @@ pub mod prelude {
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::resource::Server;
         pub use crate::server::room::{RoomId, RoomMut, RoomRef};
-        #[cfg(feature = "webtransport")]
-        pub use wtransport::tls::Certificate;
     }
 }
 

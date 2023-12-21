@@ -1,14 +1,15 @@
 //! Components used for replication
-use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
+use bevy::prelude::{Component, Entity};
+use bevy::utils::{EntityHashSet, HashMap, HashSet};
+use serde::{Deserialize, Serialize};
+
+use lightyear_macros::MessageInternal;
+
+use crate::channel::builder::Channel;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::netcode::ClientId;
 use crate::prelude::{EntityMapper, MapEntities};
-use crate::protocol::channel::ChannelKind;
-use crate::server::room::{ClientVisibility, RoomId};
-use bevy::prelude::{Component, Entity};
-use bevy::utils::{EntityHashSet, HashMap, HashSet};
-use lightyear_macros::MessageInternal;
-use serde::{Deserialize, Serialize};
+use crate::server::room::ClientVisibility;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
@@ -187,7 +188,6 @@ impl<'a> MapEntities<'a> for ShouldBePredicted {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::ClientId;
 
     #[test]
     fn test_network_target() {

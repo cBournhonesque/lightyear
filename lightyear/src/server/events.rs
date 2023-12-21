@@ -9,7 +9,6 @@ use crate::connection::events::{
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
-use crate::shared::ping::message::{Ping, Pong};
 
 pub struct ServerEvents<P: Protocol> {
     // have to handle disconnects separately because the [`ConnectionEvents`] are removed upon disconnection

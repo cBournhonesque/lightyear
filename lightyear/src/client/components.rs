@@ -1,11 +1,11 @@
 /*!
 Defines components that are used for the client-side prediction and interpolation
 */
+use std::fmt::Debug;
 
-use crate::prelude::{Named, TypeNamed};
-use bevy::ecs::component::TableStorage;
 use bevy::prelude::{Component, Entity};
-use std::fmt::{Debug, Formatter};
+
+use crate::prelude::{MapEntities, Named};
 
 /// Marks an entity that contains the server-updates that are received from the Server
 /// (this entity is a copy of Predicted that is RTT ticks behind)
@@ -15,7 +15,7 @@ pub struct Confirmed {
     pub interpolated: Option<Entity>,
 }
 
-pub trait SyncComponent: Component + Clone + PartialEq + Named {
+pub trait SyncComponent: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {
     fn mode() -> ComponentSyncMode;
 }
 

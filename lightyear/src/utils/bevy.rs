@@ -1,7 +1,8 @@
 //! Implement lightyear traits for some common bevy types
-use crate::prelude::{EntityMapper, MapEntities, Message, Named, RemoteEntityMap};
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
+
+use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
 impl Named for Transform {
     fn name(&self) -> String {

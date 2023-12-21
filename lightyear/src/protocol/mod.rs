@@ -5,11 +5,11 @@
 //! Inputs, Messages and Components are all data structures that can be serialized and sent over the network.
 //! Channels are an abstraction over how the data will be sent over the network (reliability, ordering, etc.)
 
+use std::fmt::Debug;
+
 use bevy::prelude::App;
-use lightyear_macros::ChannelInternal;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::Debug;
 
 use crate::channel::builder::{Channel, ChannelSettings};
 use crate::inputs::UserInput;

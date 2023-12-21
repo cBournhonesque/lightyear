@@ -6,18 +6,17 @@ use std::net::{IpAddr, SocketAddr};
 
 #[cfg(feature = "metrics")]
 use metrics;
+#[cfg(feature = "webtransport")]
+use wtransport::tls::Certificate;
 
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
-use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
+use crate::transport::local::LocalChannel;
 use crate::transport::udp::UdpSocket;
-
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocket;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::server::WebTransportServerSocket;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-#[cfg(feature = "webtransport")]
-use wtransport::tls::Certificate;
 
 #[derive(Clone)]
 pub enum TransportConfig {

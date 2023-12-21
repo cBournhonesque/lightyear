@@ -187,6 +187,13 @@ pub fn component_protocol_impl(
                 #mode_method
             }
 
+            // impl std::hash::Hash for #enum_name {
+            //     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            //         let kind: #enum_kind_name = self.into();
+            //         kind.hash(state);
+            //     }
+            // }
+
             impl std::fmt::Debug for #enum_name {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                     let kind: #enum_kind_name = self.into();
@@ -371,14 +378,17 @@ fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> To
     let mut interpolation_body = quote! {};
     for field in fields {
         let component_type = &field.ty;
-        prediction_body = quote! {
-            #prediction_body
-            add_prediction_systems::<#component_type, #protocol_name>(app);
-        };
-        prepare_interpolation_body = quote! {
-            #prepare_interpolation_body
-            add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
-        };
+        // we only add sync systems if the SyncComponent is not None
+        if field.full || field.once || field.simple {
+            prediction_body = quote! {
+                #prediction_body
+                add_prediction_systems::<#component_type, #protocol_name>(app);
+            };
+            prepare_interpolation_body = quote! {
+                #prepare_interpolation_body
+                add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
+            };
+        }
         if field.full {
             interpolation_body = quote! {
                 #interpolation_body
@@ -533,7 +543,7 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
         };
     }
 
-    // TODO: make it work with generics
+    // TODO: make it work with generics (generic components)
     quote! {
         impl<'a> MapEntities<'a> for #enum_name {
             fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {

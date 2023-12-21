@@ -10,6 +10,7 @@ use crate::client::prediction::despawn::{
     remove_component_for_despawn_predicted, remove_despawn_marker,
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
+use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::Named;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -147,6 +148,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         P::Components::add_prediction_systems(app);
 
         // RESOURCES
+        app.init_resource::<PredictionManager>();
         app.insert_resource(Rollback {
             state: RollbackState::Default,
         });
@@ -184,10 +186,10 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         );
 
         // no need, since we spawn predicted entities/components in replication
-        // app.add_systems(
-        //     PreUpdate,
-        //     spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
-        // );
+        app.add_systems(
+            PreUpdate,
+            spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
+        );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback

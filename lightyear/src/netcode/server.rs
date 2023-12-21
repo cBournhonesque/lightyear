@@ -7,7 +7,7 @@ use tracing::{debug, error, trace};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender};
 
 use super::{
     bytes::Bytes,

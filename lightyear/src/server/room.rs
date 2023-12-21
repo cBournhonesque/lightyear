@@ -1,17 +1,17 @@
-use crate::netcode::ClientId;
-use crate::prelude::{MainSet, Replicate, ReplicationSet};
-use crate::protocol::Protocol;
-use crate::server::resource::Server;
-use crate::server::systems::is_ready_to_send;
-use crate::shared::replication::components::DespawnTracker;
-use crate::utils::wrapping_id::wrapping_id;
 use bevy::app::App;
 use bevy::prelude::{
     Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, RemovedComponents,
     Res, ResMut, Resource, SystemSet,
 };
 use bevy::utils::{HashMap, HashSet};
-use tracing::info;
+
+use crate::netcode::ClientId;
+use crate::prelude::{Replicate, ReplicationSet};
+use crate::protocol::Protocol;
+use crate::server::resource::Server;
+use crate::server::systems::is_ready_to_send;
+use crate::shared::replication::components::DespawnTracker;
+use crate::utils::wrapping_id::wrapping_id;
 
 // Id for a room, used to perform interest management
 // An entity will be replicated to a client only if they are in the same room
@@ -448,15 +448,18 @@ fn clean_entity_despawns<P: Protocol>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::time::Duration;
+
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::Events;
+
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::{EventReader, Events};
-    use std::time::Duration;
+
+    use super::*;
 
     fn setup() -> BevyStepper {
         let frame_duration = Duration::from_millis(10);

@@ -1,14 +1,14 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, Res, ResMut, With, Without,
+    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::events::ComponentUpdateEvent;
 use crate::client::interpolation::interpolate::InterpolateStatus;
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
@@ -76,6 +76,7 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
 
 // TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
 pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
+    manager: Res<InterpolationManager>,
     mut commands: Commands,
     client: ResMut<Client<P>>,
     interpolated_entities: Query<Entity, (Without<ConfirmedHistory<T>>, With<Interpolated>)>,
@@ -90,11 +91,14 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                         commands.get_entity(interpolated_entity).unwrap();
                     // insert history
                     let history = ConfirmedHistory::<T>::new();
+                    // map any entities from confirmed to interpolated
+                    let mut new_component = confirmed_component.deref().clone();
+                    new_component.map_entities(Box::new(&manager.interpolated_entity_map));
                     match T::mode() {
                         ComponentSyncMode::Full => {
                             debug!("spawn interpolation history");
                             interpolated_entity_mut.insert((
-                                // confirmed_component.deref().clone(),
+                                new_component,
                                 history,
                                 InterpolateStatus::<T> {
                                     start: None,
@@ -103,10 +107,11 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                                 },
                             ));
                         }
-                        _ => {
+                        ComponentSyncMode::Once | ComponentSyncMode::Simple => {
                             debug!("copy interpolation component");
-                            // interpolated_entity_mut.insert(confirmed_component.deref().clone());
+                            interpolated_entity_mut.insert(new_component);
                         }
+                        ComponentSyncMode::None => {}
                     }
                 }
             }
@@ -117,6 +122,7 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
 /// When we receive a server update, we need to store it in the confirmed history,
 /// or update the interpolated component directly if InterpolatedComponentMode::Sync
 pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
+    manager: ResMut<InterpolationManager>,
     client: Res<Client<P>>,
     mut interpolated_entities: Query<
         // TODO: handle missing T?
@@ -127,8 +133,8 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
 ) {
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
-            if confirmed_component.is_changed() {
-                if let Ok((interpolated_component, history_option)) =
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
+                if let Ok((mut interpolated_component, history_option)) =
                     interpolated_entities.get_mut(p)
                 {
                     match T::mode() {
@@ -150,17 +156,19 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            info!(component = ?confirmed_component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
+                            // map any entities from confirmed to predicted
+                            let mut component = confirmed_component.deref().clone();
+                            component.map_entities(Box::new(&manager.interpolated_entity_map));
+                            trace!(component = ?component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
-                            // TODO: think about mapping entities!
-                            history
-                                .buffer
-                                .add_item(channel.latest_tick, confirmed_component.deref().clone());
+                            history.buffer.add_item(channel.latest_tick, component);
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {
-                            // TODO: think about mapping entities!
-                            // *interpolated_component = confirmed_component.deref().clone();
+                            // map any entities from confirmed to predicted
+                            let mut component = confirmed_component.deref().clone();
+                            component.map_entities(Box::new(&manager.interpolated_entity_map));
+                            *interpolated_component = component;
                         }
                         _ => {}
                     }

@@ -1,20 +1,16 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
-use bevy::ecs::system::SystemChangeTick;
 use std::ops::Deref;
 
-use crate::connection::events::ConnectionEvents;
+use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
-    Added, App, Commands, Component, DetectChanges, Entity, EventReader, IntoSystemConfigs, Mut,
-    PostUpdate, Query, Ref, RemovedComponents, ResMut,
+    Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate, Query,
+    Ref, RemovedComponents, ResMut,
 };
-use bevy::utils::HashSet;
-use tracing::{debug, info};
+use tracing::debug;
 
-use crate::netcode::ClientId;
 use crate::prelude::NetworkTarget;
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
-use crate::server::events::ConnectEvent;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
 use crate::shared::replication::resources::ReplicationData;

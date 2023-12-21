@@ -12,10 +12,11 @@
     because start tick or end tick are not updated correctly in some edge cases.
 
 
-- add PredictionGroup and InterpolationGroup.
+- add PredictionGroup and InterpolationGroup?
   - on top of ReplicationGroup?
   - or do we just re-use the replication group id (that usually will have a remote entity id) and use it to see the prediction/interpolation group?
   - then we add the prediction group id on the Confirmed or Predicted components?
+  - when we receive a replicated group with ShouldBePredicted, we udpate the replication graph of the prediction group.
 - Then we don't really need the Confirmed/Predicted components anymore, we could just have resources on the Prediction or Interpolation plugin
 - The resource needs:
   - confirmed<->predicted mapping
@@ -25,7 +26,27 @@
   - for each entity, fetch the confirmed/predicted entity
   - do entity mapping if needed
 - users can add their own entities in the prediction group (even if thre )
+- examples:
+  - a shooter, we shoot bullets. the bullets should be in our prediction group?
+    I guess it's not needed if we don't do rollback for those bullets, i.e. we don't give them a Predicted component.
+    Or we could create the bullet, make it part of the entity group; the server will create the bullet a bit later.
+    When the bullet gets replicated on client; we should be able to map the Confirmed to the predicted bullet; so we don't spawn a new predicted.
+    (in practice, for important stuff, we would just wait for the server replication to spawn the entity (instead of spawning it on client and then deleting it if the server version doesn't spawn it?, and for non-important stuff we would just spawn a short-lived entity that is not predicted.)
+  - a character has HasWeapon(Entity), weapon has HasParent(Entity) which forms a cycle. I guess instead of creating this graph of deps,
+    we should just deal with all spawns first separately! Same for prediction, we first do all spawns first
+  
 
+    
+- TODO: Give an option for rollback to choose how to perform the rollback!
+  - the default option is to snapback instantly to the rollback state.
+  - another option is: snapback to rollback state, perform rollback, then tell the user the previous predicted state and the new predicted state.
+    for example they could choose to lerp over several frames from the [old to new] (i.e correct only 10% of the way).
+    this would cause many consecutive rollback frames, but smoother corrections.
+  - register a component RollbackResult<C> {
+      // use option because the component could have gotten removed
+      old: Option<C>, 
+      new: Option<C>,
+    }
 
 
 - DEBUGGING REPLICATION BOX:

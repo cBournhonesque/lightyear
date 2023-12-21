@@ -1,15 +1,10 @@
 /*!  A connection is a wrapper that lets us send message and apply replication
 */
 
-// only public for proc macro
-pub mod events;
-
-pub(crate) mod message;
-
 use anyhow::Result;
-use bevy::prelude::{Entity, World};
+use bevy::prelude::World;
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace, trace_span};
+use tracing::{trace, trace_span};
 
 use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -30,6 +25,11 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 use crate::utils::named::Named;
+
+// only public for proc macro
+pub mod events;
+
+pub(crate) mod message;
 
 /// Wrapper to send/receive messages via channels to a remote address
 pub struct Connection<P: Protocol> {
@@ -241,9 +241,6 @@ impl<P: Protocol> Connection<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tests::protocol::*;
-
     // #[test]
     // fn test_notify_ack() -> Result<()> {
     //     let protocol = protocol();
