@@ -33,8 +33,8 @@ pub struct Component3(pub f32);
 #[message(custom_map)]
 pub struct Component4(pub Entity);
 
-impl MapEntities for Component4 {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper>) {
+impl<'a> MapEntities<'a> for Component4 {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
         self.0.map_entities(entity_mapper);
     }
 
@@ -43,7 +43,6 @@ impl MapEntities for Component4 {
     }
 }
 
-// #[component_protocol_internal(protocol = "MyProtocol", derive(Debug))]
 #[component_protocol_internal(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     #[sync(full)]

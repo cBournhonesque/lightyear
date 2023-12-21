@@ -132,17 +132,6 @@ pub struct TailLength(pub(crate) f32);
 // tail inflection points, from front (point closest to the head) to back (tail end point)
 pub struct TailPoints(pub(crate) VecDeque<(Vec2, Direction)>);
 
-pub struct TailPointsInterpolation;
-// TODO: annoyingly, we still need to implement InterpFn for TailPointsInterpolation
-//  even if we completely disable interpolation, because the derive macro demands it.
-//  maybe also add an attribute on the derive macro?
-impl InterpFn<TailPoints> for TailPointsInterpolation {
-    fn lerp(start: TailPoints, other: TailPoints, t: f32) -> TailPoints {
-        panic!("hi");
-        start
-    }
-}
-
 pub fn segment_length(from: Vec2, to: Vec2) -> f32 {
     (from - to).length()
 }
@@ -218,7 +207,9 @@ pub enum Components {
     PlayerColor(PlayerColor),
     #[sync(once)]
     TailLength(TailLength),
-    #[sync(full, lerp = "TailPointsInterpolation")]
+    // we set the interpolation function to NoInterpolation because we are using our own custom interpolation logic
+    // (by default it would use LinearInterpolation, which requires Add and Mul bounds on this component)
+    #[sync(full, lerp = "NoInterpolation")]
     TailPoints(TailPoints),
     #[sync(once)]
     PlayerParent(PlayerParent),

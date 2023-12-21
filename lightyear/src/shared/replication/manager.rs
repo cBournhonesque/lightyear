@@ -347,31 +347,30 @@ impl<P: Protocol> ReplicationManager<P> {
 
                         // add actions to the message for entities in topological order
                         for e in entities.iter() {
-                            if let Some(mut a) = actions.remove(e) {
-                                // for any update that was not already in insert/updates, add it to the update list
-                                if let Some(ref mut updates) = my_updates {
-                                    // TODO: this suggests that we should already store inserts/updates as HashSet!
-                                    let existing_inserts = a
-                                        .insert
-                                        .iter()
-                                        .map(|c| c.into())
-                                        .collect::<HashSet<P::ComponentKinds>>();
-                                    let existing_updates = a
-                                        .updates
-                                        .iter()
-                                        .map(|c| c.into())
-                                        .collect::<HashSet<P::ComponentKinds>>();
-                                    updates.remove(e).map(|u| {
-                                        u.into_iter()
-                                            .filter(|c| {
-                                                !existing_inserts.contains(&(c.into()))
-                                                    && !existing_updates.contains(&(c.into()))
-                                            })
-                                            .for_each(|c| a.updates.push(c));
-                                    });
+                            let mut a = actions.remove(e).unwrap_or_else(EntityActions::default);
+                            // for any update that was not already in insert/updates, add it to the update list
+                            if let Some(ref mut updates) = my_updates {
+                                // TODO: this suggests that we should already store inserts/updates as HashSet!
+                                let existing_inserts = a
+                                    .insert
+                                    .iter()
+                                    .map(|c| c.into())
+                                    .collect::<HashSet<P::ComponentKinds>>();
+                                let existing_updates = a
+                                    .updates
+                                    .iter()
+                                    .map(|c| c.into())
+                                    .collect::<HashSet<P::ComponentKinds>>();
+                                if let Some(u) = updates.remove(e) {
+                                    u.into_iter()
+                                        .filter(|c| {
+                                            !existing_inserts.contains(&(c.into()))
+                                                && !existing_updates.contains(&(c.into()))
+                                        })
+                                        .for_each(|c| a.updates.push(c));
                                 }
-                                actions_message.push((*e, a));
                             }
+                            actions_message.push((*e, a));
                         }
 
                         messages.push((
@@ -385,15 +384,15 @@ impl<P: Protocol> ReplicationManager<P> {
                     }
 
                     // create an updates message
-                    self.pending_updates.remove(&group_id).map(|mut updates| {
+                    if let Some(mut updates) = self.pending_updates.remove(&group_id) {
                         let channel = self.group_channels.entry(group_id).or_default();
                         let mut updates_message = vec![];
 
                         // add updates to the message in topological order
                         entities.iter().for_each(|e| {
-                            updates.remove(e).map(|u| {
+                            if let Some(u) = updates.remove(e) {
                                 updates_message.push((*e, u));
-                            });
+                            };
                         });
 
                         messages.push((
@@ -404,7 +403,7 @@ impl<P: Protocol> ReplicationManager<P> {
                                 updates: updates_message,
                             }),
                         ));
-                    });
+                    };
                 }
                 Err(e) => {
                     error!("There is a cyclic dependency in the group (with entity {:?})! Replication aborted.", e.node_id());
@@ -810,54 +809,55 @@ mod tests {
             MyComponentsProtocol::Component3(Component3(5.0)),
         );
 
+        // the order of actions is not important if there are no relations between the entities
+        let message = manager.finalize(Tick(2));
+        let actions = message.first().unwrap();
+        assert_eq!(actions.0, ChannelKind::of::<EntityActionsChannel>());
+        assert_eq!(actions.1, group_1);
+        let ReplicationMessageData::Actions(ref a) = actions.2 else {
+            panic!()
+        };
+        assert_eq!(a.sequence_id, MessageId(2));
         assert_eq!(
-            manager.finalize(Tick(2)),
-            vec![
+            EntityHashMap::from_iter(a.actions.clone()),
+            EntityHashMap::from_iter(vec![
                 (
-                    ChannelKind::of::<EntityActionsChannel>(),
-                    group_1,
-                    ReplicationMessageData::Actions(EntityActionMessage {
-                        sequence_id: MessageId(2),
-                        actions: BTreeMap::from([
-                            (
-                                entity_1,
-                                EntityActions {
-                                    spawn: true,
-                                    despawn: false,
-                                    insert: vec![MyComponentsProtocol::Component1(Component1(1.0))],
-                                    remove: vec![MyComponentsProtocolKind::Component2],
-                                    updates: vec![MyComponentsProtocol::Component3(Component3(
-                                        3.0
-                                    ))],
-                                }
-                            ),
-                            (
-                                entity_2,
-                                EntityActions {
-                                    spawn: false,
-                                    despawn: false,
-                                    insert: vec![],
-                                    remove: vec![],
-                                    updates: vec![MyComponentsProtocol::Component2(Component2(
-                                        4.0
-                                    ))],
-                                }
-                            )
-                        ]),
-                    })
+                    entity_1,
+                    EntityActions {
+                        spawn: true,
+                        despawn: false,
+                        insert: vec![MyComponentsProtocol::Component1(Component1(1.0))],
+                        remove: vec![MyComponentsProtocolKind::Component2],
+                        updates: vec![MyComponentsProtocol::Component3(Component3(3.0))],
+                    }
                 ),
                 (
-                    ChannelKind::of::<EntityUpdatesChannel>(),
-                    group_2,
-                    ReplicationMessageData::Updates(EntityUpdatesMessage {
-                        last_action_tick: Tick(3),
-                        updates: BTreeMap::from([(
-                            entity_3,
-                            vec![MyComponentsProtocol::Component3(Component3(5.0))]
-                        )]),
-                    })
+                    entity_2,
+                    EntityActions {
+                        spawn: false,
+                        despawn: false,
+                        insert: vec![],
+                        remove: vec![],
+                        updates: vec![MyComponentsProtocol::Component2(Component2(4.0))],
+                    }
                 )
-            ]
+            ])
+        );
+
+        let updates = message.get(1).unwrap();
+        assert_eq!(
+            updates,
+            &(
+                ChannelKind::of::<EntityUpdatesChannel>(),
+                group_2,
+                ReplicationMessageData::Updates(EntityUpdatesMessage {
+                    last_action_tick: Tick(3),
+                    updates: vec![(
+                        entity_3,
+                        vec![MyComponentsProtocol::Component3(Component3(5.0))]
+                    )],
+                })
+            )
         );
         assert_eq!(
             manager

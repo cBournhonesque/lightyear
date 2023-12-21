@@ -128,7 +128,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() {
-                if let Ok((mut interpolated_component, history_option)) =
+                if let Ok((interpolated_component, history_option)) =
                     interpolated_entities.get_mut(p)
                 {
                     match T::mode() {

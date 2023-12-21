@@ -49,6 +49,15 @@ where
     }
 }
 
+/// Use this if you don't want to use an interpolation function for this component.
+/// (For example if you are running your own interpolation logic)
+pub struct NoInterpolation;
+impl<C> InterpFn<C> for NoInterpolation {
+    fn lerp(start: C, _other: C, _t: f32) -> C {
+        start
+    }
+}
+
 pub trait InterpolatedComponent<C>: SyncComponent {
     type Fn: InterpFn<C>;
 

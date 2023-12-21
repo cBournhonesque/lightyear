@@ -24,10 +24,10 @@ pub mod _reexport {
     pub use crate::channel::builder::{
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
-    pub use crate::client::interpolation::LinearInterpolation;
     pub use crate::client::interpolation::{
         add_interpolation_systems, add_prepare_interpolation_systems, InterpolatedComponent,
     };
+    pub use crate::client::interpolation::{LinearInterpolation, NoInterpolation};
     pub use crate::client::prediction::add_prediction_systems;
     pub use crate::connection::events::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,

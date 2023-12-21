@@ -270,7 +270,10 @@ mod tests {
 
     #[test]
     fn test_send_pings() {
-        let config = PingConfig::default();
+        let config = PingConfig {
+            ping_interval: Duration::from_millis(100),
+            stats_buffer_duration: Duration::from_secs(4),
+        };
         let mut ping_manager = PingManager::new(&config);
         let mut time_manager = TimeManager::new(Duration::default());
 

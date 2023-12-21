@@ -12,6 +12,21 @@
     because start tick or end tick are not updated correctly in some edge cases.
 
 
+- add PredictionGroup and InterpolationGroup.
+  - on top of ReplicationGroup?
+  - or do we just re-use the replication group id (that usually will have a remote entity id) and use it to see the prediction/interpolation group?
+  - then we add the prediction group id on the Confirmed or Predicted components?
+- Then we don't really need the Confirmed/Predicted components anymore, we could just have resources on the Prediction or Interpolation plugin
+- The resource needs:
+  - confirmed<->predicted mapping
+  - for a given prediction-group, the dependency graph of the entities (using confirmed entities?)
+- The prediction systems will:
+  - iterate through the dependency graph of the prediction group
+  - for each entity, fetch the confirmed/predicted entity
+  - do entity mapping if needed
+- users can add their own entities in the prediction group (even if thre )
+
+
 
 - DEBUGGING REPLICATION BOX:
   - the sync from confirmed to predict might not only be for replicated components, but also components that were

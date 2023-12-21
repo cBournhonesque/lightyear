@@ -198,7 +198,7 @@ pub(crate) fn debug_prediction_pre_rollback(
         inputs = ?client.get_input_buffer(),
         "prediction pre rollback debug");
     for (parent, tail_history) in tail_query.iter() {
-        let (parent_history) = parent_query
+        let parent_history = parent_query
             .get(parent.0)
             .expect("Tail entity has no parent entity!");
         info!(?parent_history, "parent");
@@ -213,7 +213,7 @@ pub(crate) fn debug_prediction_post_rollback(
 ) {
     info!(tick = ?client.tick(), "prediction post rollback debug");
     for (parent, tail_history) in tail_query.iter() {
-        let (parent_history) = parent_query
+        let parent_history = parent_query
             .get(parent.0)
             .expect("Tail entity has no parent entity!");
         info!(?parent_history, "parent");

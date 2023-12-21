@@ -92,7 +92,7 @@ pub struct Channel1;
 #[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
-#[message_protocol(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     Message1(Message1),
 }
