@@ -86,7 +86,7 @@ impl Default for Replicate {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]

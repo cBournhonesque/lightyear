@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::Result;
+use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Resource, Time, Virtual, World};
 use tracing::trace;
 
@@ -158,7 +159,7 @@ impl<P: Protocol> Client<P> {
             self.connection.sync_manager.update_prediction_time(
                 &mut self.time_manager,
                 &self.tick_manager,
-                &self.connection.base.ping_manager,
+                &self.connection.ping_manager,
             );
             // update bevy's relative speed
             self.time_manager.update_relative_speed(time);
@@ -186,7 +187,8 @@ impl<P: Protocol> Client<P> {
 
     // REPLICATION
     pub(crate) fn replication_manager(&self) -> &ReplicationManager<P> {
-        &self.connection.base.replication_manager
+        todo!()
+        // self.connection.base.replication_manager
     }
 
     /// Maintain connection with server, queues up any packet received from the server
@@ -215,7 +217,7 @@ impl<P: Protocol> Client<P> {
             self.connection.sync_manager.update(
                 &mut self.time_manager,
                 &mut self.tick_manager,
-                &self.connection.base.ping_manager,
+                &self.connection.ping_manager,
                 &self.config.interpolation.delay,
                 self.config.shared.server_send_interval,
             );
@@ -228,20 +230,19 @@ impl<P: Protocol> Client<P> {
         P::Message: From<M>,
     {
         let channel = ChannelKind::of::<C>();
-        self.connection.base.buffer_message(message.into(), channel)
+        self.connection.buffer_message(message.into(), channel)
     }
 
     /// Receive messages from the server
     pub(crate) fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
-        self.connection.base.receive(world, &self.time_manager)
+        self.connection.receive(world, &self.time_manager)
     }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub(crate) fn send_packets(&mut self) -> Result<()> {
         let packet_bytes = self
             .connection
-            .base
             .send_packets(&self.time_manager, &self.tick_manager)?;
         for packet_byte in packet_bytes {
             self.netcode.send(packet_byte.as_slice(), &mut self.io)?;
@@ -250,10 +251,10 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub(crate) fn recv_packets(&mut self) -> Result<()> {
+    pub(crate) fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
             self.connection
-                .recv_packet(&mut reader, &self.time_manager, &self.tick_manager)?;
+                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
         }
         Ok(())
     }

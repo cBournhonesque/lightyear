@@ -24,6 +24,8 @@ pub mod manager;
 
 pub mod resources;
 
+pub(crate) mod receive;
+pub(crate) mod send;
 pub mod systems;
 
 // // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
@@ -222,8 +224,7 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
+            .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();

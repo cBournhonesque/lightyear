@@ -124,7 +124,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         loop {
             // can use 0 overstep if not in Bevy
             client.update(start.elapsed(), Duration::default())?;
-            client.recv_packets()?;
+            client.recv_packets(BevyTick::new(0))?;
             client.send_packets()?;
 
             if client.is_connected() {

@@ -29,7 +29,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             client.update(time.delta(), fixed_time.overstep()).unwrap();
 
             // buffer packets into message managers
-            client.recv_packets().unwrap();
+            client.recv_packets(world.change_tick()).unwrap();
             // receive packets from message managers
             let mut events = client.receive(world);
             if !events.is_empty() {

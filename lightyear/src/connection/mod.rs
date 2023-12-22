@@ -10,7 +10,6 @@ use crate::channel::builder::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::ProtocolMessage;
-use crate::connection::message::ProtocolMessage::Replication;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::MapEntities;
@@ -30,11 +29,12 @@ use crate::utils::named::Named;
 pub mod events;
 
 pub(crate) mod message;
+mod send;
 
 /// Wrapper to send/receive messages via channels to a remote address
 pub struct Connection<P: Protocol> {
     pub ping_manager: PingManager,
-    pub message_manager: MessageManager<ProtocolMessage<P>>,
+    pub message_manager: MessageManager,
     pub(crate) replication_manager: ReplicationManager<P>,
     pub events: ConnectionEvents<P>,
 }
@@ -77,7 +77,7 @@ impl<P: Protocol> Connection<P> {
             .name(&channel)
             .unwrap_or("unknown")
             .to_string();
-        let message = ProtocolMessage::Message(message);
+        let message = ProtocolMessage::<P>::Message(message);
         message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message, channel)?;
         Ok(())
@@ -96,7 +96,7 @@ impl<P: Protocol> Connection<P> {
                     .name(&channel)
                     .unwrap_or("unknown")
                     .to_string();
-                let message = Replication(ReplicationMessage {
+                let message = ProtocolMessage::<P>::Replication(ReplicationMessage {
                     group_id,
                     data: message_data,
                 });
@@ -124,7 +124,7 @@ impl<P: Protocol> Connection<P> {
         time_manager: &TimeManager,
     ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
-        for (channel_kind, messages) in self.message_manager.read_messages() {
+        for (channel_kind, messages) in self.message_manager.read_messages::<ProtocolMessage<P>>() {
             let channel_name = self
                 .message_manager
                 .channel_registry
@@ -210,7 +210,7 @@ impl<P: Protocol> Connection<P> {
             // (and not have the delay between when we prepare the ping and when we send the packet)
             if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
                 trace!("Sending ping {:?}", ping);
-                let message = ProtocolMessage::Sync(SyncMessage::Ping(ping));
+                let message = ProtocolMessage::<P>::Sync(SyncMessage::Ping(ping));
                 let channel = ChannelKind::of::<PingChannel>();
                 self.message_manager.buffer_send(message, channel)?;
             }
@@ -223,7 +223,7 @@ impl<P: Protocol> Connection<P> {
                     trace!("Sending pong {:?}", pong);
                     // update the send time of the pong
                     pong.pong_sent_time = time_manager.current_time();
-                    let message = ProtocolMessage::Sync(SyncMessage::Pong(pong));
+                    let message = ProtocolMessage::<P>::Sync(SyncMessage::Pong(pong));
                     let channel = ChannelKind::of::<PingChannel>();
                     self.message_manager.buffer_send(message, channel)?;
                     Ok::<(), anyhow::Error>(())

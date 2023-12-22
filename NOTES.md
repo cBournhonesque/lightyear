@@ -5,6 +5,22 @@
   - one server: 1 game room per core?
 
 
+- CLIENT REPLICATION:
+  - we want client to be able to send messages to specific other clients
+    - send a message to server, who then retransmits it to other clients
+    - either add a MessageWithMetadata in the ProtocolMessage, or add Option<Metadata> in Message.
+  - we want client to be able to spawn entities that then become server-authoritative and replicated to other clients
+    - for example client spawns snake when it connects.
+    - server-authoritative = server updates are replicated to the client (and to other clients)
+      - can optionally have a Predicted entity on the client, but in case of conflict server wins.
+  - we want client to be able to spawn entities that are client-authoritative and replicated to other clients.
+    - for example client's cursor.
+    - client-authoritative = client's changes are replicated to the server, which replicates them to other clients than the client.
+  - can just use Authority to specify who has authority?
+  - maybe we should separate Connection and MessageManager into a Send and Receive part?
+    - server recv and client send need MessageWithMetadata
+    - client recv and server send need Message
+
 - DEBUGGING SIMPLE_BOX:
   - If jitter is too big, or there is packet loss? it looks like inputs keep getting sent to client 1.
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails

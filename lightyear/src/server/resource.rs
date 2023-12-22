@@ -251,7 +251,6 @@ impl<P: Protocol> Server<P> {
             self.user_connections
                 .get_mut(client_id)
                 .context("client not found")?
-                .base
                 .buffer_message(message.clone().into(), channel)?;
         }
         Ok(())
@@ -272,7 +271,6 @@ impl<P: Protocol> Server<P> {
         self.user_connections
             .get_mut(&client_id)
             .context("client not found")?
-            .base
             .buffer_message(message.into(), channel)
     }
 
@@ -289,9 +287,7 @@ impl<P: Protocol> Server<P> {
 
         // update connections
         for connection in self.user_connections.values_mut() {
-            connection
-                .base
-                .update(&self.time_manager, &self.tick_manager);
+            connection.update(&self.time_manager, &self.tick_manager);
         }
 
         // handle connections
@@ -305,7 +301,7 @@ impl<P: Protocol> Server<P> {
                 info!("New connection from {} (id: {})", client_addr, client_id);
                 let mut connection =
                     Connection::new(self.protocol.channel_registry(), &self.config.ping);
-                connection.base.events.push_connection();
+                connection.events.push_connection();
                 self.new_clients.push(client_id);
                 e.insert(connection);
             }
@@ -341,10 +337,7 @@ impl<P: Protocol> Server<P> {
         for (client_idx, connection) in &mut self.user_connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for packet_byte in connection
-                .base
-                .send_packets(&self.time_manager, &self.tick_manager)?
-            {
+            for packet_byte in connection.send_packets(&self.time_manager, &self.tick_manager)? {
                 self.netcode
                     .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
             }
@@ -359,7 +352,7 @@ impl<P: Protocol> Server<P> {
             self.user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .recv_packet(&mut reader, bevy_tick)?;
+                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
         }
         Ok(())
     }
@@ -406,29 +399,28 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 "Send entity spawn for tick {:?}",
                 self.tick_manager.current_tick()
             );
-            let replication_manager = &mut self
+            let replication_sender = &mut self
                 .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .base
-                .replication_manager;
+                .replication_sender;
             // update the collect changes tick
-            replication_manager
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_entity_spawn(entity, group);
+            replication_sender.prepare_entity_spawn(entity, group);
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
             if replicate.prediction_target.should_send_to(&client_id) {
-                replication_manager.prepare_component_insert(
+                replication_sender.prepare_component_insert(
                     entity,
                     group,
                     P::Components::from(ShouldBePredicted),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
-                replication_manager.prepare_component_insert(
+                replication_sender.prepare_component_insert(
                     entity,
                     group,
                     P::Components::from(ShouldBeInterpolated),
@@ -453,19 +445,18 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 "Send entity despawn for tick {:?}",
                 self.tick_manager.current_tick()
             );
-            let replication_manager = &mut self
+            let replication_sender = &mut self
                 .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .base
-                .replication_manager;
+                .replication_sender;
             // update the collect changes tick
-            replication_manager
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_entity_despawn(entity, group);
+            replication_sender.prepare_entity_despawn(entity, group);
             Ok(())
         })
     }
@@ -488,19 +479,18 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 tick = ?self.tick_manager.current_tick(),
                 "Inserting single component"
             );
-            let replication_manager = &mut self
+            let replication_sender = &mut self
                 .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .base
-                .replication_manager;
+                .replication_sender;
             // update the collect changes tick
-            replication_manager
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_component_insert(entity, group, component.clone());
+            replication_sender.prepare_component_insert(entity, group, component.clone());
             Ok(())
         })
     }
@@ -516,18 +506,17 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
-            let replication_manager = &mut self
+            let replication_sender = &mut self
                 .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .base
-                .replication_manager;
-            replication_manager
+                .replication_sender;
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_component_remove(entity, group, component_kind.clone());
+            replication_sender.prepare_component_remove(entity, group, component_kind.clone());
             Ok(())
         })
     }
@@ -546,13 +535,12 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_manager = &mut self
+            let replication_sender = &mut self
                 .user_connections
                 .get_mut(&client_id)
                 .context("client not found")?
-                .base
-                .replication_manager;
-            let last_updates_ack_bevy_tick = replication_manager
+                .replication_sender;
+            let last_updates_ack_bevy_tick = replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
@@ -573,7 +561,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                     tick = ?self.tick_manager.current_tick(),
                     "Updating single component"
                 );
-                replication_manager.prepare_entity_update(entity, group, component.clone());
+                replication_sender.prepare_entity_update(entity, group, component.clone());
             }
             Ok(())
         })
@@ -589,7 +577,6 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 self.user_connections
                     .get_mut(client_id)
                     .context("client not found")?
-                    .base
                     .buffer_replication_messages(self.tick_manager.current_tick())
             })
     }
