@@ -2,8 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
-use chacha20poly1305::aead::generic_array::typenum::Bit;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;

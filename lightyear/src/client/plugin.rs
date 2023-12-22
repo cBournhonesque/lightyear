@@ -19,6 +19,7 @@ use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::plugin::SharedPlugin;
+use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::systems::tick::increment_tick;
 use crate::transport::io::Io;
@@ -68,6 +69,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
         );
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
 
+        add_replication_send_systems::<P, Client<P>>(app);
+        P::Components::add_per_component_replication_send_systems::<Client<P>>(app);
         P::Components::add_events::<()>(app);
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that

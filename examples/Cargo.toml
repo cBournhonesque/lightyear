@@ -14,6 +14,10 @@ exclude = ["/tests"]
 publish = false
 
 [[example]]
+name = "client_replication"
+path = "client_replication/main.rs"
+
+[[example]]
 name = "interest_management"
 path = "interest_management/main.rs"
 

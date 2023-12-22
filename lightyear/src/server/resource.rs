@@ -28,7 +28,7 @@ use crate::transport::io::Io;
 use crate::transport::{PacketSender, Transport};
 
 use super::config::ServerConfig;
-use super::connection::Connection;
+use super::connection::{Connection, ConnectionManager};
 use super::events::ServerEvents;
 
 #[derive(Resource)]
@@ -40,12 +40,8 @@ pub struct Server<P: Protocol> {
     // Netcode
     netcode: crate::netcode::Server<NetcodeServerContext>,
     context: ServerContext,
-    // Clients
-    user_connections: HashMap<ClientId, Connection<P>>,
-    // TODO: maybe put this in replication plugin
-    // list of clients that connected since the last time we sent replication messages
-    // (we want to keep track of them because we need to replicate the entire world state to them)
-    pub(crate) new_clients: Vec<ClientId>,
+    // Connections
+    pub(crate) connection_manager: ConnectionManager<P>,
     // Protocol
     pub protocol: P,
     // Events
@@ -94,8 +90,8 @@ impl<P: Protocol> Server<P> {
             io,
             netcode,
             context,
-            user_connections: HashMap::new(),
-            new_clients: Vec::new(),
+            // TODO: avoid clone
+            connection_manager: ConnectionManager::new(protocol.channel_registry().clone()),
             protocol,
             events: ServerEvents::new(),
             room_manager: RoomManager::default(),
@@ -130,59 +126,17 @@ impl<P: Protocol> Server<P> {
 
     // INPUTS
 
-    // TODO: exposed only for debugging
-    pub fn get_input_buffer(&self, client_id: ClientId) -> Option<&InputBuffer<P::Input>> {
-        self.user_connections
-            .get(&client_id)
-            .map(|connection| &connection.input_buffer)
-    }
-
-    /// Get the inputs for all clients for the given tick
-    pub fn pop_inputs(&mut self) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-        self.user_connections
-            .iter_mut()
-            .map(|(client_id, connection)| {
-                let received_input = connection
-                    .input_buffer
-                    .pop(self.tick_manager.current_tick());
-                let fallback = received_input.is_none();
-
-                // NOTE: if there is no input for this tick, we should use the last input that we have
-                //  as a best-effort fallback.
-                let input = match received_input {
-                    None => connection.last_input.clone(),
-                    Some(i) => {
-                        connection.last_input = Some(i.clone());
-                        Some(i)
-                    }
-                };
-                // let input = received_input.map_or_else(
-                //     || connection.last_input.clone(),
-                //     |i| {
-                //         connection.last_input = Some(i.clone());
-                //         Some(i)
-                //     },
-                // );
-                if fallback {
-                    // TODO: do not log this while clients are syncing..
-                    debug!(
-                        ?client_id,
-                        tick = ?self.tick_manager.current_tick(),
-                        fallback_input = ?&input,
-                        "Missed client input!"
-                    )
-                }
-                // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
-                //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
-                //  See Overwatch GDC video
-                (input, *client_id)
-            })
-    }
+    // // TODO: exposed only for debugging
+    // pub fn get_input_buffer(&self, client_id: ClientId) -> Option<&InputBuffer<P::Input>> {
+    //     self.user_connections
+    //         .get(&client_id)
+    //         .map(|connection| &connection.input_buffer)
+    // }
 
     // TIME
 
     #[doc(hidden)]
-    pub fn is_ready_to_send(&self) -> bool {
+    pub(crate) fn is_ready_to_send(&self) -> bool {
         self.time_manager.is_ready_to_send()
     }
 
@@ -223,7 +177,7 @@ impl<P: Protocol> Server<P> {
     // MESSAGES
 
     /// Queues up a message to be sent to all clients
-    pub fn send_to_target<C: Channel, M: Message>(
+    pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: M,
         target: NetworkTarget,
@@ -232,32 +186,15 @@ impl<P: Protocol> Server<P> {
         M: Clone,
         P::Message: From<M>,
     {
-        #[cfg(feature = "metrics")]
-        {
-            metrics::increment_counter!("send_message_server_before_span");
-        }
-        let _span = debug_span!("broadcast", user = "a").entered();
-        #[cfg(feature = "metrics")]
-        {
-            metrics::increment_counter!("send_message_server_after_span");
-        }
-        let channel = ChannelKind::of::<C>();
-        for client_id in self
-            .netcode
-            .connected_client_ids()
-            .iter()
-            .filter(|id| target.should_send_to(id))
-        {
-            self.user_connections
-                .get_mut(client_id)
-                .context("client not found")?
-                .buffer_message(message.clone().into(), channel)?;
-        }
-        Ok(())
+        let _span =
+            debug_span!("buffer_message", channel = ?C::name(), message = ?M::name(), ?target)
+                .entered();
+        self.connection_manager
+            .buffer_message(message.into(), ChannelKind::of::<C>(), target)
     }
 
     /// Queues up a message to be sent to a client
-    pub fn buffer_send<C: Channel, M: Message>(
+    pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
         message: M,
@@ -265,18 +202,12 @@ impl<P: Protocol> Server<P> {
     where
         P::Message: From<M>,
     {
-        let _span = debug_span!("buffer_send", client_id = ?client_id).entered();
-        let channel = ChannelKind::of::<C>();
-        // TODO: if client not connected; buffer in advance?
-        self.user_connections
-            .get_mut(&client_id)
-            .context("client not found")?
-            .buffer_message(message.into(), channel)
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients
     /// Sends keep-alive packets + any non-payload packet needed for netcode
-    pub fn update(&mut self, delta: Duration) -> Result<()> {
+    pub(crate) fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
         self.time_manager.update(delta, Duration::default());
 
@@ -286,35 +217,19 @@ impl<P: Protocol> Server<P> {
             .context("Error updating netcode server")?;
 
         // update connections
-        for connection in self.user_connections.values_mut() {
-            connection.update(&self.time_manager, &self.tick_manager);
-        }
+        self.connection_manager
+            .update(&self.time_manager, &self.tick_manager);
 
         // handle connections
         for client_id in self.context.connections.try_iter() {
-            // TODO: do we need a mutex around this?
-            if let Entry::Vacant(e) = self.user_connections.entry(client_id) {
-                #[cfg(feature = "metrics")]
-                metrics::increment_gauge!("connected_clients", 1.0);
-
-                let client_addr = self.netcode.client_addr(client_id).unwrap();
-                info!("New connection from {} (id: {})", client_addr, client_id);
-                let mut connection =
-                    Connection::new(self.protocol.channel_registry(), &self.config.ping);
-                connection.events.push_connection();
-                self.new_clients.push(client_id);
-                e.insert(connection);
-            }
+            let client_addr = self.netcode.client_addr(client_id).unwrap();
+            info!("New connection from {} (id: {})", client_addr, client_id);
+            self.connection_manager.add(client_id, &self.config.ping);
         }
 
         // handle disconnections
         for client_id in self.context.disconnections.try_iter() {
-            #[cfg(feature = "metrics")]
-            metrics::decrement_gauge!("connected_clients", 1.0);
-
-            info!("Client {} disconnected", client_id);
-            self.events.push_disconnects(client_id);
-            self.user_connections.remove(&client_id);
+            self.connection_manager.remove(client_id);
             self.room_manager.client_disconnect(client_id);
         }
         Ok(())
@@ -378,8 +293,8 @@ pub struct ServerContext {
 }
 
 impl<P: Protocol> ReplicationSend<P> for Server<P> {
-    fn new_connected_clients(&self) -> &Vec<ClientId> {
-        &self.new_clients
+    fn new_connected_clients(&self) -> Vec<ClientId> {
+        self.connection_manager.new_clients.clone()
     }
 
     fn prepare_entity_spawn(
@@ -400,9 +315,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 self.tick_manager.current_tick()
             );
             let replication_sender = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
+                .connection_manager
+                .connection_mut(client_id)?
                 .replication_sender;
             // update the collect changes tick
             replication_sender
@@ -446,9 +360,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 self.tick_manager.current_tick()
             );
             let replication_sender = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
+                .connection_manager
+                .connection_mut(client_id)?
                 .replication_sender;
             // update the collect changes tick
             replication_sender
@@ -480,9 +393,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 "Inserting single component"
             );
             let replication_sender = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
+                .connection_manager
+                .connection_mut(client_id)?
                 .replication_sender;
             // update the collect changes tick
             replication_sender
@@ -507,9 +419,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             let replication_sender = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
+                .connection_manager
+                .connection_mut(client_id)?
                 .replication_sender;
             replication_sender
                 .group_channels
@@ -536,9 +447,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
             let replication_sender = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
+                .connection_manager
+                .connection_mut(client_id)?
                 .replication_sender;
             let last_updates_ack_bevy_tick = replication_sender
                 .group_channels
@@ -569,16 +479,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
 
     /// Buffer the replication messages
     fn buffer_replication_messages(&mut self) -> Result<()> {
-        let _span = trace_span!("buffer_replication_messages").entered();
-        self.netcode
-            .connected_client_ids()
-            .iter()
-            .try_for_each(|client_id| {
-                self.user_connections
-                    .get_mut(client_id)
-                    .context("client not found")?
-                    .buffer_replication_messages(self.tick_manager.current_tick())
-            })
+        self.connection_manager
+            .buffer_replication_messages(self.tick_manager.current_tick())
     }
 }
 

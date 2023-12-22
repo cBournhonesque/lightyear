@@ -83,7 +83,7 @@ fn write_input_event<P: Protocol>(
     mut server: ResMut<Server<P>>,
     mut input_events: EventWriter<InputEvent<P::Input, ClientId>>,
 ) {
-    for (input, client_id) in server.pop_inputs() {
+    for (input, client_id) in server.connection_manager.pop_inputs() {
         input_events.send(InputEvent::new(input, client_id));
     }
 }

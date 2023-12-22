@@ -6,12 +6,12 @@ use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::channel::senders::ChannelSend;
 use crate::client::sync::SyncConfig;
 use crate::connection::events::ConnectionEvents;
-use crate::connection::message::{ClientMessage, ProtocolMessage, ServerMessage};
+use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::message_receivers::MessageReceiver;
@@ -125,6 +125,7 @@ impl<P: Protocol> Connection<P> {
                     group_id,
                     data: message_data,
                 });
+                trace!("Sending replication message: {:?}", message);
                 message.emit_send_logs(&channel_name);
                 let message_id = self
                     .message_manager
@@ -139,6 +140,45 @@ impl<P: Protocol> Connection<P> {
                 }
                 Ok(())
             })
+    }
+
+    /// Send packets that are ready to be sent
+    pub fn send_packets(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<Vec<Payload>> {
+        // update the ping manager with the actual send time
+        // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
+        //   - can give infinity priority to this channel?
+        //   - can write directly to io otherwise?
+        if time_manager.is_ready_to_send() {
+            // maybe send pings
+            // same thing, we want the correct send time for the ping
+            // (and not have the delay between when we prepare the ping and when we send the packet)
+            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
+                trace!("Sending ping {:?}", ping);
+                let message = ClientMessage::<P>::Sync(SyncMessage::Ping(ping));
+                let channel = ChannelKind::of::<PingChannel>();
+                self.message_manager.buffer_send(message, channel)?;
+            }
+
+            // prepare the pong messages with the correct send time
+            self.ping_manager
+                .take_pending_pongs()
+                .into_iter()
+                .try_for_each(|mut pong| {
+                    trace!("Sending pong {:?}", pong);
+                    // update the send time of the pong
+                    pong.pong_sent_time = time_manager.current_time();
+                    let message = ClientMessage::<P>::Sync(SyncMessage::Pong(pong));
+                    let channel = ChannelKind::of::<PingChannel>();
+                    self.message_manager.buffer_send(message, channel)?;
+                    Ok::<(), anyhow::Error>(())
+                })?;
+        }
+        self.message_manager
+            .send_packets(tick_manager.current_tick())
     }
 
     pub fn receive(
@@ -215,45 +255,6 @@ impl<P: Protocol> Connection<P> {
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
         std::mem::replace(&mut self.events, ConnectionEvents::new())
-    }
-
-    /// Send packets that are ready to be sent
-    pub fn send_packets(
-        &mut self,
-        time_manager: &TimeManager,
-        tick_manager: &TickManager,
-    ) -> Result<Vec<Payload>> {
-        // update the ping manager with the actual send time
-        // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
-        //   - can give infinity priority to this channel?
-        //   - can write directly to io otherwise?
-        if time_manager.is_ready_to_send() {
-            // maybe send pings
-            // same thing, we want the correct send time for the ping
-            // (and not have the delay between when we prepare the ping and when we send the packet)
-            if let Some(ping) = self.ping_manager.maybe_prepare_ping(time_manager) {
-                trace!("Sending ping {:?}", ping);
-                let message = ProtocolMessage::<P>::Sync(SyncMessage::Ping(ping));
-                let channel = ChannelKind::of::<PingChannel>();
-                self.message_manager.buffer_send(message, channel)?;
-            }
-
-            // prepare the pong messages with the correct send time
-            self.ping_manager
-                .take_pending_pongs()
-                .into_iter()
-                .try_for_each(|mut pong| {
-                    trace!("Sending pong {:?}", pong);
-                    // update the send time of the pong
-                    pong.pong_sent_time = time_manager.current_time();
-                    let message = ProtocolMessage::<P>::Sync(SyncMessage::Pong(pong));
-                    let channel = ChannelKind::of::<PingChannel>();
-                    self.message_manager.buffer_send(message, channel)?;
-                    Ok::<(), anyhow::Error>(())
-                })?;
-        }
-        self.message_manager
-            .send_packets(tick_manager.current_tick())
     }
 
     pub fn recv_packet(

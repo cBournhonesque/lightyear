@@ -104,7 +104,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
-    fn new_connected_clients(&self) -> &Vec<ClientId>;
+    fn new_connected_clients(&self) -> Vec<ClientId>;
 
     fn prepare_entity_spawn(
         &mut self,

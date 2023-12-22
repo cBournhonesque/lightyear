@@ -1,8 +1,7 @@
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear::inputs::input_buffer::InputBuffer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;
@@ -22,7 +21,7 @@ impl Plugin for MyServerPlugin {
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(40),
+            incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
         let transport = match self.transport {
@@ -46,14 +45,8 @@ impl Plugin for MyServerPlugin {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(
-            FixedUpdate,
-            (movement, shared_tail_behaviour)
-                .chain()
-                .in_set(FixedUpdateSet::Main),
-        );
-        app.add_systems(Update, handle_connections);
-        // app.add_systems(Update, debug_inputs);
+        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(Update, (handle_connections, send_message));
     }
 }
 
@@ -84,33 +77,20 @@ pub(crate) fn handle_connections(
     for connection in connections.read() {
         let client_id = connection.context();
         // Generate pseudo random color from client id.
-        let h = (((client_id * 30) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let player_position = Vec2::ZERO;
-        let player_entity = commands
-            .spawn(PlayerBundle::new(
-                *client_id,
-                player_position,
-                Color::hsl(h, s, l),
-            ))
-            .id();
-        let tail_length = 300.0;
-        let tail_entity = commands.spawn(TailBundle::new(
+
+        let entity = commands.spawn(PlayerBundle::new(
             *client_id,
-            player_entity,
-            player_position,
-            tail_length,
+            Vec2::ZERO,
+            color_from_id(*client_id),
         ));
         // Add a mapping from client id to entity id
         global
             .client_id_to_entity_id
-            .insert(*client_id, player_entity);
+            .insert(*client_id, entity.id());
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            // TODO: also despawn tail, maybe by emitting an event?
             commands.entity(entity).despawn();
         }
     }
@@ -141,6 +121,16 @@ pub(crate) fn movement(
     }
 }
 
-// pub(crate) fn debug_inputs(server: Res<Server<MyProtocol>>) {
-//     info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(1), "debug");
-// }
+/// Send messages from server to clients
+pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
+    if input.pressed(KeyCode::M) {
+        // TODO: add way to send message to all
+        let message = Message1(5);
+        info!("Send message: {:?}", message);
+        server
+            .send_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
+            .unwrap_or_else(|e| {
+                error!("Failed to send message: {:?}", e);
+            });
+    }
+}

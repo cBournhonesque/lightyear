@@ -64,7 +64,6 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
 
         // TODO: maybe put those 2 in a ReplicationPlugin?
         add_replication_send_systems::<P, Server<P>>(app);
-        // P::add_per_component_replication_send_systems::<Server<P>>(app);
         P::Components::add_per_component_replication_send_systems::<Server<P>>(app);
         P::Components::add_events::<ClientId>(app);
 

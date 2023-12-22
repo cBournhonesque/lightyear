@@ -1,9 +1,8 @@
 use crate::protocol::Direction;
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear::_reexport::{ShouldBeInterpolated, ShouldBePredicted};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -12,7 +11,7 @@ use std::time::Duration;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
-    pub(crate) client_id: u16,
+    pub(crate) client_id: ClientId,
     pub(crate) client_port: u16,
     pub(crate) server_port: u16,
     pub(crate) transport: Transports,
@@ -23,15 +22,15 @@ impl Plugin for MyClientPlugin {
         let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.server_port);
         let auth = Authentication::Manual {
             server_addr,
-            client_id: self.client_id as ClientId,
+            client_id: self.client_id,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.00,
+            incoming_latency: Duration::from_millis(200),
+            incoming_jitter: Duration::from_millis(20),
+            incoming_loss: 0.05,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -51,12 +50,8 @@ impl Plugin for MyClientPlugin {
             sync: SyncConfig::default(),
             prediction: PredictionConfig::default(),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
-            interpolation: InterpolationConfig::default().with_delay(
-                InterpolationDelay::default()
-                    .with_min_delay(Duration::from_millis(50))
-                    .with_send_interval_ratio(2.0),
-            ),
-            // .with_delay(InterpolationDelay::Ratio(2.0)),
+            interpolation: InterpolationConfig::default()
+                .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
         };
         let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
@@ -67,14 +62,14 @@ impl Plugin for MyClientPlugin {
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
             (
+                cursor_movement,
                 receive_message1,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
-                log,
             ),
         );
     }
@@ -94,6 +89,12 @@ pub(crate) fn init(
             color: Color::WHITE,
             ..default()
         },
+    ));
+    // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
+    commands.spawn(CursorBundle::new(
+        plugin.client_id,
+        Vec2::ZERO,
+        color_from_id(plugin.client_id),
     ));
     client.connect();
     // client.set_base_relative_speed(0.001);
@@ -120,39 +121,59 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
         direction.right = true;
     }
     if !direction.is_none() {
-        client.add_input(Inputs::Direction(direction));
+        return client.add_input(Inputs::Direction(direction));
     }
     if keypress.pressed(KeyCode::Delete) {
-        // currently, inputs is an enum and we can only add one input per tick
+        // currently, directions is an enum and we can only add one direction per tick
         return client.add_input(Inputs::Delete);
     }
     if keypress.pressed(KeyCode::Space) {
         return client.add_input(Inputs::Spawn);
     }
-    // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
     return client.add_input(Inputs::None);
 }
 
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
-pub(crate) fn movement(
+fn player_movement(
     // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<&mut Position, With<Predicted>>,
+    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    // if we are not doing prediction, no need to read inputs
-    if Position::mode() != ComponentSyncMode::Full {
+    if PlayerPosition::mode() != ComponentSyncMode::Full {
         return;
     }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
-            debug!(?input, "read input");
             for mut position in position_query.iter_mut() {
                 shared_movement_behaviour(&mut position, input);
             }
         }
     }
+}
+
+// Adjust the movement of the cursor entity based on the mouse position
+fn cursor_movement(window_query: Query<&Window>, mut cursor_query: Query<&mut CursorPosition>) {
+    if let Ok(mut cursor_position) = cursor_query.get_single_mut() {
+        if let Ok(window) = window_query.get_single() {
+            if let Some(mouse_position) = window_relative_mouse_position(window) {
+                cursor_position.0 = mouse_position;
+            }
+        }
+    }
+}
+
+// Get the cursor position relative to the window
+fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
+    let Some(cursor_pos) = window.cursor_position() else {
+        return None;
+    };
+
+    Some(Vec2::new(
+        cursor_pos.x - (window.width() / 2.0),
+        (cursor_pos.y - (window.height() / 2.0)) * -1.0,
+    ))
 }
 
 // System to receive messages on the client
@@ -179,28 +200,5 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
-    }
-}
-
-pub(crate) fn log(
-    client: Res<Client<MyProtocol>>,
-    confirmed: Query<&Position, With<Confirmed>>,
-    predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
-    mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,
-    mut predict_event: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
-) {
-    let server_tick = client.latest_received_server_tick();
-    for confirmed_pos in confirmed.iter() {
-        debug!(?server_tick, "Confirmed position: {:?}", confirmed_pos);
-    }
-    let client_tick = client.tick();
-    for predicted_pos in predicted.iter() {
-        debug!(?client_tick, "Predicted position: {:?}", predicted_pos);
-    }
-    for event in interp_event.read() {
-        info!("Interpolated event: {:?}", event.entity());
-    }
-    for event in predict_event.read() {
-        info!("Predicted event: {:?}", event.entity());
     }
 }

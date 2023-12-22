@@ -62,7 +62,7 @@ impl Plugin for MyClientPlugin {
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
             (
@@ -97,23 +97,26 @@ pub(crate) fn init(
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res<Input<KeyCode>>) {
-    let mut input = Direction {
+    let mut direction = Direction {
         up: false,
         down: false,
         left: false,
         right: false,
     };
     if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
-        input.up = true;
+        direction.up = true;
     }
     if keypress.pressed(KeyCode::S) || keypress.pressed(KeyCode::Down) {
-        input.down = true;
+        direction.down = true;
     }
     if keypress.pressed(KeyCode::A) || keypress.pressed(KeyCode::Left) {
-        input.left = true;
+        direction.left = true;
     }
     if keypress.pressed(KeyCode::D) || keypress.pressed(KeyCode::Right) {
-        input.right = true;
+        direction.right = true;
+    }
+    if !direction.is_none() {
+        client.add_input(Inputs::Direction(direction));
     }
     if keypress.pressed(KeyCode::Delete) {
         // currently, inputs is an enum and we can only add one input per tick
@@ -122,17 +125,14 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     if keypress.pressed(KeyCode::Space) {
         return client.add_input(Inputs::Spawn);
     }
-    // TODO: should we only send an input if it's not all NIL?
     // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
-    if !input.is_none() {
-        client.add_input(Inputs::Direction(input));
-    }
+    return client.add_input(Inputs::None);
 }
 
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
-pub(crate) fn movement(
+fn player_movement(
     // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
