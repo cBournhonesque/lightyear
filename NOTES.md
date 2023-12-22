@@ -20,12 +20,41 @@
   - maybe we should separate Connection and MessageManager into a Send and Receive part?
     - server recv and client send need MessageWithMetadata
     - client recv and server send need Message
-
-- DEBUGGING SIMPLE_BOX:
+  - on the client prepare spawn, another component gets added, similar to ShouldBePredicted. Or just replicate Replicate entirely, once...
+    - 
+  - Server authority:
+    - OPTION 1
+      - client spawns entity, server receives it and stores the mapping client_id=remote_id, server_id=local_id.
+      - then server starts replicating back to the client, with a server_id
+      - upon reception, the client needs to know that the server_id will map to its own local client_id.
+        - i.e. the server's message will contain the client id
+        - if the server message contains client-id, instead of spawn we update the local mapping on client
+    - OPTION 2:
+      - client spawns a predicted entity (Predicted) but Confirmed is nil. id=PC1
+      - server receives it and spawns an entity,
   - If jitter is too big, or there is packet loss? it looks like inputs keep getting sent to client 1.
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
   - on interest management, we still have this problem where interpolation is stuck at the beginning and doesn't move. Probably 
     because start tick or end tick are not updated correctly in some edge cases.
+  - A: client-authoritative replication:
+    Client 1 spawns an entity C1, which gets replicated on the client as S1 (and can then be further replicated to other clients).
+    S1 doesn't get replicated back to client 1, but only to other clients. For example, we want to replicate client 1's cursor
+    position to other clients.
+
+
+  - B: client spawning a Predicted entity.
+    For example client 1 spawns a predicted entity P1 (a shared UI menu). Server receives that notification; spawns an
+    entity S1 that gets replicated to client 1. Client 1 spawns a confirmed entity C1. But instead of spawning a new
+    corresponding predicted entity, it re-uses the existing P1. From there on prediction with rollback can proceed as usual.
+
+  - C: client spawning a Confirmed entity.
+    Client 1 spawns a confirmed entity C1. It gets replicated to server, which spawns S1. Then that entity can get
+    replicated to other clients AND to client 1. When client 1 receives the replication of S1, it knows that it corresponds
+    to its confirmed entity C1. From there on it's normal replication.
+
+    I'm not actually sure that this is useful; because the entity first spawns instantly on client (i.e. is on the client timeline),
+    but then if we fallback to normal replication, the entity then moves to the server's timeline, so there would be a jarring update.
+
 
 
 - add PredictionGroup and InterpolationGroup?

@@ -89,11 +89,11 @@ impl<P: Protocol> Connection<P> {
         // self.sync_manager.update(time_manager);
     }
 
-    pub fn buffer_message(
+    pub(crate) fn buffer_message(
         &mut self,
         message: P::Message,
         channel: ChannelKind,
-        // target: NetworkTarget,
+        target: NetworkTarget,
     ) -> Result<()> {
         // TODO: i know channel names never change so i should be able to get them as static
         // TODO: just have a channel registry enum as well?
@@ -103,7 +103,7 @@ impl<P: Protocol> Connection<P> {
             .name(&channel)
             .unwrap_or("unknown")
             .to_string();
-        let message = ClientMessage::<P>::Message(message, NetworkTarget::None);
+        let message = ClientMessage::<P>::Message(message, target);
         message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message, channel)?;
         Ok(())

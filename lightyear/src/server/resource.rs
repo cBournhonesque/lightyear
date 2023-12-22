@@ -9,7 +9,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::HashSet;
 use crossbeam_channel::Sender;
-use tracing::{debug, debug_span, info, trace, trace_span};
+use tracing::{debug, debug_span, error, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::inputs::input_buffer::InputBuffer;
@@ -44,13 +44,11 @@ pub struct Server<P: Protocol> {
     pub(crate) connection_manager: ConnectionManager<P>,
     // Protocol
     pub protocol: P,
-    // Events
-    pub(crate) events: ServerEvents<P>,
     // Rooms
     pub(crate) room_manager: RoomManager,
     // Time
     time_manager: TimeManager,
-    tick_manager: TickManager,
+    pub(crate) tick_manager: TickManager,
 }
 
 pub struct NetcodeServerContext {
@@ -93,7 +91,6 @@ impl<P: Protocol> Server<P> {
             // TODO: avoid clone
             connection_manager: ConnectionManager::new(protocol.channel_registry().clone()),
             protocol,
-            events: ServerEvents::new(),
             room_manager: RoomManager::default(),
             time_manager: TimeManager::new(config.shared.server_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
@@ -120,8 +117,12 @@ impl<P: Protocol> Server<P> {
 
     // EVENTS
 
+    pub fn events(&mut self) -> &mut ServerEvents<P> {
+        &mut self.connection_manager.events
+    }
+
     pub fn clear_events(&mut self) {
-        self.events.clear();
+        self.events().clear();
     }
 
     // INPUTS
@@ -187,7 +188,7 @@ impl<P: Protocol> Server<P> {
         P::Message: From<M>,
     {
         let _span =
-            debug_span!("buffer_message", channel = ?C::name(), message = ?M::name(), ?target)
+            debug_span!("send_message", channel = ?C::name(), message = ?message.name(), ?target)
                 .entered();
         self.connection_manager
             .buffer_message(message.into(), ChannelKind::of::<C>(), target)
@@ -200,6 +201,7 @@ impl<P: Protocol> Server<P> {
         message: M,
     ) -> Result<()>
     where
+        M: Clone,
         P::Message: From<M>,
     {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
@@ -237,19 +239,17 @@ impl<P: Protocol> Server<P> {
 
     /// Receive messages from each connection, and update the events buffer
     pub fn receive(&mut self, world: &mut World) {
-        for (client_id, connection) in &mut self.user_connections.iter_mut() {
-            let _span = trace_span!("receive", client_id = ?client_id).entered();
-            let connection_events = connection.receive(world, &self.time_manager);
-            if !connection_events.is_empty() {
-                self.events.push_events(*client_id, connection_events);
-            }
-        }
+        self.connection_manager
+            .receive(world, &self.time_manager)
+            .unwrap_or_else(|e| {
+                error!("Error during receive: {}", e);
+            });
     }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
         let span = trace_span!("send_packets").entered();
-        for (client_idx, connection) in &mut self.user_connections.iter_mut() {
+        for (client_idx, connection) in &mut self.connection_manager.connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
             for packet_byte in connection.send_packets(&self.time_manager, &self.tick_manager)? {
@@ -264,9 +264,8 @@ impl<P: Protocol> Server<P> {
     pub fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
         while let Some((mut reader, client_id)) = self.netcode.recv() {
             // TODO: use connection to apply on BOTH message manager and replication manager
-            self.user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
+            self.connection_manager
+                .connection_mut(client_id)?
                 .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
         }
         Ok(())

@@ -286,10 +286,10 @@ pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
     where
         C: IntoKind<P::ComponentKinds>;
 
-    /// Find all the updates of component C for a given entity
-    fn get_component_update<C: Component>(&self, entity: Entity) -> Option<Ctx>
-    where
-        C: IntoKind<P::ComponentKinds>;
+    // /// Find all the updates of component C for a given entity
+    // fn get_component_update<C: Component>(&self, entity: Entity) -> Option<Ctx>
+    // where
+    //     C: IntoKind<P::ComponentKinds>;
 }
 
 impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
@@ -320,23 +320,23 @@ impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
         // self.components_with_updates.contains(&C::into_kind())
     }
 
-    // TODO: is it possible to receive multiple updates for the same component/entity?
-    //  it shouldn't be possible for a Sequenced channel,
-    //  maybe just take the first value that matches, then?
-    fn get_component_update<C: Component>(&self, entity: Entity) -> Option<()>
-    where
-        C: IntoKind<P::ComponentKinds>,
-    {
-        todo!()
-        // self.component_updates
-        //     .get(&entity)
-        //     .map(|updates| updates.get(&C::into_kind()).cloned())
-        //     .flatten()
-    }
+    // // TODO: is it possible to receive multiple updates for the same component/entity?
+    // //  it shouldn't be possible for a Sequenced channel,
+    // //  maybe just take the first value that matches, then?
+    // fn get_component_update<C: Component>(&self, entity: Entity) -> Option<()>
+    // where
+    //     C: IntoKind<P::ComponentKinds>,
+    // {
+    //     todo!()
+    //     // self.component_updates
+    //     //     .get(&entity)
+    //     //     .map(|updates| updates.get(&C::into_kind()).cloned())
+    //     //     .flatten()
+    // }
 }
 
 pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
-    fn into_iter_component_remove<C: Component>(
+    fn iter_component_remove<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
     where
@@ -348,9 +348,7 @@ pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
 
 // TODO: move these implementations to client?
 impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
-    fn into_iter_component_remove<C: Component>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
+    fn iter_component_remove<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         C: IntoKind<P::ComponentKinds>,
     {
@@ -371,7 +369,7 @@ impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
 }
 
 pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
-    fn into_iter_component_insert<C: Component>(
+    fn iter_component_insert<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
     where
@@ -382,9 +380,7 @@ pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
 }
 
 impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
-    fn into_iter_component_insert<C: Component>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
+    fn iter_component_insert<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         C: IntoKind<P::ComponentKinds>,
     {

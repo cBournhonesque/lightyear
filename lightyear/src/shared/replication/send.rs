@@ -132,7 +132,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .or_default()
             .contains(&kind)
         {
-            debug!(
+            warn!(
                 ?group,
                 ?entity,
                 ?kind,
@@ -259,6 +259,7 @@ impl<P: Protocol> ReplicationSender<P> {
                     actions: Vec::from_iter(actions.into_iter()),
                 }),
             ));
+            info!("final action messages to send: {:?}", messages);
         }
         // send the remaining updates
         for (group_id, updates) in self.pending_updates.drain() {

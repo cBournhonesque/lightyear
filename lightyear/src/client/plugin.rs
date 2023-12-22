@@ -15,6 +15,7 @@ use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
+use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -101,6 +102,29 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     FixedUpdateSet::MainFlush,
                 )
                     .chain(),
+            )
+            // NOTE: it's ok to run the replication systems less frequently than every frame
+            //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
+            .configure_sets(
+                PostUpdate,
+                (
+                    (
+                        ReplicationSet::SendEntityUpdates,
+                        ReplicationSet::SendComponentUpdates,
+                        ReplicationSet::ReplicationSystems,
+                    )
+                        .in_set(ReplicationSet::All),
+                    (
+                        ReplicationSet::SendEntityUpdates,
+                        ReplicationSet::SendComponentUpdates,
+                        MainSet::SendPackets,
+                    )
+                        .chain()
+                        .in_set(MainSet::Send),
+                    // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
+                    // which runs every send_interval
+                    (ReplicationSet::ReplicationSystems, MainSet::SendPackets).chain(),
+                ),
             )
             .configure_sets(
                 PostUpdate,

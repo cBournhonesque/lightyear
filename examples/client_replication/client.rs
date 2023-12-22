@@ -67,7 +67,8 @@ impl Plugin for MyClientPlugin {
             Update,
             (
                 cursor_movement,
-                receive_message1,
+                receive_message,
+                send_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
@@ -177,9 +178,23 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
 }
 
 // System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) {
+pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
     for event in reader.read() {
         info!("Received message: {:?}", event.message());
+    }
+}
+
+/// Send messages from server to clients
+pub(crate) fn send_message(mut client: ResMut<Client<MyProtocol>>, input: Res<Input<KeyCode>>) {
+    if input.pressed(KeyCode::M) {
+        let message = Message1(5);
+        info!("Send message: {:?}", message);
+        // the message will be re-broadcasted by the server to all clients
+        client
+            .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
+            .unwrap_or_else(|e| {
+                error!("Failed to send message: {:?}", e);
+            });
     }
 }
 

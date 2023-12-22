@@ -231,13 +231,28 @@ impl<P: Protocol> Client<P> {
         }
     }
 
-    /// Send a message to the server
-    pub fn buffer_send<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
     where
         P::Message: From<M>,
     {
         let channel = ChannelKind::of::<C>();
-        self.connection.buffer_message(message.into(), channel)
+        self.connection
+            .buffer_message(message.into(), channel, target)
+    }
+
+    /// Send a message to the server
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.connection
+            .buffer_message(message.into(), channel, NetworkTarget::None)
     }
 
     /// Receive messages from the server

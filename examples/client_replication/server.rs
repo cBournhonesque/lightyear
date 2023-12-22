@@ -46,7 +46,10 @@ impl Plugin for MyServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
-        app.add_systems(Update, (handle_connections, send_message));
+        app.add_systems(
+            Update,
+            (handle_connections, replicate_cursors, send_message),
+        );
     }
 }
 
@@ -121,6 +124,26 @@ pub(crate) fn movement(
     }
 }
 
+pub(crate) fn replicate_cursors(
+    mut commands: Commands,
+    mut cursor_spawn_reader: EventReader<ComponentInsertEvent<CursorPosition>>,
+) {
+    for event in cursor_spawn_reader.read() {
+        info!("received cursor spawn event: {:?}", event);
+        let client_id = event.context();
+        let entity = event.entity();
+
+        // for all cursors we have received, add a Replicate component so that we can start replicating it
+        // to other clients
+        if let Some(mut e) = commands.get_entity(*entity) {
+            e.insert(Replicate {
+                replication_target: NetworkTarget::AllExcept(vec![*client_id]),
+                ..default()
+            });
+        }
+    }
+}
+
 /// Send messages from server to clients
 pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
     if input.pressed(KeyCode::M) {
@@ -128,7 +151,7 @@ pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<In
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .send_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
+            .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

@@ -33,7 +33,7 @@ impl Plugin for SharedPlugin {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id * 12345) % 360) as f32) / 360.0;
+    let h = (((client_id * 45) % 360) as f32) / 360.0;
     let s = 0.8;
     let l = 0.5;
     Color::hsl(h, s, l)

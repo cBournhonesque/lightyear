@@ -1,6 +1,7 @@
 //! Defines the server bevy systems and run conditions
+use crate::_reexport::ComponentProtocol;
 use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::protocol::message::MessageProtocol;
@@ -23,7 +24,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         server.receive(world);
 
         // Write the received events into bevy events
-        if !server.events.is_empty() {
+        if !server.events().is_empty() {
+            info!("events: {:?}", server.events());
             // TODO: write these as systems? might be easier to also add the events to the app
             //  it might just be less efficient? + maybe tricky to
             // Input events
@@ -32,47 +34,48 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             // ADD A FUNCTION THAT ITERATES THROUGH EACH CONNECTION AND RETURNS InputEvent for THE CURRENT TICK
 
             // Connection / Disconnection events
-            if server.events.has_connections() {
+            if server.events().has_connections() {
                 let mut connect_event_writer =
                     world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                for client_id in server.events.iter_connections() {
+                for client_id in server.events().iter_connections() {
                     debug!("Client connected event: {}", client_id);
                     connect_event_writer.send(ConnectEvent::new(client_id));
                 }
             }
 
-            if server.events.has_disconnections() {
+            if server.events().has_disconnections() {
                 let mut connect_event_writer =
                     world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                for client_id in server.events.iter_disconnections() {
+                for client_id in server.events().iter_disconnections() {
                     debug!("Client disconnected event: {}", client_id);
                     connect_event_writer.send(DisconnectEvent::new(client_id));
                 }
             }
 
             // Message Events
-            P::Message::push_message_events(world, &mut server.events);
+            P::Message::push_message_events(world, server.events());
 
             // EntitySpawn Events
-            if server.events.has_entity_spawn() {
+            if server.events().has_entity_spawn() {
                 let mut entity_spawn_event_writer = world
                     .get_resource_mut::<Events<EntitySpawnEvent>>()
                     .unwrap();
-                for (entity, client_id) in server.events.into_iter_entity_spawn() {
+                for (entity, client_id) in server.events().into_iter_entity_spawn() {
                     entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, client_id));
                 }
             }
             // EntityDespawn Events
-            if server.events.has_entity_despawn() {
+            if server.events().has_entity_despawn() {
                 let mut entity_despawn_event_writer = world
                     .get_resource_mut::<Events<EntityDespawnEvent>>()
                     .unwrap();
-                for (entity, client_id) in server.events.into_iter_entity_spawn() {
+                for (entity, client_id) in server.events().into_iter_entity_spawn() {
                     entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, client_id));
                 }
             }
 
-            // TODO: add component replication events
+            // Update component events (updates, inserts, removes)
+            P::Components::push_component_events(world, server.events());
         }
     });
 }
@@ -87,7 +90,9 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     // send buffered packets to io
     server.send_packets().unwrap();
 
-    server.new_clients.clear();
+    // clear the list of newly connected clients
+    // (cannot just use the ConnectionEvent because it is cleared after each frame)
+    server.connection_manager.new_clients.clear();
 
     // TODO: clear the dependency graph for replication groups send
 }

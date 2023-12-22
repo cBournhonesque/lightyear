@@ -182,7 +182,7 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
         client
-            .buffer_send::<InputChannel, _>(message)
+            .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             })

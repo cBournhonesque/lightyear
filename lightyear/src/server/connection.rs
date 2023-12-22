@@ -1,7 +1,10 @@
 //! Wrapper around [`crate::connection::Connection`] that adds server-specific functionality
 use bevy::utils::{Duration, Entry, HashMap};
+use std::rc::Rc;
 
-use crate::_reexport::{EntityUpdatesChannel, InputMessage, PingChannel};
+use crate::_reexport::{
+    EntityUpdatesChannel, InputMessage, MessageBehaviour, MessageKind, PingChannel,
+};
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
@@ -18,7 +21,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::message_receivers::MessageReceiver;
 use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, MapEntities, NetworkTarget};
+use crate::prelude::{ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -34,9 +37,9 @@ use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
 pub struct ConnectionManager<P: Protocol> {
-    connections: HashMap<ClientId, Connection<P>>,
+    pub(crate) connections: HashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
-    events: ServerEvents<P>,
+    pub(crate) events: ServerEvents<P>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -100,33 +103,35 @@ impl<P: Protocol> ConnectionManager<P> {
         &mut self,
         tick: Tick,
     ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-        self.connections.iter_mut().map(|(client_id, connection)| {
-            let received_input = connection.input_buffer.pop(tick);
-            let fallback = received_input.is_none();
+        self.connections
+            .iter_mut()
+            .map(move |(client_id, connection)| {
+                let received_input = connection.input_buffer.pop(tick);
+                let fallback = received_input.is_none();
 
-            // NOTE: if there is no input for this tick, we should use the last input that we have
-            //  as a best-effort fallback.
-            let input = match received_input {
-                None => connection.last_input.clone(),
-                Some(i) => {
-                    connection.last_input = Some(i.clone());
-                    Some(i)
+                // NOTE: if there is no input for this tick, we should use the last input that we have
+                //  as a best-effort fallback.
+                let input = match received_input {
+                    None => connection.last_input.clone(),
+                    Some(i) => {
+                        connection.last_input = Some(i.clone());
+                        Some(i)
+                    }
+                };
+                if fallback {
+                    // TODO: do not log this while clients are syncing..
+                    debug!(
+                    ?client_id,
+                    ?tick,
+                    fallback_input = ?&input,
+                    "Missed client input!"
+                    )
                 }
-            };
-            if fallback {
-                // TODO: do not log this while clients are syncing..
-                debug!(
-                ?client_id,
-                tick = ?self.tick_manager.current_tick(),
-                fallback_input = ?&input,
-                "Missed client input!"
-                )
-            }
-            // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
-            //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
-            //  See Overwatch GDC video
-            (input, *client_id)
-        })
+                // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
+                //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
+                //  See Overwatch GDC video
+                (input, *client_id)
+            })
     }
 
     pub(crate) fn buffer_message(
@@ -135,105 +140,50 @@ impl<P: Protocol> ConnectionManager<P> {
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<()> {
+        // Rc is fine because the copies are all created on the same thread
+        // let message = Rc::new(message);
         self.connections
-            .values_mut()
-            .filter(|id| target.should_send_to(id))
-            .try_for_each(|c| c.buffer_message(message, channel))
+            .iter_mut()
+            .filter(|(id, _)| target.should_send_to(id))
+            // TODO: here we should avoid the clone, it's the same message.. just use Rc?
+            //  need to update the ServerMessage enum to use Rc<P::Message>!
+            //  or serialize first, so we can use Bytes? where would the buffer be?
+            .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
     pub(crate) fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
-            .try_for_each(|c| c.buffer_replication_messages(tick))
+            .try_for_each(move |c| c.buffer_replication_messages(tick))
     }
 
-    pub fn receive(
-        &mut self,
-        world: &mut World,
-        time_manager: &TimeManager,
-    ) -> ConnectionEvents<P> {
-        let _span = trace_span!("receive").entered();
-        for (channel_kind, messages) in self.message_manager.read_messages::<ClientMessage<P>>() {
-            let channel_name = self
-                .message_manager
-                .channel_registry
-                .name(&channel_kind)
-                .unwrap_or("unknown");
-            let _span_channel = trace_span!("channel", channel = channel_name).entered();
-
-            if !messages.is_empty() {
-                trace!(?channel_name, "Received messages");
-                for (tick, message) in messages.into_iter() {
-                    // TODO: we shouldn't map the entities here!
-                    //  - we should: order the entities in a group by topological sort (use MapEntities to check dependencies between entities).
-                    //  - apply map_entities when we're in the stage of applying to the world.
-                    //    - because then we read the first entity in the group; spawn it, and the next component that refers to that entity can be mapped successfully!
-                    // map entities from remote to local
-                    // message.map_entities(&self.replication_manager.entity_map);
-
-                    // other message-handling logic
-                    match message {
-                        ClientMessage::Message(mut message, target) => {
-                            // map any entities inside the message
-                            message.map_entities(Box::new(
-                                &self.replication_receiver.remote_entity_map,
-                            ));
-                            // buffer the message
-                            self.events.push_message(channel_kind, message);
-
-                            // TODO: use target!
-                        }
-                        ClientMessage::Replication(replication) => {
-                            // buffer the replication message
-                            self.replication_receiver.recv_message(replication, tick);
-                        }
-                        ClientMessage::Sync(ref sync) => {
-                            match sync {
-                                SyncMessage::Ping(ping) => {
-                                    // prepare a pong in response (but do not send yet, because we need
-                                    // to set the correct send time)
-                                    self.ping_manager.buffer_pending_pong(ping, time_manager);
-                                }
-                                SyncMessage::Pong(pong) => {
-                                    // process the pong
-                                    self.ping_manager.process_pong(pong, time_manager);
-                                }
-                            }
-                        }
-                    }
+    pub fn receive(&mut self, world: &mut World, time_manager: &TimeManager) -> Result<()> {
+        let mut messages_to_rebroadcast = vec![];
+        self.connections
+            .iter_mut()
+            .for_each(|(client_id, connection)| {
+                let _span = trace_span!("receive", ?client_id).entered();
+                // receive
+                let events = connection.receive(world, time_manager);
+                if !events.is_empty() {
+                    info!("non empty connection events: {:?}", events);
                 }
-                // Check if we have any replication messages we can apply to the World (and emit events)
-                for (group, replication_list) in self.replication_receiver.read_messages() {
-                    trace!(?group, ?replication_list, "read replication messages");
-                    replication_list.into_iter().for_each(|(_, replication)| {
-                        // TODO: we could include the server tick when this replication_message was sent.
-                        self.replication_receiver
-                            .apply_world(world, replication, &mut self.events);
-                    });
-                }
-            }
-        }
+                self.events.push_events(*client_id, events);
 
-        // inputs
-        if self.events.has_messages::<InputMessage<P::Input>>() {
-            trace!("update input buffer");
-            // this has the added advantage that we remove the InputMessages so we don't read them later
-            let input_messages: Vec<_> = self
-                .events
-                .into_iter_messages::<InputMessage<P::Input>>()
-                .map(|(input_message, _)| input_message)
-                .collect();
-            for input_message in input_messages {
-                // info!("Received input message: {:?}", input_message);
-                self.input_buffer.update_from_message(input_message);
-            }
+                // rebroadcast messages
+                messages_to_rebroadcast
+                    .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
+            });
+        for (message, target) in messages_to_rebroadcast {
+            // TODO: specify which channel to rebroadcast with
+            self.buffer_message(
+                message,
+                ChannelKind::of::<DefaultUnorderedUnreliableChannel>(),
+                target,
+            )?;
         }
-
-        // TODO: do i really need this? I could just create events in this function directly?
-        //  why do i need to make events a field of the connection?
-        //  is it because of push_connection?
-        std::mem::replace(&mut self.events, ConnectionEvents::new())
+        Ok(())
     }
 }
 
@@ -252,6 +202,9 @@ pub struct Connection<P: Protocol> {
     /// In case we are missing the client input for a tick, we will fallback to using this.
     pub(crate) last_input: Option<P::Input>,
     // TODO: maybe don't do any replication until connection is synced?
+
+    // messages that we have received that need to be rebroadcasted to other clients
+    pub(crate) messages_to_rebroadcast: Vec<(P::Message, NetworkTarget)>,
 }
 
 impl<P: Protocol> Connection<P> {
@@ -275,6 +228,7 @@ impl<P: Protocol> Connection<P> {
             input_buffer: InputBuffer::default(),
             last_input: None,
             events: ConnectionEvents::default(),
+            messages_to_rebroadcast: vec![],
         }
     }
 
@@ -405,10 +359,19 @@ impl<P: Protocol> Connection<P> {
                             message.map_entities(Box::new(
                                 &self.replication_receiver.remote_entity_map,
                             ));
-                            // buffer the message
-                            self.events.push_message(channel_kind, message);
-
-                            // TODO: use target!
+                            if target != NetworkTarget::None {
+                                self.messages_to_rebroadcast.push((message.clone(), target));
+                            }
+                            // don't put InputMessage into events else the events won't be classified as empty
+                            if message.kind() == MessageKind::of::<InputMessage<P::Input>>() {
+                                trace!("update input buffer");
+                                let input_message = message.try_into().unwrap();
+                                // info!("Received input message: {:?}", input_message);
+                                self.input_buffer.update_from_message(input_message);
+                            } else {
+                                // buffer the message
+                                self.events.push_message(channel_kind, message);
+                            }
                         }
                         ClientMessage::Replication(replication) => {
                             // buffer the replication message
@@ -438,21 +401,6 @@ impl<P: Protocol> Connection<P> {
                             .apply_world(world, replication, &mut self.events);
                     });
                 }
-            }
-        }
-
-        // inputs
-        if self.events.has_messages::<InputMessage<P::Input>>() {
-            trace!("update input buffer");
-            // this has the added advantage that we remove the InputMessages so we don't read them later
-            let input_messages: Vec<_> = self
-                .events
-                .into_iter_messages::<InputMessage<P::Input>>()
-                .map(|(input_message, _)| input_message)
-                .collect();
-            for input_message in input_messages {
-                // info!("Received input message: {:?}", input_message);
-                self.input_buffer.update_from_message(input_message);
             }
         }
 
