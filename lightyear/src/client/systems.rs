@@ -1,6 +1,7 @@
 //! Defines the client bevy systems and run conditions
+use crate::_reexport::ReplicationSend;
 use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
-use tracing::trace;
+use tracing::{error, info, trace};
 
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;
@@ -29,7 +30,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             client.update(time.delta(), fixed_time.overstep()).unwrap();
 
             // buffer packets into message managers
-            client.recv_packets().unwrap();
+            client.recv_packets(world.change_tick()).unwrap();
             // receive packets from message managers
             let mut events = client.receive(world);
             if !events.is_empty() {
@@ -80,6 +81,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
 pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
     trace!("Send packets to server");
+    // finalize any packets that are needed for replication
+    client.buffer_replication_messages().unwrap_or_else(|e| {
+        error!("Error preparing replicate send: {}", e);
+    });
     // send buffered packets to io
     client.send_packets().unwrap();
 }

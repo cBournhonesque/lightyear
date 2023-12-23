@@ -107,6 +107,7 @@ pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
+    None,
 }
 
 impl UserInput for Inputs {}

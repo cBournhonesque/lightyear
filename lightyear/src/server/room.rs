@@ -596,8 +596,7 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
+            .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();
@@ -753,8 +752,7 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
+            .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();

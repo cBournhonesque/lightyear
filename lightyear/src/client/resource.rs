@@ -2,19 +2,24 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use crate::_reexport::ReplicationSend;
 use anyhow::Result;
-use bevy::prelude::{Resource, Time, Virtual, World};
-use tracing::trace;
+use bevy::ecs::component::Tick as BevyTick;
+use bevy::prelude::{Entity, Resource, Time, Virtual, World};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;
 use crate::inputs::input_buffer::InputBuffer;
-use crate::netcode::Client as NetcodeClient;
+use crate::netcode::{Client as NetcodeClient, ClientId};
 use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
+use crate::prelude::{NetworkTarget, Replicate};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::manager::ReplicationManager;
+use crate::shared::replication::receive::ReplicationReceiver;
+use crate::shared::replication::send::ReplicationSender;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickManaged};
 use crate::shared::time_manager::TimeManager;
@@ -158,7 +163,7 @@ impl<P: Protocol> Client<P> {
             self.connection.sync_manager.update_prediction_time(
                 &mut self.time_manager,
                 &self.tick_manager,
-                &self.connection.base.ping_manager,
+                &self.connection.ping_manager,
             );
             // update bevy's relative speed
             self.time_manager.update_relative_speed(time);
@@ -185,8 +190,12 @@ impl<P: Protocol> Client<P> {
     }
 
     // REPLICATION
-    pub(crate) fn replication_manager(&self) -> &ReplicationManager<P> {
-        &self.connection.base.replication_manager
+    pub(crate) fn replication_sender(&self) -> &ReplicationSender<P> {
+        &self.connection.replication_sender
+    }
+
+    pub(crate) fn replication_receiver(&self) -> &ReplicationReceiver<P> {
+        &self.connection.replication_receiver
     }
 
     /// Maintain connection with server, queues up any packet received from the server
@@ -215,33 +224,47 @@ impl<P: Protocol> Client<P> {
             self.connection.sync_manager.update(
                 &mut self.time_manager,
                 &mut self.tick_manager,
-                &self.connection.base.ping_manager,
+                &self.connection.ping_manager,
                 &self.config.interpolation.delay,
                 self.config.shared.server_send_interval,
             );
         }
     }
 
-    /// Send a message to the server
-    pub fn buffer_send<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
     where
         P::Message: From<M>,
     {
         let channel = ChannelKind::of::<C>();
-        self.connection.base.buffer_message(message.into(), channel)
+        self.connection
+            .buffer_message(message.into(), channel, target)
+    }
+
+    /// Send a message to the server
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.connection
+            .buffer_message(message.into(), channel, NetworkTarget::None)
     }
 
     /// Receive messages from the server
     pub(crate) fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
-        self.connection.base.receive(world, &self.time_manager)
+        self.connection.receive(world, &self.time_manager)
     }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub(crate) fn send_packets(&mut self) -> Result<()> {
         let packet_bytes = self
             .connection
-            .base
             .send_packets(&self.time_manager, &self.tick_manager)?;
         for packet_byte in packet_bytes {
             self.netcode.send(packet_byte.as_slice(), &mut self.io)?;
@@ -250,10 +273,10 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub(crate) fn recv_packets(&mut self) -> Result<()> {
+    pub(crate) fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
             self.connection
-                .recv_packet(&mut reader, &self.time_manager, &self.tick_manager)?;
+                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
         }
         Ok(())
     }
@@ -281,6 +304,153 @@ impl<P: Protocol> Client<P> {
 
     pub fn set_synced(&mut self) {
         self.connection.sync_manager.synced = true;
+    }
+}
+
+impl<P: Protocol> ReplicationSend<P> for Client<P> {
+    fn new_connected_clients(&self) -> Vec<ClientId> {
+        vec![]
+    }
+
+    fn prepare_entity_spawn(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let group = replicate.group_id(Some(entity));
+        trace!(
+            ?entity,
+            "Send entity spawn for tick {:?}",
+            self.tick_manager.current_tick()
+        );
+        let replication_sender = &mut self.connection.replication_sender;
+        // update the collect changes tick
+        replication_sender
+            .group_channels
+            .entry(group)
+            .or_default()
+            .update_collect_changes_since_this_tick(system_current_tick);
+        replication_sender.prepare_entity_spawn(entity, group);
+        // Prediction/interpolation
+        Ok(())
+    }
+
+    fn prepare_entity_despawn(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let group = replicate.group_id(Some(entity));
+        trace!(
+            ?entity,
+            "Send entity despawn for tick {:?}",
+            self.tick_manager.current_tick()
+        );
+        let replication_sender = &mut self.connection.replication_sender;
+        // update the collect changes tick
+        replication_sender
+            .group_channels
+            .entry(group)
+            .or_default()
+            .update_collect_changes_since_this_tick(system_current_tick);
+        replication_sender.prepare_entity_despawn(entity, group);
+        // Prediction/interpolation
+        Ok(())
+    }
+
+    fn prepare_component_insert(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let kind: P::ComponentKinds = (&component).into();
+        let group = replicate.group_id(Some(entity));
+        debug!(
+            ?entity,
+            component = ?kind,
+            tick = ?self.tick_manager.current_tick(),
+            "Inserting single component"
+        );
+        let replication_sender = &mut self.connection.replication_sender;
+        // update the collect changes tick
+        replication_sender
+            .group_channels
+            .entry(group)
+            .or_default()
+            .update_collect_changes_since_this_tick(system_current_tick);
+        replication_sender.prepare_component_insert(entity, group, component.clone());
+        Ok(())
+    }
+
+    fn prepare_component_remove(
+        &mut self,
+        entity: Entity,
+        component_kind: P::ComponentKinds,
+        replicate: &Replicate,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        debug!(?entity, ?component_kind, "Sending RemoveComponent");
+        let group = replicate.group_id(Some(entity));
+        let replication_sender = &mut self.connection.replication_sender;
+        replication_sender
+            .group_channels
+            .entry(group)
+            .or_default()
+            .update_collect_changes_since_this_tick(system_current_tick);
+        replication_sender.prepare_component_remove(entity, group, component_kind.clone());
+        Ok(())
+    }
+
+    fn prepare_entity_update(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate,
+        target: NetworkTarget,
+        component_change_tick: BevyTick,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let kind: P::ComponentKinds = (&component).into();
+        let group = replicate.group_id(Some(entity));
+        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+        let replication_sender = &mut self.connection.replication_sender;
+        let last_updates_ack_bevy_tick = replication_sender
+            .group_channels
+            .entry(group)
+            .or_default()
+            .collect_changes_since_this_tick;
+        // send the update for all changes newer than the last ack bevy tick for the group
+
+        if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick) {
+            trace!(
+                change_tick = ?component_change_tick,
+                last_ack_tick = ?last_updates_ack_bevy_tick,
+                current_tick = ?system_current_tick,
+                "prepare entity update changed check"
+            );
+            trace!(
+                ?entity,
+                component = ?kind,
+                tick = ?self.tick_manager.current_tick(),
+                "Updating single component"
+            );
+            replication_sender.prepare_entity_update(entity, group, component.clone());
+        }
+        Ok(())
+    }
+
+    fn buffer_replication_messages(&mut self) -> Result<()> {
+        let _span = trace_span!("buffer_replication_messages").entered();
+        self.connection
+            .buffer_replication_messages(self.tick_manager.current_tick())
     }
 }
 

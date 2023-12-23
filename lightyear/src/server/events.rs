@@ -1,6 +1,9 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 use std::collections::HashMap;
 
+use crate::_reexport::{
+    IntoKind, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+};
 use bevy::prelude::{Component, Entity};
 
 use crate::connection::events::{
@@ -10,6 +13,7 @@ use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
 
+#[derive(Debug)]
 pub struct ServerEvents<P: Protocol> {
     // have to handle disconnects separately because the [`ConnectionEvents`] are removed upon disconnection
     pub disconnects: Vec<ClientId>,
@@ -180,7 +184,83 @@ impl<P: Protocol> IterEntityDespawnEvent<ClientId> for ServerEvents<P> {
     }
 }
 
-// TODO: add component replication events
+impl<P: Protocol> IterComponentUpdateEvent<P, ClientId> for ServerEvents<P> {
+    fn iter_component_update<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            let updates = events
+                .iter_component_update::<C>()
+                .map(|(entity, _)| entity);
+            let client_ids = std::iter::once(*client_id).cycle();
+            updates.zip(client_ids)
+        }))
+    }
+
+    fn has_component_update<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_component_update::<C>())
+    }
+}
+
+impl<P: Protocol> IterComponentRemoveEvent<P, ClientId> for ServerEvents<P> {
+    fn iter_component_remove<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            let updates = events
+                .iter_component_remove::<C>()
+                .map(|(entity, _)| entity);
+            let client_ids = std::iter::once(*client_id).cycle();
+            updates.zip(client_ids)
+        }))
+    }
+
+    fn has_component_remove<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_component_remove::<C>())
+    }
+}
+
+impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
+    fn iter_component_insert<C: Component>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            let updates = events
+                .iter_component_insert::<C>()
+                .map(|(entity, _)| entity);
+            let client_ids = std::iter::once(*client_id).cycle();
+            updates.zip(client_ids)
+        }))
+    }
+
+    fn has_component_insert<C: Component>(&self) -> bool
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_component_insert::<C>())
+    }
+}
 
 pub type ConnectEvent = crate::shared::events::ConnectEvent<ClientId>;
 pub type DisconnectEvent = crate::shared::events::DisconnectEvent<ClientId>;

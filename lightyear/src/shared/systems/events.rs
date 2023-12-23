@@ -51,7 +51,7 @@ pub fn push_component_insert_events<
         let mut event_writer = world
             .get_resource_mut::<Events<ComponentInsertEvent<C, Ctx>>>()
             .unwrap();
-        for (entity, ctx) in events.into_iter_component_insert::<C>() {
+        for (entity, ctx) in events.iter_component_insert::<C>() {
             let event = ComponentInsertEvent::new(entity, ctx);
             event_writer.send(event);
         }
@@ -73,7 +73,7 @@ pub fn push_component_remove_events<
         let mut event_writer = world
             .get_resource_mut::<Events<ComponentRemoveEvent<C, Ctx>>>()
             .unwrap();
-        for (entity, ctx) in events.into_iter_component_remove::<C>() {
+        for (entity, ctx) in events.iter_component_remove::<C>() {
             let event = ComponentRemoveEvent::new(entity, ctx);
             event_writer.send(event);
         }

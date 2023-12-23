@@ -5,11 +5,101 @@
   - one server: 1 game room per core?
 
 
-- DEBUGGING SIMPLE_BOX:
+- BUGS:
+  - client-replication: it seems like the updates are getting accumulated for a given entity while the client is not synced
+    - that's because we don't do the duplicate check anymore, so we keep adding new updates
+    - but our code relies on the assumption that finalize() is called every send_interval (to drain pending-actions/pending-updates) which is not the case anymore.
+    - we still want to accumulate updates early though (before client is synced)
+    - OPTION 1 (SELECTED):
+      - just try sending the updates (which fails because we don't send anything until client is connected). That means 
+        we might have a bit of delay to receive the updates at the very beginning (retry_delay).
+    - OPTION 2:
+      - have a more clever way of accumulating updates. Maybe get a HashMap<ComponentKind, latest-tick> for updates?
+      - For actions, we still want to send every update sequentially...
+  - input-events are cleared every fixed-udpate, but we might want to use them every frame. What happens if frames are more frequent
+    than fixed-update? we double-use an input.. I feel like we should just have inputs every frame?
+
+
+- CLIENT REPLICATION:
+  - we want client to be able to send messages to specific other clients
+    - send a message to server, who then retransmits it to other clients
+    - either add a MessageWithMetadata in the ProtocolMessage, or add Option<Metadata> in Message.
+  - we want client to be able to spawn entities that then become server-authoritative and replicated to other clients
+    - for example client spawns snake when it connects.
+    - server-authoritative = server updates are replicated to the client (and to other clients)
+      - can optionally have a Predicted entity on the client, but in case of conflict server wins.
+  - we want client to be able to spawn entities that are client-authoritative and replicated to other clients.
+    - for example client's cursor.
+    - client-authoritative = client's changes are replicated to the server, which replicates them to other clients than the client.
+  - can just use Authority to specify who has authority?
+  - maybe we should separate Connection and MessageManager into a Send and Receive part?
+    - server recv and client send need MessageWithMetadata
+    - client recv and server send need Message
+  - on the client prepare spawn, another component gets added, similar to ShouldBePredicted. Or just replicate Replicate entirely, once...
+    - 
+  - Server authority:
+    - OPTION 1
+      - client spawns entity, server receives it and stores the mapping client_id=remote_id, server_id=local_id.
+      - then server starts replicating back to the client, with a server_id
+      - upon reception, the client needs to know that the server_id will map to its own local client_id.
+        - i.e. the server's message will contain the client id
+        - if the server message contains client-id, instead of spawn we update the local mapping on client
+    - OPTION 2:
+      - client spawns a predicted entity (Predicted) but Confirmed is nil. id=PC1
+      - server receives it and spawns an entity,
   - If jitter is too big, or there is packet loss? it looks like inputs keep getting sent to client 1.
     - the cube goes all the way to the left and exits the screen. There is continuous rollback fails
   - on interest management, we still have this problem where interpolation is stuck at the beginning and doesn't move. Probably 
     because start tick or end tick are not updated correctly in some edge cases.
+  - A: client-authoritative replication:
+    Client 1 spawns an entity C1, which gets replicated on the client as S1 (and can then be further replicated to other clients).
+    S1 doesn't get replicated back to client 1, but only to other clients. For example, we want to replicate client 1's cursor
+    position to other clients.
+    DONE! Server can just add Replicate when entity is spawned.
+
+
+  - B: client spawning a Predicted entity.
+    For example client 1 spawns a predicted entity P1 (a shared UI menu). Server receives that notification; spawns an
+    entity S1 that gets replicated to client 1. Client 1 spawns a confirmed entity C1. But instead of spawning a new
+    corresponding predicted entity, it re-uses the existing P1. From there on prediction with rollback can proceed as usual.
+
+    P1 spawns on client. [Sends ShouldBePredicted(predicted=P1) as metadata on the spawn?, just so that the server can send it back]
+    Server spawns S1. user adds a system to replicate S1 to other clients (including client 1).
+    Client1 spawns C1 (but re-uses C1). [Sends ShouldBePredicted(predicted=P1)]
+
+    - TODO: a client system, upon receiving ShouldBePredicted { client_id: not_none }, attaches Predicted to the entity.
+    - TODO: update the confirmed spawn system to handle ShouldBePredicted { not_none }
+
+- OPTION 1:
+  - re-use ShouldBePredicted to send the client_entity
+  - when we receive back ShouldBePredicted { client_entity } on confirmed.
+    - if the current_entity is the client_entity from ShouldBePredicted, ignore (we are the current entity)
+    - we use client_entity to find the predicted entity. We add Confirmed and predicted
+
+- OPTION 2: 
+  - create with PreSpawned::for_predicted, PreSpawned::for_confirmed. PreSpawned {confirmed: Option, predicted: Option}
+  - to start, let's just Prespawned(Entity) because it's easier...
+  - use a new component PreSpawned::new() [Prespawned(None)] that the client can add on the entity when it's spawned
+  - the server returns PreSpawned(Some(entity)) when it spawns the entity
+  - when we receive PreSpawned on client on the confirmed entity:
+    - if it's PreSpawned.predicted:
+      - if the entity has ShouldBePredicted, we use PreSpawned.predicted to find its predicted entity. We add Confirmed and Predicted.
+        - if PreSpawned.predicted is None, we spawn it? maybe not, think about this more... (how to spawn new entities that were despawned.)
+          maybe the best solution is to attach Predicted(None) right away to the Predicted entity.
+      - if the entity doesnt have ShouldBePredicted, it's an error.
+    - if it's PreSpawned.confirmed:
+      - when the client receives it; it makes sure not to spawn a new entity, but to re-use the existing one.
+      - it's confirmed; so if entity doesn't exist, we spawn it? 
+
+
+  - C: client spawning a Confirmed entity.
+    Client 1 spawns a confirmed entity C1. It gets replicated to server, which spawns S1. Then that entity can get
+    replicated to other clients AND to client 1. When client 1 receives the replication of S1, it knows that it corresponds
+    to its confirmed entity C1. From there on it's normal replication.
+
+    I'm not actually sure that this is useful; because the entity first spawns instantly on client (i.e. is on the client timeline),
+    but then if we fallback to normal replication, the entity then moves to the server's timeline, so there would be a jarring update.
+
 
 
 - add PredictionGroup and InterpolationGroup?

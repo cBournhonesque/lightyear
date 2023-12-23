@@ -9,7 +9,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::HashSet;
 use crossbeam_channel::Sender;
-use tracing::{debug, debug_span, info, trace, trace_span};
+use tracing::{debug, debug_span, error, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::inputs::input_buffer::InputBuffer;
@@ -28,7 +28,7 @@ use crate::transport::io::Io;
 use crate::transport::{PacketSender, Transport};
 
 use super::config::ServerConfig;
-use super::connection::Connection;
+use super::connection::{Connection, ConnectionManager};
 use super::events::ServerEvents;
 
 #[derive(Resource)]
@@ -40,21 +40,15 @@ pub struct Server<P: Protocol> {
     // Netcode
     netcode: crate::netcode::Server<NetcodeServerContext>,
     context: ServerContext,
-    // Clients
-    user_connections: HashMap<ClientId, Connection<P>>,
-    // TODO: maybe put this in replication plugin
-    // list of clients that connected since the last time we sent replication messages
-    // (we want to keep track of them because we need to replicate the entire world state to them)
-    pub(crate) new_clients: Vec<ClientId>,
+    // Connections
+    pub(crate) connection_manager: ConnectionManager<P>,
     // Protocol
     pub protocol: P,
-    // Events
-    pub(crate) events: ServerEvents<P>,
     // Rooms
     pub(crate) room_manager: RoomManager,
     // Time
     time_manager: TimeManager,
-    tick_manager: TickManager,
+    pub(crate) tick_manager: TickManager,
 }
 
 pub struct NetcodeServerContext {
@@ -94,10 +88,9 @@ impl<P: Protocol> Server<P> {
             io,
             netcode,
             context,
-            user_connections: HashMap::new(),
-            new_clients: Vec::new(),
+            // TODO: avoid clone
+            connection_manager: ConnectionManager::new(protocol.channel_registry().clone()),
             protocol,
-            events: ServerEvents::new(),
             room_manager: RoomManager::default(),
             time_manager: TimeManager::new(config.shared.server_send_interval),
             tick_manager: TickManager::from_config(config.shared.tick),
@@ -124,65 +117,27 @@ impl<P: Protocol> Server<P> {
 
     // EVENTS
 
+    pub fn events(&mut self) -> &mut ServerEvents<P> {
+        &mut self.connection_manager.events
+    }
+
     pub fn clear_events(&mut self) {
-        self.events.clear();
+        self.events().clear();
     }
 
     // INPUTS
 
-    // TODO: exposed only for debugging
-    pub fn get_input_buffer(&self, client_id: ClientId) -> Option<&InputBuffer<P::Input>> {
-        self.user_connections
-            .get(&client_id)
-            .map(|connection| &connection.input_buffer)
-    }
-
-    /// Get the inputs for all clients for the given tick
-    pub fn pop_inputs(&mut self) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-        self.user_connections
-            .iter_mut()
-            .map(|(client_id, connection)| {
-                let received_input = connection
-                    .input_buffer
-                    .pop(self.tick_manager.current_tick());
-                let fallback = received_input.is_none();
-
-                // NOTE: if there is no input for this tick, we should use the last input that we have
-                //  as a best-effort fallback.
-                let input = match received_input {
-                    None => connection.last_input.clone(),
-                    Some(i) => {
-                        connection.last_input = Some(i.clone());
-                        Some(i)
-                    }
-                };
-                // let input = received_input.map_or_else(
-                //     || connection.last_input.clone(),
-                //     |i| {
-                //         connection.last_input = Some(i.clone());
-                //         Some(i)
-                //     },
-                // );
-                if fallback {
-                    // TODO: do not log this while clients are syncing..
-                    debug!(
-                        ?client_id,
-                        tick = ?self.tick_manager.current_tick(),
-                        fallback_input = ?&input,
-                        "Missed client input!"
-                    )
-                }
-                // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
-                //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
-                //  See Overwatch GDC video
-                (input, *client_id)
-            })
-    }
+    // // TODO: exposed only for debugging
+    // pub fn get_input_buffer(&self, client_id: ClientId) -> Option<&InputBuffer<P::Input>> {
+    //     self.user_connections
+    //         .get(&client_id)
+    //         .map(|connection| &connection.input_buffer)
+    // }
 
     // TIME
 
     #[doc(hidden)]
-    pub fn is_ready_to_send(&self) -> bool {
+    pub(crate) fn is_ready_to_send(&self) -> bool {
         self.time_manager.is_ready_to_send()
     }
 
@@ -223,7 +178,7 @@ impl<P: Protocol> Server<P> {
     // MESSAGES
 
     /// Queues up a message to be sent to all clients
-    pub fn send_to_target<C: Channel, M: Message>(
+    pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: M,
         target: NetworkTarget,
@@ -232,53 +187,29 @@ impl<P: Protocol> Server<P> {
         M: Clone,
         P::Message: From<M>,
     {
-        #[cfg(feature = "metrics")]
-        {
-            metrics::increment_counter!("send_message_server_before_span");
-        }
-        let _span = debug_span!("broadcast", user = "a").entered();
-        #[cfg(feature = "metrics")]
-        {
-            metrics::increment_counter!("send_message_server_after_span");
-        }
-        let channel = ChannelKind::of::<C>();
-        for client_id in self
-            .netcode
-            .connected_client_ids()
-            .iter()
-            .filter(|id| target.should_send_to(id))
-        {
-            self.user_connections
-                .get_mut(client_id)
-                .context("client not found")?
-                .base
-                .buffer_message(message.clone().into(), channel)?;
-        }
-        Ok(())
+        let _span =
+            debug_span!("send_message", channel = ?C::name(), message = ?message.name(), ?target)
+                .entered();
+        self.connection_manager
+            .buffer_message(message.into(), ChannelKind::of::<C>(), target)
     }
 
     /// Queues up a message to be sent to a client
-    pub fn buffer_send<C: Channel, M: Message>(
+    pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
         message: M,
     ) -> Result<()>
     where
+        M: Clone,
         P::Message: From<M>,
     {
-        let _span = debug_span!("buffer_send", client_id = ?client_id).entered();
-        let channel = ChannelKind::of::<C>();
-        // TODO: if client not connected; buffer in advance?
-        self.user_connections
-            .get_mut(&client_id)
-            .context("client not found")?
-            .base
-            .buffer_message(message.into(), channel)
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
     /// Update the server's internal state, queues up in a buffer any packets received from clients
     /// Sends keep-alive packets + any non-payload packet needed for netcode
-    pub fn update(&mut self, delta: Duration) -> Result<()> {
+    pub(crate) fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
         self.time_manager.update(delta, Duration::default());
 
@@ -288,37 +219,19 @@ impl<P: Protocol> Server<P> {
             .context("Error updating netcode server")?;
 
         // update connections
-        for connection in self.user_connections.values_mut() {
-            connection
-                .base
-                .update(&self.time_manager, &self.tick_manager);
-        }
+        self.connection_manager
+            .update(&self.time_manager, &self.tick_manager);
 
         // handle connections
         for client_id in self.context.connections.try_iter() {
-            // TODO: do we need a mutex around this?
-            if let Entry::Vacant(e) = self.user_connections.entry(client_id) {
-                #[cfg(feature = "metrics")]
-                metrics::increment_gauge!("connected_clients", 1.0);
-
-                let client_addr = self.netcode.client_addr(client_id).unwrap();
-                info!("New connection from {} (id: {})", client_addr, client_id);
-                let mut connection =
-                    Connection::new(self.protocol.channel_registry(), &self.config.ping);
-                connection.base.events.push_connection();
-                self.new_clients.push(client_id);
-                e.insert(connection);
-            }
+            let client_addr = self.netcode.client_addr(client_id).unwrap();
+            info!("New connection from {} (id: {})", client_addr, client_id);
+            self.connection_manager.add(client_id, &self.config.ping);
         }
 
         // handle disconnections
         for client_id in self.context.disconnections.try_iter() {
-            #[cfg(feature = "metrics")]
-            metrics::decrement_gauge!("connected_clients", 1.0);
-
-            info!("Client {} disconnected", client_id);
-            self.events.push_disconnects(client_id);
-            self.user_connections.remove(&client_id);
+            self.connection_manager.remove(client_id);
             self.room_manager.client_disconnect(client_id);
         }
         Ok(())
@@ -326,25 +239,20 @@ impl<P: Protocol> Server<P> {
 
     /// Receive messages from each connection, and update the events buffer
     pub fn receive(&mut self, world: &mut World) {
-        for (client_id, connection) in &mut self.user_connections.iter_mut() {
-            let _span = trace_span!("receive", client_id = ?client_id).entered();
-            let connection_events = connection.receive(world, &self.time_manager);
-            if !connection_events.is_empty() {
-                self.events.push_events(*client_id, connection_events);
-            }
-        }
+        self.connection_manager
+            .receive(world, &self.time_manager)
+            .unwrap_or_else(|e| {
+                error!("Error during receive: {}", e);
+            });
     }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
         let span = trace_span!("send_packets").entered();
-        for (client_idx, connection) in &mut self.user_connections.iter_mut() {
+        for (client_idx, connection) in &mut self.connection_manager.connections.iter_mut() {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for packet_byte in connection
-                .base
-                .send_packets(&self.time_manager, &self.tick_manager)?
-            {
+            for packet_byte in connection.send_packets(&self.time_manager, &self.tick_manager)? {
                 self.netcode
                     .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
             }
@@ -356,10 +264,9 @@ impl<P: Protocol> Server<P> {
     pub fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
         while let Some((mut reader, client_id)) = self.netcode.recv() {
             // TODO: use connection to apply on BOTH message manager and replication manager
-            self.user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
-                .recv_packet(&mut reader, bevy_tick)?;
+            self.connection_manager
+                .connection_mut(client_id)?
+                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
         }
         Ok(())
     }
@@ -385,8 +292,8 @@ pub struct ServerContext {
 }
 
 impl<P: Protocol> ReplicationSend<P> for Server<P> {
-    fn new_connected_clients(&self) -> &Vec<ClientId> {
-        &self.new_clients
+    fn new_connected_clients(&self) -> Vec<ClientId> {
+        self.connection_manager.new_clients.clone()
     }
 
     fn prepare_entity_spawn(
@@ -406,29 +313,29 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 "Send entity spawn for tick {:?}",
                 self.tick_manager.current_tick()
             );
-            let replication_manager = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
-                .base
-                .replication_manager;
+            let replication_sender = &mut self
+                .connection_manager
+                .connection_mut(client_id)?
+                .replication_sender;
             // update the collect changes tick
-            replication_manager
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_entity_spawn(entity, group);
+            replication_sender.prepare_entity_spawn(entity, group);
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
             if replicate.prediction_target.should_send_to(&client_id) {
-                replication_manager.prepare_component_insert(
+                replication_sender.prepare_component_insert(
                     entity,
                     group,
-                    P::Components::from(ShouldBePredicted),
+                    P::Components::from(ShouldBePredicted {
+                        client_entity: None,
+                    }),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
-                replication_manager.prepare_component_insert(
+                replication_sender.prepare_component_insert(
                     entity,
                     group,
                     P::Components::from(ShouldBeInterpolated),
@@ -453,19 +360,17 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 "Send entity despawn for tick {:?}",
                 self.tick_manager.current_tick()
             );
-            let replication_manager = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
-                .base
-                .replication_manager;
+            let replication_sender = &mut self
+                .connection_manager
+                .connection_mut(client_id)?
+                .replication_sender;
             // update the collect changes tick
-            replication_manager
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_entity_despawn(entity, group);
+            replication_sender.prepare_entity_despawn(entity, group);
             Ok(())
         })
     }
@@ -488,19 +393,17 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 tick = ?self.tick_manager.current_tick(),
                 "Inserting single component"
             );
-            let replication_manager = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
-                .base
-                .replication_manager;
+            let replication_sender = &mut self
+                .connection_manager
+                .connection_mut(client_id)?
+                .replication_sender;
             // update the collect changes tick
-            replication_manager
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_component_insert(entity, group, component.clone());
+            replication_sender.prepare_component_insert(entity, group, component.clone());
             Ok(())
         })
     }
@@ -516,18 +419,16 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
-            let replication_manager = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
-                .base
-                .replication_manager;
-            replication_manager
+            let replication_sender = &mut self
+                .connection_manager
+                .connection_mut(client_id)?
+                .replication_sender;
+            replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_manager.prepare_component_remove(entity, group, component_kind.clone());
+            replication_sender.prepare_component_remove(entity, group, component_kind.clone());
             Ok(())
         })
     }
@@ -546,13 +447,11 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-            let replication_manager = &mut self
-                .user_connections
-                .get_mut(&client_id)
-                .context("client not found")?
-                .base
-                .replication_manager;
-            let last_updates_ack_bevy_tick = replication_manager
+            let replication_sender = &mut self
+                .connection_manager
+                .connection_mut(client_id)?
+                .replication_sender;
+            let last_updates_ack_bevy_tick = replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
@@ -573,7 +472,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                     tick = ?self.tick_manager.current_tick(),
                     "Updating single component"
                 );
-                replication_manager.prepare_entity_update(entity, group, component.clone());
+                replication_sender.prepare_entity_update(entity, group, component.clone());
             }
             Ok(())
         })
@@ -581,17 +480,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
 
     /// Buffer the replication messages
     fn buffer_replication_messages(&mut self) -> Result<()> {
-        let _span = trace_span!("buffer_replication_messages").entered();
-        self.netcode
-            .connected_client_ids()
-            .iter()
-            .try_for_each(|client_id| {
-                self.user_connections
-                    .get_mut(client_id)
-                    .context("client not found")?
-                    .base
-                    .buffer_replication_messages(self.tick_manager.current_tick())
-            })
+        self.connection_manager
+            .buffer_replication_messages(self.tick_manager.current_tick())
     }
 }
 

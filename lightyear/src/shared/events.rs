@@ -139,7 +139,7 @@ impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct ComponentInsertEvent<C: Component, Ctx = ()> {
     entity: Entity,
     context: Ctx,

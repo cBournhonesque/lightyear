@@ -6,7 +6,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate, Query,
     Ref, RemovedComponents, ResMut,
 };
-use tracing::debug;
+use tracing::{debug, info, trace};
 
 use crate::prelude::NetworkTarget;
 use crate::protocol::component::IntoKind;
@@ -142,24 +142,27 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                     });
             }
             ReplicationMode::NetworkTarget => {
+                let mut target = replicate.replication_target.clone();
+
                 let new_connected_clients = sender.new_connected_clients().clone();
-                // replicate all entities to newly connected clients
-                sender
-                    .prepare_entity_spawn(
-                        entity,
-                        &replicate,
-                        NetworkTarget::Only(new_connected_clients.clone()),
-                        system_bevy_ticks.this_run(),
-                    )
-                    .unwrap();
+                if !new_connected_clients.is_empty() {
+                    // replicate all entities to newly connected clients
+                    sender
+                        .prepare_entity_spawn(
+                            entity,
+                            &replicate,
+                            NetworkTarget::Only(new_connected_clients.clone()),
+                            system_bevy_ticks.this_run(),
+                        )
+                        .unwrap();
+                    // don't re-send to newly connection client
+                    target.exclude(new_connected_clients.clone());
+                }
 
                 // only try to replicate if the replicate component was just added
                 if replicate.is_added() {
-                    debug!("send entity spawn to maintained");
+                    trace!("send entity spawn");
                     replication.owned_entities.insert(entity, replicate.clone());
-                    // don't re-send to newly connection client
-                    let mut target = replicate.replication_target.clone();
-                    target.exclude(new_connected_clients.clone());
                     sender
                         .prepare_entity_spawn(
                             entity,
@@ -243,24 +246,27 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                     })
             }
             ReplicationMode::NetworkTarget => {
+                let mut target = replicate.replication_target.clone();
+
                 let new_connected_clients = sender.new_connected_clients().clone();
                 // replicate all components to newly connected clients
-                sender
-                    .prepare_component_insert(
-                        entity,
-                        component.clone().into(),
-                        replicate,
-                        NetworkTarget::Only(new_connected_clients.clone()),
-                        system_bevy_ticks.this_run(),
-                    )
-                    .unwrap();
-
-                // don't re-send to newly connection client
-                let mut target = replicate.replication_target.clone();
-                target.exclude(new_connected_clients.clone());
+                if !new_connected_clients.is_empty() {
+                    sender
+                        .prepare_component_insert(
+                            entity,
+                            component.clone().into(),
+                            replicate,
+                            NetworkTarget::Only(new_connected_clients.clone()),
+                            system_bevy_ticks.this_run(),
+                        )
+                        .unwrap();
+                    // don't re-send to newly connection client
+                    target.exclude(new_connected_clients.clone());
+                }
 
                 // send an component_insert for components that were newly added
                 if component.is_added() {
+                    trace!("component is added");
                     sender
                         .prepare_component_insert(
                             entity,
@@ -344,12 +350,13 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
         (
             // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
             //  so we can run the system every frame
+            //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
             send_entity_spawn::<P, R>.in_set(ReplicationSet::SendEntityUpdates),
             // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
             (add_despawn_tracker, send_entity_despawn::<P, R>)
-                .in_set(ReplicationSet::ReplicationSystems),
+                .in_set(ReplicationSet::SendDespawnsAndRemovals),
         ),
     );
 }
@@ -370,7 +377,7 @@ pub fn add_per_component_replication_send_systems<
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            send_component_removed::<C, P, R>.in_set(ReplicationSet::ReplicationSystems),
+            send_component_removed::<C, P, R>.in_set(ReplicationSet::SendDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
             send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),

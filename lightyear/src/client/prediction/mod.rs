@@ -1,7 +1,9 @@
 //! Handles client-side prediction
 use std::fmt::Debug;
 
-use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut, Resource};
+use bevy::prelude::{
+    Added, Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, ResMut, Resource,
+};
 use tracing::info;
 
 pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
@@ -9,7 +11,9 @@ pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
+use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
+use crate::prelude::Replicate;
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::tick_manager::Tick;
 
@@ -66,12 +70,52 @@ pub enum RollbackState {
 pub fn spawn_predicted_entity(
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
-    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
+    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
 ) {
-    for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
-        // spawn a new predicted entity
-        let predicted_entity_mut = commands.spawn(Predicted { confirmed_entity });
-        let predicted_entity = predicted_entity_mut.id();
+    for (confirmed_entity, confirmed, should_be_predicted) in confirmed_entities.iter_mut() {
+        if !should_be_predicted.is_added() {
+            continue;
+        }
+
+        let predicted_entity: Entity;
+        if let Some(client_entity) = should_be_predicted.client_entity {
+            if client_entity == confirmed_entity {
+                // this is the pre-spawned predicted entity, ignore
+                continue;
+            }
+            // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
+            // just find the existing one!
+            predicted_entity = client_entity;
+
+            // TODO: figure out what to do if it does not exist. Normally it could be respawned via rollback, which would suggest
+            //  that we need to add Predicted pre-emptively to the pre-predicted entity so that we can store the history for rollback.
+            //  Or if it does not exist, does it mean we should not spawn the confirmed entity?
+            if let Some(mut predicted_entity_mut) = commands.get_entity(predicted_entity) {
+                predicted_entity_mut.remove::<ShouldBePredicted>();
+                predicted_entity_mut.remove::<Replicate>();
+                predicted_entity_mut.insert(Predicted { confirmed_entity });
+            }
+            info!(
+                "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
+                predicted_entity, confirmed_entity
+            );
+            #[cfg(feature = "metrics")]
+            {
+                metrics::increment_counter!("prespawn_predicted_entity");
+            }
+        } else {
+            // we need to spawn a predicted entity for this confirmed entity
+            let predicted_entity_mut = commands.spawn(Predicted { confirmed_entity });
+            predicted_entity = predicted_entity_mut.id();
+            info!(
+                "Spawn predicted entity {:?} for confirmed: {:?}",
+                predicted_entity, confirmed_entity
+            );
+            #[cfg(feature = "metrics")]
+            {
+                metrics::increment_counter!("spawn_predicted_entity");
+            }
+        }
 
         // update the entity mapping
         manager
@@ -81,7 +125,9 @@ pub fn spawn_predicted_entity(
 
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
-        let mut confirmed_entity_mut = commands.get_entity(confirmed_entity).unwrap();
+        let mut confirmed_entity_mut = commands.entity(confirmed_entity);
+        confirmed_entity_mut.remove::<ShouldBePredicted>();
+
         if let Some(mut confirmed) = confirmed {
             confirmed.predicted = Some(predicted_entity);
         } else {
@@ -89,14 +135,6 @@ pub fn spawn_predicted_entity(
                 predicted: Some(predicted_entity),
                 interpolated: None,
             });
-        }
-        info!(
-            "Spawn predicted entity {:?} for confirmed: {:?}",
-            predicted_entity, confirmed_entity
-        );
-        #[cfg(feature = "metrics")]
-        {
-            metrics::increment_counter!("spawn_predicted_entity");
         }
     }
 }

@@ -15,10 +15,12 @@ use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
+use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::plugin::SharedPlugin;
+use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::systems::tick::increment_tick;
 use crate::transport::io::Io;
@@ -68,6 +70,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
         );
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
 
+        add_replication_send_systems::<P, Client<P>>(app);
+        P::Components::add_per_component_replication_send_systems::<Client<P>>(app);
         P::Components::add_events::<()>(app);
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that
@@ -99,9 +103,34 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                 )
                     .chain(),
             )
+            // TODO: revisit the ordering of systems here. I believe all systems in ReplicationSet::All can run in parallel,
+            //  but maybe that's not the case and we need to run them in a certain order
+            // NOTE: it's ok to run the replication systems less frequently than every frame
+            //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
             .configure_sets(
                 PostUpdate,
-                (MainSet::Send.run_if(is_ready_to_send::<P>), MainSet::Sync),
+                (
+                    (
+                        ReplicationSet::SendEntityUpdates,
+                        ReplicationSet::SendComponentUpdates,
+                        ReplicationSet::SendDespawnsAndRemovals,
+                    )
+                        .in_set(ReplicationSet::All),
+                    (
+                        ReplicationSet::SendEntityUpdates,
+                        ReplicationSet::SendComponentUpdates,
+                        MainSet::SendPackets,
+                    )
+                        .in_set(MainSet::Send),
+                    // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
+                    // which runs every send_interval
+                    (ReplicationSet::All, MainSet::SendPackets).chain(),
+                ),
+            )
+            .configure_sets(
+                PostUpdate,
+                // run sync before send because some send systems need to know if the client is synced
+                (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send::<P>)).chain(),
             )
             // EVENTS //
             .add_event::<ConnectEvent>()
@@ -133,7 +162,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    send::<P>.in_set(MainSet::Send),
+                    send::<P>.in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
             );

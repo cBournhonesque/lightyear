@@ -141,6 +141,6 @@ pub(crate) fn movement(
     }
 }
 
-pub(crate) fn debug_inputs(server: Res<Server<MyProtocol>>) {
-    info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(1), "debug");
-}
+// pub(crate) fn debug_inputs(server: Res<Server<MyProtocol>>) {
+//     info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(1), "debug");
+// }

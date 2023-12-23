@@ -110,7 +110,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
             // - History contains the history of what we predicted at the tick
             // get the tick that the confirmed entity is at
             let Some(channel) = client
-                .replication_manager()
+                .replication_receiver()
                 .channel_by_local(confirmed_entity)
             else {
                 error!(

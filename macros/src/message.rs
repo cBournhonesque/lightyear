@@ -25,7 +25,7 @@ pub fn message_impl(
 
     // Helper Properties
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-    let ident_map = !attrs.custom_map;
+    let map_entities = !attrs.custom_map;
 
     // Names
     let struct_name = &input.ident;
@@ -33,7 +33,7 @@ pub fn message_impl(
     let lowercase_struct_name =
         format_ident!("{}", struct_name.to_string().to_lowercase().as_str());
     let module_name = generate_unique_ident(&format!("mod_{}", lowercase_struct_name));
-    let map_entities_trait = map_entities_trait(&input, ident_map);
+    let map_entities_trait = map_entities_trait(&input, map_entities);
 
     // Methods
     let gen = quote! {

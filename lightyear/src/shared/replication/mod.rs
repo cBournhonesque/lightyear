@@ -24,6 +24,8 @@ pub mod manager;
 
 pub mod resources;
 
+pub(crate) mod receive;
+pub(crate) mod send;
 pub mod systems;
 
 // // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
@@ -102,7 +104,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
-    fn new_connected_clients(&self) -> &Vec<ClientId>;
+    fn new_connected_clients(&self) -> Vec<ClientId>;
 
     fn prepare_entity_spawn(
         &mut self,
@@ -222,8 +224,7 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
+            .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();

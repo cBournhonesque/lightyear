@@ -147,7 +147,7 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 continue;
                             };
                             let Some(channel) = client
-                                .replication_manager()
+                                .replication_receiver()
                                 .channel_by_local(confirmed_entity)
                             else {
                                 error!(

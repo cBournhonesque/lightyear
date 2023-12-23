@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Context};
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -22,10 +22,12 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
+// TODO: hard to split message manager into send/receive because the acks need both the send side and receive side
+//  maybe have a separate actor for acks?
+
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
-// TODO: put the M here or in the functions?
-pub struct MessageManager<M: BitSerializable> {
+pub struct MessageManager {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,
     // TODO: add ordering of channels per priority
@@ -36,12 +38,9 @@ pub struct MessageManager<M: BitSerializable> {
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
     writer: WriteWordBuffer,
-
-    // MessageManager works because we only are only sending a single enum type
-    _marker: PhantomData<M>,
 }
 
-impl<M: BitSerializable> MessageManager<M> {
+impl MessageManager {
     pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
             packet_manager: PacketBuilder::new(),
@@ -49,7 +48,6 @@ impl<M: BitSerializable> MessageManager<M> {
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
-            _marker: Default::default(),
         }
     }
 
@@ -71,7 +69,7 @@ impl<M: BitSerializable> MessageManager<M> {
 
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
-    pub fn buffer_send(
+    pub fn buffer_send<M: BitSerializable>(
         &mut self,
         message: M,
         channel_kind: ChannelKind,
@@ -230,7 +228,7 @@ impl<M: BitSerializable> MessageManager<M> {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, M)>> {
+    pub fn read_messages<M: BitSerializable>(&mut self) -> HashMap<ChannelKind, Vec<(Tick, M)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
@@ -279,10 +277,8 @@ mod tests {
         let protocol = protocol();
 
         // Create message managers
-        let mut client_message_manager =
-            MessageManager::<MyMessageProtocol>::new(protocol.channel_registry());
-        let mut server_message_manager =
-            MessageManager::<MyMessageProtocol>::new(protocol.channel_registry());
+        let mut client_message_manager = MessageManager::new(protocol.channel_registry());
+        let mut server_message_manager = MessageManager::new(protocol.channel_registry());
 
         // client: buffer send messages, and then send
         let message = MyMessageProtocol::Message1(Message1("1".to_string()));
@@ -366,10 +362,8 @@ mod tests {
         let protocol = protocol();
 
         // Create message managers
-        let mut client_message_manager =
-            MessageManager::<MyMessageProtocol>::new(protocol.channel_registry());
-        let mut server_message_manager =
-            MessageManager::<MyMessageProtocol>::new(protocol.channel_registry());
+        let mut client_message_manager = MessageManager::new(protocol.channel_registry());
+        let mut server_message_manager = MessageManager::new(protocol.channel_registry());
 
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
@@ -472,10 +466,8 @@ mod tests {
         let protocol = protocol();
 
         // Create message managers
-        let mut client_message_manager =
-            MessageManager::<MyMessageProtocol>::new(protocol.channel_registry());
-        let mut server_message_manager =
-            MessageManager::<MyMessageProtocol>::new(protocol.channel_registry());
+        let mut client_message_manager = MessageManager::new(protocol.channel_registry());
+        let mut server_message_manager = MessageManager::new(protocol.channel_registry());
 
         let update_acks_tracker = client_message_manager
             .channels
