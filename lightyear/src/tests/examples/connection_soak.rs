@@ -113,7 +113,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
                     .collect();
                 let message = Message1(s);
                 debug!("Sending message {message:?}");
-                server.send_to_target::<Channel1, Message1>(message, NetworkTarget::All)?;
+                server.send_message_to_target::<Channel1, Message1>(message, NetworkTarget::All)?;
             }
             std::thread::sleep(tick_rate_secs);
         }

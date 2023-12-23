@@ -5,7 +5,7 @@ A simple example that shows how to use lightyear for client-replication (the ent
     The client's cursor is replicated to the server; one just needs to add the `Replicate` component on the server to then
     replicate the cursor to other clients. 
   
-  - with server-authority: when pressing space, a square is spawned on the client. That square is a 'pre-predicted' entity:
+  - with server-authority: when pressing the `Space` key, a square is spawned on the client. That square is a 'pre-predicted' entity:
     it will get replicated to the server. The server can replicate it back to all clients.
     When the original client gets the square back, it will spawn a 'Confirmed' square on the client, and will recognize
     that the original square spawned was a prediction. From there on it's normal replication.

@@ -77,7 +77,7 @@ pub fn spawn_predicted_entity(
             continue;
         }
 
-        let mut predicted_entity: Entity;
+        let predicted_entity: Entity;
         if let Some(client_entity) = should_be_predicted.client_entity {
             if client_entity == confirmed_entity {
                 // this is the pre-spawned predicted entity, ignore
