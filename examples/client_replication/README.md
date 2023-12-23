@@ -1,11 +1,10 @@
 # Introduction
 
-A simple example that shows how to use lightyear for client-replication (the entity is spawned on the client and replicated to the server and then to other clients):
-  - with client-authority: the circle cursor is replicated to the server and to other clients. Any client updates are replicated to the server.
-    The client's cursor is replicated to the server; one just needs to add the `Replicate` component on the server to then
-    replicate the cursor to other clients. 
+A simple example that shows how to use lightyear for client-replication (the entity is spawned on the client and replicated to the server):
+  - with client-authority: the cursor is replicated to the server and to other clients. Any client updates are replicated to the server.
+    If we want to replicate it to other clients, we just needs to add the `Replicate` component on the server's entity to replicate the cursor to other clients.
   
-  - with server-authority: when pressing the `Space` key, a square is spawned on the client. That square is a 'pre-predicted' entity:
+  - spawning pre-predicted entities on the client: when pressing the `Space` key, a square is spawned on the client. That square is a 'pre-predicted' entity:
     it will get replicated to the server. The server can replicate it back to all clients.
     When the original client gets the square back, it will spawn a 'Confirmed' square on the client, and will recognize
     that the original square spawned was a prediction. From there on it's normal replication.
