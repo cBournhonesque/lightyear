@@ -9,19 +9,11 @@ use bevy::prelude::{
 use tracing::{debug, error, info, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::events::ConfirmedDespawnEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
-
-// Despawn logic:
-// - despawning a predicted client entity:
-//   - we add a DespawnMarker component to the entity
-//   - all components other than ComponentHistory or Predicted get despawned, so that we can still check for rollbacks
-//   - if the confirmed entity gets despawned, we despawn the predicted entity
-//   - if the confirmed entity doesn't get despawned (during rollback, for example), it will re-add the necessary components to the predicted entity
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
@@ -114,37 +106,6 @@ pub(crate) fn despawn_confirmed(
     }
 }
 
-/// If the confirmed entity gets despawned, the predicted entity must be despawned as well
-// pub(crate) fn confirmed_despawn(
-//     mut commands: Commands,
-//     mut event_reader: EventReader<ConfirmedDespawnEvent>,
-//     query: Query<&Confirmed>,
-//     mut manager: ResMut<PredictionManager>,
-// ) {
-//     for event in event_reader.read() {
-//         debug!("received despawn confirmed event");
-//         if let Ok(confirmed) = query.get(event.confirmed_entity) {
-//             // despawn the predicted entity
-//             if let Some(predicted) = confirmed.predicted {
-//                 if let Some(mut predicted_entity) = commands.get_entity(predicted) {
-//                     predicted_entity.despawn();
-//                 }
-//             }
-//             commands.entity(event.confirmed_entity).despawn();
-//         } else {
-//             error!(
-//                 "Confirmed entity {:?} does not exist",
-//                 event.confirmed_entity
-//             );
-//             // TODO: should we still despawn the entity?
-//         }
-//         manager
-//             .predicted_entity_map
-//             .confirmed_to_predicted
-//             .remove(&event.remote_entity);
-//     }
-// }
-
 #[derive(Component)]
 pub struct RemovedCache<C: Component>(pub Option<C>);
 
@@ -188,10 +149,11 @@ pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(
     mut query: Query<(Entity, &mut RemovedCache<C>), Without<C>>,
 ) {
     for (entity, mut cache) in query.iter_mut() {
+        debug!("restoring component after rollback");
         let Some(component) = std::mem::take(&mut cache.0) else {
+            debug!("could not find component");
             continue;
         };
-        trace!("restoring component after rollback");
         commands
             .entity(entity)
             .insert(component)

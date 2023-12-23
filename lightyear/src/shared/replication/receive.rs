@@ -190,6 +190,14 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     assert!(!(actions.spawn && actions.despawn));
                     // spawn
                     if actions.spawn {
+                        if let Some(local_entity) = self.remote_entity_map.get_local(*entity) {
+                            if world.get_entity(*local_entity).is_some() {
+                                warn!("Received spawn for an entity that already exists");
+                                continue;
+                            }
+                            warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
+                            continue;
+                        }
                         // TODO: optimization: spawn the bundle of insert components
                         let local_entity = world.spawn_empty();
                         self.remote_entity_map.insert(*entity, local_entity.id());
@@ -310,7 +318,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         // we can get a few buffered updates after the entity has been despawned
                         // those are the updates that we received before the despawn action message, but with a tick
                         // later than the despawn action message
-                        warn!("update for entity that doesn't exist?");
+                        debug!("update for entity that doesn't exist?");
                     }
                 }
             }

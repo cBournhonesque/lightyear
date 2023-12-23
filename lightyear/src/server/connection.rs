@@ -87,7 +87,7 @@ impl<P: Protocol> ConnectionManager<P> {
             #[cfg(feature = "metrics")]
             metrics::increment_gauge!("connected_clients", 1.0);
 
-            info!("New connection from id: {}", client_id);
+            debug!("New connection from id: {}", client_id);
             let mut connection = Connection::new(&self.channel_registry, ping_config);
             connection.events.push_connection();
             self.new_clients.push(client_id);

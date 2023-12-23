@@ -20,7 +20,7 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(1000),
+            incoming_latency: Duration::from_millis(900),
             incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
@@ -157,8 +157,10 @@ pub(crate) fn replicate_players(
             e.insert(Replicate {
                 // we want to replicate back to the original client, since they are using a pre-spawned entity
                 replication_target: NetworkTarget::All,
+                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                 // NOTE: Be careful to not override the pre-spawned prediction! we do not need to enable prediction
                 //  because there is a pre-spawned predicted entity
+                prediction_target: NetworkTarget::Only(vec![*client_id]),
                 // we want the other clients to apply interpolation for the player
                 interpolation_target: NetworkTarget::AllExcept(vec![*client_id]),
                 ..default()

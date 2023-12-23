@@ -65,7 +65,10 @@ Status: added unit test. Need to reconfirm that it works.
 
 See more information in the [client-replication](../client_replication.md#pre-spawned-predicted-entities) section.
 
-Status: no unit tests, tested in an example that it works.
+Status:
+- the pre-predicted entity get spawned. Upon server replication, we re-use it as Predicted entity: no unit tests but tested in an example that it works.
+- the pre-predicted entity gets spawned. The server doesn't agree that an entity should be spawned, the pre-spawned entity should get despawned:
+  **not handled currently.**
 
 ### Confirmed entity gets despawned
 
@@ -77,7 +80,7 @@ When that happens:
 - Pre-predicted entities should still get attached to the confirmed entity on spawn, become Predicted entities and get despawned
   only when the confirmed entity gets despawned.
  
-Status: no unit tests, tested in an example that it works.
+Status: no unit tests but tested in an example that it works.
 
 ### Predicted entity gets despawned
 
@@ -103,11 +106,15 @@ start a death animation. If the death is cancelled, we can simply cancel the ani
 
 
 Status:
-- predicted despawn, server doesn't despawn, rollback: no unit tests, tested in an example that it works.
+- predicted despawn, server doesn't despawn, rollback: no unit tests but tested in an example that it works.
+  - TODO: this needs to be improved! See note below.
+  - NOTE: the way it works now is not perfect. We rely on getting a rollback (where we can see that the confirmed entity
+    does not match the fact that the predicted entity was despawned). However we only initiate rollbacks on receiving server updates,
+    and it's possible that we are not receiving any updates because the confirmed entity is not changing, or because of packet loss!
+    One option would be that `predicted_despawn` sends a message `Re-Replicate(Entity)` to the server, which will answer back by replicating the entity
+    again. Let's wait to see how big of an issue this is first.
 - predicted despawn, server despawns, we should not rollback but instead despawn both confirmed/predicted when the server
-  despawn gets replicated: no unit tests, tested in an example that it works
-  - NOTE: doesn't seem to work 100% of the time?
-
+  despawn gets replicated: no unit tests but tested in an example that it works
 
 OPTION B: despawn the confirmed entity and wait for that to be replicated
 
@@ -115,7 +122,7 @@ If we want to avoid the jarring effect of respawning the entity, we can instead 
 In that case, we will just wait for the Confirmed entity to get despawned. When that despawn is propagated, the client entity will
 despawned as well.
 
-Status: no unit tests, tested in example.
+Status: no unit tests but tested in example.
 
 There is no jarring effect, but the despawn will be delayed by 1 RTT.
 
@@ -124,7 +131,7 @@ OPTION C: despawn predicted immediately and don't allow rollback
 If you don't care about rollback and just want to get rid of the Predicted entity, you can just call
 `despawn` on it normally.
 
-Status: no unit tests, tested in example.
+Status: no unit tests but tested in example.
 
 
 ### Pre-predicted entity gets despawned
@@ -133,12 +140,14 @@ Same thing as Predicted entity getting despawned, but this time we are despawnin
 we even received the server's confirmation. (this can happen if the entity is spawned and despawned soon after)
 
 Status:
-- pre-predicted despawn before we have received the server's replication, server doesn't despawn, rollback: DOES NOT WORK?
+- pre-predicted despawn before we have received the server's replication, server doesn't despawn, rollback:
+  - no unit tests but tested in an example that it works
+  - TODO: same problem as with normal predicted entities: only works if we get a rollback, which is not guaranteed
 - pre-predicted despawn before we have received the server's replication, server despawns, no rollback: 
   - the Predicted entity should visually get despawned (all components removed). When the server entity gets replicated,
     it should start re-using the Predicted entity, initiate a rollback, and see at the end of the rollback that the entity should 
     indeed be despawned.
-  - no unit tests, tested in an example that it works
+  - no unit tests but tested in an example that it works
   
 
 

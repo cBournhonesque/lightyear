@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use bevy::prelude::{
-    Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, Without, World,
+    Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, With, Without, World,
 };
 use bevy::utils::EntityHashSet;
 use tracing::{debug, error, info, trace, trace_span};
@@ -49,13 +49,8 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
-        (
-            Entity,
-            &Predicted,
-            Option<&mut C>,
-            &mut PredictionHistory<C>,
-        ),
-        Without<Confirmed>,
+        (Entity, Option<&mut C>, &mut PredictionHistory<C>),
+        (With<Predicted>, Without<Confirmed>),
     >,
     confirmed_query: Query<(Option<&C>, &Confirmed)>,
     mut rollback: ResMut<Rollback>,
@@ -101,7 +96,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
         //  we could use it in the future if we add more state in the Predicted Component
         // 1. Get the predicted entity, and it's history
         if let Some(p) = confirmed.predicted {
-            let Ok((predicted_entity, predicted, predicted_component, mut predicted_history)) =
+            let Ok((predicted_entity, predicted_component, mut predicted_history)) =
                 predicted_query.get_mut(p)
             else {
                 debug!("Predicted entity {:?} was not found", confirmed.predicted);
@@ -185,7 +180,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                                     .add_item(tick, ComponentState::Updated(c.clone()));
                                 match predicted_component {
                                     None => {
-                                        trace!("Re-adding deleted Full component to predicted");
+                                        debug!("Re-adding deleted Full component to predicted");
                                         entity_mut.insert(c.clone());
                                     }
                                     Some(mut predicted_component) => {
@@ -224,7 +219,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                                 .add_item(tick, ComponentState::Updated(c.clone()));
                             match predicted_component {
                                 None => {
-                                    trace!("Re-adding deleted Full component to predicted");
+                                    debug!("Re-adding deleted Full component to predicted");
                                     entity_mut.insert(c.clone());
                                 }
                                 Some(mut predicted_component) => {

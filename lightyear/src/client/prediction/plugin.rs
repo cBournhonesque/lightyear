@@ -6,7 +6,6 @@ use bevy::prelude::{
 };
 
 use crate::client::components::SyncComponent;
-use crate::client::events::ConfirmedDespawnEvent;
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back,
@@ -117,7 +116,7 @@ pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut A
         PreUpdate,
         (
             // handle components being added
-            (add_component_history::<C, P>).in_set(PredictionSet::SpawnHistory),
+            add_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
         ),
     );
     match C::mode() {
@@ -175,9 +174,6 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.insert_resource(Rollback {
             state: RollbackState::Default,
         });
-
-        // EVENTS
-        app.add_event::<ConfirmedDespawnEvent>();
 
         // PreUpdate systems:
         // 1. Receive confirmed entities, add Confirmed and Predicted components

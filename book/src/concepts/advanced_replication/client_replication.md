@@ -52,7 +52,12 @@ Note that pre-spawned predicted entities will give authority to the server's ent
 replication will stop immediately after the initial replication, and the server entity should be the authoritative one.
 
 
-Note to myself:
+Notes to myself:
 - one thing to be careful for is that we want to immediately stop replicating updates from the pre-spawned predicted entity
   to the server; because that entity should be server-authoritative. Right after the first time the `Send` `SystemSet` runs,
   run `clean_prespawned_entities` to remove `Replicate` from those entities.
+- another thing to be careful is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
+  Then we rebroadcast it to other clients. If an entity `1` already exists on other clients; we will start using that entity
+  as our Prediction target! That means that we should:
+  - even if pre-spawned replication, require users to set the `prediction_target` correctly
+  - only broadcast `ShouldBePredicted` to the clients who have `prediction_target` set.

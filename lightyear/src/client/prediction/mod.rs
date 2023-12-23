@@ -148,6 +148,8 @@ pub(crate) fn spawn_predicted_entity(
             .confirmed_to_predicted
             .insert(confirmed_entity, predicted_entity);
 
+        info!(?manager.predicted_entity_map, "prediction map");
+
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
         let mut confirmed_entity_mut = commands.entity(confirmed_entity);

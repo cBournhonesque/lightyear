@@ -29,7 +29,7 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(1000),
+            incoming_latency: Duration::from_millis(900),
             incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
@@ -144,7 +144,6 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     // InputEvent is a special case: we get an event for every fixed-update system run instead of every frame!
     mut input_reader: EventReader<InputEvent<Inputs>>,
@@ -225,7 +224,7 @@ fn delete_player(
                                 // the reason is that we actually keep the entity around for a while,
                                 // in case we need to re-store it for rollback
                                 entity_mut.prediction_despawn::<MyProtocol>();
-                                info!("Despawning the predicted/pre-predicted player because we received player action!");
+                                debug!("Despawning the predicted/pre-predicted player because we received player action!");
                             }
                         }
                     }
