@@ -9,8 +9,11 @@ A simple example that shows how to use lightyear for client-replication (the ent
     When the original client gets the square back, it will spawn a 'Confirmed' square on the client, and will recognize
     that the original square spawned was a prediction. From there on it's normal replication.
 
+https://github.com/cBournhonesque/lightyear/assets/8112632/718bfa44-80b5-4d83-a360-aae076f81fc3
+
 
 ## Running the example
+
 
 To start the server, run `cargo run --example client_replication server`
 
