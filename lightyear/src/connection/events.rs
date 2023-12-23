@@ -1,4 +1,4 @@
-/*! Defines a [`ConnectionEvents`] struct that is used to store all events that are received from a [`Connection`](crate::connection::Connection).
+/*! Defines a [`ConnectionEvents`] struct that is used to store all events that are received from a connection
 */
 use std::iter;
 

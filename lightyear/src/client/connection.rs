@@ -1,4 +1,4 @@
-//! Wrapper around [`crate::connection::Connection`] that adds client-specific functionality
+//! Specify how a Client sends/receives messages with a Server
 use std::time::Duration;
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
@@ -33,8 +33,7 @@ use crate::shared::time_manager::TimeManager;
 
 use super::sync::SyncManager;
 
-/// Wrapper around a [`crate::connection::Connection`] with client-specific logic
-/// (handling player inputs, and syncing the time between client and server)
+/// Wrapper that handles the connection with the server
 pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,

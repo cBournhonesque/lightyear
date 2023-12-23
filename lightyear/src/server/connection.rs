@@ -1,4 +1,4 @@
-//! Wrapper around [`crate::connection::Connection`] that adds server-specific functionality
+//! Specify how a Server sends/receives messages with a Client
 use bevy::utils::{Duration, Entry, HashMap};
 use std::rc::Rc;
 
@@ -179,8 +179,7 @@ impl<P: Protocol> ConnectionManager<P> {
     }
 }
 
-/// Wrapper around a [`crate::connection::Connection`] with client-specific logic
-/// (handling player inputs, and syncing the time between client and server)
+/// Wrapper that handles the connection between the server and a client
 pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,

@@ -1,5 +1,5 @@
 /*!
-Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible messages that can be sent over the network
+Defines the [`ClientMessage`] and [`ServerMessage`] enums that are used to send messages over the network
 */
 use crate::prelude::{ChannelKind, NetworkTarget};
 use serde::{Deserialize, Serialize};
