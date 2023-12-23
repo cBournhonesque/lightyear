@@ -1,9 +1,16 @@
 use std::marker::PhantomData;
 
+use crate::_reexport::ShouldBePredicted;
 use bevy::ecs::system::{Command, EntityCommands};
-use bevy::prelude::{Commands, Component, Entity, Query, With, World};
+use bevy::prelude::{
+    Commands, Component, Entity, EventReader, Query, RemovedComponents, ResMut, With, Without,
+    World,
+};
+use tracing::{debug, error, info, trace};
 
-use crate::client::components::{Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::events::ConfirmedDespawnEvent;
+use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
@@ -46,16 +53,22 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
         let mut predicted_entity_to_despawn: Option<Entity> = None;
 
         if let Some(mut entity) = world.get_entity_mut(self.entity) {
-            if entity.get::<Predicted>().is_some() {
-                // if this is a predicted entity, do not despawn the entity immediately but instead
+            if entity.get::<Predicted>().is_some() || entity.get::<ShouldBePredicted>().is_some() {
+                // if this is a predicted or pre-predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDespawn component to it to mark that it should be despawned as soon
                 // as the confirmed entity catches up to it
+                trace!("inserting prediction despawn marker");
                 entity.insert(PredictionDespawnMarker {
+                    // TODO: death_tick can be removed
+                    //  - we can just wait until until the confirmed entity catches up and gets despawned as well
                     death_tick: current_tick,
                 });
                 // TODO: if we want the death to be immediate on predicted,
                 //  we should despawn all components immediately (except Predicted and History)
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
+                // TODO: actually we should never despawn directly on the client a Confirmed entity
+                //  it should only get despawned when replicating!
+
                 // if this is a confirmed entity
                 // despawn both predicted and confirmed
                 if let Some(predicted) = confirmed.predicted {
@@ -63,7 +76,7 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
                 }
                 entity.despawn();
             } else {
-                panic!("this command should only be called for predicted or confirmed entities");
+                error!("This command should only be called for predicted entities!");
             }
         }
         if let Some(entity) = predicted_entity_to_despawn {
@@ -82,16 +95,130 @@ impl PredictionCommandsExt for EntityCommands<'_, '_, '_> {
     }
 }
 
-#[allow(clippy::type_complexity)]
-pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
+/// Despawn predicted entities when the confirmed entity gets despawned
+pub(crate) fn despawn_confirmed(
+    mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
-    query: Query<Entity, (With<C>, With<Predicted>, With<PredictionDespawnMarker>)>,
+    mut query: RemovedComponents<Confirmed>,
 ) {
-    for entity in query.iter() {
-        // SAFETY: bevy guarantees that the entity exists
-        commands.get_entity(entity).unwrap().remove::<C>();
+    for confirmed_entity in query.read() {
+        if let Some(predicted) = manager
+            .predicted_entity_map
+            .confirmed_to_predicted
+            .remove(&confirmed_entity)
+        {
+            if let Some(mut entity_mut) = commands.get_entity(predicted) {
+                entity_mut.despawn();
+            }
+        }
     }
 }
+
+/// If the confirmed entity gets despawned, the predicted entity must be despawned as well
+// pub(crate) fn confirmed_despawn(
+//     mut commands: Commands,
+//     mut event_reader: EventReader<ConfirmedDespawnEvent>,
+//     query: Query<&Confirmed>,
+//     mut manager: ResMut<PredictionManager>,
+// ) {
+//     for event in event_reader.read() {
+//         debug!("received despawn confirmed event");
+//         if let Ok(confirmed) = query.get(event.confirmed_entity) {
+//             // despawn the predicted entity
+//             if let Some(predicted) = confirmed.predicted {
+//                 if let Some(mut predicted_entity) = commands.get_entity(predicted) {
+//                     predicted_entity.despawn();
+//                 }
+//             }
+//             commands.entity(event.confirmed_entity).despawn();
+//         } else {
+//             error!(
+//                 "Confirmed entity {:?} does not exist",
+//                 event.confirmed_entity
+//             );
+//             // TODO: should we still despawn the entity?
+//         }
+//         manager
+//             .predicted_entity_map
+//             .confirmed_to_predicted
+//             .remove(&event.remote_entity);
+//     }
+// }
+
+#[derive(Component)]
+pub struct RemovedCache<C: Component>(pub Option<C>);
+
+#[allow(clippy::type_complexity)]
+/// Instead of despawning the entity, we remove all components except the history and the predicted marker
+pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
+    mut commands: Commands,
+    full_query: Query<Entity, (With<C>, With<PredictionDespawnMarker>)>,
+    simple_query: Query<(Entity, &C), With<PredictionDespawnMarker>>,
+) {
+    match C::mode() {
+        // for full components, we can delete the component
+        // it will get re-instated during rollback if the confirmed entity doesn't get despawned
+        ComponentSyncMode::Full => {
+            for entity in full_query.iter() {
+                trace!("removing full component for prediction_despawn");
+                commands.entity(entity).remove::<C>();
+            }
+        }
+        // for simple/once components, there is no rollback, we can just cache them temporarily
+        // and restore them in case of rollback
+        ComponentSyncMode::Simple | ComponentSyncMode::Once => {
+            for (entity, component) in simple_query.iter() {
+                trace!("removing simple/once component for prediction_despawn");
+                commands
+                    .entity(entity)
+                    .remove::<C>()
+                    .insert(RemovedCache(Some(component.clone())));
+            }
+        }
+        ComponentSyncMode::None => {}
+    }
+}
+
+// TODO: compare the performance of cloning the component versus popping from the World directly
+/// In case we rollback the despawn, we need to restore the removed components
+/// even if those components are not checking for rollback (SyncComponent != Full)
+/// For those components, we just re-add them from the cache at the start of rollback
+pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut RemovedCache<C>), Without<C>>,
+) {
+    for (entity, mut cache) in query.iter_mut() {
+        let Some(component) = std::mem::take(&mut cache.0) else {
+            continue;
+        };
+        trace!("restoring component after rollback");
+        commands
+            .entity(entity)
+            .insert(component)
+            .remove::<RemovedCache<C>>();
+    }
+}
+
+// /// In case we rollback the despawn, we need to restore the removed components
+// /// even if those components are not checking for rollback (SyncComponent != Full)
+// /// For those components, we just re-add them from the cache at the start of rollback
+// pub(crate) fn restore_components_if_despawn_rolled_back<C: SyncComponent>(world: &mut World) {
+//     for (entity, cache) in world
+//         .query_filtered::<(Entity, &RemovedCache<C>), Without<C>>()
+//         .iter(&world)
+//     {
+//         trace!("restoring component after rollback");
+//         let mut entity_mut = world.entity_mut(entity);
+//         if let Some(c) = entity_mut.take::<RemovedCache<C>>() {
+//             entity_mut.insert(c.0);
+//         }
+//         // .remove::<RemovedCache<C>>
+//         // commands
+//         //     .entity(entity)
+//         //     .insert(cache.0.clone())
+//         //     .remove::<RemovedCache<C>>();
+//     }
+// }
 
 /// Remove the despawn marker: if during rollback the components are re-spawned, we don't want to re-despawn them again
 pub(crate) fn remove_despawn_marker(
@@ -99,6 +226,7 @@ pub(crate) fn remove_despawn_marker(
     query: Query<Entity, With<PredictionDespawnMarker>>,
 ) {
     for entity in query.iter() {
+        trace!("removing prediction despawn markerk");
         // SAFETY: bevy guarantees that the entity exists
         commands
             .get_entity(entity)

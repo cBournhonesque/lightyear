@@ -6,7 +6,7 @@ use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, World};
 use bevy::utils::petgraph::data::ElementIterator;
-use bevy::utils::{EntityHashMap, HashMap, HashSet};
+use bevy::utils::{EntityHashMap, EntityHashSet, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
@@ -15,6 +15,7 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
+use crate::prelude::client::Confirmed;
 use crate::prelude::{MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentProtocol;
@@ -22,7 +23,7 @@ use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::ReplicationGroupId;
 
-use super::entity_map::{InterpolatedEntityMap, PredictedEntityMap, RemoteEntityMap};
+use super::entity_map::RemoteEntityMap;
 use super::{
     EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessage,
     ReplicationMessageData,
@@ -32,10 +33,6 @@ use super::{
 pub(crate) struct ReplicationReceiver<P: Protocol> {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
-    /// Map between remote and predicted entities
-    pub predicted_entity_map: PredictedEntityMap,
-    /// Map between remote and interpolated entities
-    pub interpolated_entity_map: InterpolatedEntityMap,
 
     /// Map from remote entity to the replication group-id
     pub remote_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
@@ -50,8 +47,6 @@ impl<P: Protocol> ReplicationReceiver<P> {
         Self {
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
-            predicted_entity_map: PredictedEntityMap::default(),
-            interpolated_entity_map: InterpolatedEntityMap::default(),
             remote_entity_to_group: Default::default(),
             // BOTH
             group_channels: Default::default(),
@@ -71,6 +66,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 // update the mapping from entity to group-id
                 m.actions.iter().for_each(|(e, _)| {
                     self.remote_entity_to_group.insert(*e, message.group_id);
+                    channel.entities.insert(*e);
                 });
                 // if the message is too old, ignore it
                 if m.sequence_id < channel.actions_pending_recv_message_id {
@@ -87,6 +83,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 // update the mapping from entity to group-id
                 m.updates.iter().for_each(|(e, _)| {
                     self.remote_entity_to_group.insert(*e, message.group_id);
+                    channel.entities.insert(*e);
                 });
                 // if we have already applied a more recent update for this group, no need to keep this one
                 if tick <= channel.latest_tick {
@@ -210,8 +207,23 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         debug!(remote_entity = ?entity, "Received entity despawn");
                         if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
                         {
-                            events.push_despawn(local_entity);
                             world.despawn(local_entity);
+                            // TODO: careful about this, what if we want to add new entities to the group later; is there
+                            //  information we might still need, such as latest_tick?
+                            // clean-up the group if it's empty
+                            if let Some(group_id) = self.remote_entity_to_group.remove(&entity) {
+                                let mut delete_group = false;
+                                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                                    channel.entities.remove(&entity);
+                                    if channel.entities.is_empty() {
+                                        delete_group = true;
+                                    }
+                                }
+                                if delete_group {
+                                    self.group_channels.remove(&group_id);
+                                }
+                            }
+                            events.push_despawn(local_entity);
                         } else {
                             error!("Received despawn for an entity that does not exist")
                         }
@@ -243,6 +255,12 @@ impl<P: Protocol> ReplicationReceiver<P> {
                             Tick(0),
                         );
                         component.insert(&mut local_entity_mut);
+
+                        // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
+                        // we should immediately take ownership of it, so we won't receive a despawn for it
+                        // thus, we should remove it from the entity map right after receiving it!
+                        // Actually, we should figure out a way to cleanup every received entity where the sender
+                        // stopped replicating or didn't replicate the Spawn, as this could just cause memory to accumulate
                     }
 
                     // removals
@@ -275,13 +293,8 @@ impl<P: Protocol> ReplicationReceiver<P> {
             }
             ReplicationMessageData::Updates(m) => {
                 for (entity, components) in m.updates.into_iter() {
-                    debug!(remote_entity = ?entity, "Received entity updates");
-                    let kinds = components
-                        .iter()
-                        .map(|c| c.into())
-                        .collect::<Vec<P::ComponentKinds>>();
-                    debug!(?entity, ?kinds, "Received UpdateComponent");
-                    // if the entity does not exist, create it
+                    debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
+                    // update the entity only if it exists
                     if let Ok(mut local_entity) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
@@ -294,11 +307,10 @@ impl<P: Protocol> ReplicationReceiver<P> {
                             component.update(&mut local_entity);
                         }
                     } else {
-                        // the entity has been despawned by one of the previous actions
-                        // still, is this possible? we should only receive updates that are after the despawn...
-                        error!("update for entity that doesn't exist?");
-                        // TODO: it seems possible to get this, but i don't why. Because updates received should be buffered
-                        //  until we get the latest action
+                        // we can get a few buffered updates after the entity has been despawned
+                        // those are the updates that we received before the despawn action message, but with a tick
+                        // later than the despawn action message
+                        warn!("update for entity that doesn't exist?");
                     }
                 }
             }
@@ -309,7 +321,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 /// Channel to keep track of receiving/sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel<P: Protocol> {
-    // RECEIVE
+    // actions
     pub actions_pending_recv_message_id: MessageId,
     pub actions_recv_message_buffer:
         BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
@@ -318,10 +330,12 @@ pub struct GroupChannel<P: Protocol> {
     // the first tick is the last_action_tick
     // the second tick is the update's server tick when it was sent
     pub buffered_updates: BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
-
-    // BOTH SEND/RECEIVE
-    /// last server tick that we applied to the client world
+    /// remote tick of the latest update/action that we applied to the local group
     pub latest_tick: Tick,
+
+    // used to keep track of the entities that make up the group
+    // if all the entities from the group get despawned, despawn the group (to not leak memory)
+    pub entities: EntityHashSet<Entity>,
 }
 
 impl<P: Protocol> Default for GroupChannel<P> {
@@ -331,6 +345,7 @@ impl<P: Protocol> Default for GroupChannel<P> {
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates: Default::default(),
             latest_tick: Tick(0),
+            entities: EntityHashSet::default(),
         }
     }
 }

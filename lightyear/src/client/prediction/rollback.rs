@@ -67,6 +67,9 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     if C::mode() != ComponentSyncMode::Full {
         return;
     }
+
+    // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
+
     if !client.is_synced() || !client.received_new_server_tick() {
         return;
     }
@@ -158,7 +161,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                         }
                     };
                     if should_rollback {
-                        info!(
+                        debug!(
                                 "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?}",
                                 confirmed_entity, tick,
                             );
@@ -182,6 +185,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                                     .add_item(tick, ComponentState::Updated(c.clone()));
                                 match predicted_component {
                                     None => {
+                                        trace!("Re-adding deleted Full component to predicted");
                                         entity_mut.insert(c.clone());
                                     }
                                     Some(mut predicted_component) => {
@@ -220,6 +224,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                                 .add_item(tick, ComponentState::Updated(c.clone()));
                             match predicted_component {
                                 None => {
+                                    trace!("Re-adding deleted Full component to predicted");
                                     entity_mut.insert(c.clone());
                                 }
                                 Some(mut predicted_component) => {
@@ -242,7 +247,7 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
     // TODO: might not need to check the state, because we only run this system if we are in rollback
     if let RollbackState::ShouldRollback { current_tick } = rollback.state {
         let num_rollback_ticks = client.tick() - current_tick;
-        info!(
+        debug!(
             "Rollback between {:?} and {:?}",
             current_tick,
             client.tick()

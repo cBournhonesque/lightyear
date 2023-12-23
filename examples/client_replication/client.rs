@@ -29,7 +29,7 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
+            incoming_latency: Duration::from_millis(1000),
             incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
@@ -63,7 +63,11 @@ impl Plugin for MyClientPlugin {
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
+        app.add_systems(
+            FixedUpdate,
+            (player_movement, delete_player).in_set(FixedUpdateSet::Main),
+        );
         app.add_systems(
             Update,
             (
@@ -126,7 +130,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     if !direction.is_none() {
         return client.add_input(Inputs::Direction(direction));
     }
-    if keypress.pressed(KeyCode::Delete) {
+    if keypress.pressed(KeyCode::K) {
         // currently, directions is an enum and we can only add one input per tick
         return client.add_input(Inputs::Delete);
     }
@@ -150,8 +154,10 @@ fn player_movement(
     }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
-            for mut position in position_query.iter_mut() {
-                shared_movement_behaviour(&mut position, input);
+            for position in position_query.iter_mut() {
+                // NOTE: be careful to directly pass Mut<PlayerPosition>
+                // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+                shared_movement_behaviour(position, input);
             }
         }
     }
@@ -194,6 +200,42 @@ fn spawn_player(
     }
 }
 
+/// Delete the predicted player when the space command is pressed
+fn delete_player(
+    mut commands: Commands,
+    mut input_reader: EventReader<InputEvent<Inputs>>,
+    plugin: Res<MyClientPlugin>,
+    players: Query<
+        (Entity, &PlayerId),
+        (
+            With<PlayerPosition>,
+            Without<Confirmed>,
+            Without<Interpolated>,
+        ),
+    >,
+) {
+    for input in input_reader.read() {
+        if let Some(input) = input.input() {
+            match input {
+                Inputs::Delete => {
+                    for (entity, player_id) in players.iter() {
+                        if player_id.0 == plugin.client_id {
+                            if let Some(mut entity_mut) = commands.get_entity(entity) {
+                                // we need to use this special function to despawn prediction entity
+                                // the reason is that we actually keep the entity around for a while,
+                                // in case we need to re-store it for rollback
+                                entity_mut.prediction_despawn::<MyProtocol>();
+                                info!("Despawning the predicted/pre-predicted player because we received player action!");
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
     plugin: Res<MyClientPlugin>,
@@ -206,7 +248,8 @@ fn cursor_movement(
         }
         if let Ok(window) = window_query.get_single() {
             if let Some(mouse_position) = window_relative_mouse_position(window) {
-                cursor_position.0 = mouse_position;
+                // only update the cursor if it's changed
+                cursor_position.set_if_neq(CursorPosition(mouse_position));
             }
         }
     }

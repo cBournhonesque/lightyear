@@ -29,6 +29,11 @@ pub enum MainSet {
     Receive,
     ReceiveFlush,
 
+    /// SystemSet that handles client-replication
+    /// On server: You can use this SystemSet to add Replicate components to entities received from clients (to rebroadcast them to other clients)
+    ClientReplication,
+    ClientReplicationFlush,
+
     /// Runs once per frame, update sync (client only)
     Sync,
     /// Runs once per frame, clears events (server only)

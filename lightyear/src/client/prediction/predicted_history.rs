@@ -282,6 +282,9 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 "The predicted entity {:?} should have a ComponentHistory",
                                 p
                             );
+                            unreachable!(
+                                "This system should only run for ComponentSyncMode::Simple"
+                            );
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {

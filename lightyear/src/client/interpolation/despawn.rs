@@ -45,7 +45,7 @@ pub(crate) fn despawn_interpolated(
     for confirmed_entity in query.read() {
         if let Some(interpolated) = manager
             .interpolated_entity_map
-            .remote_to_interpolated
+            .confirmed_to_interpolated
             .remove(&confirmed_entity)
         {
             if let Some(mut entity_mut) = commands.get_entity(interpolated) {

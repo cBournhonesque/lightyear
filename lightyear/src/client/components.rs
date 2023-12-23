@@ -15,6 +15,7 @@ pub struct Confirmed {
     pub interpolated: Option<Entity>,
 }
 
+// TODO: add TypeNamed as well
 pub trait SyncComponent: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {
     fn mode() -> ComponentSyncMode;
 }

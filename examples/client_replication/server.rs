@@ -20,7 +20,7 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
+            incoming_latency: Duration::from_millis(1000),
             incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
@@ -43,17 +43,17 @@ impl Plugin for MyServerPlugin {
         app.add_plugins(server::ServerPlugin::new(plugin_config));
         app.add_plugins(shared::SharedPlugin);
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
-            Update,
-            (
-                handle_disconnections,
-                replicate_cursors,
-                replicate_players,
-                send_message,
-            ),
+            PreUpdate,
+            (replicate_cursors, replicate_players).in_set(MainSet::ClientReplication),
         );
+        // the physics/FixedUpdates systems that consume inputs should be run in this set
+        app.add_systems(
+            FixedUpdate,
+            (movement, delete_player).in_set(FixedUpdateSet::Main),
+        );
+        app.add_systems(Update, (handle_disconnections, send_message));
     }
 }
 
@@ -101,21 +101,53 @@ pub(crate) fn movement(
                 server.tick()
             );
 
-            for (mut position, player_id) in position_query.iter_mut() {
+            for (position, player_id) in position_query.iter_mut() {
                 if player_id.0 == *client_id {
-                    shared_movement_behaviour(&mut position, input);
+                    // NOTE: be careful to directly pass Mut<PlayerPosition>
+                    // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+                    shared_movement_behaviour(position, input);
                 }
             }
         }
     }
 }
 
+fn delete_player(
+    mut commands: Commands,
+    mut input_reader: EventReader<InputEvent<Inputs>>,
+    query: Query<(Entity, &PlayerId), With<PlayerPosition>>,
+) {
+    for input in input_reader.read() {
+        let client_id = input.context();
+        if let Some(input) = input.input() {
+            if matches!(input, Inputs::Delete) {
+                debug!("received delete input!");
+                for (entity, player_id) in query.iter() {
+                    // NOTE: we could not accept the despawn (server conflict)
+                    //  in which case the client would have to rollback to delete
+                    if player_id.0 == *client_id {
+                        // You can try 2 things here:
+                        // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
+                        //   to other clients.
+                        // - you decide that the client's despawn is incorrect, and you do not despawn the entity. Then the client's prediction
+                        //   should be rolled back, and the entity should not get despawned on client.
+                        commands.entity(entity).despawn();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Replicate the pre-spawned entities back to the client
+// Note that this needs to run before FixedUpdate, since we handle client inputs in the FixedUpdate schedule (subject to change)
+// And we want to handle deletion properly
 pub(crate) fn replicate_players(
     mut commands: Commands,
     mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerPosition>>,
 ) {
     for event in player_spawn_reader.read() {
-        info!("received player spawn event: {:?}", event);
+        debug!("received player spawn event: {:?}", event);
         let client_id = event.context();
         let entity = event.entity();
 
@@ -123,7 +155,7 @@ pub(crate) fn replicate_players(
         // to other clients
         if let Some(mut e) = commands.get_entity(*entity) {
             e.insert(Replicate {
-                // do not replicate back to the owning entity!
+                // we want to replicate back to the original client, since they are using a pre-spawned entity
                 replication_target: NetworkTarget::All,
                 // NOTE: Be careful to not override the pre-spawned prediction! we do not need to enable prediction
                 //  because there is a pre-spawned predicted entity
@@ -140,7 +172,7 @@ pub(crate) fn replicate_cursors(
     mut cursor_spawn_reader: EventReader<ComponentInsertEvent<CursorPosition>>,
 ) {
     for event in cursor_spawn_reader.read() {
-        info!("received cursor spawn event: {:?}", event);
+        debug!("received cursor spawn event: {:?}", event);
         let client_id = event.context();
         let entity = event.entity();
 
@@ -163,7 +195,7 @@ pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<In
     if input.pressed(KeyCode::M) {
         // TODO: add way to send message to all
         let message = Message1(5);
-        info!("Send message: {:?}", message);
+        debug!("Send message: {:?}", message);
         server
             .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {

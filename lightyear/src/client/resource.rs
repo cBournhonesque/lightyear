@@ -6,6 +6,7 @@ use crate::_reexport::ReplicationSend;
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, Time, Virtual, World};
+use bevy::utils::EntityHashMap;
 use tracing::{debug, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
@@ -17,7 +18,6 @@ use crate::packet::message::Message;
 use crate::prelude::{NetworkTarget, Replicate};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::replication::manager::ReplicationManager;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::tick_manager::TickManager;
@@ -231,6 +231,11 @@ impl<P: Protocol> Client<P> {
         }
     }
 
+    // TODO: i'm not event sure that is something we want.
+    //  it could open the door to the client flooding other players with messages
+    //  maybe we should let users re-broadcast messages from the server themselves instead of using this
+    //  Also it would make the code much simpler by having a single `ProtocolMessage` enum
+    //  instead of `ClientMessage` and `ServerMessage`
     /// Send a message to the server, the message should be re-broadcasted according to the `target`
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
@@ -451,6 +456,9 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.connection
             .buffer_replication_messages(self.tick_manager.current_tick())
+    }
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate> {
+        &mut self.connection.replication_sender.replicate_component_cache
     }
 }
 

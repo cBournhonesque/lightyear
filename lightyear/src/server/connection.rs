@@ -1,5 +1,5 @@
 //! Specify how a Server sends/receives messages with a Client
-use bevy::utils::{Duration, Entry, HashMap};
+use bevy::utils::{Duration, EntityHashMap, Entry, HashMap};
 use std::rc::Rc;
 
 use crate::_reexport::{
@@ -7,7 +7,7 @@ use crate::_reexport::{
 };
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::World;
+use bevy::prelude::{Entity, World};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, debug_span, info, trace, trace_span};
 
@@ -21,7 +21,9 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::message_receivers::MessageReceiver;
 use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities, NetworkTarget};
+use crate::prelude::{
+    ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities, NetworkTarget, Replicate,
+};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -41,6 +43,11 @@ pub struct ConnectionManager<P: Protocol> {
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents<P>,
 
+    // NOTE: we put this here because we only need one per world, not one per connection
+    /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
+    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
+    pub replicate_component_cache: EntityHashMap<Entity, Replicate>,
+
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
@@ -52,6 +59,7 @@ impl<P: Protocol> ConnectionManager<P> {
             connections: HashMap::default(),
             channel_registry,
             events: ServerEvents::new(),
+            replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
         }
     }

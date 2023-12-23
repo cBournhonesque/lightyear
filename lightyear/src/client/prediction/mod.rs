@@ -3,8 +3,9 @@ use std::fmt::Debug;
 
 use bevy::prelude::{
     Added, Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, ResMut, Resource,
+    With,
 };
-use tracing::info;
+use tracing::{debug, error, info};
 
 pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
@@ -39,7 +40,9 @@ pub(crate) mod rollback;
 /// Marks an entity that is being predicted by the client
 #[derive(Component, Debug)]
 pub struct Predicted {
-    pub confirmed_entity: Entity,
+    // This is an option because we could spawn pre-predicted entities on the client that exist before we receive
+    // the corresponding confirmed entity
+    pub confirmed_entity: Option<Entity>,
     // TODO: add config about despawn behaviour here:
     //  - despawn immediately all components
     //  - leave the entity alive until the confirmed entity catches up to it and then it gets removed.
@@ -63,11 +66,32 @@ pub enum RollbackState {
     },
 }
 
+/// For pre-spawned entities, we want to stop replicating as soon as the initial spawn message has been sent to the
+/// server. Otherwise any predicted action we would do affect the server entity, even though we want the server to
+/// have authority on the entity.
+/// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
+/// server
+pub(crate) fn clean_prespawned_entity(
+    mut commands: Commands,
+    mut pre_predicted_entities: Query<Entity, With<ShouldBePredicted>>,
+) {
+    for entity in pre_predicted_entities.iter() {
+        debug!("removing replicate from pre-spawned entity");
+        commands
+            .entity(entity)
+            .remove::<Replicate>()
+            .remove::<ShouldBePredicted>()
+            .insert(Predicted {
+                confirmed_entity: None,
+            });
+    }
+}
+
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share for prediction and interpolation.
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
-pub fn spawn_predicted_entity(
+pub(crate) fn spawn_predicted_entity(
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
@@ -83,19 +107,18 @@ pub fn spawn_predicted_entity(
                 // this is the pre-spawned predicted entity, ignore
                 continue;
             }
-            // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
-            // just find the existing one!
-            predicted_entity = client_entity;
-
-            // TODO: figure out what to do if it does not exist. Normally it could be respawned via rollback, which would suggest
-            //  that we need to add Predicted pre-emptively to the pre-predicted entity so that we can store the history for rollback.
-            //  Or if it does not exist, does it mean we should not spawn the confirmed entity?
-            if let Some(mut predicted_entity_mut) = commands.get_entity(predicted_entity) {
-                predicted_entity_mut.remove::<ShouldBePredicted>();
-                predicted_entity_mut.remove::<Replicate>();
-                predicted_entity_mut.insert(Predicted { confirmed_entity });
+            if commands.get_entity(client_entity).is_none() {
+                error!(
+                    "The pre-predicted entity has been deleted before we could receive the server's confirmation of it.\
+                    This is probably because `EntityCommands::despawn()` has been called.\
+                    On `Predicted` entities, you should call `EntityCommands::prediction_despawn()` instead."
+                );
+                continue;
             }
-            info!(
+            // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
+            // just re-use the existing one!
+            predicted_entity = client_entity;
+            debug!(
                 "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
                 predicted_entity, confirmed_entity
             );
@@ -105,9 +128,11 @@ pub fn spawn_predicted_entity(
             }
         } else {
             // we need to spawn a predicted entity for this confirmed entity
-            let predicted_entity_mut = commands.spawn(Predicted { confirmed_entity });
+            let predicted_entity_mut = commands.spawn(Predicted {
+                confirmed_entity: Some(confirmed_entity),
+            });
             predicted_entity = predicted_entity_mut.id();
-            info!(
+            debug!(
                 "Spawn predicted entity {:?} for confirmed: {:?}",
                 predicted_entity, confirmed_entity
             );
@@ -120,7 +145,7 @@ pub fn spawn_predicted_entity(
         // update the entity mapping
         manager
             .predicted_entity_map
-            .remote_to_predicted
+            .confirmed_to_predicted
             .insert(confirmed_entity, predicted_entity);
 
         // add Confirmed to the confirmed entity

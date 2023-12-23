@@ -12,7 +12,7 @@ use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, E
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
-use crate::client::prediction::Rollback;
+use crate::client::prediction::{clean_prespawned_entity, Rollback};
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
 use crate::prelude::ReplicationSet;
@@ -162,7 +162,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    send::<P>.in_set(MainSet::SendPackets),
+                    (send::<P>, clean_prespawned_entity).in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
             );
