@@ -13,6 +13,10 @@ In which case we **need** the player entity to be spawned before the weapon enti
 will reference an entity that does not exist.
 
 
+https://github.com/cBournhonesque/lightyear/assets/8112632/e7625286-a167-4f50-aa52-9175cc168287
+
+
+
 ## Running the example
 
 To start the server, run `cargo run --example replication_groups server`
