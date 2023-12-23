@@ -184,7 +184,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                info!(?m, "Received replication actions");
+                debug!(?m, "Received replication actions");
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
@@ -203,7 +203,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
 
                 for (entity, actions) in m.actions.into_iter() {
-                    info!(remote_entity = ?entity, "Received entity actions");
+                    debug!(remote_entity = ?entity, "Received entity actions");
 
                     // despawn
                     if actions.despawn {
@@ -232,7 +232,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         .iter()
                         .map(|c| c.into())
                         .collect::<HashSet<P::ComponentKinds>>();
-                    info!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
+                    debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
                     for mut component in actions.insert {
                         // map any entities inside the component
                         component.map_entities(Box::new(&self.remote_entity_map));
@@ -297,6 +297,8 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         // the entity has been despawned by one of the previous actions
                         // still, is this possible? we should only receive updates that are after the despawn...
                         error!("update for entity that doesn't exist?");
+                        // TODO: it seems possible to get this, but i don't why. Because updates received should be buffered
+                        //  until we get the latest action
                     }
                 }
             }

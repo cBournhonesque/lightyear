@@ -25,7 +25,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
         // Write the received events into bevy events
         if !server.events().is_empty() {
-            info!("events: {:?}", server.events());
             // TODO: write these as systems? might be easier to also add the events to the app
             //  it might just be less efficient? + maybe tricky to
             // Input events

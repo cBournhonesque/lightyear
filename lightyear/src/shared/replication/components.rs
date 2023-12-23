@@ -143,7 +143,6 @@ impl NetworkTarget {
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[message(custom_map)]
 pub struct ShouldBeInterpolated;
 
 impl SyncComponent for ShouldBeInterpolated {
@@ -152,20 +151,19 @@ impl SyncComponent for ShouldBeInterpolated {
     }
 }
 
-impl<'a> MapEntities<'a> for ShouldBeInterpolated {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::default()
-    }
-}
-
 // TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
+// NOTE: we do not map entities for this component, we want to receive the entities as is
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[message(custom_map)]
-pub struct ShouldBePredicted;
+pub struct ShouldBePredicted {
+    // TODO: rename this?
+    //  - also the server already gets the client entity in the message, so it's a waste of space...
+    //  - maybe use a different component: ClientToServer -> Prespawned (None)
+    //  - ServerToClient -> Prespawned (entity)
+    // if this is set, the predicted entity has been pre-spawned on the client
+    pub client_entity: Option<Entity>,
+}
 
 // NOTE: need to define this here because otherwise we get the error
 // "impl doesn't use only types from inside the current crate"
@@ -174,14 +172,6 @@ pub struct ShouldBePredicted;
 impl SyncComponent for ShouldBePredicted {
     fn mode() -> ComponentSyncMode {
         ComponentSyncMode::None
-    }
-}
-
-impl<'a> MapEntities<'a> for ShouldBePredicted {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::default()
     }
 }
 

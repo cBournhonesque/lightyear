@@ -5,6 +5,21 @@
   - one server: 1 game room per core?
 
 
+- BUGS:
+  - client-replication: it seems like the updates are getting accumulated for a given entity while the client is not synced
+    - that's because we don't do the duplicate check anymore, so we keep adding new updates
+    - but our code relies on the assumption that finalize() is called every send_interval (to drain pending-actions/pending-updates) which is not the case anymore.
+    - we still want to accumulate updates early though (before client is synced)
+    - OPTION 1 (SELECTED):
+      - just try sending the updates (which fails because we don't send anything until client is connected). That means 
+        we might have a bit of delay to receive the updates at the very beginning (retry_delay).
+    - OPTION 2:
+      - have a more clever way of accumulating updates. Maybe get a HashMap<ComponentKind, latest-tick> for updates?
+      - For actions, we still want to send every update sequentially...
+  - input-events are cleared every fixed-udpate, but we might want to use them every frame. What happens if frames are more frequent
+    than fixed-update? we double-use an input.. I feel like we should just have inputs every frame?
+
+
 - CLIENT REPLICATION:
   - we want client to be able to send messages to specific other clients
     - send a message to server, who then retransmits it to other clients
@@ -40,12 +55,42 @@
     Client 1 spawns an entity C1, which gets replicated on the client as S1 (and can then be further replicated to other clients).
     S1 doesn't get replicated back to client 1, but only to other clients. For example, we want to replicate client 1's cursor
     position to other clients.
+    DONE! Server can just add Replicate when entity is spawned.
 
 
   - B: client spawning a Predicted entity.
     For example client 1 spawns a predicted entity P1 (a shared UI menu). Server receives that notification; spawns an
     entity S1 that gets replicated to client 1. Client 1 spawns a confirmed entity C1. But instead of spawning a new
     corresponding predicted entity, it re-uses the existing P1. From there on prediction with rollback can proceed as usual.
+
+    P1 spawns on client. [Sends ShouldBePredicted(predicted=P1) as metadata on the spawn?, just so that the server can send it back]
+    Server spawns S1. user adds a system to replicate S1 to other clients (including client 1).
+    Client1 spawns C1 (but re-uses C1). [Sends ShouldBePredicted(predicted=P1)]
+
+    - TODO: a client system, upon receiving ShouldBePredicted { client_id: not_none }, attaches Predicted to the entity.
+    - TODO: update the confirmed spawn system to handle ShouldBePredicted { not_none }
+
+- OPTION 1:
+  - re-use ShouldBePredicted to send the client_entity
+  - when we receive back ShouldBePredicted { client_entity } on confirmed.
+    - if the current_entity is the client_entity from ShouldBePredicted, ignore (we are the current entity)
+    - we use client_entity to find the predicted entity. We add Confirmed and predicted
+
+- OPTION 2: 
+  - create with PreSpawned::for_predicted, PreSpawned::for_confirmed. PreSpawned {confirmed: Option, predicted: Option}
+  - to start, let's just Prespawned(Entity) because it's easier...
+  - use a new component PreSpawned::new() [Prespawned(None)] that the client can add on the entity when it's spawned
+  - the server returns PreSpawned(Some(entity)) when it spawns the entity
+  - when we receive PreSpawned on client on the confirmed entity:
+    - if it's PreSpawned.predicted:
+      - if the entity has ShouldBePredicted, we use PreSpawned.predicted to find its predicted entity. We add Confirmed and Predicted.
+        - if PreSpawned.predicted is None, we spawn it? maybe not, think about this more... (how to spawn new entities that were despawned.)
+          maybe the best solution is to attach Predicted(None) right away to the Predicted entity.
+      - if the entity doesnt have ShouldBePredicted, it's an error.
+    - if it's PreSpawned.confirmed:
+      - when the client receives it; it makes sure not to spawn a new entity, but to re-use the existing one.
+      - it's confirmed; so if entity doesn't exist, we spawn it? 
+
 
   - C: client spawning a Confirmed entity.
     Client 1 spawns a confirmed entity C1. It gets replicated to server, which spawns S1. Then that entity can get

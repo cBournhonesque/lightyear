@@ -89,7 +89,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
-                        ReplicationSet::ReplicationSystems,
+                        ReplicationSet::SendDespawnsAndRemovals,
                     )
                         .in_set(ReplicationSet::All),
                     (
@@ -97,11 +97,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                         ReplicationSet::SendComponentUpdates,
                         MainSet::SendPackets,
                     )
-                        .chain()
                         .in_set(MainSet::Send),
                     // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
-                    (ReplicationSet::ReplicationSystems, MainSet::SendPackets).chain(),
+                    (ReplicationSet::All, MainSet::SendPackets).chain(),
                 ),
             )
             .configure_sets(PostUpdate, MainSet::ClearEvents)

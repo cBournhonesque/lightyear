@@ -75,6 +75,10 @@ impl<P: Protocol> Connection<P> {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.events.clear();
+    }
+
     /// Add an input for the given tick
     pub fn add_input(&mut self, input: P::Input, tick: Tick) {
         self.input_buffer.set(tick, Some(input));
@@ -110,6 +114,14 @@ impl<P: Protocol> Connection<P> {
     }
 
     pub fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+        // NOTE: this doesn't work too well because then duplicate actions/updates are accumulated before the connection is synced
+        // if !self.sync_manager.is_synced() {
+        //
+        //
+        //     // // clear the duplicate component checker
+        //     // self.replication_sender.pending_unique_components.clear();
+        //     return Ok(());
+        // }
         self.replication_sender
             .finalize(tick)
             .into_iter()

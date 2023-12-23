@@ -565,7 +565,7 @@ impl<Ctx> Client<Ctx> {
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
     pub fn send(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
         if self.state != ClientState::Connected {
-            info!("tried to send but not connected");
+            trace!("tried to send but not connected");
             return Ok(());
         }
         if buf.len() > MAX_PACKET_SIZE {

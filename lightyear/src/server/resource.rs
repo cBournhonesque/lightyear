@@ -329,7 +329,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 replication_sender.prepare_component_insert(
                     entity,
                     group,
-                    P::Components::from(ShouldBePredicted),
+                    P::Components::from(ShouldBePredicted {
+                        client_entity: None,
+                    }),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {

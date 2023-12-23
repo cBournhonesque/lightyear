@@ -3,6 +3,7 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use lightyear::_reexport::ShouldBePredicted;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -69,6 +70,7 @@ impl Plugin for MyClientPlugin {
                 cursor_movement,
                 receive_message,
                 send_message,
+                spawn_player,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
@@ -125,7 +127,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
         return client.add_input(Inputs::Direction(direction));
     }
     if keypress.pressed(KeyCode::Delete) {
-        // currently, directions is an enum and we can only add one direction per tick
+        // currently, directions is an enum and we can only add one input per tick
         return client.add_input(Inputs::Delete);
     }
     if keypress.pressed(KeyCode::Space) {
@@ -140,6 +142,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
 fn player_movement(
     // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
+    // InputEvent is a special case: we get an event for every fixed-update system run instead of every frame!
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
     if PlayerPosition::mode() != ComponentSyncMode::Full {
@@ -154,9 +157,53 @@ fn player_movement(
     }
 }
 
+/// Spawn a player when the space command is pressed
+fn spawn_player(
+    mut commands: Commands,
+    mut input_reader: EventReader<InputEvent<Inputs>>,
+    plugin: Res<MyClientPlugin>,
+    players: Query<&PlayerId, With<PlayerPosition>>,
+) {
+    // do not spawn a new player if we already have one
+    for player_id in players.iter() {
+        if player_id.0 == plugin.client_id {
+            return;
+        }
+    }
+    for input in input_reader.read() {
+        if let Some(input) = input.input() {
+            match input {
+                Inputs::Spawn => {
+                    debug!("got spawn input");
+                    let mut entity = commands.spawn(PlayerBundle::new(
+                        plugin.client_id,
+                        Vec2::ZERO,
+                        color_from_id(plugin.client_id),
+                    ));
+                    let entity_id = entity.id();
+                    // IMPORTANT: this lets the server know that the entity is pre-predicted
+                    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+                    // as the Predicted version
+                    entity.insert(ShouldBePredicted {
+                        client_entity: Some(entity_id),
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 // Adjust the movement of the cursor entity based on the mouse position
-fn cursor_movement(window_query: Query<&Window>, mut cursor_query: Query<&mut CursorPosition>) {
-    if let Ok(mut cursor_position) = cursor_query.get_single_mut() {
+fn cursor_movement(
+    plugin: Res<MyClientPlugin>,
+    window_query: Query<&Window>,
+    mut cursor_query: Query<(&mut CursorPosition, &PlayerId)>,
+) {
+    for (mut cursor_position, player_id) in cursor_query.iter_mut() {
+        if player_id.0 != plugin.client_id {
+            return;
+        }
         if let Ok(window) = window_query.get_single() {
             if let Some(mouse_position) = window_relative_mouse_position(window) {
                 cursor_position.0 = mouse_position;
@@ -203,7 +250,7 @@ pub(crate) fn send_message(mut client: ResMut<Client<MyProtocol>>, input: Res<In
 // - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
-        color.0.set_s(0.3);
+        color.0.set_s(0.4);
     }
 }
 

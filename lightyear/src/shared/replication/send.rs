@@ -201,7 +201,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .or_default()
             .contains(&kind)
         {
-            warn!(
+            debug!(
                 ?group,
                 ?entity,
                 ?kind,
@@ -259,7 +259,7 @@ impl<P: Protocol> ReplicationSender<P> {
                     actions: Vec::from_iter(actions.into_iter()),
                 }),
             ));
-            info!("final action messages to send: {:?}", messages);
+            debug!("final action messages to send: {:?}", messages);
         }
         // send the remaining updates
         for (group_id, updates) in self.pending_updates.drain() {
@@ -302,7 +302,9 @@ impl Default for GroupChannel {
     fn default() -> Self {
         Self {
             actions_next_send_message_id: MessageId(0),
-            last_action_tick: Tick(0),
+            // we start with a very high last_action_tick, so that we need to receive the Actions message
+            // before handling any Updates messages
+            last_action_tick: Tick(0) - 1,
             collect_changes_since_this_tick: BevyTick::new(0),
         }
     }

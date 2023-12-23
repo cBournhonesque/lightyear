@@ -42,20 +42,19 @@ impl Plugin for MyServerPlugin {
         let plugin_config = PluginConfig::new(config, io, protocol());
         app.add_plugins(server::ServerPlugin::new(plugin_config));
         app.add_plugins(shared::SharedPlugin);
-        app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
-            (handle_connections, replicate_cursors, send_message),
+            (
+                handle_disconnections,
+                replicate_cursors,
+                replicate_players,
+                send_message,
+            ),
         );
     }
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
 pub(crate) fn init(mut commands: Commands) {
@@ -70,40 +69,26 @@ pub(crate) fn init(mut commands: Commands) {
     ));
 }
 
-/// Server connection system, create a player upon connection
-pub(crate) fn handle_connections(
-    mut connections: EventReader<ConnectEvent>,
+/// Server disconnection system, delete all player entities upon disconnection
+pub(crate) fn handle_disconnections(
     mut disconnections: EventReader<DisconnectEvent>,
-    mut global: ResMut<Global>,
     mut commands: Commands,
+    player_entities: Query<(Entity, &PlayerId)>,
 ) {
-    for connection in connections.read() {
-        let client_id = connection.context();
-        // Generate pseudo random color from client id.
-
-        let entity = commands.spawn(PlayerBundle::new(
-            *client_id,
-            Vec2::ZERO,
-            color_from_id(*client_id),
-        ));
-        // Add a mapping from client id to entity id
-        global
-            .client_id_to_entity_id
-            .insert(*client_id, entity.id());
-    }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
-        if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            commands.entity(entity).despawn();
+        for (entity, player_id) in player_entities.iter() {
+            if player_id.0 == *client_id {
+                commands.entity(entity).despawn();
+            }
         }
     }
 }
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<&mut PlayerPosition>,
+    mut position_query: Query<(&mut PlayerPosition, &PlayerId)>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    global: Res<Global>,
     server: Res<Server<MyProtocol>>,
 ) {
     for input in input_reader.read() {
@@ -115,11 +100,37 @@ pub(crate) fn movement(
                 client_id,
                 server.tick()
             );
-            if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(mut position) = position_query.get_mut(*player_entity) {
+
+            for (mut position, player_id) in position_query.iter_mut() {
+                if player_id.0 == *client_id {
                     shared_movement_behaviour(&mut position, input);
                 }
             }
+        }
+    }
+}
+
+pub(crate) fn replicate_players(
+    mut commands: Commands,
+    mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerPosition>>,
+) {
+    for event in player_spawn_reader.read() {
+        info!("received player spawn event: {:?}", event);
+        let client_id = event.context();
+        let entity = event.entity();
+
+        // for all cursors we have received, add a Replicate component so that we can start replicating it
+        // to other clients
+        if let Some(mut e) = commands.get_entity(*entity) {
+            e.insert(Replicate {
+                // do not replicate back to the owning entity!
+                replication_target: NetworkTarget::All,
+                // NOTE: Be careful to not override the pre-spawned prediction! we do not need to enable prediction
+                //  because there is a pre-spawned predicted entity
+                // we want the other clients to apply interpolation for the player
+                interpolation_target: NetworkTarget::AllExcept(vec![*client_id]),
+                ..default()
+            });
         }
     }
 }
@@ -137,7 +148,10 @@ pub(crate) fn replicate_cursors(
         // to other clients
         if let Some(mut e) = commands.get_entity(*entity) {
             e.insert(Replicate {
+                // do not replicate back to the owning entity!
                 replication_target: NetworkTarget::AllExcept(vec![*client_id]),
+                // we want the other clients to apply interpolation for the cursor
+                interpolation_target: NetworkTarget::AllExcept(vec![*client_id]),
                 ..default()
             });
         }

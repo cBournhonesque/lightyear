@@ -1,7 +1,7 @@
 //! Defines the client bevy systems and run conditions
 use crate::_reexport::ReplicationSend;
 use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;

@@ -266,7 +266,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
 
                 // send an component_insert for components that were newly added
                 if component.is_added() {
-                    info!("component is added");
+                    trace!("component is added");
                     sender
                         .prepare_component_insert(
                             entity,
@@ -350,12 +350,13 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
         (
             // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
             //  so we can run the system every frame
+            //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
             send_entity_spawn::<P, R>.in_set(ReplicationSet::SendEntityUpdates),
             // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
             (add_despawn_tracker, send_entity_despawn::<P, R>)
-                .in_set(ReplicationSet::ReplicationSystems),
+                .in_set(ReplicationSet::SendDespawnsAndRemovals),
         ),
     );
 }
@@ -376,7 +377,7 @@ pub fn add_per_component_replication_send_systems<
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            send_component_removed::<C, P, R>.in_set(ReplicationSet::ReplicationSystems),
+            send_component_removed::<C, P, R>.in_set(ReplicationSet::SendDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
             send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),

@@ -1,7 +1,7 @@
 /*!
 Provides a [`ProtocolMessage`] enum that is a wrapper around all the possible messages that can be sent over the network
 */
-use crate::prelude::NetworkTarget;
+use crate::prelude::{ChannelKind, NetworkTarget};
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, trace};
 
@@ -9,6 +9,11 @@ use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::utils::named::Named;
+
+pub(crate) struct MessageMetadata {
+    pub(crate) target: NetworkTarget,
+    pub(crate) channel: ChannelKind,
+}
 
 // ClientMessages can include some extra Metadata
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -4,8 +4,10 @@ use bevy::prelude::SystemSet;
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSet {
-    /// ReplicationSystems that run once per frame
-    ReplicationSystems,
+    /// Gathers entity despawns and component removals
+    /// Needs to run once per frame instead of once per send_interval
+    /// because they rely on bevy events that are cleared every frame
+    SendDespawnsAndRemovals,
 
     // TODO: is it useful to separate these two system sets?
     /// System Set to gather all the replication updates to send

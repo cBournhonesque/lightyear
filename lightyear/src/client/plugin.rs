@@ -103,6 +103,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                 )
                     .chain(),
             )
+            // TODO: revisit the ordering of systems here. I believe all systems in ReplicationSet::All can run in parallel,
+            //  but maybe that's not the case and we need to run them in a certain order
             // NOTE: it's ok to run the replication systems less frequently than every frame
             //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
             .configure_sets(
@@ -111,7 +113,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
-                        ReplicationSet::ReplicationSystems,
+                        ReplicationSet::SendDespawnsAndRemovals,
                     )
                         .in_set(ReplicationSet::All),
                     (
@@ -119,16 +121,16 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                         ReplicationSet::SendComponentUpdates,
                         MainSet::SendPackets,
                     )
-                        .chain()
                         .in_set(MainSet::Send),
                     // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
-                    (ReplicationSet::ReplicationSystems, MainSet::SendPackets).chain(),
+                    (ReplicationSet::All, MainSet::SendPackets).chain(),
                 ),
             )
             .configure_sets(
                 PostUpdate,
-                (MainSet::Send.run_if(is_ready_to_send::<P>), MainSet::Sync),
+                // run sync before send because some send systems need to know if the client is synced
+                (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send::<P>)).chain(),
             )
             // EVENTS //
             .add_event::<ConnectEvent>()
@@ -160,7 +162,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    send::<P>.in_set(MainSet::Send),
+                    send::<P>.in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
             );

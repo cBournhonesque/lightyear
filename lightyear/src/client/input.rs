@@ -3,7 +3,7 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::events::InputEvent;
@@ -98,6 +98,9 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             FixedUpdate,
             clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvent),
         );
+        // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
+        // TODO: should we also write the events at PreUpdate?
+        // app.add_systems(PostUpdate, clear_input_events::<P>);
         app.add_systems(
             PostUpdate,
             prepare_input_message::<P>

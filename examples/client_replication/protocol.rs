@@ -48,7 +48,7 @@ impl CursorBundle {
                 replication_target: NetworkTarget::All,
                 // prediction_target: NetworkTarget::None,
                 // prediction_target: NetworkTarget::Only(vec![id]),
-                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
         }
@@ -58,7 +58,7 @@ impl CursorBundle {
 // Components
 
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(ClientId);
+pub struct PlayerId(pub ClientId);
 
 #[derive(
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,

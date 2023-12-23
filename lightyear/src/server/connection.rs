@@ -166,22 +166,14 @@ impl<P: Protocol> ConnectionManager<P> {
                 let _span = trace_span!("receive", ?client_id).entered();
                 // receive
                 let events = connection.receive(world, time_manager);
-                if !events.is_empty() {
-                    info!("non empty connection events: {:?}", events);
-                }
                 self.events.push_events(*client_id, events);
 
                 // rebroadcast messages
                 messages_to_rebroadcast
                     .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
             });
-        for (message, target) in messages_to_rebroadcast {
-            // TODO: specify which channel to rebroadcast with
-            self.buffer_message(
-                message,
-                ChannelKind::of::<DefaultUnorderedUnreliableChannel>(),
-                target,
-            )?;
+        for (message, target, channel_kind) in messages_to_rebroadcast {
+            self.buffer_message(message, channel_kind, target)?;
         }
         Ok(())
     }
@@ -204,7 +196,7 @@ pub struct Connection<P: Protocol> {
     // TODO: maybe don't do any replication until connection is synced?
 
     // messages that we have received that need to be rebroadcasted to other clients
-    pub(crate) messages_to_rebroadcast: Vec<(P::Message, NetworkTarget)>,
+    pub(crate) messages_to_rebroadcast: Vec<(P::Message, NetworkTarget, ChannelKind)>,
 }
 
 impl<P: Protocol> Connection<P> {
@@ -345,14 +337,6 @@ impl<P: Protocol> Connection<P> {
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
                 for (tick, message) in messages.into_iter() {
-                    // TODO: we shouldn't map the entities here!
-                    //  - we should: order the entities in a group by topological sort (use MapEntities to check dependencies between entities).
-                    //  - apply map_entities when we're in the stage of applying to the world.
-                    //    - because then we read the first entity in the group; spawn it, and the next component that refers to that entity can be mapped successfully!
-                    // map entities from remote to local
-                    // message.map_entities(&self.replication_manager.entity_map);
-
-                    // other message-handling logic
                     match message {
                         ClientMessage::Message(mut message, target) => {
                             // map any entities inside the message
@@ -360,7 +344,11 @@ impl<P: Protocol> Connection<P> {
                                 &self.replication_receiver.remote_entity_map,
                             ));
                             if target != NetworkTarget::None {
-                                self.messages_to_rebroadcast.push((message.clone(), target));
+                                self.messages_to_rebroadcast.push((
+                                    message.clone(),
+                                    target,
+                                    channel_kind,
+                                ));
                             }
                             // don't put InputMessage into events else the events won't be classified as empty
                             if message.kind() == MessageKind::of::<InputMessage<P::Input>>() {

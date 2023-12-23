@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 use std::time::Duration;
 use tracing::Level;
@@ -33,8 +34,8 @@ impl Plugin for SharedPlugin {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id * 45) % 360) as f32) / 360.0;
-    let s = 0.8;
+    let h = ((client_id * 90) % 360) as f32;
+    let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
 }
@@ -71,11 +72,11 @@ pub(crate) fn draw_elements(
         gizmos.rect_2d(
             Vec2::new(position.x, position.y),
             0.0,
-            Vec2::ONE * 50.0,
+            Vec2::ONE * 40.0,
             color.0,
         );
     }
     for (position, color) in &cursors {
-        gizmos.circle_2d(Vec2::new(position.x, position.y), 30.0, color.0);
+        gizmos.circle_2d(Vec2::new(position.x, position.y), 15.0, color.0);
     }
 }
