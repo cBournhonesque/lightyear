@@ -45,11 +45,20 @@
           - actions with lower-message-id are saved. When group is deleted, we transfer them to the new group.
             - PROBLEM = lower-message-id could just be past messages getting duplicated for some reason.
               - we could include a generation number in the group message. Even a u8 or even fewer bits is fine (with cycling)
+              - maybe even just 1 bit, 0 or 1 that we cycle.
               - if we receive a message with a bigger generation number, we just buffer it
               - i.e. we 
               - but at this point why not just use a u32 for the group id? (the first 32 bits of the Entity)
+                - one problem is that Entities are not guaranteed to have separate indexes. You could have multiple entities with the same index.
+                  -  FROM BEVY DOCS
+                  -  /// No two simultaneously-live entities share the same index, but dead entities' indices may collide
+                     /// with both live and dead entities.
                 - Group = FromEntity. Entity gets despawned. We delete the group on server/client. It gets recreated, and we re-use its entity for our GroupId.
                   - its ok to reuse the entity's index and not the gen, because the new entity will have the same index, but a new generation.
+                  - if it uses another index, its ok too. (we just create a new group.)
+                    - can that index already belong to another group?
+                    - but what if: E1 is in group, E2 is in group. Group is named E1. Then E1 is despawned, and we create another entity E3 that has the same 
+                      index as E1? that means we have to use the entire entity as the group id
                   - then the second group would have the same index, but new generation.
                   - We only use index to find channel, etc; We use generation as we said earlier
                 - Group = FromEntity. We send despawn from VisLost. We delete the group on server/client. We recreate the group

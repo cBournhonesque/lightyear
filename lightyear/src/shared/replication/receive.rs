@@ -16,7 +16,7 @@ use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::{MapEntities, Tick};
+use crate::prelude::{MapEntities, ReplicationGroup, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
@@ -40,6 +40,8 @@ pub(crate) struct ReplicationReceiver<P: Protocol> {
     // BOTH
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel<P>>,
+    /// Similar buffer, for the group of next generation
+    pub pending_groups: EntityHashMap<ReplicationGroupId, GroupChannel<P>>,
 }
 
 impl<P: Protocol> ReplicationReceiver<P> {
@@ -49,7 +51,8 @@ impl<P: Protocol> ReplicationReceiver<P> {
             remote_entity_map: RemoteEntityMap::default(),
             remote_entity_to_group: Default::default(),
             // BOTH
-            group_channels: Default::default(),
+            group_channels: EntityHashMap::default(),
+            pending_groups: EntityHashMap::default(),
         }
     }
 
@@ -69,20 +72,32 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     ?remote_tick,
                     "received replication action message"
                 );
-                // TODO: should we do it here or in apply world?
-                //  in apply_world: it's nice because we only add entities if they are actually spawned
-                //  here: it's nice because we do as soon as we receive a message establishing that entity is in group
-                // update the mapping from entity to group-id
-                m.actions.iter().for_each(|(e, _)| {
-                    self.remote_entity_to_group.insert(*e, message.group_id);
-                    channel.entities.insert(*e);
-                });
+
+                // this message is for the next generation of the group
+                // the current group will soon be despawned, buffer this message in advanced for the pending groups
+                if m.generation_bit != channel.generation_bit {
+                    let new_channel = self.pending_groups.entry(message.group_id).or_default();
+                    new_channel.generation_bit = m.generation_bit;
+                    if m.sequence_id < new_channel.actions_pending_recv_message_id {
+                        warn!("Received an old replication message, ignoring");
+                        return;
+                    }
+                    new_channel
+                        .actions_recv_message_buffer
+                        .insert(m.sequence_id, (remote_tick, m));
+                    return;
+                }
+
                 // if the message is too old, it could be:
                 // - an old duplicate message arriving now
                 // - or the group got deleted (because we had sent a despawn message for all entities in the group), then the sender
                 //   started sending messages for the same entity group again; but the message order got mixed up and we received
                 //   the message for the new group first (before receiving the messages that would have despawned the old group)
+                // To distinguish between the two, we will add a generation-bit in the actions message.
+                // TODO: is it even possible to receive an old duplicate message? I don't think so because we have replay
+                //  protection. That would mean we can remove the generation-bit and just use this check to detect if it's for a new group
                 if m.sequence_id < channel.actions_pending_recv_message_id {
+                    warn!("Received an old replication message, ignoring");
                     return;
                 }
 
@@ -93,11 +108,6 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     .insert(m.sequence_id, (remote_tick, m));
             }
             ReplicationMessageData::Updates(m) => {
-                // update the mapping from entity to group-id
-                m.updates.iter().for_each(|(e, _)| {
-                    self.remote_entity_to_group.insert(*e, message.group_id);
-                    channel.entities.insert(*e);
-                });
                 // if we have already applied a more recent update for this group, no need to keep this one
                 if remote_tick <= channel.latest_tick {
                     return;
@@ -133,24 +143,9 @@ impl<P: Protocol> ReplicationReceiver<P> {
         self.group_channels
             .iter_mut()
             .filter_map(|(group_id, channel)| {
-                let mut res = Vec::new();
-
-                // check for any actions that are ready to be applied
-                while let Some((tick, actions)) = channel.read_action() {
-                    res.push((tick, ReplicationMessageData::Actions(actions)));
-                }
-
-                // TODO: (IMPORTANT): should we try to get the updates in order of tick?
-
-                // check for any buffered updates that are ready to be applied now that we have applied more actions/updates
-                res.extend(
-                    channel
-                        .read_buffered_updates()
-                        .into_iter()
-                        .map(|(tick, updates)| (tick, ReplicationMessageData::Updates(updates))),
-                );
-
-                (!res.is_empty()).then_some((*group_id, res))
+                channel
+                    .read_messages()
+                    .map(|messages| (*group_id, messages))
             })
             .collect()
     }
@@ -196,6 +191,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         &mut self,
         world: &mut World,
         replication: ReplicationMessageData<P::Components, P::ComponentKinds>,
+        group_id: ReplicationGroupId,
         events: &mut ConnectionEvents<P>,
     ) {
         let _span = trace_span!("Apply received replication message to world").entered();
@@ -210,6 +206,17 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     assert!(!(actions.spawn && actions.despawn));
                     // spawn
                     if actions.spawn {
+                        // TODO: should we do it here or in recv_message?
+                        //  in apply_world: it's nice because we only add entities if they are actually spawned
+                        //  in recv_message: it's nice because we do as soon as we receive a message establishing that entity is in group
+                        //  ultimately it seems like here is easier, especially because of group generations
+                        // update the mapping from entity to group-id
+                        self.remote_entity_to_group.insert(*entity, group_id);
+                        if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                            channel.entities.insert(*entity);
+                        } else {
+                            error!("channel for group {:?} should exist when we process the entity spawn", group_id);
+                        }
                         if let Some(local_entity) = self.remote_entity_map.get_local(*entity) {
                             if world.get_entity(*local_entity).is_some() {
                                 warn!("Received spawn for an entity that already exists");
@@ -238,24 +245,49 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
                         {
                             world.despawn(local_entity);
+                            events.push_despawn(local_entity);
                             // TODO: careful about this, what if we want to add new entities to the group later; is there
                             //  information we might still need, such as latest_tick?
                             // clean-up the group if it's empty
                             if let Some(group_id) = self.remote_entity_to_group.remove(&entity) {
+                                let mut new_generation_bit = false;
                                 let mut delete_group = false;
                                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                                     channel.entities.remove(&entity);
                                     info!(?channel, "deleting entity from channel");
                                     if channel.entities.is_empty() {
                                         delete_group = true;
+                                        new_generation_bit = !channel.generation_bit;
                                     }
                                 }
                                 if delete_group {
                                     info!("deleting channel since all entities in it have been despawned");
                                     self.group_channels.remove(&group_id);
+
+                                    // check if we have any more pending messages for the next generation group
+                                    if let Some(mut channel) = self.pending_groups.remove(&group_id)
+                                    {
+                                        info!("we had some pending messages for the next generation group, applying them now");
+                                        channel.read_messages().map(|messages| {
+                                            messages.into_iter().for_each(|(_, replication)| {
+                                                self.apply_world(
+                                                    world,
+                                                    replication,
+                                                    group_id,
+                                                    events,
+                                                );
+                                            })
+                                        });
+                                        self.group_channels.insert(group_id, channel);
+                                    } else {
+                                        // create the next channel
+                                        self.group_channels.insert()
+                                    }
+
+                                    // there won't be any more messages from this group, so we can return early
+                                    return;
                                 }
                             }
-                            events.push_despawn(local_entity);
                         } else {
                             error!("Received despawn for an entity that does not exist")
                         }
@@ -353,6 +385,11 @@ impl<P: Protocol> ReplicationReceiver<P> {
 /// Channel to keep track of receiving/sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel<P: Protocol> {
+    // generation bit of this group
+    // this is used to not mistake messages from 2 groups that use the same group_id
+    // (if one group is destroyed and the next one sharing the same id is created right after,
+    // but the messages arrived out of order)
+    generation_bit: bool,
     // actions
     pub actions_pending_recv_message_id: MessageId,
     pub actions_recv_message_buffer:
@@ -373,6 +410,7 @@ pub struct GroupChannel<P: Protocol> {
 impl<P: Protocol> Default for GroupChannel<P> {
     fn default() -> Self {
         Self {
+            generation_bit: false,
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates: Default::default(),
@@ -425,15 +463,283 @@ impl<P: Protocol> GroupChannel<P> {
         self.buffered_updates = not_ready;
         res
     }
+
+    fn read_messages(
+        &mut self,
+    ) -> Option<
+        Vec<(
+            Tick,
+            ReplicationMessageData<P::Components, P::ComponentKinds>,
+        )>,
+    > {
+        let mut res = Vec::new();
+
+        // check for any actions that are ready to be applied
+        while let Some((tick, actions)) = self.read_action() {
+            res.push((tick, ReplicationMessageData::Actions(actions)));
+        }
+
+        // TODO: (IMPORTANT): should we try to get the updates in order of tick?
+
+        // check for any buffered updates that are ready to be applied now that we have applied more actions/updates
+        res.extend(
+            self.read_buffered_updates()
+                .into_iter()
+                .map(|(tick, updates)| (tick, ReplicationMessageData::Updates(updates))),
+        );
+
+        (!res.is_empty()).then_some(res)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     use crate::tests::protocol::*;
 
     use super::*;
+
+    #[test]
+    // test that deleting the group works correctly if we stay on the happy path
+    fn test_group_deletion_correct_order() {
+        let mut manager = ReplicationReceiver::<MyProtocol>::new();
+        let mut world = World::default();
+        let mut events = ConnectionEvents::new();
+
+        let group_id = ReplicationGroupId(0);
+        let entity = Entity::from_raw(0);
+        // recv an actions message: in order, should be buffered
+        manager.recv_message(
+            ReplicationMessage {
+                group_id,
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(0),
+                    generation_bit: false,
+                    actions: vec![
+                        ((
+                            entity,
+                            EntityActions {
+                                spawn: true,
+                                ..default()
+                            },
+                        )),
+                    ],
+                }),
+            },
+            Tick(0),
+        );
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .actions_recv_message_buffer
+            .contains_key(&MessageId(0)));
+        // we apply the spawn event
+        for (group_id, replication_list) in manager.read_messages() {
+            replication_list.into_iter().for_each(|(_, replication)| {
+                manager.apply_world(&mut world, replication, group_id, &mut events);
+            });
+        }
+        assert_eq!(manager.remote_entity_to_group.get(&entity), Some(&group_id));
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .entities
+            .contains(&entity));
+        // recv a despawn for this entity
+        manager.recv_message(
+            ReplicationMessage {
+                group_id,
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(1),
+                    generation_bit: false,
+                    actions: vec![
+                        ((
+                            entity,
+                            EntityActions {
+                                despawn: true,
+                                ..default()
+                            },
+                        )),
+                    ],
+                }),
+            },
+            Tick(1),
+        );
+        // we apply the events despawn
+        for (group_id, replication_list) in manager.read_messages() {
+            replication_list.into_iter().for_each(|(_, replication)| {
+                manager.apply_world(&mut world, replication, group_id, &mut events);
+            });
+        }
+        // check that the group metadata got deleted
+        assert!(manager.remote_entity_to_group.is_empty());
+        assert!(manager.remote_entity_map.is_empty());
+        assert!(!manager.group_channels.contains_key(&group_id));
+        // receive another message for the same entity and same group id (for example because of visibility)
+        // the message id has been reset to 0 on the sender side
+        // note that the generation bit has been updated
+        manager.recv_message(
+            ReplicationMessage {
+                group_id,
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(0),
+                    generation_bit: true,
+                    actions: vec![
+                        ((
+                            entity,
+                            EntityActions {
+                                spawn: true,
+                                ..default()
+                            },
+                        )),
+                    ],
+                }),
+            },
+            Tick(2),
+        );
+        // check that the message has been received correctly
+        assert!(!manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .actions_recv_message_buffer
+            .is_empty());
+    }
+
+    #[test]
+    // test that deleting the group works correctly if we receive messages for the same group_id (but a later generation)
+    // before we have finished deleting the current group
+    fn test_group_deletion_wrong_order() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
+
+        let mut manager = ReplicationReceiver::<MyProtocol>::new();
+        let mut world = World::default();
+        let mut events = ConnectionEvents::new();
+
+        let group_id = ReplicationGroupId(0);
+        let entity = Entity::from_raw(0);
+        // recv an actions message: in order, should be buffered
+        manager.recv_message(
+            ReplicationMessage {
+                group_id,
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(0),
+                    generation_bit: false,
+                    actions: vec![
+                        ((
+                            entity,
+                            EntityActions {
+                                spawn: true,
+                                ..default()
+                            },
+                        )),
+                    ],
+                }),
+            },
+            Tick(0),
+        );
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .actions_recv_message_buffer
+            .contains_key(&MessageId(0)));
+        // we apply the spawn event
+        for (group_id, replication_list) in manager.read_messages() {
+            replication_list.into_iter().for_each(|(_, replication)| {
+                manager.apply_world(&mut world, replication, group_id, &mut events);
+            });
+        }
+        assert_eq!(manager.remote_entity_to_group.get(&entity), Some(&group_id));
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .entities
+            .contains(&entity));
+
+        // receive another message for the same entity and same group id (for example because of visibility)
+        // but another generation! The server tick is later, of course.
+        // the message id has been reset to 0 on the sender side
+        // note that the generation bit has been updated
+        manager.recv_message(
+            ReplicationMessage {
+                group_id,
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(0),
+                    generation_bit: true,
+                    actions: vec![
+                        ((
+                            entity,
+                            EntityActions {
+                                spawn: true,
+                                ..default()
+                            },
+                        )),
+                    ],
+                }),
+            },
+            Tick(2),
+        );
+        // recv a despawn for this entity
+        manager.recv_message(
+            ReplicationMessage {
+                group_id,
+                data: ReplicationMessageData::Actions(EntityActionMessage {
+                    sequence_id: MessageId(1),
+                    generation_bit: false,
+                    actions: vec![
+                        ((
+                            entity,
+                            EntityActions {
+                                despawn: true,
+                                ..default()
+                            },
+                        )),
+                    ],
+                }),
+            },
+            Tick(1),
+        );
+        // we apply the events despawn
+        for (group_id, replication_list) in manager.read_messages() {
+            replication_list.into_iter().for_each(|(_, replication)| {
+                manager.apply_world(&mut world, replication, group_id, &mut events);
+            });
+        }
+        // so normally we should have suddenly applied messages in order 1->2->3
+
+        // check that the group metadata was not deleted
+        assert!(!manager.remote_entity_to_group.is_empty());
+        assert!(!manager.remote_entity_map.is_empty());
+        assert!(manager.group_channels.contains_key(&group_id));
+
+        // check that the message has been received correctly
+        assert_eq!(
+            manager.remote_entity_to_group.get(&Entity::from_raw(0)),
+            Some(&group_id)
+        );
+        assert!(manager
+            .group_channels
+            .get(&group_id)
+            .unwrap()
+            .entities
+            .contains(&entity));
+        assert_eq!(
+            manager
+                .group_channels
+                .get(&group_id)
+                .unwrap()
+                .actions_pending_recv_message_id,
+            MessageId(1)
+        );
+    }
 
     #[allow(clippy::get_first)]
     #[test]
@@ -447,6 +753,7 @@ mod tests {
                 group_id,
                 data: ReplicationMessageData::Actions(EntityActionMessage {
                     sequence_id: MessageId(0) - 1,
+                    generation_bit: false,
                     actions: Default::default(),
                 }),
             },
@@ -473,6 +780,7 @@ mod tests {
                 group_id: ReplicationGroupId(0),
                 data: ReplicationMessageData::Actions(EntityActionMessage {
                     sequence_id: MessageId(0),
+                    generation_bit: false,
                     actions: Default::default(),
                 }),
             },
@@ -540,6 +848,7 @@ mod tests {
                 group_id: ReplicationGroupId(0),
                 data: ReplicationMessageData::Actions(EntityActionMessage {
                     sequence_id: MessageId(2),
+                    generation_bit: false,
                     actions: Default::default(),
                 }),
             },
@@ -553,6 +862,7 @@ mod tests {
                 group_id: ReplicationGroupId(0),
                 data: ReplicationMessageData::Actions(EntityActionMessage {
                     sequence_id: MessageId(1),
+                    generation_bit: false,
                     actions: Default::default(),
                 }),
             },

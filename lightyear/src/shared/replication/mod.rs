@@ -69,6 +69,10 @@ impl<C, K: Hash + Eq> Default for EntityActions<C, K> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityActionMessage<C, K: Hash + Eq> {
     sequence_id: MessageId,
+    // used to detect if this was for a new 'generation' of the group
+    // groups change generation whenever all the entities of the group have sent/received a despawn event
+    // The next group that re-uses this entity will have a different generation (the bit is flipped)
+    generation_bit: bool,
     // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
 }

@@ -115,6 +115,10 @@ impl RemoteEntityMap {
         &self.local_to_remote
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.remote_to_local.is_empty() && self.local_to_remote.is_empty()
+    }
+
     fn clear(&mut self) {
         self.local_to_remote.clear();
         self.remote_to_local.clear();

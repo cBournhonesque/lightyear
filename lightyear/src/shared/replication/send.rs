@@ -304,6 +304,7 @@ impl<P: Protocol> ReplicationSender<P> {
                 group_id,
                 ReplicationMessageData::Actions(EntityActionMessage {
                     sequence_id: message_id,
+                    generation_bit: false,
                     // TODO: maybe we can just send the HashMap directly?
                     actions: Vec::from_iter(actions.into_iter()),
                 }),

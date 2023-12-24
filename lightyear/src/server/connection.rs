@@ -392,8 +392,12 @@ impl<P: Protocol> Connection<P> {
                     trace!(?group, ?replication_list, "read replication messages");
                     replication_list.into_iter().for_each(|(_, replication)| {
                         // TODO: we could include the server tick when this replication_message was sent.
-                        self.replication_receiver
-                            .apply_world(world, replication, &mut self.events);
+                        self.replication_receiver.apply_world(
+                            world,
+                            replication,
+                            group,
+                            &mut self.events,
+                        );
                     });
                 }
             }
