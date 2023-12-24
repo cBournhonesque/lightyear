@@ -1,19 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
-    "lightyear",
-    "macros",
+  "lightyear",
+  "macros",
 
-    # internal
-    "benches",
-    "examples",
-    "vendor/bitcode"
+  # internal
+  "benches",
+  "examples",
+  "vendor/bitcode",
 ]
 default-members = [
-    "lightyear",
-    "macros",
+  "lightyear",
+  "macros",
 
-    # internal
-    "benches",
-    "examples",
+  # internal
+  "benches",
+  "examples",
 ]
