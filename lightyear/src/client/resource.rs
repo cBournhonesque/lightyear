@@ -124,6 +124,12 @@ impl<P: Protocol> Client<P> {
         self.connection.sync_manager.is_synced()
     }
 
+    // IO
+
+    pub fn io(&self) -> &Io {
+        &self.io
+    }
+
     // INPUT
 
     // TODO: maybe put the input_buffer directly in Client ?

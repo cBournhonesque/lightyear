@@ -23,7 +23,7 @@ pub struct PingConfig {
 impl Default for PingConfig {
     fn default() -> Self {
         PingConfig {
-            ping_interval: Duration::from_millis(40),
+            ping_interval: Duration::from_millis(50),
             stats_buffer_duration: Duration::from_secs(4),
         }
     }

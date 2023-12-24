@@ -48,7 +48,7 @@ impl Plugin for LogPlugin {
         let filter_layer = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(&default_filter))
             .unwrap();
-        println!("Log filter: {:?}", default_filter);
+        // println!("Log filter: {:?}", default_filter);
         let subscriber = Registry::default().with(filter_layer);
 
         let fmt_layer = tracing_subscriber::fmt::Layer::default()

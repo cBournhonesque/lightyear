@@ -116,6 +116,12 @@ impl<P: Protocol> Server<P> {
         self.netcode.client_ids()
     }
 
+    // IO
+
+    pub fn io(&self) -> &Io {
+        &self.io
+    }
+
     // EVENTS
 
     pub fn events(&mut self) -> &mut ServerEvents<P> {
