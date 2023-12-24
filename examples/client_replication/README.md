@@ -9,6 +9,11 @@ A simple example that shows how to use lightyear for client-replication (the ent
     When the original client gets the square back, it will spawn a 'Confirmed' square on the client, and will recognize
     that the original square spawned was a prediction. From there on it's normal replication.
 
+  - pressing `M` will send a message from a client to other clients
+
+  - pressing `K` will delete the Predicted entity. You can use this to confirm various rollback edge-cases.
+
+
 https://github.com/cBournhonesque/lightyear/assets/8112632/718bfa44-80b5-4d83-a360-aae076f81fc3
 
 
