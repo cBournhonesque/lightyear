@@ -103,6 +103,13 @@ pub struct Io {
     local_addr: SocketAddr,
     sender: Box<dyn PacketSender>,
     receiver: Box<dyn PacketReceiver>,
+    stats: IoStats,
+}
+
+#[derive(Default, Debug)]
+pub struct IoStats {
+    pub bytes_sent: usize,
+    pub bytes_received: usize,
 }
 
 impl Io {
@@ -119,6 +126,7 @@ impl Io {
             local_addr,
             sender,
             receiver,
+            stats: IoStats::default(),
         }
     }
     pub fn local_addr(&self) -> SocketAddr {
@@ -131,6 +139,10 @@ impl Io {
 
     pub fn split(&mut self) -> (&mut Box<dyn PacketSender>, &mut Box<dyn PacketReceiver>) {
         (&mut self.sender, &mut self.receiver)
+    }
+
+    pub fn stats(&self) -> &IoStats {
+        &self.stats
     }
 }
 
@@ -152,6 +164,7 @@ impl PacketReceiver for Io {
                     metrics::increment_counter!("transport.packets_received");
                     metrics::increment_gauge!("transport.bytes_received", buffer.len() as f64);
                 }
+                self.stats.bytes_received += buffer.len();
             }
             x
         })
@@ -166,6 +179,7 @@ impl PacketSender for Io {
             metrics::increment_counter!("transport.packets_sent");
             metrics::increment_gauge!("transport.bytes_sent", payload.len() as f64);
         }
+        self.stats.bytes_sent += payload.len();
         self.sender.send(payload, address)
     }
 }

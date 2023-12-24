@@ -66,7 +66,7 @@ impl PacketConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,

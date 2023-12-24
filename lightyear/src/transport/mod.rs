@@ -12,6 +12,8 @@ pub(crate) mod local;
 /// The transport is a UDP socket
 pub(crate) mod udp;
 
+// mod channels;
+
 /// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
 pub mod webtransport;
