@@ -76,8 +76,6 @@ pub fn spawn_interpolated_entity(
             .confirmed_to_interpolated
             .insert(confirmed_entity, interpolated);
 
-        info!(?manager.interpolated_entity_map,"interoplation map");
-
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
         let mut confirmed_entity_mut = commands.get_entity(confirmed_entity).unwrap();

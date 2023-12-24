@@ -6,16 +6,6 @@ use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::shared::events::ComponentRemoveEvent;
 
-// Despawn logic:
-// - despawning a predicted client entity:
-//   - we add a DespawnMarker component to the entity
-//   - all components other than ComponentHistory or Predicted get despawned, so that we can still check for rollbacks
-//   - if the confirmed entity gets despawned, we despawn the predicted entity
-//   - if the confirmed entity doesn't get despawned (during rollback, for example), it will re-add the necessary components to the predicted entity
-
-// - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
-//   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
-
 /// Remove the component from interpolated entities when it gets removed from confirmed
 pub(crate) fn removed_components<C: SyncComponent>(
     mut commands: Commands,
@@ -36,7 +26,10 @@ pub(crate) fn removed_components<C: SyncComponent>(
 }
 
 /// Despawn interpolated entities when the confirmed entity gets despawned
-/// TODO: we should despawn interpolated only when it reaches the latest confirmed snapshot?
+// TODO: we should despawn interpolated only when it reaches the latest confirmed snapshot?
+//  might not be super straightforward because RemovedComponents lasts only one frame. I suppose
+//  we could add a DespawnedMarker, and the entity would get despawned as soon as it reaches the end of interpolation...
+//  not super priority but would be a nice to have
 pub(crate) fn despawn_interpolated(
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,

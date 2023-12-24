@@ -6,9 +6,6 @@
 
 BUGS:
 - interpolation: despawn once it reaches end
-- weird bug where one client controls boxes for both players:
-  - what happens if both pre-spawned entities have the same client id?
-  - the ShouldBePredicted component should only be propagated back to the client who sent it!
 
 
 - Prediction edge cases:

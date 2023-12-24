@@ -31,6 +31,7 @@ pub trait ComponentProtocol:
     + Sync
     + From<ShouldBePredicted>
     + From<ShouldBeInterpolated>
+    + TryInto<ShouldBePredicted>
 {
     type Protocol: Protocol;
 
@@ -117,6 +118,8 @@ pub trait ComponentProtocolKind:
     + Sync
     + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
     + ComponentKindBehaviour
+    + FromType<ShouldBePredicted>
+    + FromType<ShouldBeInterpolated>
 {
     type Protocol: Protocol;
 }
@@ -130,4 +133,9 @@ pub trait ComponentKindBehaviour {
 /// Trait to convert a component type into the corresponding ComponentProtocolKind
 pub trait IntoKind<K: ComponentProtocolKind> {
     fn into_kind() -> K;
+}
+
+/// Trait to convert a component type into the corresponding ComponentProtocolKind
+pub trait FromType<T> {
+    fn from_type() -> Self;
 }

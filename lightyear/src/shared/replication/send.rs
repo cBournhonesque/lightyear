@@ -12,7 +12,9 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind};
+use crate::_reexport::{
+    EntityActionsChannel, EntityUpdatesChannel, FromType, IntoKind, ShouldBePredicted,
+};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::{MapEntities, Replicate, Tick};
@@ -128,6 +130,20 @@ impl<P: Protocol> ReplicationSender<P> {
         component: P::Components,
     ) {
         let kind: P::ComponentKinds = (&component).into();
+
+        // special case for ShouldBePredicted:
+        // if we have a value with pre-spawned entity, we always override any existing values.
+        let mut force_insert = false;
+        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
+            && component
+                .clone()
+                .try_into()
+                .is_ok_and(|s| s.client_entity.is_some())
+        {
+            debug!("force inserting ShouldBePredicted component for pre-predicted entity");
+            force_insert = true;
+        }
+
         if self
             .pending_unique_components
             .entry(group)
@@ -135,6 +151,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .entry(entity)
             .or_default()
             .contains(&kind)
+            && !force_insert
         {
             warn!(
                 ?group,
