@@ -107,9 +107,9 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
             // - Confirmed contains the server state at the tick
             // - History contains the history of what we predicted at the tick
             // get the tick that the confirmed entity is at
-            let Some(channel) = client
+            let Some(tick) = client
                 .replication_receiver()
-                .channel_by_local(confirmed_entity)
+                .get_confirmed_tick(confirmed_entity)
             else {
                 error!(
                     "Could not find replication channel for entity {:?}",
@@ -117,7 +117,6 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                 );
                 continue;
             };
-            let tick = channel.latest_tick;
 
             // Note: it may seem like an optimization to only compare the history/server-state if we are not sure
             // that we should rollback (RollbackState::Default)

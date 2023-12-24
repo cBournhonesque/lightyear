@@ -120,7 +120,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
         direction.right = true;
     }
     if !direction.is_none() {
-        client.add_input(Inputs::Direction(direction));
+        return client.add_input(Inputs::Direction(direction));
     }
     if keypress.pressed(KeyCode::Delete) {
         // currently, inputs is an enum and we can only add one input per tick
@@ -148,8 +148,8 @@ pub(crate) fn movement(
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             debug!(?input, "read input");
-            for mut position in position_query.iter_mut() {
-                shared_movement_behaviour(&mut position, input);
+            for position in position_query.iter_mut() {
+                shared_movement_behaviour(position, input);
             }
         }
     }
@@ -164,7 +164,6 @@ pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) 
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
-// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
         color.0.set_s(0.3);
@@ -173,7 +172,6 @@ pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Adde
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
-// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {

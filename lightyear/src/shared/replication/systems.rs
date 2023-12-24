@@ -70,6 +70,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
                         && matches!(visibility, ClientVisibility::Lost)
                     {
                         debug!("sending entity despawn for entity: {:?}", entity);
+                        // TODO: don't unwrap but handle errors
                         sender
                             .prepare_entity_despawn(
                                 entity,
