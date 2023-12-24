@@ -2,7 +2,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut};
-use tracing::info;
+use tracing::{debug, info};
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
@@ -73,7 +73,7 @@ pub fn spawn_interpolated_entity(
         // update the entity mapping
         manager
             .interpolated_entity_map
-            .remote_to_interpolated
+            .confirmed_to_interpolated
             .insert(confirmed_entity, interpolated);
 
         // add Confirmed to the confirmed entity
@@ -87,7 +87,7 @@ pub fn spawn_interpolated_entity(
                 predicted: None,
             });
         }
-        info!(
+        debug!(
             "Spawn interpolated entity {:?} for confirmed: {:?}",
             interpolated, confirmed_entity
         );

@@ -4,6 +4,33 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+BUGS:
+- interpolation: despawn once it reaches end
+
+
+- Prediction edge cases:
+  - CASE 1: spawn a pre-predicted entity, we kill it before Confirmed arrives.
+    -> only predicted entities should be visible on screen.
+    -> the predicted entity gets killed correctly
+    -> when we receive confirmed, there should ALWAYS be a predicted entity to map to, because we use
+       our special prediction despawn.
+    -> NOTE: this opens cheating? I guess we allow prediction only for unimportant stuff.
+       Let's say the kill was illegal, for example on server side we receive the kill action after the spawn action,
+       and we think it's incorrect.
+       Then that would mean:
+       - we dont kill the confirmed client until we get full confirmation from server that it should be killed
+       - normally, we wouldn't kill the thing on predicted on the touch press, because we need to wait for confirmation.
+       - if there is a conflict, the user needs to decide. Tradeoff, either:
+         - A. re-spawn the predicted entity that was erroneously killed. (jarring)
+           -> kill the predicted entity via entity_mut.predicted_despawn()
+         - B. don't kill the predicted entity until we receive the confirmation (delay)
+           -> just don't anything on predicted, and wait for confirmed to despawn
+
+  - CASE 2: confirmed entity gets despawned
+    - predicted entities that have this entity as Confirmed should also get despawned.
+      - how? by having a map containing the Confirmed mapping? so that we can access it when the entity gets despawned?
+    - pre-predicted entities should get despawned when they receive Confirmed despawn.
+
 
 - BUGS:
   - client-replication: it seems like the updates are getting accumulated for a given entity while the client is not synced
@@ -558,6 +585,7 @@ TODO:
 
 - Channels:
   - TODO: add channel priority with accumulation. Some channels need infinite priority though (such as pings)
+    with bandwidth limiting. Should be possible, just take the last 1 second to compute the bandwidth used/left.
 
 - UI:
   - TODO: UI that lets us see which packets are sent at every system update?

@@ -41,7 +41,7 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
 }
 
 // This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &Inputs) {
+pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
         Inputs::Direction(direction) => {
@@ -65,8 +65,8 @@ pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &I
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor)>,
-    cursors: Query<(&CursorPosition, &PlayerColor)>,
+    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {
         gizmos.rect_2d(

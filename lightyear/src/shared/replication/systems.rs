@@ -1,42 +1,57 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
+use bevy::ecs::entity::Entities;
 use std::ops::Deref;
 
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
-    Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate, Query,
-    Ref, RemovedComponents, ResMut,
+    Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
+    PreUpdate, Query, Ref, RemovedComponents, ResMut, With, Without,
 };
 use tracing::{debug, info, trace};
 
-use crate::prelude::NetworkTarget;
+use crate::prelude::{MainSet, NetworkTarget};
 use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
-use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::ReplicationSet;
 
-// TODO: make this more generic so that we can run it on both server and client
-//  client might want to replicate some things to server?
+// TODO: run these systems only if there is at least 1 remote connected!!! (so we don't burn CPU when there are no connections)
 
-// TODO: run these systems only if there is at least 1 remote connected!!!
+/// For every entity that removes their Replicate component but are not despawned, remove the component
+/// from our replicate cache (so that the entity's despawns are no longer replicated)
+fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
+    mut sender: ResMut<R>,
+    mut query: RemovedComponents<Replicate>,
+    entity_check: &Entities,
+) {
+    for entity in query.read() {
+        if entity_check.contains(entity) {
+            debug!("handling replicate component remove (delete from cache)");
+            sender.get_mut_replicate_component_cache().remove(&entity);
+        }
+    }
+}
 
 /// This system adds DespawnTracker to each entity that was every replicated,
 /// so that we can track when they are despawned
-fn add_despawn_tracker(
-    mut replication: ResMut<ReplicationData>,
+/// (we have a distinction between removing Replicate, which just stops replication; and despawning the entity)
+fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
+    mut sender: ResMut<R>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicate), Added<Replicate>>,
+    query: Query<(Entity, &Replicate), (Added<Replicate>, Without<DespawnTracker>)>,
 ) {
     for (entity, replicate) in query.iter() {
+        debug!("ADDING DESPAWN TRACKER");
         commands.entity(entity).insert(DespawnTracker);
-        replication.owned_entities.insert(entity, replicate.clone());
+        sender
+            .get_mut_replicate_component_cache()
+            .insert(entity, replicate.clone());
     }
 }
 
 fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
-    mut replication: ResMut<ReplicationData>,
     query: Query<(Entity, &Replicate)>,
     system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
@@ -70,10 +85,10 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
 
     // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
-        if let Some(replicate) = replication.owned_entities.remove(&entity) {
-            // TODO: maybe check the status of replicate.replication_clients_cache
-            //  and only despawn for the entities in the cache?
-            //  but that means we have to update the owned_entity value every time the replication_clients_cache is updated
+        trace!("despawn tracker removed!");
+        // only replicate the despawn if the entity still had a Replicate component
+        if let Some(replicate) = sender.get_mut_replicate_component_cache().remove(&entity) {
+            trace!("send entity despawn");
             sender
                 .prepare_entity_despawn(
                     entity,
@@ -90,7 +105,6 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
 //  connect-events is only available on the server ? or should we also add it in the client ?
 //  we can also separate the on_connect part to a separate system
 fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
-    mut replication: ResMut<ReplicationData>,
     system_bevy_ticks: SystemChangeTick,
     query: Query<(Entity, Ref<Replicate>)>,
     mut sender: ResMut<R>,
@@ -124,8 +138,8 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                                     // only try to replicate if the replicate component was just added
                                     if replicate.is_added() {
                                         debug!("send entity spawn to maintained");
-                                        replication
-                                            .owned_entities
+                                        sender
+                                            .get_mut_replicate_component_cache()
                                             .insert(entity, replicate.clone());
                                         sender
                                             .prepare_entity_spawn(
@@ -162,7 +176,9 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                 // only try to replicate if the replicate component was just added
                 if replicate.is_added() {
                     trace!("send entity spawn");
-                    replication.owned_entities.insert(entity, replicate.clone());
+                    sender
+                        .get_mut_replicate_component_cache()
+                        .insert(entity, replicate.clone());
                     sender
                         .prepare_entity_spawn(
                             entity,
@@ -329,6 +345,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                     )
                 }
                 ReplicationMode::NetworkTarget => {
+                    trace!("sending component remove!");
                     sender
                         .prepare_component_remove(
                             entity,
@@ -345,6 +362,11 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
 }
 
 pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mut App) {
+    // we need to add despawn trackers immediately for entities for which we add replicate
+    app.add_systems(
+        PreUpdate,
+        add_despawn_tracker::<P, R>.after(MainSet::ClientReplicationFlush),
+    );
     app.add_systems(
         PostUpdate,
         (
@@ -355,7 +377,12 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
             // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            (add_despawn_tracker, send_entity_despawn::<P, R>)
+            // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
+            (
+                (add_despawn_tracker::<P, R>, handle_replicate_remove::<P, R>),
+                send_entity_despawn::<P, R>,
+            )
+                .chain()
                 .in_set(ReplicationSet::SendDespawnsAndRemovals),
         ),
     );

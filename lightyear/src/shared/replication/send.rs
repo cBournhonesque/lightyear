@@ -12,10 +12,12 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind};
+use crate::_reexport::{
+    EntityActionsChannel, EntityUpdatesChannel, FromType, IntoKind, ShouldBePredicted,
+};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
-use crate::prelude::{MapEntities, Tick};
+use crate::prelude::{MapEntities, Replicate, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
@@ -29,9 +31,12 @@ use super::{
 };
 
 pub(crate) struct ReplicationSender<P: Protocol> {
-    // pub global_replication_data: &'a ReplicationData,
-
     // SEND
+    // TODO: this is unused by server-send, should we just move it to client-connection?
+    //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
+    /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
+    /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
+    pub replicate_component_cache: EntityHashMap<Entity, Replicate>,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
     /// Map from message-id to the corresponding group-id that sent this update message
@@ -56,6 +61,7 @@ impl<P: Protocol> ReplicationSender<P> {
     pub(crate) fn new(updates_ack_tracker: Receiver<MessageId>) -> Self {
         Self {
             // SEND
+            replicate_component_cache: EntityHashMap::default(),
             updates_ack_tracker,
             updates_message_id_to_group_id: Default::default(),
             pending_actions: EntityHashMap::default(),
@@ -124,6 +130,20 @@ impl<P: Protocol> ReplicationSender<P> {
         component: P::Components,
     ) {
         let kind: P::ComponentKinds = (&component).into();
+
+        // special case for ShouldBePredicted:
+        // if we have a value with pre-spawned entity, we always override any existing values.
+        let mut force_insert = false;
+        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
+            && component
+                .clone()
+                .try_into()
+                .is_ok_and(|s| s.client_entity.is_some())
+        {
+            debug!("force inserting ShouldBePredicted component for pre-predicted entity");
+            force_insert = true;
+        }
+
         if self
             .pending_unique_components
             .entry(group)
@@ -131,6 +151,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .entry(entity)
             .or_default()
             .contains(&kind)
+            && !force_insert
         {
             warn!(
                 ?group,

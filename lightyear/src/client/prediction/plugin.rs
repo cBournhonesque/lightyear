@@ -7,7 +7,8 @@ use bevy::prelude::{
 
 use crate::client::components::SyncComponent;
 use crate::client::prediction::despawn::{
-    remove_component_for_despawn_predicted, remove_despawn_marker,
+    despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
+    restore_components_if_despawn_rolled_back,
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
 use crate::client::prediction::resource::PredictionManager;
@@ -73,6 +74,7 @@ pub enum PredictionSet {
     // // Contains the other pre-update prediction stes
     // PreUpdatePrediction,
     /// Spawn predicted entities,
+    /// We will also use this do despawn predicted entities when confirmed entities are despawned
     SpawnPrediction,
     SpawnPredictionFlush,
     /// Add component history for all predicted entities' predicted components
@@ -90,7 +92,9 @@ pub enum PredictionSet {
     /// Increment the rollback tick after the main fixed-update physics loop has run
     IncrementRollbackTick,
     /// Set to deal with predicted/confirmed entities getting despawned
+    /// In practice, the entities aren't despawned but all their components are removed
     EntityDespawn,
+    /// Remove the marked components that indicates that components should be removekd
     EntityDespawnFlush,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
@@ -106,34 +110,52 @@ pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
     matches!(rollback.state, RollbackState::ShouldRollback { .. })
 }
 
-// We want to run prediction:
-// - after we received network events (PreUpdate)
-// - before we run physics FixedUpdate (to not have to redo-them)
-
-// - a PROBLEM is that ideally we would like to rollback the physics simulation
-//   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
-//  the tick we rollback to would not be the current client tick ?
-
 pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
         (
-            (add_component_history::<C, P>).in_set(PredictionSet::SpawnHistory),
-            // for SyncMode::Simple, just copy the confirmed components
-            (apply_confirmed_update::<C, P>).in_set(PredictionSet::CheckRollback),
-            // for SyncMode::Full, we need to check if we need to rollback
-            (client_rollback_check::<C, P>.run_if(is_eligible_for_rollback::<C>))
-                .in_set(PredictionSet::CheckRollback),
+            // handle components being added
+            add_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
         ),
     );
-    app.add_systems(
-        FixedUpdate,
-        // we need to run this during fixed update to know accurately the history for each tick
-        update_prediction_history::<C, P>
-            .run_if(is_eligible_for_rollback::<C>)
-            .in_set(PredictionSet::UpdateHistory),
-    );
+    match C::mode() {
+        ComponentSyncMode::Full => {
+            app.add_systems(
+                PreUpdate,
+                // for SyncMode::Full, we need to check if we need to rollback
+                client_rollback_check::<C, P>.in_set(PredictionSet::CheckRollback),
+            );
+            app.add_systems(
+                FixedUpdate,
+                // we need to run this during fixed update to know accurately the history for each tick
+                update_prediction_history::<C, P>.in_set(PredictionSet::UpdateHistory),
+            );
+        }
+        ComponentSyncMode::Simple => {
+            app.add_systems(
+                PreUpdate,
+                (
+                    // for SyncMode::Simple, just copy the confirmed components
+                    apply_confirmed_update::<C, P>.in_set(PredictionSet::CheckRollback),
+                    // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
+                    restore_components_if_despawn_rolled_back::<C>
+                        .before(run_rollback::<P>)
+                        .in_set(PredictionSet::Rollback),
+                ),
+            );
+        }
+        ComponentSyncMode::Once => {
+            app.add_systems(
+                PreUpdate,
+                // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
+                restore_components_if_despawn_rolled_back::<C>
+                    .before(run_rollback::<P>)
+                    .in_set(PredictionSet::Rollback),
+            );
+        }
+        _ => {}
+    };
     app.add_systems(
         FixedUpdate,
         remove_component_for_despawn_predicted::<C>.in_set(PredictionSet::EntityDespawn),
@@ -188,7 +210,9 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // no need, since we spawn predicted entities/components in replication
         app.add_systems(
             PreUpdate,
-            spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
+            // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
+            //  not at every fixed-update tick, since it only depends on server messages
+            (spawn_predicted_entity, despawn_confirmed).in_set(PredictionSet::SpawnPrediction),
         );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
@@ -221,7 +245,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         );
         app.add_systems(
             FixedUpdate,
-            remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
+            remove_despawn_marker.in_set(PredictionSet::EntityDespawnFlush),
         );
     }
 }

@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use crate::_reexport::FromType;
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
-use bevy::utils::HashSet;
+use bevy::utils::{EntityHashMap, HashSet};
 use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, error, info, trace, trace_span};
 
@@ -385,27 +386,44 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+
+        // handle ShouldBePredicted separately because of pre-spawning behaviour
+        // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
+        // Then we rebroadcast it to other clients. If an entity `1` already exists on other clients; we will start using that entity
+        //     as our Prediction target! That means that we should:
+        // - even if pre-spawned replication, require users to set the `prediction_target` correctly
+        //     - only broadcast `ShouldBePredicted` to the clients who have `prediction_target` set.
+        // let should_be_predicted_kind =
+        //     P::ComponentKinds::from(P::Components::from(ShouldBePredicted {
+        //         client_entity: None,
+        //     }));
+        let mut actual_target = target;
+        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type() {
+            actual_target = replicate.prediction_target.clone();
+        }
+
         let group = replicate.group_id(Some(entity));
-        self.apply_replication(target).try_for_each(|client_id| {
-            trace!(
-                ?entity,
-                component = ?kind,
-                tick = ?self.tick_manager.current_tick(),
-                "Inserting single component"
-            );
-            let replication_sender = &mut self
-                .connection_manager
-                .connection_mut(client_id)?
-                .replication_sender;
-            // update the collect changes tick
-            replication_sender
-                .group_channels
-                .entry(group)
-                .or_default()
-                .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_component_insert(entity, group, component.clone());
-            Ok(())
-        })
+        self.apply_replication(actual_target)
+            .try_for_each(|client_id| {
+                trace!(
+                    ?entity,
+                    component = ?kind,
+                    tick = ?self.tick_manager.current_tick(),
+                    "Inserting single component"
+                );
+                let replication_sender = &mut self
+                    .connection_manager
+                    .connection_mut(client_id)?
+                    .replication_sender;
+                // update the collect changes tick
+                replication_sender
+                    .group_channels
+                    .entry(group)
+                    .or_default()
+                    .update_collect_changes_since_this_tick(system_current_tick);
+                replication_sender.prepare_component_insert(entity, group, component.clone());
+                Ok(())
+            })
     }
 
     fn prepare_component_remove(
@@ -482,6 +500,10 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     fn buffer_replication_messages(&mut self) -> Result<()> {
         self.connection_manager
             .buffer_replication_messages(self.tick_manager.current_tick())
+    }
+
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate> {
+        &mut self.connection_manager.replicate_component_cache
     }
 }
 

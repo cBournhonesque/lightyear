@@ -156,7 +156,7 @@ pub fn component_protocol_impl(
 
     // EnumKind methods
     let enum_kind = get_enum_kind(&input, &enum_kind_name);
-    let from_method = from_method(&input, &enum_kind_name);
+    let from_method = from_method(&input, &enum_kind_name, &fields);
     let into_kind_method = into_kind_method(&input, &fields, &enum_kind_name);
     let remove_method = remove_method(&input, &fields, &enum_kind_name);
 
@@ -439,12 +439,21 @@ fn get_enum_kind(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     }
 }
 
-fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
+fn from_method(input: &ItemEnum, enum_kind_name: &Ident, fields: &Vec<Field>) -> TokenStream {
     let enum_name = &input.ident;
-    let variants = input.variants.iter().map(|v| v.ident.clone());
+    let mut from_type_body = quote! {};
     let mut body = quote! {};
-    for variant in input.variants.iter() {
-        let ident = &variant.ident;
+    for field in fields {
+        let ident = &field.ident;
+        let ty = &field.ty;
+        from_type_body = quote! {
+            #from_type_body
+            impl FromType<#ty> for #enum_kind_name {
+                fn from_type() -> Self {
+                    #enum_kind_name::#ident
+                }
+            }
+        };
         body = quote! {
             #body
             &#enum_name::#ident(..) => #enum_kind_name::#ident,
@@ -452,6 +461,7 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     }
 
     quote! {
+        #from_type_body
         impl<'a> From<&'a #enum_name> for #enum_kind_name {
             fn from(value: &'a #enum_name) -> Self {
                 match value {

@@ -25,27 +25,29 @@ pub struct RemoteEntityMap {
 
 #[derive(Default, Debug)]
 pub struct PredictedEntityMap {
-    // map from the remote entity to the predicted entity
-    pub(crate) remote_to_predicted: EntityHashMap<Entity, Entity>,
+    // map from the confirmed entity to the predicted entity
+    // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
+    pub(crate) confirmed_to_predicted: EntityHashMap<Entity, Entity>,
 }
 
 impl EntityMapper for PredictedEntityMap {
     #[inline]
     fn map(&self, entity: Entity) -> Option<Entity> {
-        self.remote_to_predicted.get(&entity).copied()
+        self.confirmed_to_predicted.get(&entity).copied()
     }
 }
 
 #[derive(Default, Debug)]
 pub struct InterpolatedEntityMap {
-    // map from the remote entity to the interpolated entity
-    pub(crate) remote_to_interpolated: EntityHashMap<Entity, Entity>,
+    // map from the confirmed entity to the interpolated entity
+    // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
+    pub(crate) confirmed_to_interpolated: EntityHashMap<Entity, Entity>,
 }
 
 impl EntityMapper for InterpolatedEntityMap {
     #[inline]
     fn map(&self, entity: Entity) -> Option<Entity> {
-        self.remote_to_interpolated.get(&entity).copied()
+        self.confirmed_to_interpolated.get(&entity).copied()
     }
 }
 

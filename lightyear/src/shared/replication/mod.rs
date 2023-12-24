@@ -5,7 +5,7 @@ use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
-use bevy::utils::HashSet;
+use bevy::utils::{EntityHashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
@@ -19,11 +19,6 @@ use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 pub mod components;
 
 pub mod entity_map;
-
-pub mod manager;
-
-pub mod resources;
-
 pub(crate) mod receive;
 pub(crate) mod send;
 pub mod systems;
@@ -163,6 +158,8 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     ///
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self) -> Result<()>;
+
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate>;
 }
 
 #[cfg(test)]

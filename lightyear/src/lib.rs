@@ -36,7 +36,7 @@ pub mod _reexport {
     pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
-        IntoKind,
+        FromType, IntoKind,
     };
     pub use crate::protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
     pub use crate::protocol::{BitSerializable, EventContext};
