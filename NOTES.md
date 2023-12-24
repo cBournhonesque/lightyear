@@ -5,6 +5,65 @@
   - one server: 1 game room per core?
 
 
+- We are adding some optimizations to help avoid memory leaking by never deleting replication metadata:
+  - now, we will delete the replication receive metadata for a given replication group when all the entities in the group have beend despawned
+  - on the send side, same thing; we will delete the replication metadata when all the entities in the group have been despawned
+
+  - edge cases:
+    - we add E1 in G1 first. Then later we add E2 and despawn E1. Send/Receive groups should not get despawned:
+      - this works on send because we only remove groups on finalize
+      - TODO: this works on receive because we first apply sends
+    - we send E1-Add in G1 first. then we send E1-Despawn in G1. Then we send E2-Add in G1 again later, but the server 
+      receives the E1-Add message first (With message_id = 0)
+      - on send side, we just need to delete the group when we do E1-Despawn, and then re-create it when we do E2-Add
+        the new channel will have MessageId = 0, LastActionTick = -1, CollectChangesSinceTick = None
+      - on receive, we receive E2-Add with MessageId=0 -> discarded -> BAD
+        then MessageId=1 -> read the despawn and delete the group.
+    - what we should do is:
+      - buffer the actions received with a lower message-id than the current one for the group. if the group is deleted,
+        we immediately add those actions to the group and apply them!
+   
+    - M1 = E1-add (group E1). M2 = E1-del-from-vis (group E1) (E1-still exists)
+   
+    - if user chooses group_id; they have to remember to use a new group id? or we store a generation map?
+      - that means we will keep storing generation mapping, not ideal still..
+    - if group_id is from entity 0v0:
+      - use 0v0
+      - client loses visibility, entity is despawned for them, they delete 0v0
+      - client gains visibility, entity is spawned for them again
+
+    - other solution: delete group only after a certain time!
+      - M1 = E1-add (group E1), M2 = E1-despawn (group E1) (vis lost), M3 = E1-spawn (vis gained)
+      - case 1: we receive M1, M3, M2.
+        - we handle it correctly (M3 has message-id = 3 because we didn't delete group on send side).
+        - on send side; if group is empty for a long time (1s), we delete it. The long delay means it's impossible to receive M1, M3, M2.
+      - case 2: we receive M1, M2, M3.
+ 
+    - IDEA:
+      - delete groups after despawn immediately on send/receive.
+        - PROBLEM = actions/updates after the despawn, for the main group (for example from vis gain/lost) that are received out of order
+          - actions with lower-message-id are saved. When group is deleted, we transfer them to the new group.
+            - PROBLEM = lower-message-id could just be past messages getting duplicated for some reason.
+              - we could include a generation number in the group message. Even a u8 or even fewer bits is fine (with cycling)
+              - if we receive a message with a bigger generation number, we just buffer it
+              - i.e. we 
+              - but at this point why not just use a u32 for the group id? (the first 32 bits of the Entity)
+                - Group = FromEntity. Entity gets despawned. We delete the group on server/client. It gets recreated, and we re-use its entity for our GroupId.
+                  - its ok to reuse the entity's index and not the gen, because the new entity will have the same index, but a new generation.
+                  - then the second group would have the same index, but new generation.
+                  - We only use index to find channel, etc; We use generation as we said earlier
+                - Group = FromEntity. We send despawn from VisLost. We delete the group on server/client. We recreate the group
+                  - same thing, we re-use index, but use a new generation
+                - GroupId = 1. All entities get despawned. We delete the group on server/client. We recreate the group with id 1.
+                  - This time we should send a gen-id = 1
+                  - that means we keep track of the next-gen for each group, and that's something we cannot delete.
+                - GroupId = 1. All entities lose vis. We delete the group on server/client. We recreate the group with id 1.
+                  - This time we should send a gen-id = 1.
+                  - that means we keep track of the next-gen for each group, and that's something we cannot delete.
+          - updates will have a last-action-tick that is from the new group, so we can recognize them and apply them to the new group as well when group is deleted.
+      
+
+
 - BUGS:
   - client-replication: it seems like the updates are getting accumulated for a given entity while the client is not synced
     - that's because we don't do the duplicate check anymore, so we keep adding new updates

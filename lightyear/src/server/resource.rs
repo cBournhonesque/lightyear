@@ -475,18 +475,19 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .connection_manager
                 .connection_mut(client_id)?
                 .replication_sender;
-            let last_updates_ack_bevy_tick = replication_sender
+            let collect_changes_since_this_tick = replication_sender
                 .group_channels
                 .entry(group)
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
 
-            if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick)
-            {
+            if collect_changes_since_this_tick.map_or(true, |tick| {
+                component_change_tick.is_newer_than(tick, system_current_tick)
+            }) {
                 trace!(
                     change_tick = ?component_change_tick,
-                    last_ack_tick = ?last_updates_ack_bevy_tick,
+                    ?collect_changes_since_this_tick,
                     current_tick = ?system_current_tick,
                     "prepare entity update changed check"
                 );

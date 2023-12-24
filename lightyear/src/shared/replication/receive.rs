@@ -57,18 +57,31 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn recv_message(
         &mut self,
         message: ReplicationMessage<P::Components, P::ComponentKinds>,
-        tick: Tick,
+        remote_tick: Tick,
     ) {
-        trace!(?message, ?tick, "Received replication message");
+        trace!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
             ReplicationMessageData::Actions(m) => {
+                info!(
+                    ?m,
+                    ?channel,
+                    ?remote_tick,
+                    "received replication action message"
+                );
+                // TODO: should we do it here or in apply world?
+                //  in apply_world: it's nice because we only add entities if they are actually spawned
+                //  here: it's nice because we do as soon as we receive a message establishing that entity is in group
                 // update the mapping from entity to group-id
                 m.actions.iter().for_each(|(e, _)| {
                     self.remote_entity_to_group.insert(*e, message.group_id);
                     channel.entities.insert(*e);
                 });
-                // if the message is too old, ignore it
+                // if the message is too old, it could be:
+                // - an old duplicate message arriving now
+                // - or the group got deleted (because we had sent a despawn message for all entities in the group), then the sender
+                //   started sending messages for the same entity group again; but the message order got mixed up and we received
+                //   the message for the new group first (before receiving the messages that would have despawned the old group)
                 if m.sequence_id < channel.actions_pending_recv_message_id {
                     return;
                 }
@@ -77,7 +90,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 // TODO: I guess this handles potential duplicates?
                 channel
                     .actions_recv_message_buffer
-                    .insert(m.sequence_id, (tick, m));
+                    .insert(m.sequence_id, (remote_tick, m));
             }
             ReplicationMessageData::Updates(m) => {
                 // update the mapping from entity to group-id
@@ -86,7 +99,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     channel.entities.insert(*e);
                 });
                 // if we have already applied a more recent update for this group, no need to keep this one
-                if tick <= channel.latest_tick {
+                if remote_tick <= channel.latest_tick {
                     return;
                 }
 
@@ -97,7 +110,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     .buffered_updates
                     .entry(m.last_action_tick)
                     .or_default()
-                    .entry(tick)
+                    .entry(remote_tick)
                     .or_insert(m);
             }
         }
@@ -142,9 +155,16 @@ impl<P: Protocol> ReplicationReceiver<P> {
             .collect()
     }
 
+    /// Gets the tick at which the provided confirmed entity currently is
+    /// (i.e. the latest server tick at which we received an update for that entity)
+    pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
+        self.channel_by_local(confirmed_entity)
+            .map(|channel| channel.latest_tick)
+    }
+
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
-    pub(crate) fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel<P>> {
+    fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel<P>> {
         self.remote_entity_map
             .get_remote(local_entity)
             .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
@@ -152,7 +172,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
-    pub(crate) fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel<P>> {
+    fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel<P>> {
         self.remote_entity_to_group
             .get(&remote_entity)
             .and_then(|group_id| self.group_channels.get(group_id))
@@ -202,6 +222,8 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         let local_entity = world.spawn_empty();
                         self.remote_entity_map.insert(*entity, local_entity.id());
 
+                        // add the entity to the group channel so we can track despawns
+
                         debug!(remote_entity = ?entity, "Received entity spawn");
                         events.push_spawn(local_entity.id());
                     }
@@ -223,11 +245,13 @@ impl<P: Protocol> ReplicationReceiver<P> {
                                 let mut delete_group = false;
                                 if let Some(channel) = self.group_channels.get_mut(&group_id) {
                                     channel.entities.remove(&entity);
+                                    info!(?channel, "deleting entity from channel");
                                     if channel.entities.is_empty() {
                                         delete_group = true;
                                     }
                                 }
                                 if delete_group {
+                                    info!("deleting channel since all entities in it have been despawned");
                                     self.group_channels.remove(&group_id);
                                 }
                             }

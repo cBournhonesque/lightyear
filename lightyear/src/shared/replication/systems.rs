@@ -69,7 +69,8 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
                     if replicate.replication_target.should_send_to(client_id)
                         && matches!(visibility, ClientVisibility::Lost)
                     {
-                        debug!("sending entity despawn for entity: {:?}", entity);
+                        trace!("sending entity despawn for entity: {:?}", entity);
+                        // TODO: don't unwrap but handle errors
                         sender
                             .prepare_entity_despawn(
                                 entity,
@@ -122,7 +123,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                         if replicate.replication_target.should_send_to(client_id) {
                             match visibility {
                                 ClientVisibility::Gained => {
-                                    debug!("send entity spawn to gained");
+                                    trace!("send entity spawn to gained");
                                     sender
                                         .prepare_entity_spawn(
                                             entity,

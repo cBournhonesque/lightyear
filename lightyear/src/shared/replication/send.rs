@@ -6,7 +6,7 @@ use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, World};
 use bevy::utils::petgraph::data::ElementIterator;
-use bevy::utils::{EntityHashMap, HashMap, HashSet};
+use bevy::utils::{EntityHashMap, EntityHashSet, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
@@ -109,6 +109,13 @@ impl<P: Protocol> ReplicationSender<P> {
             .entry(entity)
             .or_default();
         actions.spawn = true;
+
+        // keep track of the entities in the group so that we can clean it up if all entities get despawned
+        self.group_channels
+            .entry(group)
+            .or_default()
+            .entities
+            .insert(entity);
     }
 
     pub(crate) fn prepare_entity_despawn(&mut self, entity: Entity, group: ReplicationGroupId) {
@@ -118,6 +125,25 @@ impl<P: Protocol> ReplicationSender<P> {
             .entry(entity)
             .or_default()
             .despawn = true;
+        // NOTE: group cleanup: if we are despawning all entities in the group, we need remove the group!
+        // The reason is this:
+        // - on the receiving side we don't want to keep group metadata indefinitely, so we cleanup a group whenever it's been received entirely
+        // - on the sending side, if we don't cleanup the group, we will keep using a given message_id and a given last_action_tick, which the receiver
+        //   won't be able to accept (since they need a specific message_id)
+        // - thus we need to create a new group from scratch
+        // however, we need to around the group metadata until the send is finalized! so do the cleanup in `finalize`
+
+        // TODO: doing this here is valid only because we send all Send messages every time, without restrictions
+        //  this will NOT be valid if we don't end up sending the messages (because of bandwidth limiting, for instance)
+        //  we need to remove the group only if we are actually sending the message
+        self.group_channels
+            .entry(group)
+            .or_default()
+            .entities
+            .remove(&entity);
+        if self.group_channels.get(&group).unwrap().entities.is_empty() {
+            info!("we will clear group {:?} because it is empty", group);
+        }
     }
 
     // we want to send all component inserts that happen together for the same entity in a single message
@@ -144,6 +170,8 @@ impl<P: Protocol> ReplicationSender<P> {
             force_insert = true;
         }
 
+        // TODO: if there are pending updates; we should still remove them and add them as pending_inserts instead!
+        //  this suggests splitting pending_unique_components into pending_unique_insert_components and pending_unique_update_components
         if self
             .pending_unique_components
             .entry(group)
@@ -300,6 +328,10 @@ impl<P: Protocol> ReplicationSender<P> {
             trace!(?messages, "Sending replication messages");
         }
 
+        // clear groups that have all entities despawned
+        self.group_channels
+            .retain(|_, channel| !channel.entities.is_empty());
+
         // clear send buffers
         self.pending_unique_components.clear();
         messages
@@ -312,21 +344,30 @@ pub struct GroupChannel {
     // SEND
     pub actions_next_send_message_id: MessageId,
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
-    // TODO: maybe this should be an Option, so that we make sure that when we need it's always is_some()
     // bevy tick when we received an ack of an update for this group
-    pub collect_changes_since_this_tick: BevyTick,
+    // at the start it's None, and we collect any changes
+    pub collect_changes_since_this_tick: Option<BevyTick>,
     // last tick for which we sent an action message
     pub last_action_tick: Tick,
+
+    // used to keep track of the entities that make up the group
+    // if all the entities from the group get despawned, despawn the group to not leak memory by keeping around unused metadata,
+    // and to be consistent with the receiver (see the comment in `prepare_entity_despawn`))
+    pub entities: EntityHashSet<Entity>,
 }
 
 impl Default for GroupChannel {
     fn default() -> Self {
         Self {
             actions_next_send_message_id: MessageId(0),
+            // TODO: this is not correct on wraparound, better use an Option to indicate that we don't have a last_action_tick yet
             // we start with a very high last_action_tick, so that we need to receive the Actions message
             // before handling any Updates messages
             last_action_tick: Tick(0) - 1,
-            collect_changes_since_this_tick: BevyTick::new(0),
+            // TODO: actually this should be intialized with the sender bevy-tick when the channel is created, so that we only
+            //  send updates that are more recent than that?
+            collect_changes_since_this_tick: None,
+            entities: EntityHashSet::default(),
         }
     }
 }
@@ -338,7 +379,7 @@ impl GroupChannel {
 
         // if bevy_tick is bigger than current tick, set current_tick to bevy_tick
         // if bevy_tick.is_newer_than(self.collect_changes_since_this_tick, BevyTick::MAX) {
-        self.collect_changes_since_this_tick = bevy_tick;
+        self.collect_changes_since_this_tick = Some(bevy_tick);
         // }
     }
 }

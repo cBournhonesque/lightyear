@@ -87,6 +87,7 @@ pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
     });
     // send buffered packets to io
     client.send_packets().unwrap();
+    info!(receive_channels = ?client.replication_receiver().group_channels);
 }
 
 pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {

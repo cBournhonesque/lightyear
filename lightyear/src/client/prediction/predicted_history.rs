@@ -1,7 +1,9 @@
 use std::ops::Deref;
 
+use crate::_reexport::ShouldBePredicted;
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Query, Ref, RemovedComponents, Res, With, Without,
+    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
+    Without,
 };
 use tracing::{error, info};
 
@@ -120,7 +122,13 @@ pub fn add_component_history<C: SyncComponent + Named, P: Protocol>(
     manager: Res<PredictionManager>,
     mut commands: Commands,
     client: Res<Client<P>>,
-    predicted_entities: Query<(Entity, Option<Ref<C>>), Without<PredictionHistory<C>>>,
+    predicted_entities: Query<
+        (Entity, Option<Ref<C>>),
+        (
+            Without<PredictionHistory<C>>,
+            Or<(With<Predicted>, With<ShouldBePredicted>)>,
+        ),
+    >,
     confirmed_entities: Query<(Entity, &Confirmed, Option<Ref<C>>)>,
 ) {
     // add history when a predicted component gets added

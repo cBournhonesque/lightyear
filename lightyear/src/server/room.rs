@@ -4,6 +4,7 @@ use bevy::prelude::{
     Res, ResMut, Resource, SystemSet,
 };
 use bevy::utils::{HashMap, HashSet};
+use tracing::{info, trace};
 
 use crate::netcode::ClientId;
 use crate::prelude::{Replicate, ReplicationSet};
@@ -46,7 +47,7 @@ pub struct Room {
     entities: HashSet<Entity>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct RoomManager {
     events: RoomEvents,
     data: RoomData,
@@ -352,6 +353,7 @@ fn update_entity_replication_cache<P: Protocol>(
     server: Res<Server<P>>,
     mut query: Query<&mut Replicate>,
 ) {
+    // info!(?server.room_manager);
     // entity joined room
     for (entity, rooms) in server.room_manager.events.iter_entity_enter_room() {
         // for each room joined, update the entity's client visibility list
@@ -359,6 +361,7 @@ fn update_entity_replication_cache<P: Protocol>(
             let room = server.room_manager.data.rooms.get(room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
+                    trace!(?entity, ?room_id, ?client_id, "entity joined room; add client to visibility cache gained for all clients in room");
                     // only set it to gained if it wasn't present before
                     replicate
                         .replication_clients_cache
@@ -377,6 +380,7 @@ fn update_entity_replication_cache<P: Protocol>(
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
                     {
+                        trace!(?entity, ?room_id, ?client_id, "entity left room; remove client to visibility cache lost for all clients in room");
                         *visibility = ClientVisibility::Lost;
                     }
                 }
@@ -389,6 +393,7 @@ fn update_entity_replication_cache<P: Protocol>(
             let room = server.room_manager.data.rooms.get(room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
+                    trace!(?entity, ?room_id, ?client_id, "client joined room; add client to visibility cache gained to all entities in room");
                     replicate
                         .replication_clients_cache
                         .entry(*client_id)
@@ -405,6 +410,7 @@ fn update_entity_replication_cache<P: Protocol>(
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
                     {
+                        trace!(?entity, ?room_id, ?client_id, "client left room; remove client to visibility cache lost for all entities in room");
                         *visibility = ClientVisibility::Lost;
                     }
                 }
@@ -489,8 +495,11 @@ mod tests {
         stepper.client_mut().set_synced();
 
         // Advance the world to let the connection process complete
-        for _ in 0..20 {
+        for _ in 0..30 {
             stepper.frame_step();
+            if stepper.client().is_connected() {
+                break;
+            }
         }
 
         stepper

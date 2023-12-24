@@ -433,17 +433,19 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         let group = replicate.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         let replication_sender = &mut self.connection.replication_sender;
-        let last_updates_ack_bevy_tick = replication_sender
+        let collect_changes_since_this_tick = replication_sender
             .group_channels
             .entry(group)
             .or_default()
             .collect_changes_since_this_tick;
         // send the update for all changes newer than the last ack bevy tick for the group
 
-        if component_change_tick.is_newer_than(last_updates_ack_bevy_tick, system_current_tick) {
+        if collect_changes_since_this_tick.map_or(true, |c| {
+            component_change_tick.is_newer_than(c, system_current_tick)
+        }) {
             trace!(
                 change_tick = ?component_change_tick,
-                last_ack_tick = ?last_updates_ack_bevy_tick,
+                ?collect_changes_since_this_tick,
                 current_tick = ?system_current_tick,
                 "prepare entity update changed check"
             );
