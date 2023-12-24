@@ -146,9 +146,9 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            let Some(channel) = client
+                            let Some(tick) = client
                                 .replication_receiver()
-                                .channel_by_local(confirmed_entity)
+                                .get_confirmed_tick(confirmed_entity)
                             else {
                                 error!(
                                     "Could not find replication channel for entity {:?}",
@@ -159,9 +159,9 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                             // map any entities from confirmed to predicted
                             let mut component = confirmed_component.deref().clone();
                             component.map_entities(Box::new(&manager.interpolated_entity_map));
-                            trace!(component = ?component.name(), tick = ?channel.latest_tick, "adding confirmed update to history");
+                            trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
-                            history.buffer.add_item(channel.latest_tick, component);
+                            history.buffer.add_item(tick, component);
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {

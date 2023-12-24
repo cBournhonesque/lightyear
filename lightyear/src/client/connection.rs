@@ -254,6 +254,7 @@ impl<P: Protocol> Connection<P> {
                             self.replication_receiver.apply_world(
                                 world,
                                 replication,
+                                group,
                                 &mut self.events,
                             );
                         });

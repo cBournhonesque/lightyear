@@ -14,7 +14,7 @@ pub struct MyServerPlugin {
     pub(crate) transport: Transports,
 }
 
-const GRID_SIZE: f32 = 50.0;
+const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 10;
 const INTEREST_RADIUS: f32 = 200.0;
 
@@ -122,7 +122,7 @@ pub(crate) fn handle_connections(
         let room_id = RoomId((*client_id) as u16);
         server.room_mut(room_id).add_client(*client_id);
         server.room_mut(PLAYER_ROOM).add_client(*client_id);
-        // also add the player entity to that room
+        // also add the player entity to that room (so that the client can always see their own player)
         server.room_mut(room_id).add_entity(entity.id());
         server.room_mut(PLAYER_ROOM).add_entity(entity.id());
     }
@@ -186,8 +186,8 @@ pub(crate) fn movement(
                 server.tick()
             );
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(mut position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(&mut position, input);
+                if let Ok(position) = position_query.get_mut(*player_entity) {
+                    shared_movement_behaviour(position, input);
                 }
             }
         }

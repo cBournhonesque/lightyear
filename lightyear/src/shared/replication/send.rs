@@ -312,9 +312,9 @@ pub struct GroupChannel {
     // SEND
     pub actions_next_send_message_id: MessageId,
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
-    // TODO: maybe this should be an Option, so that we make sure that when we need it's always is_some()
     // bevy tick when we received an ack of an update for this group
-    pub collect_changes_since_this_tick: BevyTick,
+    // at the start it's None, and we collect any changes
+    pub collect_changes_since_this_tick: Option<BevyTick>,
     // last tick for which we sent an action message
     pub last_action_tick: Tick,
 }
@@ -326,7 +326,7 @@ impl Default for GroupChannel {
             // we start with a very high last_action_tick, so that we need to receive the Actions message
             // before handling any Updates messages
             last_action_tick: Tick(0) - 1,
-            collect_changes_since_this_tick: BevyTick::new(0),
+            collect_changes_since_this_tick: None,
         }
     }
 }
@@ -338,7 +338,7 @@ impl GroupChannel {
 
         // if bevy_tick is bigger than current tick, set current_tick to bevy_tick
         // if bevy_tick.is_newer_than(self.collect_changes_since_this_tick, BevyTick::MAX) {
-        self.collect_changes_since_this_tick = bevy_tick;
+        self.collect_changes_since_this_tick = Some(bevy_tick);
         // }
     }
 }

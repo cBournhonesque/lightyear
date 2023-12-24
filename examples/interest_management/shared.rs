@@ -30,13 +30,13 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_plugins(WorldInspectorPlugin::new());
+        app.add_plugins(WorldInspectorPlugin::new());
         app.add_systems(Update, (draw_boxes, draw_circles));
     }
 }
 
 // This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(position: &mut Position, input: &Inputs) {
+pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
         Inputs::Direction(direction) => {

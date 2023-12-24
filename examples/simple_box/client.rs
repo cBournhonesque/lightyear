@@ -116,7 +116,7 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
         direction.right = true;
     }
     if !direction.is_none() {
-        client.add_input(Inputs::Direction(direction));
+        return client.add_input(Inputs::Direction(direction));
     }
     if keypress.pressed(KeyCode::Delete) {
         // currently, inputs is an enum and we can only add one input per tick
