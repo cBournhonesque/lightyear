@@ -28,7 +28,7 @@ impl Plugin for MyClientPlugin {
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
-        let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
