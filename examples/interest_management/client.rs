@@ -14,13 +14,14 @@ use std::time::Duration;
 pub struct MyClientPlugin {
     pub(crate) client_id: u16,
     pub(crate) client_port: u16,
+    pub(crate) server_addr: Ipv4Addr,
     pub(crate) server_port: u16,
     pub(crate) transport: Transports,
 }
 
 impl Plugin for MyClientPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.server_port);
+        let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
         let auth = Authentication::Manual {
             server_addr,
             client_id: self.client_id as ClientId,

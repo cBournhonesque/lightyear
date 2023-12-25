@@ -10,6 +10,7 @@ mod protocol;
 mod server;
 mod shared;
 
+use std::net::Ipv4Addr;
 use std::str::FromStr;
 
 use bevy::log::LogPlugin;
@@ -72,6 +73,9 @@ enum Cli {
         #[arg(long, default_value_t = CLIENT_PORT)]
         client_port: u16,
 
+        #[arg(long, default_value_t = Ipv4Addr::LOCALHOST)]
+        server_addr: Ipv4Addr,
+
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
@@ -104,12 +108,14 @@ fn setup(app: &mut App, cli: Cli) {
             inspector,
             client_id,
             client_port,
+            server_addr,
             server_port,
             transport,
         } => {
             let client_plugin = MyClientPlugin {
                 client_id,
                 client_port,
+                server_addr,
                 server_port,
                 transport,
             };
