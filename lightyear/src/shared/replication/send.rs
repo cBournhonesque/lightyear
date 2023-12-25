@@ -153,6 +153,17 @@ impl<P: Protocol> ReplicationSender<P> {
             .contains(&kind)
             && !force_insert
         {
+            if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
+                && component
+                    .clone()
+                    .try_into()
+                    .is_ok_and(|s| s.client_entity.is_none())
+            {
+                // do not emit a warning if we are trying to insert a ShouldBePredicted component
+                // because of prediction_target, but there already is a ShouldBePredicted component because of
+                // pre-prediction
+                return;
+            }
             warn!(
                 ?group,
                 ?entity,

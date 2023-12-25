@@ -7,7 +7,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, ResMut, With, Without,
 };
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::prelude::{MainSet, NetworkTarget};
 use crate::protocol::component::IntoKind;
@@ -71,14 +71,16 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
                     {
                         debug!("sending entity despawn for entity: {:?}", entity);
                         // TODO: don't unwrap but handle errors
-                        sender
+                        let _ = sender
                             .prepare_entity_despawn(
                                 entity,
                                 replicate,
                                 NetworkTarget::Only(vec![*client_id]),
                                 system_bevy_ticks.this_run(),
                             )
-                            .unwrap();
+                            .map_err(|e| {
+                                error!("error sending entity despawn: {:?}", e);
+                            });
                     }
                 });
         }
@@ -89,15 +91,20 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
         trace!("despawn tracker removed!");
         // only replicate the despawn if the entity still had a Replicate component
         if let Some(replicate) = sender.get_mut_replicate_component_cache().remove(&entity) {
+            // TODO: DO NOT SEND ENTITY DESPAWN TO THE CLIENT WHO JUST DISCONNECTED!
             trace!("send entity despawn");
-            sender
+            let _ = sender
                 .prepare_entity_despawn(
                     entity,
                     &replicate,
                     replicate.replication_target.clone(),
                     system_bevy_ticks.this_run(),
                 )
-                .unwrap();
+                // TODO: bubble up errors to user via ConnectionEvents
+                //  use thiserror so that user can distinguish between error types
+                .map_err(|e| {
+                    error!("error sending entity despawn: {:?}", e);
+                });
         }
     }
 }
@@ -124,14 +131,16 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                             match visibility {
                                 ClientVisibility::Gained => {
                                     debug!("send entity spawn to gained");
-                                    sender
+                                    let _ = sender
                                         .prepare_entity_spawn(
                                             entity,
                                             &replicate,
                                             NetworkTarget::Only(vec![*client_id]),
                                             system_bevy_ticks.this_run(),
                                         )
-                                        .unwrap();
+                                        .map_err(|e| {
+                                            error!("error sending entity spawn: {:?}", e);
+                                        });
                                 }
                                 ClientVisibility::Lost => {}
                                 ClientVisibility::Maintained => {
@@ -142,14 +151,16 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                                         sender
                                             .get_mut_replicate_component_cache()
                                             .insert(entity, replicate.clone());
-                                        sender
+                                        let _ = sender
                                             .prepare_entity_spawn(
                                                 entity,
                                                 replicate.deref(),
                                                 NetworkTarget::Only(vec![*client_id]),
                                                 system_bevy_ticks.this_run(),
                                             )
-                                            .unwrap();
+                                            .map_err(|e| {
+                                                error!("error sending entity spawn: {:?}", e);
+                                            });
                                     }
                                 }
                             }
@@ -162,14 +173,16 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                 let new_connected_clients = sender.new_connected_clients().clone();
                 if !new_connected_clients.is_empty() {
                     // replicate all entities to newly connected clients
-                    sender
+                    let _ = sender
                         .prepare_entity_spawn(
                             entity,
                             &replicate,
                             NetworkTarget::Only(new_connected_clients.clone()),
                             system_bevy_ticks.this_run(),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            error!("error sending entity spawn: {:?}", e);
+                        });
                     // don't re-send to newly connection client
                     target.exclude(new_connected_clients.clone());
                 }
@@ -180,14 +193,16 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                     sender
                         .get_mut_replicate_component_cache()
                         .insert(entity, replicate.clone());
-                    sender
+                    let _ = sender
                         .prepare_entity_spawn(
                             entity,
                             replicate.deref(),
                             target,
                             system_bevy_ticks.this_run(),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            error!("error sending entity spawn: {:?}", e);
+                        });
                 }
             }
         }
@@ -221,7 +236,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                         if replicate.replication_target.should_send_to(client_id) {
                             match visibility {
                                 ClientVisibility::Gained => {
-                                    sender
+                                    let _ = sender
                                         .prepare_component_insert(
                                             entity,
                                             component.clone().into(),
@@ -229,13 +244,15 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                             NetworkTarget::Only(vec![*client_id]),
                                             system_bevy_ticks.this_run(),
                                         )
-                                        .unwrap();
+                                        .map_err(|e| {
+                                            error!("error sending component insert: {:?}", e);
+                                        });
                                 }
                                 ClientVisibility::Lost => {}
                                 ClientVisibility::Maintained => {
                                     // send an component_insert for components that were newly added
                                     if component.is_added() {
-                                        sender
+                                        let _ = sender
                                             .prepare_component_insert(
                                                 entity,
                                                 component.clone().into(),
@@ -243,10 +260,12 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                                 NetworkTarget::Only(vec![*client_id]),
                                                 system_bevy_ticks.this_run(),
                                             )
-                                            .unwrap();
+                                            .map_err(|e| {
+                                                error!("error sending component insert: {:?}", e);
+                                            });
                                         // only update components that were not newly added
                                     } else {
-                                        sender
+                                        let _ = sender
                                             .prepare_entity_update(
                                                 entity,
                                                 component.clone().into(),
@@ -255,7 +274,9 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                                 component.last_changed(),
                                                 system_bevy_ticks.this_run(),
                                             )
-                                            .unwrap();
+                                            .map_err(|e| {
+                                                error!("error sending component update: {:?}", e);
+                                            });
                                     }
                                 }
                             }
@@ -268,7 +289,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                 let new_connected_clients = sender.new_connected_clients().clone();
                 // replicate all components to newly connected clients
                 if !new_connected_clients.is_empty() {
-                    sender
+                    let _ = sender
                         .prepare_component_insert(
                             entity,
                             component.clone().into(),
@@ -276,7 +297,9 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             NetworkTarget::Only(new_connected_clients.clone()),
                             system_bevy_ticks.this_run(),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            error!("error sending component insert: {:?}", e);
+                        });
                     // don't re-send to newly connection client
                     target.exclude(new_connected_clients.clone());
                 }
@@ -284,7 +307,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                 // send an component_insert for components that were newly added
                 if component.is_added() {
                     trace!("component is added");
-                    sender
+                    let _ = sender
                         .prepare_component_insert(
                             entity,
                             component.clone().into(),
@@ -292,11 +315,13 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             target,
                             system_bevy_ticks.this_run(),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            error!("error sending component insert: {:?}", e);
+                        });
                 } else {
                     // otherwise send an update for all components that changed since the
                     // last update we have ack-ed
-                    sender
+                    let _ = sender
                         .prepare_entity_update(
                             entity,
                             component.clone().into(),
@@ -305,7 +330,9 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             component.last_changed(),
                             system_bevy_ticks.this_run(),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            error!("error sending component update: {:?}", e);
+                        });
                 }
             }
         }
@@ -331,7 +358,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                             if replicate.replication_target.should_send_to(client_id) {
                                 // TODO: maybe send no matter the vis?
                                 if matches!(visibility, ClientVisibility::Maintained) {
-                                    sender
+                                    let _ = sender
                                         .prepare_component_remove(
                                             entity,
                                             C::into_kind(),
@@ -339,7 +366,9 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                                             NetworkTarget::Only(vec![*client_id]),
                                             system_bevy_ticks.this_run(),
                                         )
-                                        .unwrap();
+                                        .map_err(|e| {
+                                            error!("error sending component remove: {:?}", e);
+                                        });
                                 }
                             }
                         },
@@ -347,7 +376,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                 }
                 ReplicationMode::NetworkTarget => {
                     trace!("sending component remove!");
-                    sender
+                    let _ = sender
                         .prepare_component_remove(
                             entity,
                             C::into_kind(),
@@ -355,7 +384,9 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                             replicate.replication_target.clone(),
                             system_bevy_ticks.this_run(),
                         )
-                        .unwrap();
+                        .map_err(|e| {
+                            error!("error sending component remove: {:?}", e);
+                        });
                 }
             }
         }

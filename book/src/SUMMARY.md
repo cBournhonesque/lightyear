@@ -36,5 +36,7 @@
     - [Interest management](./concepts/advanced_replication/interest_management.md)
     - [Client Replication](./concepts/advanced_replication/client_replication.md)
 
+- [Guides](./guides/title.md)
+  - [Connecting to a remote server](./guides/remote_server.md)
 
 - [Appendix](./appendix/title.md)
