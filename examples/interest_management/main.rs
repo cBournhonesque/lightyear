@@ -15,6 +15,7 @@ use std::str::FromStr;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -28,7 +29,6 @@ use lightyear::prelude::TransportConfig;
 async fn main() {
     let cli = Cli::parse();
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     setup(&mut app, cli);
 
     app.run();
@@ -50,6 +50,12 @@ pub enum Transports {
 enum Cli {
     SinglePlayer,
     Server {
+        #[arg(long, default_value = "false")]
+        headless: bool,
+
+        #[arg(short, long, default_value = "false")]
+        inspector: bool,
+
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
@@ -57,6 +63,9 @@ enum Cli {
         transport: Transports,
     },
     Client {
+        #[arg(short, long, default_value = "false")]
+        inspector: bool,
+
         #[arg(short, long, default_value_t = 0)]
         client_id: u16,
 
@@ -74,11 +83,25 @@ enum Cli {
 fn setup(app: &mut App, cli: Cli) {
     match cli {
         Cli::SinglePlayer => {}
-        Cli::Server { port, transport } => {
+        Cli::Server {
+            headless,
+            inspector,
+            port,
+            transport,
+        } => {
             let server_plugin = MyServerPlugin { port, transport };
+            if !headless {
+                app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+            } else {
+                app.add_plugins(MinimalPlugins);
+            }
+            if inspector {
+                app.add_plugins(WorldInspectorPlugin::new());
+            }
             app.add_plugins(server_plugin);
         }
         Cli::Client {
+            inspector,
             client_id,
             client_port,
             server_port,
@@ -90,6 +113,10 @@ fn setup(app: &mut App, cli: Cli) {
                 server_port,
                 transport,
             };
+            app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+            if inspector {
+                app.add_plugins(WorldInspectorPlugin::new());
+            }
             app.add_plugins(client_plugin);
         }
     }

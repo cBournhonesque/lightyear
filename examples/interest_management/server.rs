@@ -54,10 +54,7 @@ impl Plugin for MyServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
-        app.add_systems(
-            Update,
-            (handle_connections, send_message, interest_management, log),
-        );
+        app.add_systems(Update, (handle_connections, interest_management, log));
     }
 }
 
@@ -191,19 +188,5 @@ pub(crate) fn movement(
                 }
             }
         }
-    }
-}
-
-/// Send messages from server to clients
-pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
-    if input.pressed(KeyCode::M) {
-        // TODO: add way to send message to all
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        server
-            .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
     }
 }
