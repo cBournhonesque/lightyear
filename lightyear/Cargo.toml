@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -47,7 +47,7 @@ thiserror = "1.0.50"
 wtransport = { version = "0.1.9", optional = true }
 
 # serialization
-bitcode = { version = "0.4.0", package = "bitcode_lightyear_patch", features = [
+bitcode = { version = "0.4.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [
   "serde",
 ] }
 bytes = { version = "1.5", features = ["serde"] }

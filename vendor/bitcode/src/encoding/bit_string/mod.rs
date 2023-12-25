@@ -1,6 +1,5 @@
 use crate::encoding::prelude::*;
-use crate::encoding::{Fixed, Gamma};
-use crate::Encode;
+use crate::encoding::Fixed;
 use std::num::NonZeroUsize;
 
 mod ascii;
@@ -16,7 +15,7 @@ pub struct BitString<C: ByteEncoding>(pub C);
 
 impl<C: ByteEncoding> Encoding for BitString<C> {
     #[inline(always)]
-    fn write_byte_str(self, writer: &mut impl Write, bytes: &[u8]) {
+    fn write_byte_str(self, _writer: &mut impl Write, _bytes: &[u8]) {
         unimplemented!()
         // let n = bytes.len();
         // n.encode(Gamma, writer).unwrap();
@@ -40,7 +39,7 @@ impl<C: ByteEncoding> Encoding for BitString<C> {
     }
 
     #[inline(always)]
-    fn read_bytes(self, reader: &mut impl Read, len: NonZeroUsize) -> Result<&[u8]> {
+    fn read_bytes(self, _reader: &mut impl Read, _len: NonZeroUsize) -> Result<&[u8]> {
         unimplemented!()
         // let is_valid = !reader.read_bit()?;
         // if is_valid {

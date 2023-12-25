@@ -8,7 +8,7 @@ pub mod ser;
 /// Serializes a `T:` [`Serialize`] into a [`Vec<u8>`].
 ///
 /// **Warning:** The format is incompatible with [`decode`][`crate::decode`] and subject to change between versions.
-#[cfg_attr(doc, doc(cfg(feature = "serde")))]
+// #[cfg_attr(doc, doc(cfg(feature = "serde")))]
 pub fn serialize<T: ?Sized>(t: &T) -> Result<Vec<u8>>
 where
     T: Serialize,
@@ -19,7 +19,7 @@ where
 /// Deserializes a [`&[u8]`][`prim@slice`] into an instance of `T:` [`Deserialize`][`serde::Deserialize`].
 ///
 /// **Warning:** The format is incompatible with [`encode`][`crate::encode`] and subject to change between versions.
-#[cfg_attr(doc, doc(cfg(feature = "serde")))]
+// #[cfg_attr(doc, doc(cfg(feature = "serde")))]
 pub fn deserialize<T>(bytes: &[u8]) -> Result<T>
 where
     T: DeserializeOwned,
@@ -35,7 +35,7 @@ impl Buffer {
     /// [`serialize`].
     ///
     /// **Warning:** The format is incompatible with [`decode`][`Buffer::decode`] and subject to change between versions.
-    #[cfg_attr(doc, doc(cfg(feature = "serde")))]
+    // #[cfg_attr(doc, doc(cfg(feature = "serde")))]
     pub fn serialize<T: ?Sized>(&mut self, t: &T) -> Result<&[u8]>
     where
         T: Serialize,
@@ -47,7 +47,7 @@ impl Buffer {
     /// the buffer's allocations.
     ///
     /// **Warning:** The format is incompatible with [`encode`][`Buffer::encode`] and subject to change between versions.
-    #[cfg_attr(doc, doc(cfg(feature = "serde")))]
+    // #[cfg_attr(doc, doc(cfg(feature = "serde")))]
     pub fn deserialize<T>(&mut self, bytes: &[u8]) -> Result<T>
     where
         T: DeserializeOwned,
