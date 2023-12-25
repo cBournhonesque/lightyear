@@ -94,7 +94,11 @@ fn setup(app: &mut App, cli: Cli) {
             port,
             transport,
         } => {
-            let server_plugin = MyServerPlugin { port, transport };
+            let server_plugin = MyServerPlugin {
+                headless,
+                port,
+                transport,
+            };
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {

@@ -9,6 +9,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 pub struct MyServerPlugin {
+    pub(crate) headless: bool,
     pub(crate) port: u16,
     pub(crate) transport: Transports,
 }
@@ -46,7 +47,10 @@ impl Plugin for MyServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
-        app.add_systems(Update, (handle_connections, send_message));
+        if !self.headless {
+            app.add_systems(Update, send_message);
+        }
+        app.add_systems(Update, handle_connections);
     }
 }
 
@@ -123,7 +127,8 @@ pub(crate) fn movement(
     }
 }
 
-/// Send messages from server to clients
+/// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
+/// and cannot do input handling)
 pub(crate) fn send_message(mut server: ResMut<Server<MyProtocol>>, input: Res<Input<KeyCode>>) {
     if input.pressed(KeyCode::M) {
         // TODO: add way to send message to all
