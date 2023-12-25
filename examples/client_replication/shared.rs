@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::render::RenderPlugin;
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 use std::time::Duration;
@@ -27,8 +27,9 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(WorldInspectorPlugin::new());
-        app.add_systems(Update, draw_elements);
+        if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Update, draw_elements);
+        }
     }
 }
 

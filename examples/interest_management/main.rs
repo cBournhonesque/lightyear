@@ -3,8 +3,8 @@
 #![allow(dead_code)]
 
 //! Run with
-//! - `cargo run --example bevy_cli server`
-//! - `cargo run --example bevy_cli client`
+//! - `cargo run --example interest_management -- server`
+//! - `cargo run --example interest_management -- client -c 1`
 mod client;
 mod protocol;
 mod server;
@@ -35,7 +35,8 @@ async fn main() {
     app.run();
 }
 
-pub const CLIENT_PORT: u16 = 6000;
+// Use a port of 0 to automatically select a port
+pub const CLIENT_PORT: u16 = 0;
 pub const SERVER_PORT: u16 = 5000;
 pub const PROTOCOL_ID: u64 = 0;
 

@@ -12,22 +12,23 @@ use std::time::Duration;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
-    pub(crate) client_id: ClientId,
+    pub(crate) client_id: u16,
     pub(crate) client_port: u16,
+    pub(crate) server_addr: Ipv4Addr,
     pub(crate) server_port: u16,
     pub(crate) transport: Transports,
 }
 
 impl Plugin for MyClientPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.server_port);
+        let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
         let auth = Authentication::Manual {
             server_addr,
-            client_id: self.client_id,
+            client_id: self.client_id as ClientId,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
-        let client_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.client_port);
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(900),
             incoming_jitter: Duration::from_millis(20),

@@ -1,6 +1,7 @@
 use crate::protocol::Direction;
 use crate::protocol::*;
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::client::{Confirmed, Interpolated};
 use lightyear::prelude::*;
@@ -28,7 +29,9 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, draw_snakes);
+        if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Update, draw_snakes);
+        }
     }
 }
 

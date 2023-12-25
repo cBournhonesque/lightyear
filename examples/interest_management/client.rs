@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use lightyear::_reexport::{ShouldBeInterpolated, ShouldBePredicted};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
