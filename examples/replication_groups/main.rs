@@ -114,7 +114,7 @@ fn setup(app: &mut App, cli: Cli) {
             transport,
         } => {
             let client_plugin = MyClientPlugin {
-                client_id,
+                client_id: client_id as ClientId,
                 client_port,
                 server_addr,
                 server_port,

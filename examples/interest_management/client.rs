@@ -12,7 +12,7 @@ use std::time::Duration;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
-    pub(crate) client_id: u16,
+    pub(crate) client_id: ClientId,
     pub(crate) client_port: u16,
     pub(crate) server_addr: Ipv4Addr,
     pub(crate) server_port: u16,
@@ -24,7 +24,7 @@ impl Plugin for MyClientPlugin {
         let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
         let auth = Authentication::Manual {
             server_addr,
-            client_id: self.client_id as ClientId,
+            client_id: self.client_id,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
