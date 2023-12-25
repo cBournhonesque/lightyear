@@ -50,9 +50,6 @@ wtransport = { version = "0.1.9", optional = true }
 bitcode = { version = "0.4.0", package = "bitcode_lightyear_patch", features = [
   "serde",
 ] }
-#bitcode = { git = "https://github.com/cBournhonesque/bitcode.git", branch = "cb/latest", features = [
-#  "serde",
-#] }
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
@@ -74,7 +71,6 @@ tracing-subscriber = { version = "0.3.17", features = [
 
 # server
 crossbeam-channel = { version = "0.5.8", features = [] }
-#petgraph = "0.6.4"  # for replication
 
 # metrics
 metrics = { version = "0.21", optional = true }

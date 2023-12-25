@@ -1,6 +1,7 @@
 use std::io::Result;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use tracing::info;
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
@@ -22,8 +23,8 @@ pub struct UdpSocket {
 
 impl UdpSocket {
     /// Create a non-blocking UDP socket
-    pub fn new(server_addr: &SocketAddr) -> Result<Self> {
-        let udp_socket = std::net::UdpSocket::bind(*server_addr)?;
+    pub fn new(local_addr: &SocketAddr) -> Result<Self> {
+        let udp_socket = std::net::UdpSocket::bind(*local_addr)?;
         let socket = Arc::new(Mutex::new(udp_socket));
         socket.as_ref().lock().unwrap().set_nonblocking(true)?;
         Ok(Self {

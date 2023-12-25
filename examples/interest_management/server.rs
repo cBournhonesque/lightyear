@@ -23,7 +23,7 @@ const PLAYER_ROOM: RoomId = RoomId(6000);
 
 impl Plugin for MyServerPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), self.port);
+        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.port);
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
