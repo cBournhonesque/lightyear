@@ -1,4 +1,3 @@
-use crate::encoding::ByteEncoding;
 use crate::word::Word;
 
 /// Abstracts over writing bits to a buffer.

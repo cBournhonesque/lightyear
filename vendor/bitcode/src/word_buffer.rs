@@ -1,5 +1,4 @@
 use crate::buffer::BufferTrait;
-use crate::encoding::ByteEncoding;
 use crate::nightly::div_ceil;
 use crate::read::Read;
 use crate::word::*;
@@ -9,7 +8,7 @@ use from_bytes_or_zeroed::FromBytesOrZeroed;
 use std::array;
 use std::num::NonZeroUsize;
 
-/// A fast [`Buffer`] that operates on [`Word`]s.
+/// A fast `Buffer` that operates on [`Word`]s.
 #[derive(Debug, Default)]
 pub struct WordBuffer {
     allocation: Allocation,

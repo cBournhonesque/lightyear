@@ -1,6 +1,6 @@
 #![allow(clippy::all)]
-#![cfg_attr(test, feature(test))]
-#![cfg_attr(doc, feature(doc_cfg))]
+// #![cfg_attr(test, feature(test))]
+// #![cfg_attr(doc, feature(doc_cfg))]
 #![forbid(unsafe_code)]
 #![allow(clippy::items_after_test_module)]
 

@@ -1,4 +1,3 @@
-use crate::encoding::ByteEncoding;
 use crate::word::Word;
 use crate::Result;
 use std::num::NonZeroUsize;

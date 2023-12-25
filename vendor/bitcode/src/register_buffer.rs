@@ -1,4 +1,3 @@
-use crate::encoding::ByteEncoding;
 use crate::read::Read;
 use crate::word::*;
 use crate::write::Write;
