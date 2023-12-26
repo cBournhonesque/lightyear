@@ -38,5 +38,6 @@
 
 - [Guides](./guides/title.md)
   - [Connecting to a remote server](./guides/remote_server.md)
+  - [Managing game servers with Agones](./guides/agones.md)
 
 - [Appendix](./appendix/title.md)
