@@ -7,7 +7,7 @@ use bevy::utils::tracing::Level;
 use divan::{AllocProfiler, Bencher};
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
-use lightyear::prelude::{ClientId, LogConfig, NetworkTarget, Replicate, SharedConfig, TickConfig};
+use lightyear::prelude::{ClientId, LogConfig, NetworkTarget, SharedConfig, TickConfig};
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 use lightyear_benches::stepper::{BevyStepper, Step};

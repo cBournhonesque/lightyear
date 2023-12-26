@@ -3,12 +3,14 @@ use bevy::prelude::{Component, Entity};
 use bevy::utils::{EntityHashSet, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
+use crate::_reexport::IntoKind;
 use lightyear_macros::MessageInternal;
 
 use crate::channel::builder::Channel;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::netcode::ClientId;
 use crate::prelude::{EntityMapper, MapEntities};
+use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
@@ -18,7 +20,7 @@ pub struct DespawnTracker;
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
 #[derive(Component, Clone)]
-pub struct Replicate {
+pub struct Replicate<P: Protocol> {
     /// Which clients should this entity be replicated to
     pub replication_target: NetworkTarget,
     /// Which clients should predict this entity
@@ -37,9 +39,13 @@ pub struct Replicate {
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
     pub replication_group: ReplicationGroup,
+
+    /// By default, all components will be ignored. You can add components to this list to make them
+    /// not replicated for this specific entity
+    pub disabled_components: HashSet<P::ComponentKinds>,
 }
 
-impl Replicate {
+impl<P: Protocol> Replicate<P> {
     pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
         match self.replication_group {
             ReplicationGroup::FromEntity => {
@@ -47,6 +53,22 @@ impl Replicate {
             }
             ReplicationGroup::Group(id) => ReplicationGroupId(id),
         }
+    }
+
+    /// Disable the replication of a component for this entity
+    pub fn disable_component<C>(&mut self)
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        self.disabled_components.insert(C::into_kind());
+    }
+
+    /// Enable the replication of a component for this entity
+    pub(crate) fn enable_component<C>(&mut self)
+    where
+        C: IntoKind<P::ComponentKinds>,
+    {
+        self.disabled_components.remove(&C::into_kind());
     }
 }
 
@@ -73,7 +95,7 @@ pub enum ReplicationMode {
     NetworkTarget,
 }
 
-impl Default for Replicate {
+impl<P: Protocol> Default for Replicate<P> {
     fn default() -> Self {
         Self {
             replication_target: NetworkTarget::All,
@@ -82,6 +104,7 @@ impl Default for Replicate {
             replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
+            disabled_components: HashSet::default(),
         }
     }
 }

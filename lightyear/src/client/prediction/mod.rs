@@ -14,8 +14,8 @@ pub use predicted_history::{ComponentState, PredictionHistory};
 use crate::client::components::{ComponentSyncMode, Confirmed};
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::Replicate;
-use crate::shared::replication::components::ShouldBePredicted;
+use crate::protocol::Protocol;
+use crate::shared::replication::components::{Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
 
 mod despawn;
@@ -53,7 +53,7 @@ pub enum RollbackState {
 /// have authority on the entity.
 /// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
 /// server
-pub(crate) fn clean_prespawned_entity(
+pub(crate) fn clean_prespawned_entity<P: Protocol>(
     mut commands: Commands,
     pre_predicted_entities: Query<Entity, With<ShouldBePredicted>>,
 ) {
@@ -61,7 +61,7 @@ pub(crate) fn clean_prespawned_entity(
         debug!("removing replicate from pre-spawned entity");
         commands
             .entity(entity)
-            .remove::<Replicate>()
+            .remove::<Replicate<P>>()
             .remove::<ShouldBePredicted>()
             .insert(Predicted {
                 confirmed_entity: None,

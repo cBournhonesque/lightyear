@@ -23,7 +23,7 @@ use crate::shared::sets::ReplicationSet;
 /// from our replicate cache (so that the entity's despawns are no longer replicated)
 fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
     mut sender: ResMut<R>,
-    mut query: RemovedComponents<Replicate>,
+    mut query: RemovedComponents<Replicate<P>>,
     entity_check: &Entities,
 ) {
     for entity in query.read() {
@@ -34,13 +34,15 @@ fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
     }
 }
 
+// TODO: maybe only store the import thing for despawn, which is just replication-target and group-id?
+//  the rest is a waste of memory
 /// This system adds DespawnTracker to each entity that was every replicated,
 /// so that we can track when they are despawned
 /// (we have a distinction between removing Replicate, which just stops replication; and despawning the entity)
 fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
     mut sender: ResMut<R>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicate), (Added<Replicate>, Without<DespawnTracker>)>,
+    query: Query<(Entity, &Replicate<P>), (Added<Replicate<P>>, Without<DespawnTracker>)>,
 ) {
     for (entity, replicate) in query.iter() {
         debug!("ADDING DESPAWN TRACKER");
@@ -52,7 +54,7 @@ fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
 }
 
 fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, &Replicate)>,
+    query: Query<(Entity, &Replicate<P>)>,
     system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
@@ -114,7 +116,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
 //  we can also separate the on_connect part to a separate system
 fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     system_bevy_ticks: SystemChangeTick,
-    query: Query<(Entity, Ref<Replicate>)>,
+    query: Query<(Entity, Ref<Replicate<P>>)>,
     mut sender: ResMut<R>,
 ) {
     // Replicate to already connected clients (replicate only new entities)
@@ -220,7 +222,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 ///
 /// NOTE: cannot use ConnectEvents because they are reset every frame
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, Ref<C>, &Replicate)>,
+    query: Query<(Entity, Ref<C>, &Replicate<P>)>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
@@ -342,7 +344,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
 /// This system sends updates for all components that were removed
 fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     // only remove the component for entities that are being actively replicated
-    query: Query<&Replicate>,
+    query: Query<&Replicate<P>>,
     system_bevy_ticks: SystemChangeTick,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,

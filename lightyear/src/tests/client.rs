@@ -6,9 +6,9 @@ use bevy::app::App;
 
 use crate::prelude::client::*;
 use crate::prelude::*;
-use crate::tests::protocol::{protocol, MyProtocol};
+use crate::tests::protocol::*;
 
-pub fn setup(auth: Authentication) -> anyhow::Result<Client<MyProtocol>> {
+pub fn setup(auth: Authentication) -> anyhow::Result<Client> {
     let addr = SocketAddr::from_str("127.0.0.1:0")?;
     let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
     let config = ClientConfig {

@@ -17,12 +17,12 @@ use crate::_reexport::{
 };
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
-use crate::prelude::{MapEntities, Replicate, Tick};
+use crate::prelude::{MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
-use crate::shared::replication::components::ReplicationGroupId;
+use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 use super::entity_map::{InterpolatedEntityMap, PredictedEntityMap, RemoteEntityMap};
 use super::{
@@ -36,7 +36,7 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate>,
+    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
     /// Map from message-id to the corresponding group-id that sent this update message

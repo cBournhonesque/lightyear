@@ -7,9 +7,9 @@ use bevy::app::App;
 
 use crate::prelude::server::*;
 use crate::prelude::*;
-use crate::tests::protocol::{protocol, MyProtocol};
+use crate::tests::protocol::*;
 
-pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server<MyProtocol>> {
+pub fn setup(protocol_id: u64, private_key: Key) -> anyhow::Result<Server> {
     // create udp-socket based io
     let addr = SocketAddr::from_str("127.0.0.1:0")?;
     let netcode_config = NetcodeConfig::default()

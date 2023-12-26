@@ -110,7 +110,7 @@ impl Plugin for MyClientPlugin {
 // Startup system for the client
 pub(crate) fn init(
     mut commands: Commands,
-    mut client: ResMut<Client<MyProtocol>>,
+    mut client: ResMut<Client>,
     plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera2dBundle::default());
@@ -127,7 +127,7 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ResMut<Client>, keypress: Res<Input<KeyCode>>) {
     if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
         return client.add_input(Inputs::Direction(Direction::Up));
     }
@@ -191,7 +191,7 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn debug_prediction_pre_rollback(
-    client: Res<Client<MyProtocol>>,
+    client: Res<Client>,
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
@@ -208,7 +208,7 @@ pub(crate) fn debug_prediction_pre_rollback(
 }
 
 pub(crate) fn debug_prediction_post_rollback(
-    client: Res<Client<MyProtocol>>,
+    client: Res<Client>,
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
@@ -223,7 +223,7 @@ pub(crate) fn debug_prediction_post_rollback(
 }
 
 pub(crate) fn debug_interpolate(
-    client: Res<Client<MyProtocol>>,
+    client: Res<Client>,
     parent_query: Query<(
         &InterpolateStatus<PlayerPosition>,
         &ConfirmedHistory<PlayerPosition>,

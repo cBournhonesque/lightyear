@@ -162,7 +162,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    (send::<P>, clean_prespawned_entity).in_set(MainSet::SendPackets),
+                    (send::<P>, clean_prespawned_entity::<P>).in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
             );

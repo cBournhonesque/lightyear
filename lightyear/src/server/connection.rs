@@ -21,15 +21,14 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::message_receivers::MessageReceiver;
 use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{
-    ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities, NetworkTarget, Replicate,
-};
+use crate::prelude::{ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::events::ServerEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
+use crate::shared::replication::components::{NetworkTarget, Replicate};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::ReplicationMessage;
@@ -46,7 +45,7 @@ pub struct ConnectionManager<P: Protocol> {
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate>,
+    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)

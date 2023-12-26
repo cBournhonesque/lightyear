@@ -89,7 +89,7 @@ pub(crate) fn handle_disconnections(
 pub(crate) fn movement(
     mut position_query: Query<(&mut PlayerPosition, &PlayerId)>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    server: Res<Server<MyProtocol>>,
+    server: Res<Server>,
 ) {
     for input in input_reader.read() {
         let client_id = input.context();
