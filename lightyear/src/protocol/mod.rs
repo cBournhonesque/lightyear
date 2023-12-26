@@ -82,11 +82,11 @@ pub trait Protocol: Send + Sync + Clone + Debug + 'static {
 
 /// This macro is used to build the Protocol struct.
 /// For convenience, it will re-export some types that need to have the Protocol as a generic parameter, so that you
-/// don't have to type <MyProtocol> everywhere.
+/// don't have to type `<MyProtocol>` everywhere.
 /// Notably:
-/// - `Replicate` is a type alias for [`Replicate<Protocol>](crate::shared::replication::components::Replicate)
+/// - `Replicate` is a type alias for [`Replicate<Protocol>`](crate::shared::replication::components::Replicate)
 /// - `Client` is a type alias for [`Client<Protocol>`](crate::client::resource::Client)
-/// - `Server` is a type alias for [`Server<Protocol>`](crate::client::resource::Server)
+/// - `Server` is a type alias for [`Server<Protocol>`](crate::server::resource::Server)
 #[macro_export]
 macro_rules! protocolize {
 
