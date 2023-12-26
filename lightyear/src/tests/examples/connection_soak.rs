@@ -10,8 +10,8 @@ use rand::Rng;
 use tracing::debug;
 
 use crate::connection::events::IterMessageEvent;
-use crate::prelude::client::{Authentication, Client, ClientConfig, SyncConfig};
-use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use crate::prelude::client::{Authentication, ClientConfig, SyncConfig};
+use crate::prelude::server::{NetcodeConfig, ServerConfig};
 use crate::prelude::*;
 use crate::tests::protocol::*;
 

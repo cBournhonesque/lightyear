@@ -8,12 +8,11 @@ use bevy::MinimalPlugins;
 
 use crate::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
-    SyncConfig,
+    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use crate::prelude::server::{NetcodeConfig, ServerConfig};
 use crate::prelude::*;
-use crate::tests::protocol::{protocol, MyProtocol};
+use crate::tests::protocol::*;
 
 /// Helpers to setup a bevy app where I can just step the world easily
 
@@ -128,19 +127,19 @@ impl BevyStepper {
         }
     }
 
-    pub(crate) fn client(&self) -> &Client<MyProtocol> {
-        self.client_app.world.resource::<Client<MyProtocol>>()
+    pub(crate) fn client(&self) -> &Client {
+        self.client_app.world.resource::<Client>()
     }
 
-    pub(crate) fn client_mut(&mut self) -> Mut<Client<MyProtocol>> {
-        self.client_app.world.resource_mut::<Client<MyProtocol>>()
+    pub(crate) fn client_mut(&mut self) -> Mut<Client> {
+        self.client_app.world.resource_mut::<Client>()
     }
 
-    pub(crate) fn server(&self) -> &Server<MyProtocol> {
-        self.server_app.world.resource::<Server<MyProtocol>>()
+    pub(crate) fn server(&self) -> &Server {
+        self.server_app.world.resource::<Server>()
     }
-    pub(crate) fn server_mut(&mut self) -> Mut<Server<MyProtocol>> {
-        self.server_app.world.resource_mut::<Server<MyProtocol>>()
+    pub(crate) fn server_mut(&mut self) -> Mut<Server> {
+        self.server_app.world.resource_mut::<Server>()
     }
 }
 

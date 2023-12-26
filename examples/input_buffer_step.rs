@@ -17,15 +17,13 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear::prelude::client::{
-    Authentication, Client, ClientConfig, InputSystemSet, SyncConfig,
-};
-use lightyear::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use lightyear::prelude::client::{Authentication, ClientConfig, InputSystemSet, SyncConfig};
+use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
-use lightyear_examples::protocol::{protocol, Channel2, MyInput, MyProtocol};
+use lightyear_examples::protocol::*;
 use lightyear_examples::stepper::{BevyStepper, Step};
 
-fn client_init(mut client: ResMut<Client<MyProtocol>>) {
+fn client_init(mut client: ResMut<Client>) {
     info!("Connecting to server");
     client.connect();
 }
@@ -38,13 +36,13 @@ fn server_init(mut commands: Commands) {
 }
 
 // System that runs every fixed timestep, and will add an input to the buffer
-fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
+fn buffer_client_inputs(mut client: ResMut<Client>) {
     let tick = client.tick();
     client.add_input(MyInput(tick.0 as i16))
 }
 
 fn client_read_input(
-    client: Res<Client<MyProtocol>>,
+    client: Res<Client>,
     mut input_reader: EventReader<client::InputEvent<MyInput>>,
 ) {
     for input in input_reader.read() {
@@ -58,7 +56,7 @@ fn client_read_input(
 
 fn server_read_input(
     // TODO: maybe put the tick in a separate resource? it lowers parallelism to have to fetch the entire server just to get the tick..
-    server: Res<Server<MyProtocol>>,
+    server: Res<Server>,
     mut input_reader: EventReader<server::InputEvent<MyInput>>,
 ) {
     let tick = server.tick();

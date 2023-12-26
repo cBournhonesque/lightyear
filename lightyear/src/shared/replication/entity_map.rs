@@ -166,6 +166,7 @@ mod tests {
 
     use crate::prelude::client::*;
     use crate::prelude::*;
+    use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

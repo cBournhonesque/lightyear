@@ -10,14 +10,13 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use lightyear::client as lightyear_client;
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
-    SyncConfig,
+    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
-use lightyear::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
 use lightyear::server as lightyear_server;
 
-use crate::protocol::{protocol, MyProtocol};
+use crate::protocol::*;
 
 /// Helpers to setup a bevy app where I can just step the world easily
 
@@ -127,16 +126,16 @@ impl BevyStepper {
         }
     }
 
-    pub fn client(&self) -> &Client<MyProtocol> {
-        self.client_app.world.resource::<Client<MyProtocol>>()
+    pub fn client(&self) -> &Client {
+        self.client_app.world.resource::<Client>()
     }
 
-    pub fn client_mut(&mut self) -> Mut<Client<MyProtocol>> {
-        self.client_app.world.resource_mut::<Client<MyProtocol>>()
+    pub fn client_mut(&mut self) -> Mut<Client> {
+        self.client_app.world.resource_mut::<Client>()
     }
 
-    fn server(&self) -> &Server<MyProtocol> {
-        self.server_app.world.resource::<Server<MyProtocol>>()
+    fn server(&self) -> &Server {
+        self.server_app.world.resource::<Server>()
     }
 }
 

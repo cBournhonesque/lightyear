@@ -306,7 +306,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
@@ -355,7 +355,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
@@ -387,11 +387,15 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&kind) {
+            return Ok(());
+        }
 
         // handle ShouldBePredicted separately because of pre-spawning behaviour
         // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
@@ -436,10 +440,14 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         &mut self,
         entity: Entity,
         component_kind: P::ComponentKinds,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&component_kind) {
+            return Ok(());
+        }
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
@@ -461,12 +469,16 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&kind) {
+            return Ok(());
+        }
 
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
@@ -509,7 +521,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
             .buffer_replication_messages(self.tick_manager.current_tick())
     }
 
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate> {
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
         &mut self.connection_manager.replicate_component_cache
     }
 }

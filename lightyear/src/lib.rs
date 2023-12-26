@@ -79,7 +79,7 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::components::{
-        NetworkTarget, Replicate, ReplicationGroup, ReplicationMode,
+        NetworkTarget, ReplicationGroup, ReplicationMode,
     };
     pub use crate::shared::replication::entity_map::{EntityMapper, MapEntities, RemoteEntityMap};
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
@@ -106,7 +106,7 @@ pub mod prelude {
         pub use crate::client::prediction::plugin::PredictionConfig;
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
-        pub use crate::client::resource::{Authentication, Client};
+        pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
     }
     pub mod server {
@@ -120,7 +120,6 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
-        pub use crate::server::resource::Server;
         pub use crate::server::room::{RoomId, RoomMut, RoomRef};
     }
 }

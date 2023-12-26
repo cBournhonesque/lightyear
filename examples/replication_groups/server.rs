@@ -121,7 +121,7 @@ pub(crate) fn movement(
     mut position_query: Query<&mut PlayerPosition>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
     global: Res<Global>,
-    server: Res<Server<MyProtocol>>,
+    server: Res<Server>,
 ) {
     for input in input_reader.read() {
         let client_id = input.context();
@@ -141,6 +141,6 @@ pub(crate) fn movement(
     }
 }
 
-// pub(crate) fn debug_inputs(server: Res<Server<MyProtocol>>) {
+// pub(crate) fn debug_inputs(server: Res<Server>) {
 //     info!(tick = ?server.tick(), inputs = ?server.get_input_buffer(1), "debug");
 // }

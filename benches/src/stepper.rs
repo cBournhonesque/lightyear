@@ -10,14 +10,13 @@ use bevy::MinimalPlugins;
 use lightyear::client as lightyear_client;
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
-    SyncConfig,
+    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
-use lightyear::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
 use lightyear::server as lightyear_server;
 
-use crate::protocol::{protocol, MyProtocol};
+use crate::protocol::*;
 
 // Sometimes it takes time for socket to receive all data.
 const SOCKET_WAIT: Duration = Duration::from_millis(5);
@@ -127,32 +126,29 @@ impl BevyStepper {
         }
     }
 
-    pub fn client(&self, client_id: ClientId) -> &Client<MyProtocol> {
+    pub fn client(&self, client_id: ClientId) -> &Client {
         self.client_apps
             .get(&client_id)
             .unwrap()
             .world
-            .resource::<Client<MyProtocol>>()
+            .resource::<Client>()
     }
 
-    pub fn client_mut(&mut self, client_id: ClientId) -> Mut<Client<MyProtocol>> {
+    pub fn client_mut(&mut self, client_id: ClientId) -> Mut<Client> {
         self.client_apps
             .get_mut(&client_id)
             .unwrap()
             .world
-            .resource_mut::<Client<MyProtocol>>()
+            .resource_mut::<Client>()
     }
 
-    fn server(&self) -> &Server<MyProtocol> {
-        self.server_app.world.resource::<Server<MyProtocol>>()
+    fn server(&self) -> &Server {
+        self.server_app.world.resource::<Server>()
     }
 
     pub fn init(&mut self) {
         self.client_apps.values_mut().for_each(|client_app| {
-            client_app
-                .world
-                .resource_mut::<Client<MyProtocol>>()
-                .connect();
+            client_app.world.resource_mut::<Client>().connect();
         });
 
         // Advance the world to let the connection process complete

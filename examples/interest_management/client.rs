@@ -84,7 +84,7 @@ impl Plugin for MyClientPlugin {
 // Startup system for the client
 pub(crate) fn init(
     mut commands: Commands,
-    mut client: ResMut<Client<MyProtocol>>,
+    mut client: ResMut<Client>,
     plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera2dBundle::default());
@@ -101,7 +101,7 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ResMut<Client>, keypress: Res<Input<KeyCode>>) {
     let mut direction = Direction {
         up: false,
         down: false,
@@ -182,7 +182,7 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn log(
-    client: Res<Client<MyProtocol>>,
+    client: Res<Client>,
     confirmed: Query<&Position, With<Confirmed>>,
     predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
     mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,

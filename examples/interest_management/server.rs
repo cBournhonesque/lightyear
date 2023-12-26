@@ -93,7 +93,7 @@ pub(crate) fn init(mut commands: Commands) {
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    mut server: ResMut<Server<MyProtocol>>,
+    mut server: ResMut<Server>,
     mut connections: EventReader<ConnectEvent>,
     mut disconnections: EventReader<DisconnectEvent>,
     mut global: ResMut<Global>,
@@ -131,7 +131,7 @@ pub(crate) fn handle_connections(
     }
 }
 
-pub(crate) fn log(server: Res<Server<MyProtocol>>, position: Query<&Position, With<PlayerId>>) {
+pub(crate) fn log(server: Res<Server>, position: Query<&Position, With<PlayerId>>) {
     let server_tick = server.tick();
     for pos in position.iter() {
         debug!(?server_tick, "Confirmed position: {:?}", pos);
@@ -141,7 +141,7 @@ pub(crate) fn log(server: Res<Server<MyProtocol>>, position: Query<&Position, Wi
 /// This is where we perform scope management:
 /// - we will add/remove other entities from the player's room only if they are close
 pub(crate) fn interest_management(
-    mut server: ResMut<Server<MyProtocol>>,
+    mut server: ResMut<Server>,
     player_query: Query<(&PlayerId, Ref<Position>), Without<Circle>>,
     circle_query: Query<(Entity, &Position), With<Circle>>,
 ) {
@@ -170,7 +170,7 @@ pub(crate) fn movement(
     mut position_query: Query<&mut Position>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
     global: Res<Global>,
-    server: Res<Server<MyProtocol>>,
+    server: Res<Server>,
 ) {
     for input in input_reader.read() {
         let client_id = input.context();

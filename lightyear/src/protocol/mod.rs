@@ -80,7 +80,13 @@ pub trait Protocol: Send + Sync + Clone + Debug + 'static {
 
 // TODO: give an option to change names of types
 
-/// This macro is used to build the Protocol struct
+/// This macro is used to build the Protocol struct.
+/// For convenience, it will re-export some types that need to have the Protocol as a generic parameter, so that you
+/// don't have to type `<MyProtocol>` everywhere.
+/// Notably:
+/// - `Replicate` is a type alias for [`Replicate<Protocol>`](crate::shared::replication::components::Replicate)
+/// - `Client` is a type alias for [`Client<Protocol>`](crate::client::resource::Client)
+/// - `Server` is a type alias for [`Server<Protocol>`](crate::server::resource::Server)
 #[macro_export]
 macro_rules! protocolize {
 
@@ -158,6 +164,9 @@ macro_rules! protocolize {
             }
         }
         pub use [<$protocol:lower _module>]::$protocol;
+        pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
+        pub type Client = $shared_crate_name::client::resource::Client<$protocol>;
+        pub type Server = $shared_crate_name::server::resource::Server<$protocol>;
         }
     };
 

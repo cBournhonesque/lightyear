@@ -20,10 +20,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use lightyear::_reexport::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear_examples::protocol::{protocol, Channel2, Component1, MyInput, MyProtocol};
+use lightyear_examples::protocol::*;
 use lightyear_examples::stepper::{BevyStepper, Step};
 
-fn client_init(mut client: ResMut<Client<MyProtocol>>) {
+fn client_init(mut client: ResMut<Client>) {
     info!("Connecting to server");
     client.connect();
 }
@@ -40,7 +40,7 @@ fn server_init(mut commands: Commands) {
 }
 
 // System that runs every fixed timestep, and will add an input to the buffer
-fn buffer_client_inputs(mut client: ResMut<Client<MyProtocol>>) {
+fn buffer_client_inputs(mut client: ResMut<Client>) {
     let tick = client.tick();
     let amplitude = 10i16;
     // oscillating value between 0 and 10
@@ -62,7 +62,7 @@ fn shared_behaviour(component1: &mut Component1, input: &MyInput) {
 
 // The client input only gets applied to predicted entities
 fn client_read_input(
-    client: Res<Client<MyProtocol>>,
+    client: Res<Client>,
     mut component1_query: Query<&mut Component1, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<MyInput>>,
 ) {
@@ -83,7 +83,7 @@ fn client_read_input(
 }
 
 fn server_read_input(
-    server: Res<server::Server<MyProtocol>>,
+    server: Res<Server>,
     mut component1_query: Query<&mut Component1>,
     mut input_reader: EventReader<server::InputEvent<MyInput>>,
 ) {

@@ -15,9 +15,10 @@ use crate::inputs::input_buffer::InputBuffer;
 use crate::netcode::{Client as NetcodeClient, ClientId};
 use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
-use crate::prelude::{NetworkTarget, Replicate};
+use crate::prelude::NetworkTarget;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
+use crate::shared::replication::components::Replicate;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::tick_manager::TickManager;
@@ -326,7 +327,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
@@ -351,7 +352,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
@@ -377,11 +378,15 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&kind) {
+            return Ok(());
+        }
         let group = replicate.group_id(Some(entity));
         debug!(
             ?entity,
@@ -404,10 +409,14 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         &mut self,
         entity: Entity,
         component_kind: P::ComponentKinds,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&component_kind) {
+            return Ok(());
+        }
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         let replication_sender = &mut self.connection.replication_sender;
@@ -424,12 +433,16 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&kind) {
+            return Ok(());
+        }
         let group = replicate.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         let replication_sender = &mut self.connection.replication_sender;
@@ -465,7 +478,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         self.connection
             .buffer_replication_messages(self.tick_manager.current_tick())
     }
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate> {
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
         &mut self.connection.replication_sender.replicate_component_cache
     }
 }

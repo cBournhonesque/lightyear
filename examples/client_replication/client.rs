@@ -86,7 +86,7 @@ impl Plugin for MyClientPlugin {
 // Startup system for the client
 pub(crate) fn init(
     mut commands: Commands,
-    mut client: ResMut<Client<MyProtocol>>,
+    mut client: ResMut<Client>,
     plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera2dBundle::default());
@@ -109,7 +109,7 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ResMut<Client>, keypress: Res<Input<KeyCode>>) {
     let mut direction = Direction {
         up: false,
         down: false,
@@ -275,7 +275,7 @@ pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
 }
 
 /// Send messages from server to clients
-pub(crate) fn send_message(mut client: ResMut<Client<MyProtocol>>, input: Res<Input<KeyCode>>) {
+pub(crate) fn send_message(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
     if input.pressed(KeyCode::M) {
         let message = Message1(5);
         info!("Send message: {:?}", message);

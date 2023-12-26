@@ -9,11 +9,11 @@ use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear::netcode::generate_key;
-use lightyear::prelude::client::{Authentication, Client};
+use lightyear::prelude::client::Authentication;
 use lightyear::prelude::*;
-use lightyear_examples::protocol::MyProtocol;
+use lightyear_examples::protocol::*;
 
-fn client_init(mut client: ResMut<Client<MyProtocol>>) {
+fn client_init(mut client: ResMut<Client>) {
     info!("Connecting to server");
     client.connect();
 }

@@ -6,11 +6,11 @@ use bevy::prelude::{
 use bevy::utils::{HashMap, HashSet};
 
 use crate::netcode::ClientId;
-use crate::prelude::{Replicate, ReplicationSet};
+use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
 use crate::server::resource::Server;
 use crate::server::systems::is_ready_to_send;
-use crate::shared::replication::components::DespawnTracker;
+use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::utils::wrapping_id::wrapping_id;
 
 // Id for a room, used to perform interest management
@@ -103,7 +103,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                 update_entity_replication_cache::<P>
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
                 (
-                    clear_entity_replication_cache,
+                    clear_entity_replication_cache::<P>,
                     clean_entity_despawns::<P>,
                     clear_room_events::<P>,
                 )
@@ -350,7 +350,7 @@ pub enum ClientVisibility {
 /// Note that the rooms' entities/clients have already been updated at this point
 fn update_entity_replication_cache<P: Protocol>(
     server: Res<Server<P>>,
-    mut query: Query<&mut Replicate>,
+    mut query: Query<&mut Replicate<P>>,
 ) {
     // entity joined room
     for (entity, rooms) in server.room_manager.events.iter_entity_enter_room() {
@@ -416,7 +416,7 @@ fn update_entity_replication_cache<P: Protocol>(
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache(mut query: Query<&mut Replicate>) {
+fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate<P>>) {
     for mut replicate in query.iter_mut() {
         replicate
             .replication_clients_cache
@@ -456,6 +456,7 @@ mod tests {
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
+    use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

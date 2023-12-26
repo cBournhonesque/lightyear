@@ -104,7 +104,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -112,7 +112,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -121,7 +121,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
         //  last update ack OR last action sent)
@@ -132,7 +132,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         &mut self,
         entity: Entity,
         component_kind: P::ComponentKinds,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -141,7 +141,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         // bevy_tick when the component changes
         component_change_tick: BevyTick,
@@ -159,7 +159,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self) -> Result<()>;
 
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate>;
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>>;
 }
 
 #[cfg(test)]
