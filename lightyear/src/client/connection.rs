@@ -279,9 +279,13 @@ impl<P: Protocol> Connection<P> {
 
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
-        if tick >= self.sync_manager.latest_received_server_tick {
+        if self
+            .sync_manager
+            .latest_received_server_tick
+            .map_or(true, |server_tick| tick >= server_tick)
+        {
             trace!("new last recv server tick: {:?}", tick);
-            self.sync_manager.latest_received_server_tick = tick;
+            self.sync_manager.latest_received_server_tick = Some(tick);
             // TODO: add 'received_new_server_tick' ?
             // we probably actually physically received the packet some time between our last `receive` and now.
             // Let's add delta / 2 as a compromise
@@ -292,7 +296,7 @@ impl<P: Protocol> Connection<P> {
                 self.ping_manager.rtt(),
             );
         }
-        debug!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
+        trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
         Ok(())
     }
 }

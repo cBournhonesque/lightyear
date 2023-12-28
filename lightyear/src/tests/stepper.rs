@@ -141,6 +141,18 @@ impl BevyStepper {
     pub(crate) fn server_mut(&mut self) -> Mut<Server> {
         self.server_app.world.resource_mut::<Server>()
     }
+
+    pub(crate) fn init(&mut self) {
+        self.client_mut().connect();
+
+        // Advance the world to let the connection process complete
+        for _ in 0..100 {
+            if self.client().is_synced() {
+                break;
+            }
+            self.frame_step();
+        }
+    }
 }
 
 impl Step for BevyStepper {

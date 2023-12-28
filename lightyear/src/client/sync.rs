@@ -1,5 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
+use std::arch::is_aarch64_feature_detected;
 use std::time::Duration;
 
 use bevy::prelude::Res;
@@ -37,6 +38,8 @@ pub struct SyncConfig {
     pub stats_buffer_duration: Duration,
     /// Error margin for upstream throttle (in multiple of ticks)
     pub error_margin: f32,
+    /// If the error margin is too big, we snap the prediction/interpolation time to the objective value
+    pub max_error_margin: f32,
     // TODO: instead of constant speedup_factor, the speedup should be linear w.r.t the offset
     /// By how much should we speed up the simulation to make ticks stay in sync with server?
     pub speedup_factor: f32,
@@ -53,8 +56,9 @@ impl Default for SyncConfig {
             handshake_pings: 7,
             stats_buffer_duration: Duration::from_secs(2),
             error_margin: 1.0,
+            max_error_margin: 8.0,
             speedup_factor: 1.1,
-            server_time_estimate_smoothing: 0.7,
+            server_time_estimate_smoothing: 0.2,
         }
     }
 }
@@ -96,7 +100,7 @@ pub struct SyncManager {
     /// Tick of the server that we last received in any packet from the server.
     /// This is not updated every tick, but only when we receive a packet from the server.
     /// (usually every frame)
-    pub(crate) latest_received_server_tick: Tick,
+    pub(crate) latest_received_server_tick: Option<Tick>,
     pub(crate) estimated_interpolation_tick: Tick,
     pub(crate) duration_since_latest_received_server_tick: Duration,
     pub(crate) new_latest_received_server_tick: bool,
@@ -113,7 +117,7 @@ impl SyncManager {
             interpolation_time: WrappedTime::default(),
             interpolation_speed_ratio: 1.0,
             // server tick
-            latest_received_server_tick: Tick(0),
+            latest_received_server_tick: None,
             estimated_interpolation_tick: Tick(0),
             duration_since_latest_received_server_tick: Duration::default(),
             new_latest_received_server_tick: false,
@@ -173,9 +177,15 @@ impl SyncManager {
         //  so if we are behind, that means that the client tick wrapped around.
         //  for the purposes of the sync computations, the client tick should be ahead
         let mut client_tick_raw = tick_manager.current_tick().0 as i32;
+        trace!(?client_tick_raw);
         // TODO: fix this
         // client can only be this behind server if it wrapped around...
-        if (self.latest_received_server_tick.0 as i32 - client_tick_raw) > i16::MAX as i32 - 1000 {
+        // SAFETY: we only call this when we are synced, so we know that the latest_received_server_tick is not None
+        // NOTE: we only call this when we are synced, so we know that the client tick is ahead of the server tick
+        if (self.latest_received_server_tick.unwrap().0 as i32 - client_tick_raw)
+            > i16::MAX as i32 - 1000
+        {
+            debug!("add wrapping to client tick raw");
             client_tick_raw += u16::MAX as i32;
         }
         WrappedTime::from_duration(
@@ -192,25 +202,37 @@ impl SyncManager {
     /// Update the estimated current server time, computed from the time elapsed since the
     /// latest received server tick, and our estimate of the RTT
     pub(crate) fn update_server_time_estimate(&mut self, tick_duration: Duration, rtt: Duration) {
+        // SAFETY: by that point we have received at least one server packet, so the latest_received_server_tick is not None
         let new_server_time_estimate = WrappedTime::from_duration(
-            self.latest_received_server_tick.0 as u32 * tick_duration
+            self.latest_received_server_tick.unwrap().0 as u32 * tick_duration
                 + self.duration_since_latest_received_server_tick,
             // TODO: the server_time_estimate uses rtt / 2, but we remove it for now so we can
             //  use this estimate for both prediction and interpolation
             // + rtt / 2,
         );
+
         // instead of just using the latest_received_server_tick, we apply some smoothing
         // (in case the latest server tick is wildly off-base)
-        if self.server_time_estimate == WrappedTime::default() {
+        // TODO: should we do this only after syncing? because otherwise the server_estimate
+        //  might be earlier than what we compute using the server tick
+        if self.server_time_estimate == WrappedTime::default() || !self.is_synced() {
             self.server_time_estimate = new_server_time_estimate;
         } else {
             self.server_time_estimate = self.server_time_estimate
                 * self.config.server_time_estimate_smoothing
                 + new_server_time_estimate * (1.0 - self.config.server_time_estimate_smoothing);
         }
+        debug!(
+            ?new_server_time_estimate,
+            updates_server_time_estimate = ?self.server_time_estimate,
+            ?self.latest_received_server_tick,
+            ?self.duration_since_latest_received_server_tick,
+            ?rtt,
+            "update server time estimate"
+        );
     }
 
-    /// time at which the server would receive a packet we send now
+    /// time (from server's scale) at which the server would receive a packet we send now
     fn predicted_server_receive_time(&self, rtt: Duration) -> WrappedTime {
         self.server_time_estimate() + rtt
     }
@@ -249,6 +271,7 @@ impl SyncManager {
     }
 
     pub(crate) fn interpolation_tick(&self, tick_manager: &TickManager) -> Tick {
+        // TODO: this will not work around wrapped-time wrapping!
         Tick(
             (self.interpolation_time.elapsed_us_wrapped
                 / tick_manager.config.tick_duration.as_micros() as u32) as u16,
@@ -276,6 +299,24 @@ impl SyncManager {
             interpolation_tick = ?self.interpolation_tick(tick_manager),
             "interpolation data");
 
+        let max_error_margin_time = chrono::Duration::from_std(
+            tick_manager
+                .config
+                .tick_duration
+                .mul_f32(self.config.max_error_margin),
+        )
+        .unwrap();
+        if delta > max_error_margin_time || delta < -max_error_margin_time {
+            debug!(
+                ?objective_time,
+                interpolation_time = ?self.interpolation_time,
+                "Error too big, snapping interpolation time/tick to objective",
+            );
+            self.interpolation_time = objective_time;
+            return;
+        }
+
+        // TODO: make this configurable
         let error_margin = chrono::Duration::milliseconds(10);
         if delta > error_margin {
             // interpolation time is too far behind, speed-up!
@@ -295,7 +336,7 @@ impl SyncManager {
     pub(crate) fn update_prediction_time(
         &mut self,
         time_manager: &mut TimeManager,
-        tick_manager: &TickManager,
+        tick_manager: &mut TickManager,
         ping_manager: &PingManager,
     ) {
         let rtt = ping_manager.rtt();
@@ -321,12 +362,38 @@ impl SyncManager {
                 .mul_f32(self.config.error_margin),
         )
         .unwrap();
+        let max_error_margin_time = chrono::Duration::from_std(
+            tick_manager
+                .config
+                .tick_duration
+                .mul_f32(self.config.max_error_margin),
+        )
+        .unwrap();
 
-        time_manager.sync_relative_speed = if error > error_margin_time {
+        if error > max_error_margin_time || error < -max_error_margin_time {
             debug!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
+                ?predicted_server_receive_time,
+                latest_received_server_tick = ?self.latest_received_server_tick,
+                client_tick = ?tick_manager.current_tick(),
+                client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
+                ?client_ahead_minimum,
+                error_ms = ?error.num_milliseconds(),
+                error_margin_time_ms = ?error_margin_time.num_milliseconds(),
+                "Error too big, snapping prediction time/tick to objective",
+            );
+            self.finalize(time_manager, tick_manager, ping_manager);
+            return;
+        }
+
+        time_manager.sync_relative_speed = if error > error_margin_time {
+            trace!(
+                ?rtt,
+                ?jitter,
+                ?current_prediction_time,
+                ?predicted_server_receive_time,
                 latest_received_server_tick = ?self.latest_received_server_tick,
                 client_tick = ?tick_manager.current_tick(),
                 client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
@@ -338,10 +405,11 @@ impl SyncManager {
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            debug!(
+            trace!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
+                ?predicted_server_receive_time,
                 latest_received_server_tick = ?self.latest_received_server_tick,
                 client_tick = ?tick_manager.current_tick(),
                 client_ahead_delta_ms = ?client_ahead_delta.num_milliseconds(),
@@ -377,6 +445,12 @@ impl SyncManager {
         // Compute how many ticks the client must be compared to server
         let client_ideal_time = self.predicted_server_receive_time(rtt)
             + self.client_ahead_minimum(tick_duration, jitter);
+        // TODO: client_ideal_time must be higher than server_time in raw value (not wrapping)
+        //  so that wrapping with Ticks still works
+        // if client_ideal_time < self.predicted_server_receive_time(rtt) {
+        //     client_ideal_time
+        // }
+
         // we add 1 to get the div_ceil
         let client_ideal_tick = Tick(
             (client_ideal_time.elapsed_us_wrapped / tick_duration.as_micros() as u32) as u16 + 1,
@@ -390,6 +464,9 @@ impl SyncManager {
             ?latency,
             ?jitter,
             ?delta_tick,
+            predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
+            client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter),
+            ?client_ideal_time,
             ?client_ideal_tick,
             server_tick = ?self.latest_received_server_tick,
             client_current_tick = ?tick_manager.current_tick(),

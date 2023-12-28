@@ -169,7 +169,7 @@ impl<P: Protocol> Client<P> {
         if self.connection.sync_manager.is_synced() {
             self.connection.sync_manager.update_prediction_time(
                 &mut self.time_manager,
-                &self.tick_manager,
+                &mut self.tick_manager,
                 &self.connection.ping_manager,
             );
             // update bevy's relative speed
@@ -186,7 +186,10 @@ impl<P: Protocol> Client<P> {
     }
 
     pub fn latest_received_server_tick(&self) -> Tick {
-        self.connection.sync_manager.latest_received_server_tick
+        self.connection
+            .sync_manager
+            .latest_received_server_tick
+            .unwrap_or(Tick(0))
     }
 
     pub fn received_new_server_tick(&self) -> bool {
@@ -304,7 +307,7 @@ impl<P: Protocol> TickManaged for Client<P> {
 #[cfg(test)]
 impl<P: Protocol> Client<P> {
     pub fn set_latest_received_server_tick(&mut self, tick: Tick) {
-        self.connection.sync_manager.latest_received_server_tick = tick;
+        self.connection.sync_manager.latest_received_server_tick = Some(tick);
         self.connection
             .sync_manager
             .duration_since_latest_received_server_tick = Duration::default();
