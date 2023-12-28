@@ -10,7 +10,6 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::Authentication;
-use lightyear::prelude::*;
 use lightyear_examples::protocol::*;
 
 fn client_init(mut client: ResMut<Client>) {

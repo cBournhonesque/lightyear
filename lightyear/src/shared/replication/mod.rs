@@ -199,13 +199,7 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_mut().connect();
-        stepper.client_mut().set_synced();
-
-        // Advance the world to let the connection process complete
-        for _ in 0..20 {
-            stepper.frame_step();
-        }
+        stepper.init();
 
         // Create an entity on server
         let server_entity = stepper
