@@ -5,6 +5,28 @@
   - one server: 1 game room per core?
 
 
+- CHANGE DETECTION BUG:
+  - What are the consequences of this?
+    "System 'bevy_ecs::event::event_update_system<lightyear::shared::events::MessageEvent<lightyear::inputs::input_buffer::InputMessage<simple_box::protocol::Inputs>,
+    u64>>' has not run for 3258167296 ticks. Changes older than 3258167295 ticks will not be detected."
+
+- SYNC BUGS:
+  - still the problem of converting between 2 modulos, which is not possible. Maybe we can ditch WrappedTime and use the actual time, since
+    we are never sending it over the network?
+  - it looks like sometimes the latest_received_server_tick is always 0, when the sync bug happens
+    - that happens because we start at latest_received_server_tick = 0, and we receive a server tick that is >32k, so it's considered 'smaller'
+    - FIXED
+  - also i've seen a case where client_ideal_tick was lower than server_tick, which is not possible
+    - "2023-12-27T23:01:38.614369Z INFO lightyear::client::sync: Finished syncing! buffer_len=7 latency=199.465125ms
+      jitter=8.13034ms delta_tick=18160 predicted_server_receive_time=WrappedTime { time: 285.611786s }
+      client_ahead_time=40.01602ms client_ideal_time=WrappedTime { time: 285.651802s } client_ideal_tick=Tick(18282)
+      server_tick=Some(Tick(18314)) client_current_tick=Tick(122)"
+    - it seems that the bug is due to using smoothing on the server_time_estimate. It means that the server_time_estimate can not
+      match the server-tick (and be earlier compared to what it would be if we had used the server tick). Temp solution is to
+      remove the smoothing on server_time_estimate for now before syncing. (because syncing depends directly on adding a delta)
+    - TODO:
+      - should i keep it after smoothing? can it have adverse effects?
+
 - BUGS:
   - client-replication: it seems like the updates are getting accumulated for a given entity while the client is not synced
     - that's because we don't do the duplicate check anymore, so we keep adding new updates
