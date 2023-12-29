@@ -50,18 +50,19 @@ impl BevyStepper {
 
         // Use local channels instead of UDP for testing
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
-        let io_1 = IoConfig::from_transport(TransportConfig::LocalChannel)
-            .with_conditioner(conditioner.clone())
-            .get_io();
-        let (receiver_1, sender_1) = io_1.to_parts();
+        let (send, recv) = crossbeam_channel::unbounded();
+        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+            send: send.clone(),
+            recv: recv.clone(),
+        })
+        .with_conditioner(conditioner.clone())
+        .get_io();
 
-        let io_2 = IoConfig::from_transport(TransportConfig::LocalChannel)
-            .with_conditioner(conditioner.clone())
-            .get_io();
-        let (receiver_2, sender_2) = io_2.to_parts();
-
-        let io_1 = Io::new(addr, sender_2, receiver_1);
-        let io_2 = Io::new(addr, sender_1, receiver_2);
+        let server_io = IoConfig::from_transport(TransportConfig::Channels {
+            channels: vec![(addr, recv, send)],
+        })
+        .with_conditioner(conditioner.clone())
+        .get_io();
 
         // Shared config
         let protocol_id = 0;
@@ -79,7 +80,7 @@ impl BevyStepper {
             netcode: netcode_config,
             ping: PingConfig::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, io_1, protocol());
+        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
@@ -101,7 +102,7 @@ impl BevyStepper {
             prediction: prediction_config,
             interpolation: interpolation_config,
         };
-        let plugin_config = client::PluginConfig::new(config, io_2, protocol(), auth);
+        let plugin_config = client::PluginConfig::new(config, client_io, protocol(), auth);
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 

@@ -304,7 +304,7 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
-/// let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(
+/// let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
 ///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)))
 /// );
 /// let private_key = generate_key();

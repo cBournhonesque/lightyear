@@ -168,7 +168,7 @@ pub enum ClientState {
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-/// # let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(
+/// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
 /// #    addr))
 /// # );
 /// # let mut server = Server::new(0, [0; 32]).unwrap();
@@ -541,7 +541,7 @@ impl<Ctx> Client<Ctx> {
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = Server::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::LocalChannel));
+    /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::LocalChannel));
     /// let mut client = Client::new(&token_bytes).unwrap();
     /// client.connect();
     ///

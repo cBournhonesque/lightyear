@@ -11,6 +11,7 @@ pub(crate) const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
     0,
 );
 
+// TODO: this is client only; separate client/server transport traits
 #[derive(Clone)]
 pub struct LocalChannel {
     recv: Receiver<Vec<u8>>,
@@ -19,11 +20,10 @@ pub struct LocalChannel {
 }
 
 impl LocalChannel {
-    pub(crate) fn new() -> Self {
-        let (send1, recv1) = crossbeam_channel::unbounded();
+    pub(crate) fn new(recv: Receiver<Vec<u8>>, send: Sender<Vec<u8>>) -> Self {
         LocalChannel {
-            recv: recv1,
-            send: send1,
+            recv,
+            send,
             buffer: vec![],
         }
     }
@@ -34,13 +34,11 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let sender = LocalChannelSender {
-            send: self.send.clone(),
-        };
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+        let sender = LocalChannelSender { send: self.send };
         let receiver = LocalChannelReceiver {
             buffer: vec![],
-            recv: self.recv.clone(),
+            recv: self.recv,
         };
         (Box::new(sender), Box::new(receiver))
     }
@@ -62,6 +60,7 @@ impl PacketReceiver for LocalChannelReceiver {
                 ))),
             },
             |data| {
+                dbg!("received data from server");
                 self.buffer = data;
                 Ok(Some((self.buffer.as_mut_slice(), LOCAL_SOCKET)))
             },

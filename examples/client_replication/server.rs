@@ -31,9 +31,8 @@ impl Plugin for MyServerPlugin {
                 certificate: Certificate::self_signed(&["localhost"]),
             },
         };
-        let io = Io::from_config(
-            &IoConfig::from_transport(transport).with_conditioner(link_conditioner),
-        );
+        let io =
+            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
         let config = ServerConfig {
             shared: shared_config().clone(),
             netcode: netcode_config,

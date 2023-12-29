@@ -51,7 +51,7 @@
  use crate::lightyear::transport::io::Io;
 
  // Create an io
- let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::LocalChannel));
+ let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::LocalChannel));
 
  // Create a server
  let protocol_id = 0x11223344;
@@ -90,7 +90,7 @@ use crate::lightyear::netcode::{generate_key, ConnectToken, Client, MAX_PACKET_S
 use crate::lightyear::transport::io::Io;
 
 // Create an io
-let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::LocalChannel));
+let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::LocalChannel));
 
 // Generate a connection token for the client
 let protocol_id = 0x11223344;

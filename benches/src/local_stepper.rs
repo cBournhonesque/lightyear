@@ -8,6 +8,7 @@ use std::time::Duration;
 use bevy::prelude::{default, App, Mut, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time};
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
+use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::client as lightyear_client;
@@ -30,7 +31,7 @@ pub trait Step {
 }
 
 pub struct LocalBevyStepper {
-    pub client_app: App,
+    pub client_apps: HashMap<ClientId, App>,
     pub server_app: App,
     pub frame_duration: Duration,
     /// fixed timestep duration
@@ -41,29 +42,84 @@ pub struct LocalBevyStepper {
 // Do not forget to use --features mock_time when using the LinkConditioner
 impl LocalBevyStepper {
     pub fn new(
+        num_clients: usize,
         shared_config: SharedConfig,
         sync_config: SyncConfig,
         prediction_config: PredictionConfig,
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        // Use local channels instead of UDP for testing
-        let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
-        let io_1 = IoConfig::from_transport(TransportConfig::LocalChannel).get_io();
-        let (receiver_1, sender_1) = io_1.to_parts();
-
-        let io_2 = IoConfig::from_transport(TransportConfig::LocalChannel).get_io();
-        let (receiver_2, sender_2) = io_2.to_parts();
-
-        let io_1 = Io::new(addr, sender_2, receiver_1);
-        let io_2 = Io::new(addr, sender_1, receiver_2);
+        let now = std::time::Instant::now();
 
         // Shared config
         let protocol_id = 0;
         let private_key = generate_key();
         let client_id = 111;
 
+        let mut client_params = vec![];
+        let mut client_apps = HashMap::new();
+        for i in 0..num_clients {
+            // Setup io
+            let client_id = i as ClientId;
+            let port = 1234 + i;
+            let addr = SocketAddr::from_str(&*format!("127.0.0.1:{:?}", port)).unwrap();
+            // channels to receive a message from/to server
+            let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
+            let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
+            let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+                recv: from_server_recv,
+                send: to_server_send,
+            })
+            .get_io();
+            client_params.push((addr, to_server_recv, from_server_send));
+
+            // Setup client
+            let mut client_app = App::new();
+            client_app.add_plugins(
+                MinimalPlugins
+                    .set(TaskPoolPlugin {
+                        task_pool_options: TaskPoolOptions {
+                            compute: TaskPoolThreadAssignmentPolicy {
+                                min_threads: available_parallelism(),
+                                max_threads: std::usize::MAX,
+                                percent: 1.0,
+                            },
+                            ..default()
+                        },
+                    })
+                    .build(),
+            );
+            let auth = Authentication::Manual {
+                server_addr: addr,
+                protocol_id,
+                private_key,
+                client_id,
+            };
+            let config = ClientConfig {
+                shared: shared_config.clone(),
+                sync: sync_config.clone(),
+                prediction: prediction_config,
+                interpolation: interpolation_config.clone(),
+                ..default()
+            };
+            let plugin_config = client::PluginConfig::new(config, client_io, protocol(), auth);
+            let plugin = client::ClientPlugin::new(plugin_config);
+            client_app.add_plugins(plugin);
+            // Initialize Real time (needed only for the first TimeSystem run)
+            client_app
+                .world
+                .get_resource_mut::<Time<Real>>()
+                .unwrap()
+                .update_with_instant(now);
+            client_apps.insert(client_id, client_app);
+        }
+
         // Setup server
+        let server_io = IoConfig::from_transport(TransportConfig::Channels {
+            channels: client_params,
+        })
+        .get_io();
+
         let mut server_app = App::new();
         server_app.add_plugins(
             MinimalPlugins
@@ -87,58 +143,18 @@ impl LocalBevyStepper {
             netcode: netcode_config,
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, io_1, protocol());
+        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
-        // Setup client
-        let mut client_app = App::new();
-        client_app.add_plugins(
-            MinimalPlugins
-                .set(TaskPoolPlugin {
-                    task_pool_options: TaskPoolOptions {
-                        compute: TaskPoolThreadAssignmentPolicy {
-                            min_threads: available_parallelism(),
-                            max_threads: std::usize::MAX,
-                            percent: 1.0,
-                        },
-                        ..default()
-                    },
-                })
-                .build(),
-        );
-        let auth = Authentication::Manual {
-            server_addr: addr,
-            protocol_id,
-            private_key,
-            client_id,
-        };
-        let config = ClientConfig {
-            shared: shared_config.clone(),
-            sync: sync_config,
-            prediction: prediction_config,
-            interpolation: interpolation_config,
-            ..default()
-        };
-        let plugin_config = client::PluginConfig::new(config, io_2, protocol(), auth);
-        let plugin = client::ClientPlugin::new(plugin_config);
-        client_app.add_plugins(plugin);
-
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = std::time::Instant::now();
-        client_app
-            .world
-            .get_resource_mut::<Time<Real>>()
-            .unwrap()
-            .update_with_instant(now);
         server_app
             .world
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
-
         Self {
-            client_app,
+            client_apps,
             server_app,
             frame_duration,
             tick_duration: shared_config.tick.tick_duration,
@@ -146,12 +162,20 @@ impl LocalBevyStepper {
         }
     }
 
-    pub fn client(&self) -> &Client {
-        self.client_app.world.resource::<Client>()
+    pub fn client(&self, client_id: ClientId) -> &Client {
+        self.client_apps
+            .get(&client_id)
+            .unwrap()
+            .world
+            .resource::<Client>()
     }
 
-    pub fn client_mut(&mut self) -> Mut<Client> {
-        self.client_app.world.resource_mut::<Client>()
+    pub fn client_mut(&mut self, client_id: ClientId) -> Mut<Client> {
+        self.client_apps
+            .get_mut(&client_id)
+            .unwrap()
+            .world
+            .resource_mut::<Client>()
     }
 
     fn server(&self) -> &Server {
@@ -159,10 +183,12 @@ impl LocalBevyStepper {
     }
 
     pub fn init(&mut self) {
-        self.client_mut().connect();
+        self.client_apps.values_mut().for_each(|client_app| {
+            client_app.world.resource_mut::<Client>().connect();
+        });
 
         // Advance the world to let the connection process complete
-        for _ in 0..100 {
+        for _ in 0..50 {
             self.frame_step();
         }
     }
@@ -172,21 +198,23 @@ impl Step for LocalBevyStepper {
     /// Advance the world by one frame duration
     fn frame_step(&mut self) {
         self.current_time += self.frame_duration;
-        self.client_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        self.client_app.update();
         self.server_app.update();
+        for client_app in self.client_apps.values_mut() {
+            client_app.insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+            client_app.update();
+        }
     }
 
     fn tick_step(&mut self) {
         self.current_time += self.tick_duration;
-        self.client_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        self.client_app.update();
         self.server_app.update();
+        for client_app in self.client_apps.values_mut() {
+            client_app.insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+            client_app.update();
+        }
     }
 }

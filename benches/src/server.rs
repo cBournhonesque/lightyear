@@ -12,7 +12,7 @@ use lightyear::prelude::*;
 
 pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key: Key) {
     // create udp-socket based io
-    let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
+    let io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
     let config = ServerConfig {
         shared: SharedConfig {
             tick: TickConfig::new(Duration::from_millis(10)),

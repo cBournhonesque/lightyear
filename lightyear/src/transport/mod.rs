@@ -12,7 +12,8 @@ pub(crate) mod local;
 /// The transport is a UDP socket
 pub(crate) mod udp;
 
-// mod channels;
+/// The transport is a map of channels (used for server, during testing)
+pub(crate) mod channels;
 
 /// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
@@ -25,7 +26,7 @@ use std::net::SocketAddr;
 pub trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
 
     // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>);
 }

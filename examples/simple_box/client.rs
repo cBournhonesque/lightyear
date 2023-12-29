@@ -40,9 +40,8 @@ impl Plugin for MyClientPlugin {
                 server_addr,
             },
         };
-        let io = Io::from_config(
-            &IoConfig::from_transport(transport).with_conditioner(link_conditioner),
-        );
+        let io =
+            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
         let config = ClientConfig {
             shared: shared_config().clone(),
             input: InputConfig::default(),
