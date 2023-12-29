@@ -4,28 +4,18 @@ use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-
-pub(crate) const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
-    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
-    0,
-);
+use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 // TODO: this is client only; separate client/server transport traits
 #[derive(Clone)]
 pub struct LocalChannel {
     recv: Receiver<Vec<u8>>,
     send: Sender<Vec<u8>>,
-    buffer: Vec<u8>,
 }
 
 impl LocalChannel {
     pub(crate) fn new(recv: Receiver<Vec<u8>>, send: Sender<Vec<u8>>) -> Self {
-        LocalChannel {
-            recv,
-            send,
-            buffer: vec![],
-        }
+        LocalChannel { recv, send }
     }
 }
 

@@ -22,6 +22,11 @@ pub mod webtransport;
 use std::io::Result;
 use std::net::SocketAddr;
 
+pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+    0,
+);
+
 /// Transport combines a PacketSender and a PacketReceiver
 pub trait Transport {
     /// Return the local socket address for this transport

@@ -19,6 +19,7 @@ use lightyear::prelude::client::{
 use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
 use lightyear::server as lightyear_server;
+use lightyear::transport::LOCAL_SOCKET;
 
 use crate::protocol::*;
 
@@ -50,6 +51,8 @@ impl LocalBevyStepper {
         frame_duration: Duration,
     ) -> Self {
         let now = std::time::Instant::now();
+        // Local channels transport only works with server socket = LOCAL_SOCKET
+        let server_addr = LOCAL_SOCKET;
 
         // Shared config
         let protocol_id = 0;
@@ -90,7 +93,7 @@ impl LocalBevyStepper {
                     .build(),
             );
             let auth = Authentication::Manual {
-                server_addr: addr,
+                server_addr,
                 protocol_id,
                 private_key,
                 client_id,

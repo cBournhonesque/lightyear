@@ -44,7 +44,6 @@ ringbuffer = "0.15"
 thiserror = "1.0.50"
 
 # transport
-futures = "0.3.30"
 wtransport = { version = "0.1.9", optional = true }
 
 # serialization

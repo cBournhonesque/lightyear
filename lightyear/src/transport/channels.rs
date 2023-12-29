@@ -7,31 +7,20 @@ use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::info;
 
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 #[derive(Clone)]
 pub struct Channels {
-    addr: SocketAddr,
-    // local receiver channel
-    recv: Receiver<Vec<u8>>,
-    // local sender channel
-    send: Option<Sender<Vec<u8>>>,
     // sender channels from remotes
     remote_recv: HashMap<SocketAddr, Receiver<Vec<u8>>>,
     remote_send: HashMap<SocketAddr, Sender<Vec<u8>>>,
-    buffer: Vec<u8>,
 }
 
 impl Channels {
-    pub(crate) fn new(addr: SocketAddr) -> Self {
-        let (send, recv) = crossbeam_channel::unbounded();
+    pub(crate) fn new() -> Self {
         Channels {
-            addr,
-            recv,
-            send: Some(send),
             remote_recv: HashMap::new(),
             remote_send: HashMap::new(),
-            buffer: vec![],
         }
     }
 
@@ -51,7 +40,7 @@ impl Channels {
 
 impl Transport for Channels {
     fn local_addr(&self) -> SocketAddr {
-        self.addr
+        LOCAL_SOCKET
     }
 
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {

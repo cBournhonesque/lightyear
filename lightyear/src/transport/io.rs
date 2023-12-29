@@ -12,7 +12,7 @@ use wtransport::tls::Certificate;
 
 use crate::transport::channels::Channels;
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
-use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
+use crate::transport::local::LocalChannel;
 use crate::transport::udp::UdpSocket;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocket;
@@ -74,7 +74,7 @@ impl TransportConfig {
                 Io::new(addr, sender, receiver)
             }
             TransportConfig::Channels { channels } => {
-                let mut transport = Channels::new(LOCAL_SOCKET);
+                let mut transport = Channels::new();
                 for (addr, remote_recv, remote_send) in channels.into_iter() {
                     transport.add_new_remote(addr, remote_recv, remote_send);
                 }
