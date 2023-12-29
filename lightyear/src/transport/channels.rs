@@ -56,7 +56,7 @@ impl Transport for Channels {
             let mut id_map = HashMap::new();
             let mut select = Select::new();
             for (addr, recv) in o.recv.iter() {
-                let idx = select.recv(&recv);
+                let idx = select.recv(recv);
                 id_map.insert(idx, *addr);
             }
             ChannelsReceiverDependent {
