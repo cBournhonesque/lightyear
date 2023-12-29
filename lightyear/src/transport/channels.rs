@@ -107,8 +107,8 @@ impl PacketReceiver for ChannelsReceiver {
                     let addr = dependent.id_map.get(&op.index()).unwrap();
                     let recv = owner.recv.get(addr).unwrap();
                     match op.recv(recv) {
-                        Ok(_) => {
-                            dbg!("recv data from client {:?}", addr);
+                        Ok(data) => {
+                            dependent.buffer = data;
                             Ok(Some((dependent.buffer.as_mut_slice(), *addr)))
                         }
                         Err(e) => Err(std::io::Error::other(format!(
@@ -129,7 +129,6 @@ struct ChannelsSender {
 
 impl PacketSender for ChannelsSender {
     fn send(&mut self, payload: &[u8], addr: &SocketAddr) -> std::io::Result<()> {
-        dbg!("Server sending packet to {:?}", addr);
         self.send
             .get(addr)
             .ok_or(std::io::Error::other(

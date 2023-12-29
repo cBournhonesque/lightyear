@@ -188,7 +188,14 @@ impl LocalBevyStepper {
         });
 
         // Advance the world to let the connection process complete
-        for _ in 0..50 {
+        for _ in 0..100 {
+            if self
+                .client_apps
+                .values()
+                .all(|c| c.world.resource::<Client>().is_synced())
+            {
+                return;
+            }
             self.frame_step();
         }
     }

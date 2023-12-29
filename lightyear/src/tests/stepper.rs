@@ -50,16 +50,18 @@ impl BevyStepper {
 
         // Use local channels instead of UDP for testing
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
-        let (send, recv) = crossbeam_channel::unbounded();
+        // channels to receive a message from/to server
+        let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
+        let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
         let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
-            send: send.clone(),
-            recv: recv.clone(),
+            send: to_server_send,
+            recv: from_server_recv,
         })
         .with_conditioner(conditioner.clone())
         .get_io();
 
         let server_io = IoConfig::from_transport(TransportConfig::Channels {
-            channels: vec![(addr, recv, send)],
+            channels: vec![(addr, to_server_recv, from_server_send)],
         })
         .with_conditioner(conditioner.clone())
         .get_io();

@@ -538,10 +538,11 @@ impl<Ctx> Client<Ctx> {
     /// # use std::time::{Instant, Duration};
     /// # use std::thread;
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
+    /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = Server::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::LocalChannel));
+    /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
     /// let mut client = Client::new(&token_bytes).unwrap();
     /// client.connect();
     ///

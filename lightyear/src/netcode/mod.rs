@@ -44,14 +44,15 @@
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
 
  ```
- use std::{thread, time::{Instant, Duration}};
+ use std::{thread, time::{Instant, Duration}, net::SocketAddr};
  use crate::lightyear::netcode::{generate_key, Server, MAX_PACKET_SIZE};
 
  use lightyear::prelude::{IoConfig, TransportConfig};
  use crate::lightyear::transport::io::Io;
 
  // Create an io
- let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::LocalChannel));
+ let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
+ let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
 
  // Create a server
  let protocol_id = 0x11223344;
@@ -84,13 +85,14 @@
   * Optionally provide a [`ClientConfig`] - a struct that allows you to customize the client's behavior.
 
  ```
-use std::{thread, time::{Instant, Duration}};
+use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 use lightyear::prelude::{IoConfig, TransportConfig};
 use crate::lightyear::netcode::{generate_key, ConnectToken, Client, MAX_PACKET_SIZE};
 use crate::lightyear::transport::io::Io;
 
 // Create an io
-let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::LocalChannel));
+let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
+let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
 
 // Generate a connection token for the client
 let protocol_id = 0x11223344;

@@ -60,7 +60,6 @@ impl PacketReceiver for LocalChannelReceiver {
                 ))),
             },
             |data| {
-                dbg!("received data from server");
                 self.buffer = data;
                 Ok(Some((self.buffer.as_mut_slice(), LOCAL_SOCKET)))
             },

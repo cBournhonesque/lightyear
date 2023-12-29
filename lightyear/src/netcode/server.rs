@@ -771,7 +771,7 @@ impl<Ctx> Server<Ctx> {
     /// # let private_key = [42u8; 32];
     /// # let mut server = Server::new(protocol_id, private_key).unwrap();
     /// # let mut io = Io::from_config(
-    /// #     &IoConfig::from_transport(TransportConfig::UdpSocket(addr))
+    /// #     IoConfig::from_transport(TransportConfig::UdpSocket(addr))
     /// # );
     /// let start = Instant::now();
     /// loop {
