@@ -47,7 +47,9 @@ but for this demo we will mostly use the defaults.
 ```rust,noplayground
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
+        // how often will the server send packets to the client (you can use this to reduce bandwidth used)
         server_send_interval: Duration::from_millis(100),
+        // configuration for the FixedUpdate schedule
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
@@ -59,6 +61,7 @@ pub fn shared_config() -> SharedConfig {
         ..Default::default()
     }
 }
+// You can add a link conditioner to simulate network conditions
 let link_conditioner = LinkConditionerConfig {
     incoming_latency: Duration::from_millis(100),
     incoming_jitter: Duration::from_millis(0),
@@ -91,7 +94,7 @@ app.add_plugins(lightyear_shared::client::Plugin::new(plugin_config));
 
 This adds the `Client` resource to the `App`.
 The `Client` resource lets you:
-- send messages to the server on a given channel: `fn buffer_send<C: Channel, M: Message>(&mut self, message: M)`
+- send messages to the server on a given channel: `fn send_message<C: Channel, M: Message>(&mut self, message: M)`
 - handle inputs (store them in a local buffer and send them to the server): `fn add_input(&mut self, input: P::Input)`
 
 ## Server

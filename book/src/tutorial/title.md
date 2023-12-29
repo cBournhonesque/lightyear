@@ -38,6 +38,8 @@ pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
+    // NOTE: we NEED to provide a None input so that the server can distinguish between lost input packets and 'None' inputs
+    None,
 }
 impl UserInput for Inputs {}
 ```

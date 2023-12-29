@@ -65,7 +65,7 @@ pub(crate) fn movement(
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             for mut position in position_query.iter_mut() {
-                shared_movement_behaviour(&mut position, input);
+                shared_movement_behaviour(position, input);
             }
         }
     }
