@@ -1,5 +1,6 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
+use crossbeam_channel::{Receiver, Sender};
 use std::fmt::{Debug, Formatter};
 use std::io::Result;
 use std::net::{IpAddr, SocketAddr};
@@ -9,6 +10,7 @@ use metrics;
 #[cfg(feature = "webtransport")]
 use wtransport::tls::Certificate;
 
+use crate::transport::channels::Channels;
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::LocalChannel;
 use crate::transport::udp::UdpSocket;
@@ -31,31 +33,62 @@ pub enum TransportConfig {
         server_addr: SocketAddr,
         certificate: Certificate,
     },
-    LocalChannel,
+    Channels {
+        channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>,
+    },
+    LocalChannel {
+        recv: Receiver<Vec<u8>>,
+        send: Sender<Vec<u8>>,
+    },
 }
 
 impl TransportConfig {
-    pub fn get_io(&self) -> Io {
-        let mut transport: Box<dyn Transport> = match self {
-            TransportConfig::UdpSocket(addr) => Box::new(UdpSocket::new(addr).unwrap()),
+    pub fn get_io(self) -> Io {
+        // we don't use `dyn Transport` and instead repeat the code for `transport.listen()` because that function is not
+        // object-safe (we would get "the size of `dyn Transport` cannot be statically determined")
+        match self {
+            TransportConfig::UdpSocket(addr) => {
+                let transport = UdpSocket::new(addr).unwrap();
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
             #[cfg(feature = "webtransport")]
             TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
-            } => Box::new(WebTransportClientSocket::new(*client_addr, *server_addr)),
+            } => {
+                let transport = WebTransportClientSocket::new(client_addr, server_addr);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
             #[cfg(feature = "webtransport")]
             TransportConfig::WebTransportServer {
                 server_addr,
                 certificate,
-            } => Box::new(WebTransportServerSocket::new(
-                *server_addr,
-                certificate.clone(),
-            )),
-            TransportConfig::LocalChannel => Box::new(LocalChannel::new()),
-        };
-        let addr = transport.local_addr();
-        let (sender, receiver) = transport.listen();
-        Io::new(addr, sender, receiver)
+            } => {
+                let transport = WebTransportServerSocket::new(server_addr, certificate);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+            TransportConfig::Channels { channels } => {
+                let mut transport = Channels::new();
+                for (addr, remote_recv, remote_send) in channels.into_iter() {
+                    transport.add_new_remote(addr, remote_recv, remote_send);
+                }
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+            TransportConfig::LocalChannel { recv, send } => {
+                let transport = LocalChannel::new(recv, send);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+        }
     }
 }
 
@@ -86,9 +119,9 @@ impl IoConfig {
         self
     }
 
-    pub fn get_io(&self) -> Io {
+    pub fn get_io(self) -> Io {
         let mut io = self.transport.get_io();
-        if let Some(conditioner) = &self.conditioner {
+        if let Some(conditioner) = self.conditioner {
             io = Io::new(
                 io.local_addr,
                 io.sender,
@@ -113,7 +146,7 @@ pub struct IoStats {
 }
 
 impl Io {
-    pub fn from_config(config: &IoConfig) -> Self {
+    pub fn from_config(config: IoConfig) -> Self {
         config.get_io()
     }
 

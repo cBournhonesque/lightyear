@@ -4,28 +4,18 @@ use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
-pub(crate) const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
-    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
-    0,
-);
-
+// TODO: this is client only; separate client/server transport traits
 #[derive(Clone)]
 pub struct LocalChannel {
     recv: Receiver<Vec<u8>>,
     send: Sender<Vec<u8>>,
-    buffer: Vec<u8>,
 }
 
 impl LocalChannel {
-    pub(crate) fn new() -> Self {
-        let (send1, recv1) = crossbeam_channel::unbounded();
-        LocalChannel {
-            recv: recv1,
-            send: send1,
-            buffer: vec![],
-        }
+    pub(crate) fn new(recv: Receiver<Vec<u8>>, send: Sender<Vec<u8>>) -> Self {
+        LocalChannel { recv, send }
     }
 }
 
@@ -34,13 +24,11 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let sender = LocalChannelSender {
-            send: self.send.clone(),
-        };
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+        let sender = LocalChannelSender { send: self.send };
         let receiver = LocalChannelReceiver {
             buffer: vec![],
-            recv: self.recv.clone(),
+            recv: self.recv,
         };
         (Box::new(sender), Box::new(receiver))
     }

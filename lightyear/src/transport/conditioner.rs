@@ -43,10 +43,10 @@ pub struct ConditionedPacketReceiver<T: PacketReceiver, P: Eq> {
 }
 
 impl<T: PacketReceiver, P: Eq> ConditionedPacketReceiver<T, P> {
-    pub fn new(packet_receiver: T, link_conditioner_config: &LinkConditionerConfig) -> Self {
+    pub fn new(packet_receiver: T, link_conditioner_config: LinkConditionerConfig) -> Self {
         ConditionedPacketReceiver {
             packet_receiver,
-            config: link_conditioner_config.clone(),
+            config: link_conditioner_config,
             time_queue: ReadyBuffer::new(),
             last_packet: None,
         }

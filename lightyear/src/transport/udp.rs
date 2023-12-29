@@ -23,8 +23,8 @@ pub struct UdpSocket {
 
 impl UdpSocket {
     /// Create a non-blocking UDP socket
-    pub fn new(local_addr: &SocketAddr) -> Result<Self> {
-        let udp_socket = std::net::UdpSocket::bind(*local_addr)?;
+    pub fn new(local_addr: SocketAddr) -> Result<Self> {
+        let udp_socket = std::net::UdpSocket::bind(local_addr)?;
         let socket = Arc::new(Mutex::new(udp_socket));
         socket.as_ref().lock().unwrap().set_nonblocking(true)?;
         Ok(Self {
@@ -44,7 +44,7 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         (Box::new(self.clone()), Box::new(self.clone()))
     }
 }
@@ -97,8 +97,8 @@ mod tests {
         // let the OS assigned a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let mut server_socket = UdpSocket::new(&local_addr)?;
-        let mut client_socket = UdpSocket::new(&local_addr)?;
+        let mut server_socket = UdpSocket::new(local_addr)?;
+        let mut client_socket = UdpSocket::new(local_addr)?;
 
         let server_addr = server_socket.local_addr();
         let client_addr = client_socket.local_addr();
@@ -124,15 +124,15 @@ mod tests {
         // let the OS assigned a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let server_socket = UdpSocket::new(&local_addr)?;
-        let mut client_socket = UdpSocket::new(&local_addr)?;
+        let server_socket = UdpSocket::new(local_addr)?;
+        let mut client_socket = UdpSocket::new(local_addr)?;
 
         let server_addr = server_socket.local_addr();
         let client_addr = client_socket.local_addr();
 
         let mut conditioned_server_receiver = ConditionedPacketReceiver::new(
             server_socket,
-            &LinkConditionerConfig {
+            LinkConditionerConfig {
                 incoming_latency: Duration::from_millis(100),
                 incoming_jitter: Duration::from_millis(0),
                 incoming_loss: 0.0,

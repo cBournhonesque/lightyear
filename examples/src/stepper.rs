@@ -65,7 +65,7 @@ impl BevyStepper {
             .with_protocol_id(protocol_id)
             .with_key(private_key);
         let io = Io::from_config(
-            &IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
+            IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
                 .with_conditioner(conditioner.clone()),
         );
         let config = ServerConfig {
@@ -88,7 +88,7 @@ impl BevyStepper {
         };
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let io = Io::from_config(
-            &IoConfig::from_transport(TransportConfig::UdpSocket(addr))
+            IoConfig::from_transport(TransportConfig::UdpSocket(addr))
                 .with_conditioner(conditioner.clone()),
         );
         let config = ClientConfig {

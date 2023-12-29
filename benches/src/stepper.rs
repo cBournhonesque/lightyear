@@ -63,7 +63,7 @@ impl BevyStepper {
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(protocol_id)
             .with_key(private_key);
-        let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(
+        let io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
             local_addr,
         )));
         let server_addr = io.local_addr();
@@ -89,7 +89,7 @@ impl BevyStepper {
                 client_id,
             };
             // let addr = SocketAddr::from_str(&format!("127.0.0.1:{}", i)).unwrap();
-            let io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(
+            let io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
                 local_addr,
             )));
             let config = ClientConfig {

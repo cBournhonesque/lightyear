@@ -81,10 +81,10 @@ impl Transport for WebTransportServerSocket {
         self.server_addr
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         // TODO: should i create my own task pool?
         let server_addr = self.server_addr;
-        let certificate = std::mem::take(&mut self.certificate).unwrap();
+        let certificate = self.certificate.unwrap();
         let (to_client_sender, to_client_receiver) =
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();

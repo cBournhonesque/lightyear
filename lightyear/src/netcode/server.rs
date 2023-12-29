@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -304,7 +304,7 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
-/// let mut io = Io::from_config(&IoConfig::from_transport(TransportConfig::UdpSocket(
+/// let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
 ///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)))
 /// );
 /// let private_key = generate_key();
@@ -771,7 +771,7 @@ impl<Ctx> Server<Ctx> {
     /// # let private_key = [42u8; 32];
     /// # let mut server = Server::new(protocol_id, private_key).unwrap();
     /// # let mut io = Io::from_config(
-    /// #     &IoConfig::from_transport(TransportConfig::UdpSocket(addr))
+    /// #     IoConfig::from_transport(TransportConfig::UdpSocket(addr))
     /// # );
     /// let start = Instant::now();
     /// loop {
