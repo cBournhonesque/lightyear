@@ -27,6 +27,7 @@ webtransport = [
   "tokio/sync",
   "wtransport/dangerous-configuration",
 ]
+steamworks = ["dep:steamworks"]
 
 
 [dependencies]
@@ -45,6 +46,7 @@ thiserror = "1.0.50"
 
 # transport
 wtransport = { version = "0.1.9", optional = true }
+steamworks = { version = "0.10.0", optional = true }
 
 # serialization
 bitcode = { version = "0.4.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [

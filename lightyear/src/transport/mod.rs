@@ -15,6 +15,7 @@ pub(crate) mod udp;
 /// The transport is a map of channels (used for server, during testing)
 pub(crate) mod channels;
 
+mod steam;
 /// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
 pub mod webtransport;
