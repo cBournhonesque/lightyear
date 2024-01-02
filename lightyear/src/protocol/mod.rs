@@ -12,7 +12,6 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::channel::builder::{Channel, ChannelSettings};
-use crate::inputs::UserInput;
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
 use crate::protocol::message::MessageProtocol;
@@ -68,7 +67,12 @@ pub(crate) mod registry;
 ///# fn main() {}
 /// ```
 pub trait Protocol: Send + Sync + Clone + Debug + 'static {
-    type Input: UserInput;
+    type Input: crate::inputs::native::UserAction;
+    #[cfg(feature = "leafwing")]
+    type LeafwingInput1: crate::inputs::leafwing::UserAction;
+    #[cfg(feature = "leafwing")]
+    type LeafwingInput2: crate::inputs::leafwing::UserAction;
+
     type Message: MessageProtocol<Protocol = Self>;
     type Components: ComponentProtocol<Protocol = Self>;
     type ComponentKinds: ComponentProtocolKind<Protocol = Self>;
@@ -95,6 +99,10 @@ macro_rules! protocolize {
         Message = $message:ty,
         Component = $components:ty,
         Input = $input:ty,
+        #[cfg(feature = "leafwing")]
+        LeafwingInput1 = $leafwing_input_1:ty,
+        #[cfg(feature = "leafwing")]
+        LeafwingInput2 = $leafwing_input_2:ty,
         Crate = $shared_crate_name:ident,
     ) => {
         use $shared_crate_name::_reexport::paste;
@@ -112,6 +120,10 @@ macro_rules! protocolize {
 
             impl Protocol for $protocol {
                 type Input = $input;
+                #[cfg(feature = "leafwing")]
+                type LeafwingInput1 = $leafwing_input_1;
+                #[cfg(feature = "leafwing")]
+                type LeafwingInput2 = $leafwing_input_2;
                 type Message = $message;
                 type Components = $components;
                 type ComponentKinds = [<$components Kind>];
@@ -174,6 +186,29 @@ macro_rules! protocolize {
         Self = $protocol:ident,
         Message = $message:ty,
         Component = $components:ty,
+        Input = $input:ty,
+        Crate = $shared_crate_name:ident,
+    ) => {
+        #[cfg(feature = "leafwing")]
+        use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
+
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = $input,
+            #[cfg(feature = "leafwing")]
+            LeafwingInput1 = NoAction1,
+            #[cfg(feature = "leafwing")]
+            LeafwingInput2 = NoAction2,
+            Crate = $shared_crate_name,
+        }
+    };
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
         Crate = $shared_crate_name:ident,
     ) => {
         protocolize!{
@@ -209,7 +244,6 @@ macro_rules! protocolize {
             Self = $protocol,
             Message = $message,
             Component = $components,
-            Input = (),
             Crate = lightyear,
         }
     };
@@ -248,69 +282,3 @@ where
 pub trait EventContext: Send + Sync + 'static {}
 
 impl<T: Send + Sync + 'static> EventContext for T {}
-
-// #[cfg(test)]
-// pub mod tests {
-//     use bevy::prelude::Component;
-//     use serde::Deserialize;
-//
-//     use lightyear_macros::{
-//         component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
-//     };
-//
-//     use crate::prelude::{ChannelDirection, ChannelMode, ReliableSettings};
-//
-//     use super::*;
-//
-//     // Messages
-//     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
-//     pub struct Message1(pub String);
-//
-//     #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
-//     pub struct Message2(pub u32);
-//
-//     // #[derive(Debug, PartialEq)]
-//     #[message_protocol_internal(protocol = "MyProtocol")]
-//     pub enum MyMessageProtocol {
-//         Message1(Message1),
-//         Message2(Message2),
-//     }
-//
-//     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-//     pub struct Component1;
-//
-//     // TODO: because we add ShouldBePredicted to the enum, we cannot derive stuff for the enum anymore!
-//     //  is it a problem? we could pass the derives through an attribute macro ...
-//     // #[derive(Debug, PartialEq)]
-//     #[component_protocol_internal(protocol = "MyProtocol")]
-//     pub enum MyComponentsProtocol {
-//         Component1(Component1),
-//     }
-//
-//     protocolize! {
-//         Self = MyProtocol,
-//         Message = MyMessageProtocol,
-//         Component = MyComponentsProtocol,
-//         Crate = crate,
-//     }
-//
-//     // Channels
-//     #[derive(ChannelInternal)]
-//     pub struct Channel1;
-//
-//     #[derive(ChannelInternal)]
-//     pub struct Channel2;
-//
-//     pub fn test_protocol() -> MyProtocol {
-//         let mut p = MyProtocol::default();
-//         p.add_channel::<Channel1>(ChannelSettings {
-//             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-//             direction: ChannelDirection::Bidirectional,
-//         });
-//         p.add_channel::<Channel2>(ChannelSettings {
-//             mode: ChannelMode::UnorderedUnreliable,
-//             direction: ChannelDirection::Bidirectional,
-//         });
-//         p
-//     }
-// }

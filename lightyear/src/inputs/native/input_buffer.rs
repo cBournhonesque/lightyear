@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use lightyear_macros::MessageInternal;
 
-use crate::inputs::UserInput;
+use super::UserAction;
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
 #[derive(Resource, Debug)]
-pub struct InputBuffer<T: UserInput> {
+pub struct InputBuffer<T: UserAction> {
     pub buffer: VecDeque<Option<T>>,
     pub start_tick: Tick,
 }
@@ -19,7 +19,7 @@ pub struct InputBuffer<T: UserInput> {
 // TODO: add encode directive to encode even more efficiently
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-enum InputData<T: UserInput> {
+enum InputData<T: UserAction> {
     Absent,
     SameAsPrecedent,
     Input(T),
@@ -29,13 +29,13 @@ enum InputData<T: UserInput> {
 #[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<T: UserInput> {
+pub struct InputMessage<T: UserAction> {
     end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     inputs: Vec<InputData<T>>,
 }
 
-impl<T: UserInput> InputMessage<T> {
+impl<T: UserAction> InputMessage<T> {
     pub fn is_empty(&self) -> bool {
         if self.inputs.len() == 0 {
             return true;
@@ -48,7 +48,7 @@ impl<T: UserInput> InputMessage<T> {
     }
 }
 
-impl<T: UserInput> Default for InputBuffer<T> {
+impl<T: UserAction> Default for InputBuffer<T> {
     fn default() -> Self {
         Self {
             // buffer: SequenceBuffer::new(),
@@ -59,7 +59,7 @@ impl<T: UserInput> Default for InputBuffer<T> {
     }
 }
 
-impl<T: UserInput> InputBuffer<T> {
+impl<T: UserAction> InputBuffer<T> {
     // pub(crate) fn remove(&mut self, tick: Tick) -> Option<T> {
     //     if tick < self.start_tick || tick > self.end_tick {
     //         return None;
@@ -183,7 +183,7 @@ impl<T: UserInput> InputBuffer<T> {
 mod tests {
     use super::*;
 
-    impl UserInput for usize {}
+    impl UserAction for usize {}
 
     #[test]
     fn test_get_set_pop() {

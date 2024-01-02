@@ -1,6 +1,10 @@
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::prelude::*;
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
+use leafwing_input_manager::action_state::ActionState;
+use leafwing_input_manager::input_map::InputMap;
+use leafwing_input_manager::prelude::Actionlike;
+use leafwing_input_manager::InputManagerBundle;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use serde::{Deserialize, Serialize};
@@ -13,6 +17,7 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: PlayerColor,
     replicate: Replicate,
+    inputs: InputManagerBundle<Inputs>,
 }
 
 impl PlayerBundle {
@@ -27,6 +32,17 @@ impl PlayerBundle {
                 // use rooms for replication
                 replication_mode: ReplicationMode::Room,
                 ..default()
+            },
+            inputs: InputManagerBundle::<Inputs> {
+                action_state: ActionState::default(),
+                input_map: InputMap::new([
+                    (KeyCode::Right, Inputs::Right),
+                    (KeyCode::Left, Inputs::Left),
+                    (KeyCode::Up, Inputs::Up),
+                    (KeyCode::Down, Inputs::Down),
+                    (KeyCode::Delete, Inputs::Delete),
+                    (KeyCode::Space, Inputs::Spawn),
+                ]),
             },
         }
     }
@@ -99,29 +115,42 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct Direction {
-    pub(crate) up: bool,
-    pub(crate) down: bool,
-    pub(crate) left: bool,
-    pub(crate) right: bool,
-}
-
-impl Direction {
-    pub(crate) fn is_none(&self) -> bool {
-        !self.up && !self.down && !self.left && !self.right
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Actionlike,
+)]
 pub enum Inputs {
-    Direction(Direction),
+    Up,
+    Down,
+    Left,
+    Right,
     Delete,
     Spawn,
+    Message,
+    #[default]
     None,
 }
 
-impl UserInput for Inputs {}
+impl Inputs {
+    /// Get the mapping from keycodes to inputs
+    pub(crate) fn get_input_map() -> InputMap<Inputs> {
+        use KeyCode::*;
+        InputMap::new([
+            (Right, Inputs::Right),
+            (D, Inputs::Right),
+            (Left, Inputs::Left),
+            (A, Inputs::Left),
+            (Up, Inputs::Up),
+            (W, Inputs::Up),
+            (Down, Inputs::Down),
+            (S, Inputs::Down),
+            (Delete, Inputs::Delete),
+            (Space, Inputs::Spawn),
+            (M, Inputs::Message),
+        ])
+    }
+}
+
+impl UserAction for Inputs {}
 
 // Protocol
 

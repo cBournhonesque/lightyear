@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use bevy::prelude::{Component, Entity, Event};
 
-use crate::inputs::UserInput;
+use crate::inputs::native::UserAction;
 use crate::packet::message::Message;
 
 #[derive(Event)]
@@ -52,12 +52,12 @@ impl<M: Message, Ctx> MessageEvent<M, Ctx> {
 
 #[derive(Event)]
 /// Event emitted on server every time we receive an event
-pub struct InputEvent<I: UserInput, Ctx = ()> {
+pub struct InputEvent<I: UserAction, Ctx = ()> {
     input: Option<I>,
     context: Ctx,
 }
 
-impl<I: UserInput, Ctx> InputEvent<I, Ctx> {
+impl<I: UserAction, Ctx> InputEvent<I, Ctx> {
     pub fn new(input: Option<I>, context: Ctx) -> Self {
         Self { input, context }
     }

@@ -7,11 +7,12 @@ use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, Time, Virtual, World};
 use bevy::utils::EntityHashMap;
+use cfg_if::cfg_if;
 use tracing::{debug, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{Client as NetcodeClient, ClientId};
 use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
@@ -132,27 +133,6 @@ impl<P: Protocol> Client<P> {
     }
 
     // INPUT
-
-    // TODO: maybe put the input_buffer directly in Client ?
-    //  layer of indirection feelds annoying
-    pub fn add_input(&mut self, input: P::Input) {
-        self.connection
-            .add_input(input, self.tick_manager.current_tick());
-    }
-
-    pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
-        &self.connection.input_buffer
-    }
-
-    pub fn get_mut_input_buffer(&mut self) -> &mut InputBuffer<P::Input> {
-        &mut self.connection.input_buffer
-    }
-
-    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
-    /// to keep it for rollback)
-    pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
-        self.connection.input_buffer.get(tick).cloned()
-    }
 
     // TIME
 
@@ -294,6 +274,30 @@ impl<P: Protocol> Client<P> {
                 .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
         }
         Ok(())
+    }
+}
+
+// INPUT
+impl<P: Protocol> Client<P> {
+    // TODO: maybe put the input_buffer directly in Client ?
+    //  layer of indirection feelds annoying
+    pub fn add_input(&mut self, input: P::Input) {
+        self.connection
+            .add_input(input, self.tick_manager.current_tick());
+    }
+
+    pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
+        &self.connection.input_buffer
+    }
+
+    pub fn get_mut_input_buffer(&mut self) -> &mut InputBuffer<P::Input> {
+        &mut self.connection.input_buffer
+    }
+
+    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
+    /// to keep it for rollback)
+    pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
+        self.connection.input_buffer.get(tick).cloned()
     }
 }
 

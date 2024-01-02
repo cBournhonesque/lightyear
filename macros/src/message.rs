@@ -38,7 +38,7 @@ pub fn message_impl(
     // Methods
     let gen = quote! {
         pub mod #module_name {
-            use super::#struct_name;
+            use super::*;
             use bevy::prelude::*;
             use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::prelude::*;
@@ -127,8 +127,17 @@ pub fn message_protocol_impl(
 
     // Add extra variants
     input.variants.push(parse_quote! {
-        InputMessage(InputMessage<<#protocol as Protocol>::Input>)
+        InputMessage(#shared_crate_name::inputs::native::InputMessage<<#protocol as Protocol>::Input>)
     });
+
+    #[cfg(feature = "leafwing")]
+    for i in 1..3 {
+        let variant = Ident::new(&format!("LeafwingInput{}Message", i), Span::call_site());
+        let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
+        input.variants.push(parse_quote! {
+            #variant(#shared_crate_name::inputs::leafwing::InputMessage<<#protocol as Protocol>::#ty>)
+        });
+    }
 
     // Helper Properties
     let fields = get_fields(&input);
@@ -142,6 +151,7 @@ pub fn message_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
+    let is_input_method = is_input_method(&input);
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
     let delegate_method = delegate_method(&input);
@@ -173,6 +183,7 @@ pub fn message_protocol_impl(
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
 
+                #is_input_method
                 #add_events_method
                 #push_message_events_method
             }
@@ -213,6 +224,37 @@ fn push_message_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> To
         )
         {
             #body
+        }
+    }
+}
+
+fn is_input_method(input: &ItemEnum) -> TokenStream {
+    let enum_name = &input.ident;
+    let variants = input.variants.iter().map(|v| v.ident.clone());
+    let mut body = quote! {};
+    for variant in input.variants.iter() {
+        let ident = &variant.ident;
+        let variant_name = ident.to_string();
+        if (variant_name.starts_with("Input") || variant_name.starts_with("Leafwing"))
+            && variant_name.ends_with("Message")
+        {
+            body = quote! {
+                #body
+                &#enum_name::#ident(_) => true,
+            };
+        } else {
+            body = quote! {
+                #body
+                &#enum_name::#ident(_) => false,
+            };
+        }
+    }
+
+    quote! {
+        fn is_input(&self) -> bool {
+            match self {
+                #body
+            }
         }
     }
 }

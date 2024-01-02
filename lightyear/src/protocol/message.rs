@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::connection::events::IterMessageEvent;
-use crate::inputs::input_buffer::InputMessage;
+use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::MapEntities;
 use crate::protocol::registry::TypeKind;
@@ -32,6 +32,9 @@ pub trait MessageProtocol:
     + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
 {
     type Protocol: Protocol;
+
+    /// Returns true if the message is an input message
+    fn is_input(&self) -> bool;
 
     // TODO: combine these 2 into a single function that takes app?
     /// Add events to the app

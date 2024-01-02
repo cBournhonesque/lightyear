@@ -22,6 +22,10 @@ name = "interest_management"
 path = "interest_management/main.rs"
 
 [[example]]
+name = "leafwing_inputs"
+path = "leafwing_inputs/main.rs"
+
+[[example]]
 name = "replication_groups"
 path = "replication_groups/main.rs"
 
@@ -55,7 +59,8 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-lightyear = { path = "../lightyear", features = ["webtransport"] }
+leafwing-input-manager = "0.11.2"
+lightyear = { path = "../lightyear", features = ["webtransport", "leafwing"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"

@@ -1,6 +1,8 @@
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::prelude::{default, Bundle, Component, Deref, DerefMut, Entity, Vec2};
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
+use leafwing_input_manager::prelude::*;
+use lightyear::_reexport::ShouldBePredicted;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -8,65 +10,78 @@ use serde::{Deserialize, Serialize};
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
-    position: PlayerPosition,
-    color: PlayerColor,
+    position: Position,
+    color: Color,
     replicate: Replicate,
+    inputs: InputManagerBundle<PlayerActions>,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+    pub(crate) fn new(
+        id: ClientId,
+        position: Vec2,
+        color: bevy::prelude::Color,
+        input_map: InputMap<PlayerActions>,
+    ) -> Self {
         Self {
             id: PlayerId(id),
-            position: PlayerPosition(position),
-            color: PlayerColor(color),
+            position: Position(position),
+            color: Color(color),
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
-        }
-    }
-}
-
-// Player
-#[derive(Bundle)]
-pub(crate) struct CursorBundle {
-    id: PlayerId,
-    position: CursorPosition,
-    color: PlayerColor,
-    replicate: Replicate,
-}
-
-impl CursorBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
-        Self {
-            id: PlayerId(id),
-            position: CursorPosition(position),
-            color: PlayerColor(color),
-            replicate: Replicate {
-                replication_target: NetworkTarget::All,
-                // prediction_target: NetworkTarget::None,
-                // prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                ..default()
+            inputs: InputManagerBundle::<PlayerActions> {
+                action_state: ActionState::default(),
+                input_map,
             },
         }
     }
 }
 
-// Components
+// Ball
+#[derive(Bundle)]
+pub(crate) struct BallBundle {
+    position: Position,
+    color: Color,
+    replicate: Replicate,
+    marker: BallMarker,
+}
 
+impl BallBundle {
+    pub(crate) fn new(position: Vec2, color: bevy::prelude::Color) -> Self {
+        Self {
+            position: Position(position),
+            color: Color(color),
+            replicate: Replicate {
+                replication_target: NetworkTarget::All,
+                // the ball is predicted by all players!
+                prediction_target: NetworkTarget::All,
+                // prediction_target: NetworkTarget::Only(vec![id]),
+                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                ..default()
+            },
+            marker: BallMarker,
+        }
+    }
+}
+
+// Components
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
 #[derive(
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
-pub struct PlayerPosition(Vec2);
+pub struct Position(Vec2);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
-pub struct PlayerColor(pub(crate) Color);
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Color(pub bevy::prelude::Color);
+
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BallMarker;
 
 #[derive(
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
@@ -78,11 +93,13 @@ pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),
     #[sync(full)]
-    PlayerPosition(PlayerPosition),
+    Position(Position),
     #[sync(once)]
-    PlayerColor(PlayerColor),
+    Color(Color),
     #[sync(full)]
     CursorPosition(CursorPosition),
+    #[sync(once)]
+    BallMarker(BallMarker),
 }
 
 // Channels
@@ -102,29 +119,23 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct Direction {
-    pub(crate) up: bool,
-    pub(crate) down: bool,
-    pub(crate) left: bool,
-    pub(crate) right: bool,
-}
-
-impl Direction {
-    pub(crate) fn is_none(&self) -> bool {
-        !self.up && !self.down && !self.left && !self.right
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum Inputs {
-    Direction(Direction),
-    Delete,
-    Spawn,
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Actionlike)]
+pub enum PlayerActions {
+    Up,
+    Down,
+    Left,
+    Right,
     None,
 }
 
-impl UserAction for Inputs {}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Actionlike)]
+pub enum AdminActions {
+    Reset,
+    None,
+}
+
+impl UserAction for PlayerActions {}
+impl UserAction for AdminActions {}
 
 // Protocol
 
@@ -132,7 +143,8 @@ protocolize! {
     Self = MyProtocol,
     Message = Messages,
     Component = Components,
-    Input = Inputs,
+    Input = PlayerActions,
+    Input2 = AdminActions,
 }
 
 pub(crate) fn protocol() -> MyProtocol {

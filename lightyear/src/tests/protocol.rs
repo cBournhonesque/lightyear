@@ -4,6 +4,7 @@ use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::*;
+use crate::inputs::native::UserAction;
 use crate::prelude::*;
 
 // Messages
@@ -60,7 +61,7 @@ pub enum MyComponentsProtocol {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
 
-impl UserInput for MyInput {}
+impl UserAction for MyInput {}
 
 // Protocol
 protocolize! {

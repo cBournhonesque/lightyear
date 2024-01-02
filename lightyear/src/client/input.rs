@@ -11,7 +11,7 @@ use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
-use crate::inputs::UserInput;
+use crate::inputs::native::UserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 
@@ -21,7 +21,7 @@ pub struct InputConfig {
     /// This is used to compute the redundancy of the input messages.
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
-    packet_redundancy: u16,
+    pub(crate) packet_redundancy: u16,
 }
 
 impl Default for InputConfig {
@@ -56,7 +56,7 @@ impl<P: Protocol> Default for InputPlugin<P> {
 }
 
 /// Input of the user for the current tick
-pub struct CurrentInput<T: UserInput> {
+pub struct CurrentInput<T: UserAction> {
     // TODO: should we allow a Vec of inputs? for example if a user presses multiple buttons?
     //  or would that be encoded as a combination?
     input: T,

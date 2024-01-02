@@ -13,7 +13,7 @@ use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, error, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;

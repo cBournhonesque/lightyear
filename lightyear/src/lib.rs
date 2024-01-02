@@ -33,7 +33,6 @@ pub mod _reexport {
     pub use crate::connection::events::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
-    pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
         FromType, IntoKind,
@@ -68,7 +67,7 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
-    pub use crate::inputs::UserInput;
+    // pub use crate::inputs::native::UserAction;
     pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
@@ -108,6 +107,9 @@ pub mod prelude {
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
+
+        #[cfg(feature = "leafwing")]
+        pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
     }
     pub mod server {
         #[cfg(feature = "webtransport")]

@@ -12,7 +12,7 @@ use crate::channel::senders::ChannelSend;
 use crate::client::sync::SyncConfig;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::{ClientMessage, ServerMessage};
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::message_receivers::MessageReceiver;
 use crate::packet::message_sender::MessageSender;
