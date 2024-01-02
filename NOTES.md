@@ -12,10 +12,11 @@
     - we maintain a map with NetId of each Channel,Message,Input,Component in the protocol
     - on serialize:
       - we find the netid of the input
-      - we'll need to pass the ComponentKinds to the serialize function
+      - we'll need to pass the ComponentKinds to the serialize function to get the netid
     - on deserialize:
       - we pass the ComponentKinds to the deserialize function
       - we read the netid and get a `dyn ComponentBuilder`
+      - we use the builder to build a `dyn Component`?
 
 
 - INPUTS:
@@ -81,10 +82,15 @@
                this should arrive on time in the server
         - ON SERVER:
           - we have systems:
-            - add_action_state_diff_buffer: we add a buffer of ActionDiff no each component/global
+            - add_action_state_diff_buffer: we add a buffer of ActionDiff to each component/global
             - receive_message: when we receive the ActionStateMessage, we add the new diffs to our buffer of diffs
             - prepare_action_state: before our tick, we apply the various diffs to each action state to bring them to a current actionstate
-             
+        - BUT WAIT:
+          - instead of networking ActionDiffs, maybe we could network the Inputs directly?
+          - because with ActionDiff how do we handle lost-actions?
+            - with raw inputs, we could consider that the joystick is still pressed but going towards the middle. For buttons, we consider still pressed.
+            - but how does it work with ActionDiffs? We could do the same thing with the value (make it go towards 0.0 if we haven't received any input for float inputs,
+              for buttons we just consider that it wasn't released)
            
         - on client, we store a buffer of ActionStates, so that we can know for each tick what the action-state was (for rollback)
           - we need to use the InputReader<ActionState> to get the correct action-state for either rollback or not.

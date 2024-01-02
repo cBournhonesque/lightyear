@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use bevy::prelude::{App, Component, EntityWorldMut, World};
@@ -9,7 +9,7 @@ use crate::client::components::ComponentSyncMode;
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
-use crate::prelude::MapEntities;
+use crate::prelude::{MapEntities, Named};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::replication::components::ShouldBePredicted;
@@ -116,6 +116,7 @@ pub trait ComponentProtocolKind:
     + Debug
     + Send
     + Sync
+    + Display
     + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
     + ComponentKindBehaviour
     + FromType<ShouldBePredicted>

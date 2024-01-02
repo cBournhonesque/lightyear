@@ -145,7 +145,7 @@ impl<P: Protocol> ConnectionEvents<P> {
         trace!(?entity, ?component, "Received insert component");
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("component_insert", "kind" => component);
+            metrics::increment_counter!("component_insert", "kind" => component.to_string());
         }
         self.component_inserts
             .entry(component)
@@ -164,7 +164,7 @@ impl<P: Protocol> ConnectionEvents<P> {
         trace!(?entity, ?component, "Received remove component");
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("component_remove", "kind" => component);
+            metrics::increment_counter!("component_remove", "kind" => component.to_string());
         }
         self.component_removes
             .entry(component)
@@ -184,7 +184,7 @@ impl<P: Protocol> ConnectionEvents<P> {
         trace!(?entity, ?component, "Received update component");
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("component_update", "kind" => component);
+            metrics::increment_counter!("component_update", "kind" => component.to_string());
         }
         // self.components_with_updates.insert(component.clone());
         // self.component_updates

@@ -7,9 +7,10 @@
 use std::fmt::Debug;
 
 pub trait TypeNamed {
-    fn name() -> String;
+    fn name() -> &'static str;
 }
 
 pub trait Named {
-    fn name(&self) -> String;
+    // TODO: should I return a str?
+    fn name(&self) -> &'static str;
 }

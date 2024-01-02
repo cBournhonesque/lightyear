@@ -60,7 +60,7 @@ impl<P: Protocol, A: UserAction> Default for LeafwingInputPlugin<P, A> {
     }
 }
 
-impl<P: Protocol, A: UserAction> Plugin for LeafwingInputPlugin<P, A> {
+impl<P: Protocol, A: UserAction + TypePath> Plugin for LeafwingInputPlugin<P, A> {
     fn build(&self, app: &mut App) {
         // PLUGINS
         app.add_plugins(InputManagerPlugin::<A>::default());
@@ -140,13 +140,13 @@ fn add_action_state_buffer<A: UserAction>(
 // We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<P: Protocol, A: UserAction>(
     // TODO: get tick from tick_manager, not client
-    mut client: ResMut<Client<P>>,
+    client: ResMut<Client<P>>,
     mut global_input_buffer: ResMut<InputBuffer<A>>,
     global_action_state: Option<Res<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &ActionState<A>, &mut InputBuffer<A>)>,
 ) {
     let tick = client.tick();
-    for (entity, action_state, mut input_buffer) in action_state_query.iter() {
+    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         input_buffer.set(tick, action_state.clone());
     }
     if let Some(action_state) = global_action_state {
@@ -158,7 +158,7 @@ fn buffer_action_state<P: Protocol, A: UserAction>(
 // to set the ActionState resource/component
 fn get_rollback_action_state<A: UserAction>(
     global_input_buffer: Res<InputBuffer<A>>,
-    mut global_action_state: Option<ResMut<ActionState<A>>>,
+    global_action_state: Option<ResMut<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &mut ActionState<A>, &InputBuffer<A>)>,
     rollback: Res<Rollback>,
 ) {
@@ -201,7 +201,7 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
     for (entity, input_buffer) in input_buffer_query.iter() {
         input_buffer.add_to_message(&mut message, current_tick, message_len, Some(entity));
     }
-    if let Some(mut input_buffer) = global_input_buffer {
+    if let Some(input_buffer) = global_input_buffer {
         input_buffer.add_to_message(&mut message, current_tick, message_len, None);
     }
 

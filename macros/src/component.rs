@@ -201,6 +201,12 @@ pub fn component_protocol_impl(
                 }
             }
 
+            impl std::fmt::Display for #enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                    std::fmt::Debug::fmt(self, f)
+                }
+            }
+
             #sync_component_impl
             #delegate_method
 
@@ -216,6 +222,12 @@ pub fn component_protocol_impl(
 
             impl ComponentKindBehaviour for #enum_kind_name {
                 #remove_method
+            }
+
+            impl std::fmt::Display for #enum_kind_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                    std::fmt::Debug::fmt(self, f)
+                }
             }
             // TODO: we don't need to implement for now because we get it for free from Serialize + Deserialize + Clone
             // impl BitSerializable for #enum_name {

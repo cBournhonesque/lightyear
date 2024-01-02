@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity, Resource};
-use bevy::utils::{EntityHashMap, EntityHashSet};
+use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
 use leafwing_input_manager::common_conditions::action_just_pressed;
 use leafwing_input_manager::prelude::ActionState;
 use leafwing_input_manager::Actionlike;
@@ -33,7 +33,7 @@ use crate::shared::tick_manager::Tick;
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
 pub(crate) struct InputBuffer<A: UserAction> {
-    start_tick: Tick,
+    start_tick: Option<Tick>,
     buffer: VecDeque<BufferItem<ActionState<A>>>,
 }
 
@@ -48,7 +48,7 @@ enum BufferItem<T> {
 impl<A: UserAction> Default for InputBuffer<A> {
     fn default() -> Self {
         Self {
-            start_tick: Tick(0),
+            start_tick: None,
             buffer: VecDeque::new(),
         }
     }
@@ -70,20 +70,23 @@ pub struct InputMessage<T: UserAction> {
     end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     global_diffs: Vec<Vec<ActionDiff<T>>>,
-    per_entity_diffs: EntityHashMap<Entity, Vec<Vec<ActionDiff<T>>>>,
+    per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<T>>>)>,
 }
 
 impl<'a, A: UserAction> MapEntities<'a> for InputMessage<A> {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        self.per_entity_diffs.drain().for_each(|(entity, diffs)| {
-            if let Some(new_entity) = entity_mapper.map(entity) {
-                self.per_entity_diffs.insert(new_entity, diffs);
+        self.per_entity_diffs.iter_mut().for_each(|(entity, _)| {
+            if let Some(new_entity) = entity_mapper.map(*entity) {
+                *entity = new_entity;
             }
         });
     }
 
     fn entities(&self) -> EntityHashSet<Entity> {
-        self.per_entity_diffs.keys().copied().collect()
+        self.per_entity_diffs
+            .iter()
+            .map(|(entity, _)| *entity)
+            .collect()
     }
 }
 
@@ -101,15 +104,24 @@ impl<T: UserAction> InputBuffer<T> {
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
     pub(crate) fn set(&mut self, tick: Tick, value: ActionState<T>) {
+        let Some(start_tick) = self.start_tick else {
+            // initialize the buffer
+            self.start_tick = Some(tick);
+            self.buffer.push_back(BufferItem::Data(value));
+            return;
+        };
+
         // cannot set lower values than start_tick
-        if tick < self.start_tick {
+        if tick < start_tick {
             return;
         }
 
-        let end_tick = self.start_tick + (self.buffer.len() as i16 - 1);
+        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
         if tick > end_tick {
             // TODO: think about whether this is correct or not, it is correct if we always call set()
             //  with monotonically increasing ticks, which I think is the case
+            //  maybe that's not correct because the timing information should be different? (i.e. I should tick the action-states myself
+            //  and set them)
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             for _ in 0..(tick - end_tick - 1) {
                 self.buffer.push_back(BufferItem::SameAsPrecedent);
@@ -118,19 +130,19 @@ impl<T: UserAction> InputBuffer<T> {
             self.buffer.push_back(BufferItem::Absent);
         }
 
-        // safety: we are guaranteed that the tick is in the buffer
-        let entry = self
-            .buffer
-            .get_mut((tick - self.start_tick) as usize)
-            .unwrap();
-
-        // check what the previous value was
-        if let Some(action_state) = self.get(tick - (1 + self.start_tick)) {
+        // check if the value is the same as the precedent tick, in which case we compress it
+        let mut same_as_precedent = false;
+        if let Some(action_state) = self.get(tick - 1) {
             if action_state == &value {
-                *entry = BufferItem::SameAsPrecedent;
-            } else {
-                *entry = BufferItem::Data(value);
+                same_as_precedent = true;
             }
+        }
+
+        // safety: we are guaranteed that the tick is in the buffer
+        let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
+
+        if same_as_precedent {
+            *entry = BufferItem::SameAsPrecedent;
         } else {
             *entry = BufferItem::Data(value);
         }
@@ -139,13 +151,16 @@ impl<T: UserAction> InputBuffer<T> {
     /// Remove all the inputs that are older than the given tick, then return the input
     /// for the given tick
     pub(crate) fn pop(&mut self, tick: Tick) -> Option<ActionState<T>> {
-        if tick < self.start_tick {
+        let Some(start_tick) = self.start_tick else {
+            return None;
+        };
+        if tick < start_tick {
             return None;
         }
-        if tick > self.start_tick + (self.buffer.len() as i16 - 1) {
+        if tick > start_tick + (self.buffer.len() as i16 - 1) {
             // pop everything
             self.buffer = VecDeque::new();
-            self.start_tick = tick + 1;
+            self.start_tick = Some(tick + 1);
             return None;
         }
         // info!(
@@ -155,35 +170,36 @@ impl<T: UserAction> InputBuffer<T> {
 
         // popped will represent the last value popped
         let mut popped = BufferItem::Absent;
-        for _ in 0..(tick + 1 - self.start_tick) {
+        for _ in 0..(tick + 1 - start_tick) {
             // front is the oldest value
             let data = self.buffer.pop_front();
             if let Some(BufferItem::Data(value)) = data {
                 popped = BufferItem::Data(value);
             }
         }
-        self.start_tick = tick + 1;
+        self.start_tick = Some(tick + 1);
 
         // if the next value after we popped was 'SameAsPrecedent', we need to override it with an actual value
         if let Some(BufferItem::SameAsPrecedent) = self.buffer.front() {
             *self.buffer.front_mut().unwrap() = popped.clone();
         }
 
-        if let Some(BufferItem::Data(value)) = popped {
+        if let BufferItem::Data(value) = popped {
             return Some(value);
         } else {
             return None;
         }
     }
 
+    /// Get the ActionState for the given tick
     pub(crate) fn get(&self, tick: Tick) -> Option<&ActionState<T>> {
-        if tick < self.start_tick || tick > self.start_tick + (self.buffer.len() as i16 - 1) {
+        let Some(start_tick) = self.start_tick else {
+            return None;
+        };
+        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
         }
-        let data = self
-            .buffer
-            .get((tick.0 - self.start_tick.0) as usize)
-            .unwrap();
+        let data = self.buffer.get((tick.0 - start_tick.0) as usize).unwrap();
         match data {
             BufferItem::Absent => None,
             BufferItem::SameAsPrecedent => {
@@ -219,16 +235,15 @@ impl<T: UserAction> InputBuffer<T> {
                 )
                 .collect::<Vec<ActionDiff<T>>>()
         };
-
         for delta in 0..num_ticks {
             let tick = start_tick + Tick(delta);
-            let diffs = self.get(start_tick).map_or(vec![], get_diffs);
+            let diffs = self.get(tick).map_or(vec![], get_diffs);
             inputs.push(diffs);
         }
         match entity {
             None => message.global_diffs = inputs,
             Some(e) => {
-                message.per_entity_diffs.insert(e, inputs);
+                message.per_entity_diffs.push((e, inputs));
             }
         }
     }
@@ -237,18 +252,74 @@ impl<T: UserAction> InputBuffer<T> {
 /// The `ActionDiffBuffer` stores the ActionDiff received from the client for each tick
 #[derive(Resource, Component, Debug)]
 pub(crate) struct ActionDiffBuffer<A: UserAction> {
-    start_tick: Tick,
+    start_tick: Option<Tick>,
     buffer: VecDeque<Vec<ActionDiff<A>>>,
 }
 
 impl<A: UserAction> Default for ActionDiffBuffer<A> {
     fn default() -> Self {
         Self {
-            start_tick: Tick(0),
+            start_tick: None,
             buffer: VecDeque::new(),
         }
     }
 }
+
+impl<A: UserAction> ActionDiffBuffer<A> {
+    pub(crate) fn set(&mut self, tick: Tick, diffs: Vec<ActionDiff<A>>) {
+        let Some(start_tick) = self.start_tick else {
+            // initialize the buffer
+            self.start_tick = Some(tick);
+            self.buffer.push_back(diffs);
+            return;
+        };
+
+        // cannot set lower values than start_tick
+        if tick < start_tick {
+            return;
+        }
+
+        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
+        if tick > end_tick {
+            // fill the ticks between end_tick and tick with a copy of the current ActionState
+            for _ in 0..(tick - end_tick - 1) {
+                self.buffer.push_back(vec![]);
+            }
+            // add a new value to the buffer, which we will override below
+            self.buffer.push_back(diffs);
+            return;
+        }
+        // safety: we are guaranteed that the tick is in the buffer
+        let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
+        *entry = diffs;
+    }
+
+    /// Get the ActionState for the given tick
+    pub(crate) fn get(&self, tick: Tick) -> Vec<ActionDiff<A>> {
+        let Some(start_tick) = self.start_tick else {
+            return vec![];
+        };
+        self.buffer
+            .get((tick.0 - start_tick.0) as usize)
+            .unwrap_or(&vec![])
+            .clone()
+    }
+    pub(crate) fn update_from_message(&mut self, end_tick: Tick, diffs: Vec<Vec<ActionDiff<A>>>) {
+        let message_start_tick = end_tick - diffs.len() as u16 + 1;
+        if self.start_tick.is_none() {
+            // initialize the buffer
+            self.start_tick = Some(message_start_tick);
+        };
+        let start_tick = self.start_tick.unwrap();
+
+        for (delta, diffs_for_tick) in diffs.into_iter().enumerate() {
+            let tick = message_start_tick + Tick(delta as u16);
+            self.set(tick, diffs_for_tick);
+        }
+    }
+}
+
+// TODO: update from message
 
 #[cfg(test)]
 mod tests {
@@ -259,7 +330,7 @@ mod tests {
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
     )]
     enum Action {
-        Jump(usize),
+        Jump,
     }
 
     impl UserAction for Action {}
@@ -269,80 +340,111 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
 
         let mut a1 = ActionState::default();
-        a1.press(Action::Jump(0));
+        a1.press(Action::Jump);
+        a1.action_data_mut(Action::Jump).value = 0.0;
         let mut a2 = ActionState::default();
-        a2.press(Action::Jump(1));
-        input_buffer.set(Tick(4), a1);
-        input_buffer.set(Tick(6), a2);
+        a2.press(Action::Jump);
+        a1.action_data_mut(Action::Jump).value = 1.0;
+        input_buffer.set(Tick(3), a1.clone());
+        input_buffer.set(Tick(6), a2.clone());
         input_buffer.set(Tick(7), a2.clone());
 
-        assert_eq!(input_buffer.start_tick, Tick(0));
-        //
-        // assert_eq!(input_buffer.get(Tick(4)), Some(&0));
-        // assert_eq!(input_buffer.get(Tick(5)), None);
-        // assert_eq!(input_buffer.get(Tick(6)), Some(&1));
-        // assert_eq!(input_buffer.get(Tick(8)), None);
-        //
-        // assert_eq!(input_buffer.pop(Tick(5)), None);
-        // assert_eq!(input_buffer.start_tick, Tick(6));
-        // assert_eq!(input_buffer.pop(Tick(7)), Some(1));
-        // assert_eq!(input_buffer.start_tick, Tick(8));
-        // assert_eq!(input_buffer.buffer.len(), 0);
+        assert_eq!(input_buffer.start_tick, Some(Tick(3)));
+        assert_eq!(input_buffer.buffer.len(), 5);
+
+        assert_eq!(input_buffer.get(Tick(3)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(4)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(5)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(6)), Some(&a2));
+        assert_eq!(input_buffer.get(Tick(8)), None);
+
+        assert_eq!(input_buffer.pop(Tick(4)), Some(a1.clone()));
+        assert_eq!(input_buffer.start_tick, Some(Tick(5)));
+        assert_eq!(input_buffer.buffer.len(), 3);
+
+        // the oldest element has been updated from `SameAsPrecedent` to `Data`
+        assert_eq!(
+            input_buffer.buffer.front().unwrap(),
+            &BufferItem::Data(a1.clone())
+        );
+        assert_eq!(input_buffer.pop(Tick(7)), Some(a2.clone()));
+        assert_eq!(input_buffer.start_tick, Some(Tick(8)));
+        assert_eq!(input_buffer.buffer.len(), 0);
     }
 
-    // #[test]
-    // fn test_create_message() {
-    //     let mut input_buffer = InputBuffer::default();
-    //
-    //     input_buffer.set(Tick(4), Some(0));
-    //     input_buffer.set(Tick(6), Some(1));
-    //     input_buffer.set(Tick(7), Some(1));
-    //
-    //     let message = input_buffer.create_message(Tick(10), 8);
-    //     assert_eq!(
-    //         message,
-    //         InputMessage {
-    //             end_tick: Tick(10),
-    //             inputs: vec![
-    //                 InputData::Absent,
-    //                 InputData::Input(0),
-    //                 InputData::Absent,
-    //                 InputData::Input(1),
-    //                 InputData::SameAsPrecedent,
-    //                 InputData::Absent,
-    //                 InputData::SameAsPrecedent,
-    //                 InputData::SameAsPrecedent,
-    //             ],
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_create_message() {
+        let mut input_buffer = InputBuffer::default();
 
-    // #[test]
-    // fn test_update_from_message() {
-    //     let mut input_buffer = InputBuffer::default();
-    //
-    //     let message = InputMessage {
-    //         end_tick: Tick(20),
-    //         inputs: vec![
-    //             InputData::Absent,
-    //             InputData::Input(0),
-    //             InputData::Absent,
-    //             InputData::Input(1),
-    //             InputData::SameAsPrecedent,
-    //             InputData::Absent,
-    //             InputData::SameAsPrecedent,
-    //             InputData::SameAsPrecedent,
-    //         ],
-    //     };
-    //     input_buffer.update_from_message(message);
-    //
-    //     assert_eq!(input_buffer.get(Tick(20)), None);
-    //     assert_eq!(input_buffer.get(Tick(19)), None);
-    //     assert_eq!(input_buffer.get(Tick(18)), None);
-    //     assert_eq!(input_buffer.get(Tick(17)), Some(&1));
-    //     assert_eq!(input_buffer.get(Tick(16)), Some(&1));
-    //     assert_eq!(input_buffer.get(Tick(15)), None);
-    //     assert_eq!(input_buffer.get(Tick(14)), Some(&0));
-    //     assert_eq!(input_buffer.get(Tick(13)), None);
-    // }
+        let mut a1 = ActionState::default();
+        a1.press(Action::Jump);
+        a1.action_data_mut(Action::Jump).value = 0.0;
+        let mut a2 = ActionState::default();
+        a2.press(Action::Jump);
+        a1.action_data_mut(Action::Jump).value = 1.0;
+        input_buffer.set(Tick(3), a1.clone());
+        input_buffer.set(Tick(4), ActionState::default());
+        input_buffer.set(Tick(5), ActionState::default());
+        input_buffer.set(Tick(6), ActionState::default());
+        input_buffer.set(Tick(7), a2.clone());
+
+        let end_tick = Tick(10);
+        let mut message = InputMessage::<Action>::new(end_tick);
+
+        input_buffer.add_to_message(&mut message, end_tick, 9, None);
+        assert_eq!(
+            message,
+            InputMessage {
+                end_tick: Tick(10),
+                global_diffs: vec![
+                    vec![], // tick 2
+                    vec![ActionDiff::Pressed(Action::Jump)],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![ActionDiff::Pressed(Action::Jump)],
+                    vec![],
+                    vec![],
+                    vec![],
+                ],
+                per_entity_diffs: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn test_update_from_message() {
+        let mut diff_buffer = ActionDiffBuffer::default();
+
+        let end_tick = Tick(20);
+        let diffs = vec![
+            vec![],
+            vec![ActionDiff::Pressed(Action::Jump)],
+            vec![],
+            vec![],
+            vec![],
+            vec![ActionDiff::Pressed(Action::Jump)],
+            vec![],
+            vec![],
+            vec![],
+        ];
+
+        diff_buffer.update_from_message(end_tick, diffs);
+
+        assert_eq!(diff_buffer.get(Tick(20)), vec![]);
+        assert_eq!(diff_buffer.get(Tick(19)), vec![]);
+        assert_eq!(diff_buffer.get(Tick(18)), vec![]);
+        assert_eq!(
+            diff_buffer.get(Tick(17)),
+            vec![ActionDiff::Pressed(Action::Jump)]
+        );
+        assert_eq!(diff_buffer.get(Tick(16)), vec![]);
+        assert_eq!(diff_buffer.get(Tick(15)), vec![]);
+        assert_eq!(diff_buffer.get(Tick(14)), vec![]);
+        assert_eq!(
+            diff_buffer.get(Tick(13)),
+            vec![ActionDiff::Pressed(Action::Jump)]
+        );
+        assert_eq!(diff_buffer.get(Tick(12)), vec![]);
+    }
 }
