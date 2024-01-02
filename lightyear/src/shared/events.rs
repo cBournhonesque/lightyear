@@ -1,9 +1,9 @@
 //! Bevy events that will be emitted upon receiving network messages
 use std::marker::PhantomData;
 
+use crate::inputs::leafwing::InputMessage;
 use bevy::prelude::{Component, Entity, Event};
 
-use crate::inputs::native::UserAction;
 use crate::packet::message::Message;
 
 #[derive(Event)]
@@ -31,6 +31,24 @@ impl<Ctx> DisconnectEvent<Ctx> {
 }
 
 #[derive(Event)]
+pub(crate) struct InputMessageEvent<A: crate::inputs::leafwing::UserAction, Ctx = ()> {
+    pub(crate) message: InputMessage<A>,
+    pub(crate) context: Ctx,
+}
+
+impl<A: crate::inputs::leafwing::UserAction, Ctx> InputMessageEvent<A, Ctx> {
+    pub fn new(message: InputMessage<A>, context: Ctx) -> Self {
+        Self { message, context }
+    }
+    pub fn message(&self) -> &InputMessage<A> {
+        &self.message
+    }
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
+}
+
+#[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
     message: M,
     context: Ctx,
@@ -52,12 +70,12 @@ impl<M: Message, Ctx> MessageEvent<M, Ctx> {
 
 #[derive(Event)]
 /// Event emitted on server every time we receive an event
-pub struct InputEvent<I: UserAction, Ctx = ()> {
+pub struct InputEvent<I: crate::inputs::native::UserAction, Ctx = ()> {
     input: Option<I>,
     context: Ctx,
 }
 
-impl<I: UserAction, Ctx> InputEvent<I, Ctx> {
+impl<I: crate::inputs::native::UserAction, Ctx> InputEvent<I, Ctx> {
     pub fn new(input: Option<I>, context: Ctx) -> Self {
         Self { input, context }
     }

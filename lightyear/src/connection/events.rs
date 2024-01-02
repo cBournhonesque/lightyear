@@ -2,6 +2,7 @@
 */
 use std::iter;
 
+use crate::inputs::leafwing::{InputMessage, UserAction};
 use bevy::prelude::{Component, Entity};
 use bevy::utils::HashMap;
 use tracing::trace;
@@ -19,6 +20,9 @@ pub struct ConnectionEvents<P: Protocol> {
     // netcode
     // we put disconnections outside of there because `ConnectionEvents` gets removed upon disconnection
     pub connection: bool,
+
+    // inputs (used only for leafwing messages for now)
+    pub input_messages: HashMap<MessageKind, Vec<P::Message>>,
 
     // messages
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
@@ -61,7 +65,7 @@ impl<P: Protocol> ConnectionEvents<P> {
             // netcode
             connection: false,
             // inputs
-            // inputs: InputBuffer::default(),
+            input_messages: HashMap::new(),
             // messages
             messages: HashMap::new(),
             // replication
@@ -78,6 +82,7 @@ impl<P: Protocol> ConnectionEvents<P> {
 
     pub fn clear(&mut self) {
         self.connection = false;
+        self.input_messages.clear();
         self.messages.clear();
         self.spawns.clear();
         self.despawns.clear();
@@ -100,6 +105,22 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub fn is_empty(&self) -> bool {
         self.empty
     }
+
+    pub(crate) fn push_input_message(&mut self, message: P::Message) {
+        trace!("Received input message: {:?}", message.name());
+        #[cfg(feature = "metrics")]
+        {
+            metrics::increment_counter!("input_message", "kind" => message.name());
+        }
+        self.input_messages
+            .entry(message.kind())
+            .or_default()
+            .push(message);
+        // TODO: should we consider the events as empty even if there are only input messages?
+        //  since input_messages are only used for internal purposes
+        // self.empty = false;
+    }
+
     pub fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
         trace!("Received message: {:?}", message.name());
         #[cfg(feature = "metrics")]
@@ -204,6 +225,41 @@ impl<P: Protocol> ConnectionEvents<P> {
             .push(entity);
         // .push((entity, tick));
         self.empty = false;
+    }
+}
+
+pub trait IterInputMessageEvent<P: Protocol, Ctx: EventContext = ()> {
+    fn into_iter_input_messages<A: UserAction>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (InputMessage<A>, Ctx)> + '_>
+    where
+        P::Message: TryInto<InputMessage<A>, Error = ()>;
+
+    fn has_input_messages<A: UserAction>(&self) -> bool;
+}
+
+impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
+    fn into_iter_input_messages<A: UserAction>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (InputMessage<A>, ())>>
+    where
+        // TODO: should we change this to `Into`
+        P::Message: TryInto<InputMessage<A>, Error = ()>,
+    {
+        let message_kind = MessageKind::of::<InputMessage<A>>();
+        if let Some(data) = self.input_messages.remove(&message_kind) {
+            return Box::new(data.into_iter().map(|message| {
+                // SAFETY: we checked via message kind that only messages of the type M
+                // are in the list
+                (message.try_into().unwrap(), ())
+            }));
+        }
+        Box::new(iter::empty())
+    }
+
+    fn has_input_messages<A: UserAction>(&self) -> bool {
+        let message_kind = MessageKind::of::<InputMessage<A>>();
+        self.input_messages.contains_key(&message_kind)
     }
 }
 

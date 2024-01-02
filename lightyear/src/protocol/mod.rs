@@ -99,9 +99,7 @@ macro_rules! protocolize {
         Message = $message:ty,
         Component = $components:ty,
         Input = $input:ty,
-        #[cfg(feature = "leafwing")]
         LeafwingInput1 = $leafwing_input_1:ty,
-        #[cfg(feature = "leafwing")]
         LeafwingInput2 = $leafwing_input_2:ty,
         Crate = $shared_crate_name:ident,
     ) => {
@@ -187,19 +185,38 @@ macro_rules! protocolize {
         Message = $message:ty,
         Component = $components:ty,
         Input = $input:ty,
+        LeafwingInput1 = $leafwing_input_1:ty,
+        LeafwingInput2 = $leafwing_input_2:ty,
+    ) => {
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = $input,
+            LeafwingInput1 = $leafwing_input_1,
+            LeafwingInput2 = $leafwing_input_2,
+            Crate = lightyear,
+        }
+    };
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+        Input = $input:ty,
         Crate = $shared_crate_name:ident,
     ) => {
         #[cfg(feature = "leafwing")]
         use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
+
+        // TODO: this will break with leafwing not enabled because NoAction does not exist..
 
         protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
             Input = $input,
-            #[cfg(feature = "leafwing")]
             LeafwingInput1 = NoAction1,
-            #[cfg(feature = "leafwing")]
             LeafwingInput2 = NoAction2,
             Crate = $shared_crate_name,
         }

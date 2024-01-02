@@ -41,7 +41,7 @@ pub enum MyComponentsProtocol {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
-impl UserAction for MyInput {}
+impl lightyear::inputs::native::UserAction for MyInput {}
 
 // Protocol
 

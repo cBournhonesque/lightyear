@@ -11,10 +11,17 @@ use crate::packet::message::Message;
 use crate::prelude::MapEntities;
 use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::shared::events::InputMessageEvent;
 use crate::utils::named::Named;
 
 // client writes an Enum containing all their message type
 // each message must derive message
+
+pub enum InputMessageKind {
+    Leafwing,
+    Native,
+    None,
+}
 
 // that big enum will implement MessageProtocol via a proc macro
 pub trait MessageProtocol:
@@ -34,7 +41,7 @@ pub trait MessageProtocol:
     type Protocol: Protocol;
 
     /// Returns true if the message is an input message
-    fn is_input(&self) -> bool;
+    fn input_message_kind(&self) -> InputMessageKind;
 
     // TODO: combine these 2 into a single function that takes app?
     /// Add events to the app

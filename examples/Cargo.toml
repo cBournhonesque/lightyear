@@ -57,10 +57,11 @@ path = "prediction_step.rs"
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
+leafwing = ["lightyear/leafwing"]
 
 [dependencies]
 leafwing-input-manager = "0.11.2"
-lightyear = { path = "../lightyear", features = ["webtransport", "leafwing"] }
+lightyear = { path = "../lightyear", features = ["webtransport", "render"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"

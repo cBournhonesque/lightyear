@@ -151,7 +151,7 @@ pub fn message_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
-    let is_input_method = is_input_method(&input);
+    let input_message_kind_method = input_message_kind_method(&input);
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
     let delegate_method = delegate_method(&input);
@@ -183,7 +183,7 @@ pub fn message_protocol_impl(
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
 
-                #is_input_method
+                #input_message_kind_method
                 #add_events_method
                 #push_message_events_method
             }
@@ -228,30 +228,33 @@ fn push_message_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> To
     }
 }
 
-fn is_input_method(input: &ItemEnum) -> TokenStream {
+fn input_message_kind_method(input: &ItemEnum) -> TokenStream {
     let enum_name = &input.ident;
     let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut body = quote! {};
     for variant in input.variants.iter() {
         let ident = &variant.ident;
         let variant_name = ident.to_string();
-        if (variant_name.starts_with("Input") || variant_name.starts_with("Leafwing"))
-            && variant_name.ends_with("Message")
-        {
+        if variant_name.starts_with("Input") && variant_name.ends_with("Message") {
             body = quote! {
                 #body
-                &#enum_name::#ident(_) => true,
+                &#enum_name::#ident(_) => InputMessageKind::Native,
+            };
+        } else if variant_name.starts_with("Leafwing") && variant_name.ends_with("Message") {
+            body = quote! {
+                #body
+                &#enum_name::#ident(_) => InputMessageKind::Leafwing,
             };
         } else {
             body = quote! {
                 #body
-                &#enum_name::#ident(_) => false,
+                &#enum_name::#ident(_) => InputMessageKind::None,
             };
         }
     }
 
     quote! {
-        fn is_input(&self) -> bool {
+        fn input_message_kind(&self) -> InputMessageKind {
             match self {
                 #body
             }

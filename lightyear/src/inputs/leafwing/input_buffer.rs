@@ -56,9 +56,22 @@ impl<A: UserAction> Default for InputBuffer<A> {
 
 /// Whether an action was just pressed or released. We can use this to reconstruct the ActionState
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub enum ActionDiff<T: UserAction> {
-    Pressed(T),
-    Released(T),
+pub enum ActionDiff<A: UserAction> {
+    Pressed(A),
+    Released(A),
+}
+
+impl<A: UserAction> ActionDiff<A> {
+    pub(crate) fn apply(self, action_state: &mut ActionState<A>) {
+        match self {
+            ActionDiff::Pressed(action) => {
+                action_state.press(action);
+            }
+            ActionDiff::Released(action) => {
+                action_state.release(action);
+            }
+        }
+    }
 }
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
@@ -67,10 +80,10 @@ pub enum ActionDiff<T: UserAction> {
 /// We serialize the inputs by sending only the ActionDiffs of the last few ticks
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
 pub struct InputMessage<T: UserAction> {
-    end_tick: Tick,
+    pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
-    global_diffs: Vec<Vec<ActionDiff<T>>>,
-    per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<T>>>)>,
+    pub(crate) global_diffs: Vec<Vec<ActionDiff<T>>>,
+    pub(crate) per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<T>>>)>,
 }
 
 impl<'a, A: UserAction> MapEntities<'a> for InputMessage<A> {
@@ -292,6 +305,31 @@ impl<A: UserAction> ActionDiffBuffer<A> {
         // safety: we are guaranteed that the tick is in the buffer
         let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
         *entry = diffs;
+    }
+
+    /// Remove all the diffs that are older than the given tick, then return the diffs
+    /// for the given tick
+    pub(crate) fn pop(&mut self, tick: Tick) -> Vec<ActionDiff<A>> {
+        let Some(start_tick) = self.start_tick else {
+            return vec![];
+        };
+        if tick < start_tick {
+            return vec![];
+        }
+        if tick > start_tick + (self.buffer.len() as i16 - 1) {
+            // pop everything
+            self.buffer = VecDeque::new();
+            self.start_tick = Some(tick + 1);
+            return vec![];
+        }
+
+        for _ in 0..(tick - start_tick) {
+            // front is the oldest value
+            self.buffer.pop_front();
+        }
+        self.start_tick = Some(tick + 1);
+
+        self.buffer.pop_front().unwrap_or(vec![])
     }
 
     /// Get the ActionState for the given tick

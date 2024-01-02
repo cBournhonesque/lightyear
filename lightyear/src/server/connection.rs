@@ -2,7 +2,10 @@
 use bevy::utils::{Duration, EntityHashMap, Entry, HashMap};
 use std::rc::Rc;
 
-use crate::_reexport::{EntityUpdatesChannel, MessageBehaviour, MessageKind, PingChannel};
+use crate::_reexport::{
+    EntityUpdatesChannel, InputMessageKind, MessageBehaviour, MessageKind, MessageProtocol,
+    PingChannel,
+};
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, World};
@@ -355,14 +358,20 @@ impl<P: Protocol> Connection<P> {
                                 ));
                             }
                             // don't put InputMessage into events else the events won't be classified as empty
-                            if message.kind() == MessageKind::of::<InputMessage<P::Input>>() {
-                                trace!("update input buffer");
-                                let input_message = message.try_into().unwrap();
-                                // info!("Received input message: {:?}", input_message);
-                                self.input_buffer.update_from_message(input_message);
-                            } else {
-                                // buffer the message
-                                self.events.push_message(channel_kind, message);
+                            match message.input_message_kind() {
+                                InputMessageKind::Leafwing => {
+                                    self.events.push_input_message(message);
+                                }
+                                InputMessageKind::Native => {
+                                    trace!("update input buffer");
+                                    let input_message = message.try_into().unwrap();
+                                    // info!("Received input message: {:?}", input_message);
+                                    self.input_buffer.update_from_message(input_message);
+                                }
+                                InputMessageKind::None => {
+                                    // buffer the message
+                                    self.events.push_message(channel_kind, message);
+                                }
                             }
                         }
                         ClientMessage::Replication(replication) => {

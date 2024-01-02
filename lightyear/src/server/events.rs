@@ -7,8 +7,10 @@ use crate::_reexport::{
 use bevy::prelude::{Component, Entity};
 
 use crate::connection::events::{
-    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
+    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterInputMessageEvent,
+    IterMessageEvent,
 };
+use crate::inputs::leafwing::{InputMessage, UserAction};
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
@@ -130,6 +132,29 @@ impl<P: Protocol> ServerEvents<P> {
             self.events.insert(client_id, events);
             self.empty = false;
         }
+    }
+}
+
+impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
+    fn into_iter_input_messages<A: UserAction>(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (InputMessage<A>, ClientId)> + '_>
+    where
+        P::Message: TryInto<InputMessage<A>, Error = ()>,
+    {
+        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            let messages = events
+                .into_iter_input_messages::<A>()
+                .map(|(message, _)| message);
+            let client_ids = std::iter::once(*client_id).cycle();
+            messages.zip(client_ids)
+        }))
+    }
+
+    fn has_input_messages<A: UserAction>(&self) -> bool {
+        self.events
+            .iter()
+            .any(|(_, connection_events)| connection_events.has_input_messages::<A>())
     }
 }
 
@@ -270,6 +295,7 @@ pub type EntityDespawnEvent = crate::shared::events::EntityDespawnEvent<ClientId
 pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, ClientId>;
 pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, ClientId>;
 pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, ClientId>;
+pub(crate) type InputMessageEvent<A> = crate::shared::events::InputMessageEvent<A, ClientId>;
 pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ClientId>;
 
 #[cfg(test)]

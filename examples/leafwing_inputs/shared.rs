@@ -65,8 +65,8 @@ pub(crate) fn shared_movement_behaviour(
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &Color), Without<Confirmed>>,
-    cursors: Query<(&CursorPosition, &Color), Without<Confirmed>>,
+    players: Query<(&Position, &ColorComponent), (Without<Confirmed>, Without<BallMarker>)>,
+    cursors: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
 ) {
     for (position, color) in &players {
         gizmos.rect_2d(

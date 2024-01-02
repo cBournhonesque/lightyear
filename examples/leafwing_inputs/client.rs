@@ -59,8 +59,8 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, MyProtocol::Input>::default());
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, MyProtocol::Input2>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
 
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
@@ -88,7 +88,7 @@ pub(crate) fn init(
         format!("Client {}", plugin.client_id),
         TextStyle {
             font_size: 30.0,
-            color: Color::WHITE,
+            color: bevy::prelude::Color::WHITE,
             ..default()
         },
     ));
@@ -157,7 +157,7 @@ pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut Color, Added<Predicted>>) {
+pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut ColorComponent, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
         color.0.set_s(0.4);
     }
@@ -166,7 +166,9 @@ pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut Color, Added<Pred
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - keep track of it in the Global resource
-pub(crate) fn handle_interpolated_spawn(mut interpolated: Query<&mut Color, Added<Interpolated>>) {
+pub(crate) fn handle_interpolated_spawn(
+    mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
+) {
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
     }

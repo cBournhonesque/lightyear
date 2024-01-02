@@ -1,8 +1,9 @@
-use bevy::prelude::{default, Bundle, Component, Deref, DerefMut, Entity, Vec2};
+use bevy::prelude::*;
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
+use lightyear::inputs::leafwing::UserAction;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: Position,
-    color: Color,
+    color: ColorComponent,
     replicate: Replicate,
     inputs: InputManagerBundle<PlayerActions>,
 }
@@ -20,13 +21,13 @@ impl PlayerBundle {
     pub(crate) fn new(
         id: ClientId,
         position: Vec2,
-        color: bevy::prelude::Color,
+        color: Color,
         input_map: InputMap<PlayerActions>,
     ) -> Self {
         Self {
             id: PlayerId(id),
             position: Position(position),
-            color: Color(color),
+            color: ColorComponent(color),
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
@@ -45,16 +46,16 @@ impl PlayerBundle {
 #[derive(Bundle)]
 pub(crate) struct BallBundle {
     position: Position,
-    color: Color,
+    color: ColorComponent,
     replicate: Replicate,
     marker: BallMarker,
 }
 
 impl BallBundle {
-    pub(crate) fn new(position: Vec2, color: bevy::prelude::Color) -> Self {
+    pub(crate) fn new(position: Vec2, color: Color) -> Self {
         Self {
             position: Position(position),
-            color: Color(color),
+            color: ColorComponent(color),
             replicate: Replicate {
                 replication_target: NetworkTarget::All,
                 // the ball is predicted by all players!
@@ -77,8 +78,8 @@ pub struct PlayerId(pub ClientId);
 )]
 pub struct Position(Vec2);
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Color(pub bevy::prelude::Color);
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
@@ -95,7 +96,7 @@ pub enum Components {
     #[sync(full)]
     Position(Position),
     #[sync(once)]
-    Color(Color),
+    ColorComponent(ColorComponent),
     #[sync(full)]
     CursorPosition(CursorPosition),
     #[sync(once)]
@@ -119,7 +120,7 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Actionlike)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum PlayerActions {
     Up,
     Down,
@@ -128,7 +129,7 @@ pub enum PlayerActions {
     None,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Actionlike)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum AdminActions {
     Reset,
     None,
@@ -143,8 +144,9 @@ protocolize! {
     Self = MyProtocol,
     Message = Messages,
     Component = Components,
-    Input = PlayerActions,
-    Input2 = AdminActions,
+    Input = (),
+    LeafwingInput1 = PlayerActions,
+    LeafwingInput2 = AdminActions,
 }
 
 pub(crate) fn protocol() -> MyProtocol {
