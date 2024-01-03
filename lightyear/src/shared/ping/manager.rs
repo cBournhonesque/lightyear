@@ -212,7 +212,7 @@ impl PingManager {
             let rtt = received_time - ping_sent_time;
             let server_process_time = pong.pong_sent_time - pong.ping_received_time;
             trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.pong_sent_time, ?pong.ping_received_time, "process pong");
-            let round_trip_delay = (rtt - server_process_time).to_std().unwrap();
+            let round_trip_delay = (rtt - server_process_time).to_std().unwrap_or_default();
 
             // update stats buffer
             self.sync_stats
