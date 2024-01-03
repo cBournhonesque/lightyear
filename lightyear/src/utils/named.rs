@@ -11,6 +11,6 @@ pub trait TypeNamed {
 }
 
 pub trait Named {
-    // TODO: should I return a str?
+    // const NAME: &'static str;
     fn name(&self) -> &'static str;
 }

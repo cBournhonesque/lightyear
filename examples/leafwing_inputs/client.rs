@@ -31,9 +31,9 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(900),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
+            incoming_latency: Duration::from_millis(90),
+            incoming_jitter: Duration::from_millis(5),
+            incoming_loss: 0.00,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -95,7 +95,7 @@ pub(crate) fn init(
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
     let mut entity = commands.spawn(PlayerBundle::new(
         plugin.client_id,
-        Vec2::new(-10.0, 0.0),
+        Vec2::new(-50.0, 0.0),
         color_from_id(plugin.client_id),
         InputMap::new([
             (KeyCode::W, PlayerActions::Up),
@@ -114,7 +114,7 @@ pub(crate) fn init(
 
     let mut entity = commands.spawn(PlayerBundle::new(
         plugin.client_id,
-        Vec2::new(10.0, 0.0),
+        Vec2::new(50.0, 0.0),
         color_from_id(plugin.client_id),
         InputMap::new([
             (KeyCode::Up, PlayerActions::Up),

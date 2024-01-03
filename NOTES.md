@@ -115,6 +115,10 @@
       - support Leafwing if it is enabled
       - otherwise if it is not, just do what we had before? (but add support for list of actions?)
       - how do we do it; put leafwing behind a feature, and if it is enabled use that, otherwise use what we had?
+    - DEBUG:
+      - sometimes the client/server keep doing the same action
+        - hypothesis 1: it's because of rollback
+        - hypothesis 2: it's because of packet loss
     
 
 

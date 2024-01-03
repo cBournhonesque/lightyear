@@ -21,9 +21,9 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(900),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
+            incoming_latency: Duration::from_millis(90),
+            incoming_jitter: Duration::from_millis(5),
+            incoming_loss: 0.00,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),

@@ -124,6 +124,13 @@ pub fn component_protocol_impl(
         input.variants.push(parse_quote! {
             #variant(ActionState<<#protocol as Protocol>::#ty>)
         });
+
+        // TODO: should we enable netwokring InputMap?
+        // let variant = Ident::new(&format!("InputMap{}", i), Span::call_site());
+        // let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
+        // input.variants.push(parse_quote! {
+        //     #variant(InputMap<<#protocol as Protocol>::#ty>)
+        // });
         // input.variants.push(parse_quote! {
         //     #variant(Wrapper<ActionState<<#protocol as Protocol>::#ty>>)
         // });
@@ -369,6 +376,12 @@ fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenS
                 .unwrap()
                 .to_string()
                 .starts_with("ActionState")
+        // || field
+        //     .ident
+        //     .as_ref()
+        //     .unwrap()
+        //     .to_string()
+        //     .starts_with("InputMap")
         {
             continue;
         }

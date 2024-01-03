@@ -65,7 +65,7 @@ where
             // TODO: we could get: ActionState from client, so we need to handle inputs after ReceiveFlush, but before
             (
                 add_action_diff_buffer::<A>,
-                add_input_message_event::<P, A>,
+                // add_input_message_event::<P, A>,
                 update_action_diff_buffers::<P, A>,
             )
                 .chain()
@@ -91,28 +91,31 @@ fn add_action_diff_buffer<A: UserAction>(
     }
 }
 
-// Write the input messages from the server events to the Events
-fn add_input_message_event<P: Protocol, A: UserAction>(
-    mut server: ResMut<Server<P>>,
-    mut input_message_events: ResMut<Events<InputMessageEvent<A>>>,
-) where
-    P::Message: TryInto<InputMessage<A>, Error = ()>,
-{
-    if server.events().has_input_messages::<A>() {
-        for (message, client_id) in server.events().into_iter_input_messages::<A>() {
-            input_message_events.send(InputMessageEvent::new(message, client_id));
-        }
-    }
-}
+// // Write the input messages from the server events to the Events
+// fn add_input_message_event<P: Protocol, A: UserAction>(
+//     mut server: ResMut<Server<P>>,
+//     mut input_message_events: ResMut<Events<InputMessageEvent<A>>>,
+// ) where
+//     P::Message: TryInto<InputMessage<A>, Error = ()>,
+// {
+//     if server.events().has_input_messages::<A>() {
+//         for (message, client_id) in server.events().into_iter_input_messages::<A>() {
+//             info!("received input message, sending input message event");
+//             input_message_events.send(InputMessageEvent::new(message, client_id));
+//         }
+//     }
+// }
 
 fn update_action_diff_buffers<P: Protocol, A: UserAction>(
     // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
-    mut input_message: ResMut<Events<InputMessageEvent<A>>>,
+    mut server: ResMut<Server<P>>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<&mut ActionDiffBuffer<A>>,
-) {
-    for event in input_message.update_drain() {
-        let mut message = event.message;
+) where
+    P::Message: TryInto<InputMessage<A>, Error = ()>,
+{
+    for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
+        trace!("received input message");
         // TODO: handle global diffs for each client! How? create one entity per client?
         //  or have a resource containing the global ActionState for each client?
         // if let Some(ref mut buffer) = global {
@@ -120,6 +123,7 @@ fn update_action_diff_buffers<P: Protocol, A: UserAction>(
         // }
         for (entity, diffs) in std::mem::take(&mut message.per_entity_diffs) {
             if let Ok(mut buffer) = query.get_mut(entity) {
+                trace!("update action diff buffer using input message");
                 buffer.update_from_message(message.end_tick, diffs);
             }
         }
@@ -136,10 +140,11 @@ fn update_action_state<P: Protocol, A: UserAction>(
     let tick = server.tick();
 
     for (mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
-        action_diff_buffer
-            .pop(tick)
-            .into_iter()
-            .for_each(|action| action.apply(action_state.deref_mut()))
+        action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
+            info!("update action state using action diff: {:?}", &diff);
+            diff.apply(action_state.deref_mut());
+            info!("new state: {:?}", &action_state);
+        })
     }
 }
 
@@ -151,12 +156,19 @@ mod tests {
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
+    use bevy::input::InputPlugin;
     use std::time::Duration;
 
+    use crate::inputs::leafwing::input_buffer::ActionDiff;
     use leafwing_input_manager::prelude::ActionState;
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     #[test]
     fn test_leafwing_inputs() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -182,13 +194,15 @@ mod tests {
         );
         stepper
             .client_app
-            .add_plugins(crate::client::input_leafwing::LeafwingInputPlugin::<
+            .add_plugins((crate::client::input_leafwing::LeafwingInputPlugin::<
                 MyProtocol,
                 LeafwingInput1,
-            >::default());
-        stepper
-            .server_app
-            .add_plugins(LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default());
+            >::default(), InputPlugin));
+        // let press_action_id = stepper.client_app.world.register_system(press_action);
+        stepper.server_app.add_plugins((
+            LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
+            InputPlugin,
+        ));
         stepper.init();
 
         // create an entity on server
@@ -196,6 +210,7 @@ mod tests {
             .server_app
             .world
             .spawn((
+                InputMap::<LeafwingInput1>::new([(KeyCode::A, LeafwingInput1::Jump)]),
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
             ))
@@ -220,31 +235,58 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();
-        assert_eq!(
-            stepper
-                .client_app
-                .world
-                .entity(client_entity)
-                .get::<ActionState<LeafwingInput1>>()
-                .unwrap(),
-            &ActionState::<LeafwingInput1>::default()
-        );
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .is_some(),);
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
-            .server_app
+            .client_app
             .world
             .entity(client_entity)
             .get::<InputBuffer<LeafwingInput1>>()
             .is_some());
 
-        // update the ActionState on the client
+        // update the ActionState on the client by pressing on the button once
         stepper
             .client_app
             .world
-            .entity_mut(client_entity)
-            .get_mut::<ActionState<LeafwingInput1>>()
-            .unwrap()
-            .press(LeafwingInput1::Jump);
+            .resource_mut::<Input<KeyCode>>()
+            .press(KeyCode::A);
+        stepper.frame_step();
+        // client tick when we send the Jump action
+        let client_tick = stepper.client().tick();
+        stepper
+            .client_app
+            .world
+            .resource_mut::<Input<KeyCode>>()
+            .release(KeyCode::A);
+        stepper.frame_step();
+
+        // we should have sent an InputMessage from client to server
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<ActionDiffBuffer<LeafwingInput1>>()
+                .unwrap()
+                .get(client_tick),
+            vec![ActionDiff::Pressed(LeafwingInput1::Jump)]
+        );
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<ActionDiffBuffer<LeafwingInput1>>()
+                .unwrap()
+                .get(client_tick + 1),
+            vec![ActionDiff::Released(LeafwingInput1::Jump)]
+        );
+        stepper.frame_step();
         stepper.frame_step();
     }
 }

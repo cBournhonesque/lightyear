@@ -7,7 +7,7 @@ use crate::_reexport::FromType;
 use crate::inputs::leafwing::{InputMessage, UserAction};
 use bevy::prelude::{Component, Entity};
 use bevy::utils::HashMap;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::packet::message::Message;
 use crate::prelude::{Named, Tick};
@@ -112,7 +112,11 @@ impl<P: Protocol> ConnectionEvents<P> {
 
     #[cfg(feature = "leafwing")]
     pub(crate) fn push_input_message(&mut self, message: P::Message) {
-        trace!("Received input message: {:?}", message.name());
+        trace!(
+            "Received input message: {:?}. Kind: {:?}",
+            message.name(),
+            message.kind()
+        );
         #[cfg(feature = "metrics")]
         {
             metrics::increment_counter!("input_message", "kind" => message.name());
@@ -123,7 +127,7 @@ impl<P: Protocol> ConnectionEvents<P> {
             .push(message);
         // TODO: should we consider the events as empty even if there are only input messages?
         //  since input_messages are only used for internal purposes
-        // self.empty = false;
+        self.empty = false;
     }
 
     pub fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
@@ -254,8 +258,10 @@ impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
         P::Message: TryInto<InputMessage<A>, Error = ()>,
     {
         let message_kind = MessageKind::of::<InputMessage<A>>();
+        trace!("Trying to read messages of kind: {:?}", message_kind);
         if let Some(data) = self.input_messages.remove(&message_kind) {
             return Box::new(data.into_iter().map(|message| {
+                trace!("GOT INPUT MESSAGE: {:?}", message);
                 // SAFETY: we checked via message kind that only messages of the type M
                 // are in the list
                 (message.try_into().unwrap(), ())

@@ -5,6 +5,7 @@ use crate::_reexport::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 use bevy::prelude::{Component, Entity};
+use tracing::{info, trace};
 
 #[cfg(feature = "leafwing")]
 use crate::connection::events::IterInputMessageEvent;
@@ -127,6 +128,7 @@ impl<P: Protocol> ServerEvents<P> {
     // upon disconnection
     pub(crate) fn push_disconnects(&mut self, client_id: ClientId) {
         self.disconnects.push(client_id);
+        self.events.remove(&client_id);
         self.empty = false;
     }
 
@@ -146,6 +148,7 @@ impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
     where
         P::Message: TryInto<InputMessage<A>, Error = ()>,
     {
+        trace!("num client events: {:?}", self.events.len());
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let messages = events
                 .into_iter_input_messages::<A>()

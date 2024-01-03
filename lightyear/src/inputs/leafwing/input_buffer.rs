@@ -3,10 +3,12 @@ use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity, Resource, TypePath};
 use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
+use const_format::formatcp;
 use leafwing_input_manager::common_conditions::action_just_pressed;
-use leafwing_input_manager::prelude::ActionState;
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::client::SyncComponent;
@@ -39,10 +41,11 @@ impl<'a, A: UserAction> MapEntities<'a> for ActionState<A> {
     }
 }
 impl<A: UserAction> Named for ActionState<A> {
+    // const NAME: &'static str = <A as TypePath>::short_type_path();
     fn name(&self) -> &'static str {
-        <A as TypePath>::short_type_path()
-        // const SHORT_TYPE_PATH: &'static str = <A as TypePath>::short_type_path();
-        // formatcp!("ActionState<{}>", SHORT_TYPE_PATH)
+        <ActionState<A> as TypePath>::short_type_path()
+        // <A as TypePath>::short_type_path()
+        // formatcp!("ActionState<{}>", Name)
     }
 }
 
@@ -52,12 +55,35 @@ impl<A: UserAction> SyncComponent for ActionState<A> {
     }
 }
 
+// impl<A: UserAction> Message for InputMap<A> {}
+// impl<'a, A: UserAction> MapEntities<'a> for InputMap<A> {
+//     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
+//     fn entities(&self) -> EntityHashSet<Entity> {
+//         EntityHashSet::default()
+//     }
+// }
+// impl<A: UserAction> Named for InputMap<A> {
+//     fn name(&self) -> &'static str {
+//         std::any::type_name::<InputMap<A>>()
+//         // <A as TypePath>::short_type_path()
+//         // const SHORT_TYPE_PATH: &'static str = <A as TypePath>::short_type_path();
+//         // formatcp!("ActionState<{}>", SHORT_TYPE_PATH)
+//     }
+// }
+//
+// impl<A: UserAction> SyncComponent for InputMap<A> {
+//     fn mode() -> ComponentSyncMode {
+//         // TODO: change this to Simple (in case the input map changes?)
+//         ComponentSyncMode::Once
+//     }
+// }
+
 // NOTE: right now, for simplicity, we will send all the action-diffs for all entities in one single message.
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
 pub(crate) struct InputBuffer<A: UserAction> {
     start_tick: Option<Tick>,
-    buffer: VecDeque<BufferItem<ActionState<A>>>,
+    pub(crate) buffer: VecDeque<BufferItem<ActionState<A>>>,
 }
 
 // We use this to avoid cloning values in the buffer too much
@@ -139,11 +165,12 @@ impl<T: UserAction> InputMessage<T> {
 impl<T: UserAction> InputBuffer<T> {
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
-    pub(crate) fn set(&mut self, tick: Tick, value: ActionState<T>) {
+    pub(crate) fn set(&mut self, tick: Tick, value: &ActionState<T>) {
+        info!("set input buffer for tick: {:?}", tick);
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
-            self.buffer.push_back(BufferItem::Data(value));
+            self.buffer.push_back(BufferItem::Data(value.clone()));
             return;
         };
 
@@ -154,12 +181,16 @@ impl<T: UserAction> InputBuffer<T> {
 
         let end_tick = start_tick + (self.buffer.len() as i16 - 1);
         if tick > end_tick {
+            // TODO: Think about how to fill the buffer between ticks
+            //  - we want: if an input is missing, we consider that the user did the same action (RocketLeague or Overwatch GDC)
+
             // TODO: think about whether this is correct or not, it is correct if we always call set()
             //  with monotonically increasing ticks, which I think is the case
             //  maybe that's not correct because the timing information should be different? (i.e. I should tick the action-states myself
             //  and set them)
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             for _ in 0..(tick - end_tick - 1) {
+                info!("fill ticks");
                 self.buffer.push_back(BufferItem::SameAsPrecedent);
             }
             // add a new value to the buffer, which we will override below
@@ -169,7 +200,7 @@ impl<T: UserAction> InputBuffer<T> {
         // check if the value is the same as the precedent tick, in which case we compress it
         let mut same_as_precedent = false;
         if let Some(action_state) = self.get(tick - 1) {
-            if action_state == &value {
+            if action_state == value {
                 same_as_precedent = true;
             }
         }
@@ -180,7 +211,7 @@ impl<T: UserAction> InputBuffer<T> {
         if same_as_precedent {
             *entry = BufferItem::SameAsPrecedent;
         } else {
-            *entry = BufferItem::Data(value);
+            *entry = BufferItem::Data(value.clone());
         }
     }
 
@@ -406,9 +437,9 @@ mod tests {
         let mut a2 = ActionState::default();
         a2.press(Action::Jump);
         a1.action_data_mut(Action::Jump).value = 1.0;
-        input_buffer.set(Tick(3), a1.clone());
-        input_buffer.set(Tick(6), a2.clone());
-        input_buffer.set(Tick(7), a2.clone());
+        input_buffer.set(Tick(3), &a1);
+        input_buffer.set(Tick(6), &a2);
+        input_buffer.set(Tick(7), &a2);
 
         assert_eq!(input_buffer.start_tick, Some(Tick(3)));
         assert_eq!(input_buffer.buffer.len(), 5);
@@ -443,11 +474,11 @@ mod tests {
         let mut a2 = ActionState::default();
         a2.press(Action::Jump);
         a1.action_data_mut(Action::Jump).value = 1.0;
-        input_buffer.set(Tick(3), a1.clone());
-        input_buffer.set(Tick(4), ActionState::default());
-        input_buffer.set(Tick(5), ActionState::default());
-        input_buffer.set(Tick(6), ActionState::default());
-        input_buffer.set(Tick(7), a2.clone());
+        input_buffer.set(Tick(3), &a1);
+        input_buffer.set(Tick(4), &ActionState::default());
+        input_buffer.set(Tick(5), &ActionState::default());
+        input_buffer.set(Tick(6), &ActionState::default());
+        input_buffer.set(Tick(7), &a2);
 
         let end_tick = Tick(10);
         let mut message = InputMessage::<Action>::new(end_tick);

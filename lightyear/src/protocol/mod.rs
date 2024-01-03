@@ -110,6 +110,8 @@ macro_rules! protocolize {
             use bevy::prelude::*;
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
+            #[cfg(feature = "leafwing")]
+            use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
             #[derive(Debug, Clone)]
             pub struct $protocol {
@@ -203,11 +205,49 @@ macro_rules! protocolize {
         Self = $protocol:ident,
         Message = $message:ty,
         Component = $components:ty,
+        LeafwingInput1 = $leafwing_input_1:ty,
+    ) => {
+        // #[cfg(feature = "leafwing")]
+//         use $shared_crate_name::inputs::leafwing::{NoAction2};
+
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = (),
+            LeafwingInput1 = $leafwing_input_1,
+            LeafwingInput2 = NoAction2,
+            Crate = lightyear,
+        }
+    };
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+        LeafwingInput1 = $leafwing_input_1:ty,
+        LeafwingInput2 = $leafwing_input_2:ty,
+    ) => {
+        protocolize!{
+            Self = $protocol,
+            Message = $message,
+            Component = $components,
+            Input = (),
+            LeafwingInput1 = $leafwing_input_1,
+            LeafwingInput2 = $leafwing_input_2,
+            Crate = lightyear,
+        }
+    };
+
+    (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
         Input = $input:ty,
         Crate = $shared_crate_name:ident,
     ) => {
-        #[cfg(feature = "leafwing")]
-        use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
+        // #[cfg(feature = "leafwing")]
+//         use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
         // TODO: this will break with leafwing not enabled because NoAction does not exist..
 

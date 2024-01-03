@@ -60,7 +60,10 @@ impl<P: Protocol, A: UserAction> Default for LeafwingInputPlugin<P, A> {
     }
 }
 
-impl<P: Protocol, A: UserAction + TypePath> Plugin for LeafwingInputPlugin<P, A> {
+impl<P: Protocol, A: UserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
+where
+    P::Message: From<InputMessage<A>>,
+{
     fn build(&self, app: &mut App) {
         // PLUGINS
         app.add_plugins(InputManagerPlugin::<A>::default());
@@ -90,7 +93,7 @@ impl<P: Protocol, A: UserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            (add_action_state_buffer::<A>.before(InputManagerSystem::Tick),),
+            add_action_state_buffer::<A>.after(MainSet::ReceiveFlush),
         );
         app.add_systems(
             FixedUpdate,
@@ -129,6 +132,7 @@ fn add_action_state_buffer<A: UserAction>(
     action_state: Query<Entity, Added<ActionState<A>>>,
 ) {
     for entity in action_state.iter() {
+        trace!("adding actions state buffer");
         commands.entity(entity).insert(InputBuffer::<A>::default());
     }
 }
@@ -147,10 +151,12 @@ fn buffer_action_state<P: Protocol, A: UserAction>(
 ) {
     let tick = client.tick();
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        input_buffer.set(tick, action_state.clone());
+        trace!("buffer action in input buffer: {:?}", action_state);
+        input_buffer.set(tick, action_state);
+        trace!("input buffer: {:?}", input_buffer);
     }
     if let Some(action_state) = global_action_state {
-        global_input_buffer.set(tick, action_state.clone());
+        global_input_buffer.set(tick, action_state.as_ref());
     }
 }
 
@@ -169,7 +175,11 @@ fn get_rollback_action_state<A: UserAction>(
         } => rollback_tick,
     };
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        *action_state = input_buffer.get(tick).unwrap().clone();
+        info!("get rollback action state");
+        *action_state = input_buffer
+            .get(tick)
+            .unwrap_or(&ActionState::<A>::default())
+            .clone();
     }
     if let Some(mut action_state) = global_action_state {
         *action_state = global_input_buffer.get(tick).unwrap().clone();
@@ -179,9 +189,11 @@ fn get_rollback_action_state<A: UserAction>(
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol, A: UserAction>(
     mut client: ResMut<Client<P>>,
-    global_input_buffer: Option<Res<InputBuffer<A>>>,
-    input_buffer_query: Query<(Entity, &InputBuffer<A>)>,
-) {
+    mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
+    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
+) where
+    P::Message: From<InputMessage<A>>,
+{
     let current_tick = client.tick();
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?current_tick, "prepare_input_message");
@@ -198,33 +210,35 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
 
     let mut message = InputMessage::<A>::new(current_tick);
 
-    for (entity, input_buffer) in input_buffer_query.iter() {
-        input_buffer.add_to_message(&mut message, current_tick, message_len, Some(entity));
-    }
-    if let Some(input_buffer) = global_input_buffer {
-        input_buffer.add_to_message(&mut message, current_tick, message_len, None);
-    }
-
-    // // all inputs are absent
-    // if !message.is_empty() {
-    //     // TODO: should we provide variants of each user-facing function, so that it pushes the error
-    //     //  to the ConnectionEvents?
-    //     client
-    //         .send_message::<InputChannel, _>(message)
-    //         .unwrap_or_else(|err| {
-    //             error!("Error while sending input message: {:?}", err);
-    //         })
-    // }
-
-    // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
-    // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
-    //  maybe at interpolation_tick(), since it's before any latest server update we receive?
-
     // delete old input values
     // anything beyond interpolation tick should be safe to be deleted
     let interpolation_tick = client
         .connection
         .sync_manager
         .interpolation_tick(&client.tick_manager);
-    client.get_mut_input_buffer().pop(interpolation_tick);
+
+    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
+        trace!("adding input buffer to message");
+        input_buffer.add_to_message(&mut message, current_tick, message_len, Some(entity));
+        input_buffer.pop(interpolation_tick);
+        info!("input buffer len: {:?}", input_buffer.buffer.len());
+    }
+    if let Some(mut input_buffer) = global_input_buffer {
+        input_buffer.add_to_message(&mut message, current_tick, message_len, None);
+        input_buffer.pop(interpolation_tick);
+    }
+
+    trace!("sending input message: {:?}", message);
+    // all inputs are absent
+    // TODO: should we provide variants of each user-facing function, so that it pushes the error
+    //  to the ConnectionEvents?
+    client
+        .send_message::<InputChannel, InputMessage<A>>(message)
+        .unwrap_or_else(|err| {
+            error!("Error while sending input message: {:?}", err);
+        })
+
+    // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
+    // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
+    //  maybe at interpolation_tick(), since it's before any latest server update we receive?
 }

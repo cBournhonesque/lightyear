@@ -73,7 +73,7 @@ impl BevyStepper {
 
         // Setup server
         let mut server_app = App::new();
-        server_app.add_plugins(DefaultPlugins.build());
+        server_app.add_plugins(MinimalPlugins.build());
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(protocol_id)
             .with_key(private_key);
@@ -88,7 +88,7 @@ impl BevyStepper {
 
         // Setup client
         let mut client_app = App::new();
-        client_app.add_plugins(DefaultPlugins.build());
+        client_app.add_plugins(MinimalPlugins.build());
         let auth = Authentication::Manual {
             server_addr: addr,
             protocol_id,
