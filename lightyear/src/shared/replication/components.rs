@@ -1,6 +1,8 @@
 //! Components used for replication
 use bevy::prelude::{Component, Entity};
 use bevy::utils::{EntityHashSet, HashMap, HashSet};
+use cfg_if::cfg_if;
+
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::FromType;
@@ -120,7 +122,23 @@ pub enum ReplicationMode {
 
 impl<P: Protocol> Default for Replicate<P> {
     fn default() -> Self {
-        let replicate_once = HashSet::default();
+        cfg_if! {
+            if #[cfg(feature = "leafwing")] {
+                // the ActionState components are replicated only once when the entity is spawned
+                // then they get updated by the user inputs, not by replication
+                use leafwing_input_manager::prelude::ActionState;
+                let mut replicate_once = HashSet::default();
+                replicate_once.insert(<P::ComponentKinds as FromType<
+                    ActionState<P::LeafwingInput1>,
+                >>::from_type());
+                replicate_once.insert(<P::ComponentKinds as FromType<
+                    ActionState<P::LeafwingInput2>,
+                >>::from_type());
+            } else {
+                let replicate_once = HashSet::default();
+            }
+        }
+
         Self {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,

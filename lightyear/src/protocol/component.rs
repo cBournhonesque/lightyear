@@ -3,6 +3,8 @@ use std::hash::Hash;
 
 use bevy::prelude::{App, Component, Entity, EntityWorldMut, World};
 use bevy::utils::EntityHashSet;
+use cfg_if::cfg_if;
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -132,34 +134,63 @@ impl<T: Component + Message> ComponentBehaviour for T {
     // }
 }
 
-/// Trait that lets us convert a component type into the corresponding ComponentProtocolKind
+// Trait that lets us convert a component type into the corresponding ComponentProtocolKind
 // #[cfg(feature = "leafwing")]
 // pub trait FromTypes: FromType<ShouldBePredicted> + FromType<ShouldBeInterpolated> {}
 //
 // #[cfg(not(feature = "leafwing"))]
 // pub trait FromTypes: FromType<ShouldBePredicted> + FromType<ShouldBeInterpolated> {}
 
-pub trait ComponentProtocolKind:
-    BitSerializable
-    + Serialize
-    + DeserializeOwned
-    + for<'a> MapEntities<'a>
-    + PartialEq
-    + Eq
-    + Clone
-    + Copy
-    + Hash
-    + Debug
-    + Send
-    + Sync
-    + Display
-    + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
-    + ComponentKindBehaviour
-    + FromType<ShouldBePredicted>
-    + FromType<ShouldBeInterpolated>
-{
-    type Protocol: Protocol;
-}
+cfg_if!(
+    if #[cfg(feature = "leafwing")] {
+        use leafwing_input_manager::prelude::ActionState;
+        pub trait ComponentProtocolKind:
+            BitSerializable
+            + Serialize
+            + DeserializeOwned
+            + for<'a> MapEntities<'a>
+            + PartialEq
+            + Eq
+            + Clone
+            + Copy
+            + Hash
+            + Debug
+            + Send
+            + Sync
+            + Display
+            + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
+            + ComponentKindBehaviour
+            + FromType<ShouldBePredicted>
+            + FromType<ShouldBeInterpolated>
+            + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput1>>
+            + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput2>>
+        {
+            type Protocol: Protocol;
+        }
+    } else {
+        pub trait ComponentProtocolKind:
+            BitSerializable
+            + Serialize
+            + DeserializeOwned
+            + for<'a> MapEntities<'a>
+            + PartialEq
+            + Eq
+            + Clone
+            + Copy
+            + Hash
+            + Debug
+            + Send
+            + Sync
+            + Display
+            + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
+            + ComponentKindBehaviour
+            + FromType<ShouldBePredicted>
+            + FromType<ShouldBeInterpolated>
+        {
+            type Protocol: Protocol;
+        }
+    }
+);
 
 /// Trait to delegate a method from the ComponentProtocolKind enum to the inner Component type
 pub trait ComponentKindBehaviour {

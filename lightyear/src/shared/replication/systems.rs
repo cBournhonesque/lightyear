@@ -273,6 +273,10 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                             });
                                         // only update components that were not newly added
                                     } else {
+                                        // do not send updates for these components, only inserts/removes
+                                        if replicate.replicate_once.contains(&kind) {
+                                            return;
+                                        }
                                         let _ = sender
                                             .prepare_entity_update(
                                                 entity,
@@ -327,6 +331,10 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             error!("error sending component insert: {:?}", e);
                         });
                 } else {
+                    // do not send updates for these components, only inserts/removes
+                    if replicate.replicate_once.contains(&kind) {
+                        return;
+                    }
                     // otherwise send an update for all components that changed since the
                     // last update we have ack-ed
                     let _ = sender
