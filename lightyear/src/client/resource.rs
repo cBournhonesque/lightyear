@@ -390,10 +390,6 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&kind) {
-            return Ok(());
-        }
         let group = replicate.group_id(Some(entity));
         debug!(
             ?entity,
@@ -420,10 +416,6 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&component_kind) {
-            return Ok(());
-        }
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         let replication_sender = &mut self.connection.replication_sender;
@@ -446,10 +438,6 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&kind) {
-            return Ok(());
-        }
         let group = replicate.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         let replication_sender = &mut self.connection.replication_sender;

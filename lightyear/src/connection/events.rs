@@ -2,6 +2,8 @@
 */
 use std::iter;
 
+use crate::_reexport::FromType;
+#[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, UserAction};
 use bevy::prelude::{Component, Entity};
 use bevy::utils::HashMap;
@@ -10,7 +12,6 @@ use tracing::trace;
 use crate::packet::message::Message;
 use crate::prelude::{Named, Tick};
 use crate::protocol::channel::ChannelKind;
-use crate::protocol::component::IntoKind;
 use crate::protocol::message::{MessageBehaviour, MessageKind};
 use crate::protocol::{EventContext, Protocol};
 
@@ -22,6 +23,7 @@ pub struct ConnectionEvents<P: Protocol> {
     pub connection: bool,
 
     // inputs (used only for leafwing messages for now)
+    #[cfg(feature = "leafwing")]
     pub input_messages: HashMap<MessageKind, Vec<P::Message>>,
 
     // messages
@@ -65,6 +67,7 @@ impl<P: Protocol> ConnectionEvents<P> {
             // netcode
             connection: false,
             // inputs
+            #[cfg(feature = "leafwing")]
             input_messages: HashMap::new(),
             // messages
             messages: HashMap::new(),
@@ -82,6 +85,7 @@ impl<P: Protocol> ConnectionEvents<P> {
 
     pub fn clear(&mut self) {
         self.connection = false;
+        #[cfg(feature = "leafwing")]
         self.input_messages.clear();
         self.messages.clear();
         self.spawns.clear();
@@ -106,6 +110,7 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.empty
     }
 
+    #[cfg(feature = "leafwing")]
     pub(crate) fn push_input_message(&mut self, message: P::Message) {
         trace!("Received input message: {:?}", message.name());
         #[cfg(feature = "metrics")]
@@ -228,6 +233,7 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 }
 
+#[cfg(feature = "leafwing")]
 pub trait IterInputMessageEvent<P: Protocol, Ctx: EventContext = ()> {
     fn into_iter_input_messages<A: UserAction>(
         &mut self,
@@ -238,6 +244,7 @@ pub trait IterInputMessageEvent<P: Protocol, Ctx: EventContext = ()> {
     fn has_input_messages<A: UserAction>(&self) -> bool;
 }
 
+#[cfg(feature = "leafwing")]
 impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
     fn into_iter_input_messages<A: UserAction>(
         &mut self,
@@ -335,25 +342,25 @@ pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
     where
-        C: IntoKind<P::ComponentKinds>;
+        P::ComponentKinds: FromType<C>;
 
     /// Is there any update for component C
     fn has_component_update<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>;
+        P::ComponentKinds: FromType<C>;
 
     // /// Find all the updates of component C for a given entity
     // fn get_component_update<C: Component>(&self, entity: Entity) -> Option<Ctx>
     // where
-    //     C: IntoKind<P::ComponentKinds>;
+    //     P::ComponentKinds: FromType<C>;
 }
 
 impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
     fn iter_component_update<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        let component_kind = C::into_kind();
+        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
         if let Some(data) = self.component_updates.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
@@ -369,9 +376,9 @@ impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
 
     fn has_component_update<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        let component_kind = C::into_kind();
+        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
         self.component_updates.contains_key(&component_kind)
         // self.components_with_updates.contains(&C::into_kind())
     }
@@ -381,7 +388,7 @@ impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
     // //  maybe just take the first value that matches, then?
     // fn get_component_update<C: Component>(&self, entity: Entity) -> Option<()>
     // where
-    //     C: IntoKind<P::ComponentKinds>,
+    //     P::ComponentKinds: FromType<C>,
     // {
     //     todo!()
     //     // self.component_updates
@@ -396,19 +403,19 @@ pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
     where
-        C: IntoKind<P::ComponentKinds>;
+        P::ComponentKinds: FromType<C>;
     fn has_component_remove<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>;
+        P::ComponentKinds: FromType<C>;
 }
 
 // TODO: move these implementations to client?
 impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
     fn iter_component_remove<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        let component_kind = C::into_kind();
+        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
         if let Some(data) = self.component_removes.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
@@ -417,9 +424,9 @@ impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
 
     fn has_component_remove<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        let component_kind = C::into_kind();
+        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
         self.component_removes.contains_key(&component_kind)
     }
 }
@@ -429,18 +436,18 @@ pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
     where
-        C: IntoKind<P::ComponentKinds>;
+        P::ComponentKinds: FromType<C>;
     fn has_component_insert<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>;
+        P::ComponentKinds: FromType<C>;
 }
 
 impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
     fn iter_component_insert<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        let component_kind = C::into_kind();
+        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
         if let Some(data) = self.component_inserts.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
@@ -449,9 +456,9 @@ impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
 
     fn has_component_insert<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        let component_kind = C::into_kind();
+        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
         self.component_inserts.contains_key(&component_kind)
     }
 }

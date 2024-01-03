@@ -29,7 +29,8 @@ pub fn message_impl(
 
     // Names
     let struct_name = &input.ident;
-    let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
+    // let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
+    let struct_name_str = &struct_name.to_string();
     let lowercase_struct_name =
         format_ident!("{}", struct_name.to_string().to_lowercase().as_str());
     let module_name = generate_unique_ident(&format!("mod_{}", lowercase_struct_name));
@@ -50,7 +51,7 @@ pub fn message_impl(
             // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
             impl #impl_generics Named for #struct_name #type_generics #where_clause {
                 fn name(&self) -> &'static str {
-                    "#struct_name_str"
+                    #struct_name_str
                 }
             }
         }

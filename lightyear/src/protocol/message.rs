@@ -11,6 +11,7 @@ use crate::packet::message::Message;
 use crate::prelude::MapEntities;
 use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
+#[cfg(feature = "leafwing")]
 use crate::shared::events::InputMessageEvent;
 use crate::utils::named::Named;
 
@@ -18,6 +19,7 @@ use crate::utils::named::Named;
 // each message must derive message
 
 pub enum InputMessageKind {
+    #[cfg(feature = "leafwing")]
     Leafwing,
     Native,
     None,

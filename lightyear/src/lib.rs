@@ -35,11 +35,10 @@ pub mod _reexport {
     };
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
-        FromType, IntoKind,
+        FromType,
     };
-    pub use crate::protocol::message::{
-        InputMessageKind, MessageBehaviour, MessageKind, MessageProtocol,
-    };
+    pub use crate::protocol::message::InputMessageKind;
+    pub use crate::protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -73,6 +72,7 @@ pub mod prelude {
     pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+    pub use crate::protocol::component::Wrapper;
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::SharedConfig;
@@ -127,7 +127,7 @@ pub mod prelude {
         pub use crate::server::room::{RoomId, RoomMut, RoomRef};
 
         #[cfg(feature = "leafwing")]
-        pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
+        pub use crate::server::input_leafwing::LeafwingInputPlugin;
     }
 }
 

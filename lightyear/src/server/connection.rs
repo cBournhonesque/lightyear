@@ -359,6 +359,7 @@ impl<P: Protocol> Connection<P> {
                             }
                             // don't put InputMessage into events else the events won't be classified as empty
                             match message.input_message_kind() {
+                                #[cfg(feature = "leafwing")]
                                 InputMessageKind::Leafwing => {
                                     self.events.push_input_message(message);
                                 }

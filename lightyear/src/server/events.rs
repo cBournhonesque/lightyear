@@ -2,14 +2,17 @@
 use std::collections::HashMap;
 
 use crate::_reexport::{
-    IntoKind, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 use bevy::prelude::{Component, Entity};
 
+#[cfg(feature = "leafwing")]
+use crate::connection::events::IterInputMessageEvent;
 use crate::connection::events::{
-    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterInputMessageEvent,
-    IterMessageEvent,
+    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
 };
+
+#[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, UserAction};
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
@@ -135,6 +138,7 @@ impl<P: Protocol> ServerEvents<P> {
     }
 }
 
+#[cfg(feature = "leafwing")]
 impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
     fn into_iter_input_messages<A: UserAction>(
         &mut self,
@@ -214,7 +218,7 @@ impl<P: Protocol> IterComponentUpdateEvent<P, ClientId> for ServerEvents<P> {
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
@@ -227,7 +231,7 @@ impl<P: Protocol> IterComponentUpdateEvent<P, ClientId> for ServerEvents<P> {
 
     fn has_component_update<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
         self.events
             .iter()
@@ -240,7 +244,7 @@ impl<P: Protocol> IterComponentRemoveEvent<P, ClientId> for ServerEvents<P> {
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
@@ -253,7 +257,7 @@ impl<P: Protocol> IterComponentRemoveEvent<P, ClientId> for ServerEvents<P> {
 
     fn has_component_remove<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
         self.events
             .iter()
@@ -266,7 +270,7 @@ impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
@@ -279,7 +283,7 @@ impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
 
     fn has_component_insert<C: Component>(&self) -> bool
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
         self.events
             .iter()
@@ -295,6 +299,8 @@ pub type EntityDespawnEvent = crate::shared::events::EntityDespawnEvent<ClientId
 pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, ClientId>;
 pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, ClientId>;
 pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, ClientId>;
+
+#[cfg(feature = "leafwing")]
 pub(crate) type InputMessageEvent<A> = crate::shared::events::InputMessageEvent<A, ClientId>;
 pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ClientId>;
 

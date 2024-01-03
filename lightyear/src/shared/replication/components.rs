@@ -3,7 +3,7 @@ use bevy::prelude::{Component, Entity};
 use bevy::utils::{EntityHashSet, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::IntoKind;
+use crate::_reexport::FromType;
 use lightyear_macros::MessageInternal;
 
 use crate::channel::builder::Channel;
@@ -43,6 +43,11 @@ pub struct Replicate<P: Protocol> {
     /// By default, all components will be ignored. You can add components to this list to make them
     /// not replicated for this specific entity
     pub disabled_components: HashSet<P::ComponentKinds>,
+    /// These components will be replicated only once, when the entity is spawned.
+    /// Further updates won't be replicated.
+    /// ActionStates should be replicated once
+    // TODO: should i use this or just use ReplicatedComponent with a mode?
+    pub replicate_once: HashSet<P::ComponentKinds>,
 }
 
 impl<P: Protocol> Replicate<P> {
@@ -58,17 +63,35 @@ impl<P: Protocol> Replicate<P> {
     /// Disable the replication of a component for this entity
     pub fn disable_component<C>(&mut self)
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        self.disabled_components.insert(C::into_kind());
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.disabled_components.insert(kind);
     }
 
     /// Enable the replication of a component for this entity
-    pub(crate) fn enable_component<C>(&mut self)
+    pub fn enable_component<C>(&mut self)
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        self.disabled_components.remove(&C::into_kind());
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.disabled_components.remove(&kind);
+    }
+
+    pub fn enable_replicate_once<C>(&mut self)
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.replicate_once.insert(kind);
+    }
+
+    pub fn disable_replicate_once<C>(&mut self)
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.replicate_once.remove(&kind);
     }
 }
 
@@ -97,6 +120,7 @@ pub enum ReplicationMode {
 
 impl<P: Protocol> Default for Replicate<P> {
     fn default() -> Self {
+        let replicate_once = HashSet::default();
         Self {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
@@ -105,6 +129,7 @@ impl<P: Protocol> Default for Replicate<P> {
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
             disabled_components: HashSet::default(),
+            replicate_once,
         }
     }
 }

@@ -1,5 +1,5 @@
 pub mod some_component {
-    use bevy::prelude::Component;
+    use bevy::prelude::{Component, Reflect};
     use derive_more::{Add, Mul};
     use serde::{Deserialize, Serialize};
 

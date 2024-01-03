@@ -1,14 +1,16 @@
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
-use bevy::prelude::{Component, Entity, Resource};
+use bevy::prelude::{Component, Entity, Resource, TypePath};
 use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
 use leafwing_input_manager::common_conditions::action_just_pressed;
 use leafwing_input_manager::prelude::ActionState;
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::{EntityMapper, MapEntities};
+use crate::client::components::ComponentSyncMode;
+use crate::prelude::client::SyncComponent;
+use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 use lightyear_macros::MessageInternal;
 
 use super::UserAction;
@@ -28,6 +30,27 @@ use crate::shared::tick_manager::Tick;
 // - we receive a message containing for each tick a list of diffs
 // - we apply the ticks on the right tick to the entity/resource
 // - no need to maintain our inputbuffer on the server
+
+impl<A: UserAction> Message for ActionState<A> {}
+impl<'a, A: UserAction> MapEntities<'a> for ActionState<A> {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::default()
+    }
+}
+impl<A: UserAction> Named for ActionState<A> {
+    fn name(&self) -> &'static str {
+        <A as TypePath>::short_type_path()
+        // const SHORT_TYPE_PATH: &'static str = <A as TypePath>::short_type_path();
+        // formatcp!("ActionState<{}>", SHORT_TYPE_PATH)
+    }
+}
+
+impl<A: UserAction> SyncComponent for ActionState<A> {
+    fn mode() -> ComponentSyncMode {
+        ComponentSyncMode::Once
+    }
+}
 
 // NOTE: right now, for simplicity, we will send all the action-diffs for all entities in one single message.
 // TODO: improve this data structure
