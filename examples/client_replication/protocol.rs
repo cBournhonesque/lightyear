@@ -124,7 +124,7 @@ pub enum Inputs {
     None,
 }
 
-impl UserAction for Inputs {}
+impl lightyear::inputs::native::UserAction for Inputs {}
 
 // Protocol
 

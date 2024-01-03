@@ -4,12 +4,14 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 
 use leafwing_input_manager::prelude::*;
 
+use crate::_reexport::ShouldBePredicted;
 use tracing::{error, info, trace};
 
 use crate::channel::builder::InputChannel;
+use crate::client::components::Confirmed;
 use crate::client::events::InputEvent;
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::{Rollback, RollbackState};
+use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
+use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::leafwing::input_buffer::{InputBuffer, InputMessage};
@@ -19,7 +21,7 @@ use crate::shared::sets::{FixedUpdateSet, MainSet};
 
 #[derive(Debug, Clone)]
 pub struct LeafwingInputConfig {
-    /// How many consecutive packets lossed do we want to handle?
+    /// How many consecutive packets losses do we want to handle?
     /// This is used to compute the redundancy of the input messages.
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
@@ -93,7 +95,7 @@ where
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            add_action_state_buffer::<A>.after(MainSet::ReceiveFlush),
+            add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
         );
         app.add_systems(
             FixedUpdate,
@@ -125,15 +127,37 @@ pub enum InputSystemSet {
     SendInputMessage,
 }
 
+// TODO: make this behaviour optional?
+//   it might be useful to keep an action-state on confirmed entities?
+
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
 fn add_action_state_buffer<A: UserAction>(
     mut commands: Commands,
-    action_state: Query<Entity, Added<ActionState<A>>>,
+    // we only add the action state buffer to predicted entities (which are controlled by the user)
+    predicted_entities: Query<
+        Entity,
+        (
+            Added<ActionState<A>>,
+            Or<(With<Predicted>, With<ShouldBePredicted>)>,
+        ),
+    >,
+    other_entities: Query<
+        Entity,
+        (
+            Added<ActionState<A>>,
+            Without<Predicted>,
+            Without<ShouldBePredicted>,
+        ),
+    >,
 ) {
-    for entity in action_state.iter() {
-        trace!("adding actions state buffer");
+    for entity in predicted_entities.iter() {
+        info!(?entity, "adding actions state buffer");
         commands.entity(entity).insert(InputBuffer::<A>::default());
+    }
+    for entity in other_entities.iter() {
+        info!(?entity, "REMOVING ACTION STATE FOR CONFIRMED");
+        commands.entity(entity).remove::<ActionState<A>>();
     }
 }
 
@@ -151,7 +175,12 @@ fn buffer_action_state<P: Protocol, A: UserAction>(
 ) {
     let tick = client.tick();
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        trace!("buffer action in input buffer: {:?}", action_state);
+        info!(
+            "ACTION_STATE: JUST PRESSED: {:?}/ JUST RELEASED: {:?}",
+            action_state.get_just_pressed(),
+            action_state.get_just_released()
+        );
+        trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
         trace!("input buffer: {:?}", input_buffer);
     }
@@ -175,11 +204,19 @@ fn get_rollback_action_state<A: UserAction>(
         } => rollback_tick,
     };
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        info!("get rollback action state");
+        // let state_is_empty = input_buffer.get(tick).is_none();
+        // let input_buffer = input_buffer.buffer;
+        info!(
+            ?entity,
+            ?tick,
+            "get rollback action state. Buffer: {}",
+            input_buffer
+        );
         *action_state = input_buffer
             .get(tick)
             .unwrap_or(&ActionState::<A>::default())
             .clone();
+        info!("updated action state for rollback: {:?}", action_state);
     }
     if let Some(mut action_state) = global_action_state {
         *action_state = global_input_buffer.get(tick).unwrap().clone();
@@ -189,7 +226,7 @@ fn get_rollback_action_state<A: UserAction>(
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol, A: UserAction>(
     mut client: ResMut<Client<P>>,
-    mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
+    global_input_buffer: Option<ResMut<InputBuffer<A>>>,
     mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
 ) where
     P::Message: From<InputMessage<A>>,
@@ -218,25 +255,32 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
         .interpolation_tick(&client.tick_manager);
 
     for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
-        trace!("adding input buffer to message");
+        info!(
+            ?current_tick,
+            ?entity,
+            "Preparing input message with buffer: {}",
+            input_buffer.as_ref()
+        );
         input_buffer.add_to_message(&mut message, current_tick, message_len, Some(entity));
         input_buffer.pop(interpolation_tick);
-        info!("input buffer len: {:?}", input_buffer.buffer.len());
+        trace!("input buffer len: {:?}", input_buffer.buffer.len());
     }
     if let Some(mut input_buffer) = global_input_buffer {
         input_buffer.add_to_message(&mut message, current_tick, message_len, None);
         input_buffer.pop(interpolation_tick);
     }
 
-    trace!("sending input message: {:?}", message);
     // all inputs are absent
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
-    client
-        .send_message::<InputChannel, InputMessage<A>>(message)
-        .unwrap_or_else(|err| {
-            error!("Error while sending input message: {:?}", err);
-        })
+    if !message.is_empty() {
+        info!("sending input message: {:?}", message);
+        client
+            .send_message::<InputChannel, InputMessage<A>>(message)
+            .unwrap_or_else(|err| {
+                error!("Error while sending input message: {:?}", err);
+            })
+    }
 
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?

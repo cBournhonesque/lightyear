@@ -118,7 +118,18 @@
     - DEBUG:
       - sometimes the client/server keep doing the same action
         - hypothesis 1: it's because of rollback
+          - this seems to be it 
         - hypothesis 2: it's because of packet loss
+          - this should not be the case, because we send a redundant amount of messages (if one is lost, the next one should contain the correct input)
+
+
+- DEBUG:
+  - if we have a frame with no fixed-update: F1 T10 F2 F3 T11 F4 T12
+    - we do Up at F1, and Left at F2
+    - at end of F1, we send an input message with tick 10 with Up.
+    - at end of F2, we send an input message with tick 10 with Up
+    - at end of F3, we 
+         
     
 
 

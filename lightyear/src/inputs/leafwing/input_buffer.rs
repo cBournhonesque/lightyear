@@ -1,7 +1,9 @@
+use bevy::ecs::bundle::DynamicBundle;
 use std::collections::VecDeque;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
 use bevy::prelude::{Component, Entity, Resource, TypePath};
+use bevy::reflect::DynamicTypePath;
 use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
 use const_format::formatcp;
 use leafwing_input_manager::common_conditions::action_just_pressed;
@@ -85,10 +87,30 @@ pub(crate) struct InputBuffer<A: UserAction> {
     start_tick: Option<Tick>,
     pub(crate) buffer: VecDeque<BufferItem<ActionState<A>>>,
 }
+impl<A: UserAction> std::fmt::Display for InputBuffer<A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ty = std::any::type_name::<InputBuffer<A>>();
+        let buffer_str = self
+            .buffer
+            .iter()
+            .map(|item| match item {
+                BufferItem::Absent => "Absent".to_string(),
+                BufferItem::SameAsPrecedent => "SameAsPrecedent".to_string(),
+                BufferItem::Data(data) => format!("{:?}", data.get_pressed()),
+            })
+            .collect::<Vec<String>>()
+            .join(", ");
+        write!(
+            f,
+            "{}. Start tick: {:?}. Buffer: {:?}",
+            ty, self.start_tick, buffer_str
+        )
+    }
+}
 
 // We use this to avoid cloning values in the buffer too much
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-enum BufferItem<T> {
+pub(crate) enum BufferItem<T> {
     Absent,
     SameAsPrecedent,
     Data(T),
@@ -160,13 +182,23 @@ impl<T: UserAction> InputMessage<T> {
             per_entity_diffs: Default::default(),
         }
     }
+
+    // we will always include
+    pub fn is_empty(&self) -> bool {
+        self.global_diffs
+            .iter()
+            .all(|diffs_per_tick| diffs_per_tick.is_empty())
+            && self
+                .per_entity_diffs
+                .iter()
+                .all(|(_, diffs)| diffs.iter().all(|diffs_per_tick| diffs_per_tick.is_empty()))
+    }
 }
 
 impl<T: UserAction> InputBuffer<T> {
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
     pub(crate) fn set(&mut self, tick: Tick, value: &ActionState<T>) {
-        info!("set input buffer for tick: {:?}", tick);
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);

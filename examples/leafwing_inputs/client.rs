@@ -60,7 +60,7 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(crate::shared::SharedPlugin);
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
+        // app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
 
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);

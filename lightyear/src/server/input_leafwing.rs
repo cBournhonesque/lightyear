@@ -135,16 +135,27 @@ fn update_action_state<P: Protocol, A: UserAction>(
     server: Res<Server<P>>,
     // global_input_buffer: Res<InputBuffer<A>>,
     // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<(&mut ActionState<A>, &mut ActionDiffBuffer<A>)>,
+    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut ActionDiffBuffer<A>)>,
 ) {
     let tick = server.tick();
 
-    for (mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
+    for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
         action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
-            info!("update action state using action diff: {:?}", &diff);
+            info!(
+                ?tick,
+                ?entity,
+                "update action state using action diff: {:?}",
+                &diff
+            );
             diff.apply(action_state.deref_mut());
-            info!("new state: {:?}", &action_state);
-        })
+        });
+        // the state on the server is only updated from client inputs!
+        info!(
+            ?tick,
+            ?entity,
+            "action state: {:?}",
+            &action_state.get_pressed()
+        );
     }
 }
 

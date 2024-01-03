@@ -20,9 +20,9 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(900),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
@@ -173,7 +173,7 @@ pub(crate) fn replicate_cursors(
     mut cursor_spawn_reader: EventReader<ComponentInsertEvent<CursorPosition>>,
 ) {
     for event in cursor_spawn_reader.read() {
-        debug!("received cursor spawn event: {:?}", event);
+        info!("received cursor spawn event: {:?}", event);
         let client_id = event.context();
         let entity = event.entity();
 
