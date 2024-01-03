@@ -174,12 +174,16 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 
                 let new_connected_clients = sender.new_connected_clients().clone();
                 if !new_connected_clients.is_empty() {
+                    // replicate to the newly connected clients that match our target
+                    let mut new_connected_target = target.clone();
+                    new_connected_target
+                        .intersection(NetworkTarget::Only(new_connected_clients.clone()));
                     // replicate all entities to newly connected clients
                     let _ = sender
                         .prepare_entity_spawn(
                             entity,
                             &replicate,
-                            NetworkTarget::Only(new_connected_clients.clone()),
+                            new_connected_target,
                             system_bevy_ticks.this_run(),
                         )
                         .map_err(|e| {
@@ -291,12 +295,16 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                 let new_connected_clients = sender.new_connected_clients().clone();
                 // replicate all components to newly connected clients
                 if !new_connected_clients.is_empty() {
+                    // replicate to the newly connected clients that match our target
+                    let mut new_connected_target = target.clone();
+                    new_connected_target
+                        .intersection(NetworkTarget::Only(new_connected_clients.clone()));
                     let _ = sender
                         .prepare_component_insert(
                             entity,
                             component.clone().into(),
                             replicate,
-                            NetworkTarget::Only(new_connected_clients.clone()),
+                            new_connected_target,
                             system_bevy_ticks.this_run(),
                         )
                         .map_err(|e| {
