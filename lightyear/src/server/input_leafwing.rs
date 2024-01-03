@@ -142,3 +142,109 @@ fn update_action_state<P: Protocol, A: UserAction>(
             .for_each(|action| action.apply(action_state.deref_mut()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::client::{InterpolationConfig, PredictionConfig, SyncConfig};
+    use crate::prelude::server::*;
+    use crate::prelude::*;
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use std::time::Duration;
+
+    use leafwing_input_manager::prelude::ActionState;
+
+    #[test]
+    fn test_leafwing_inputs() {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            enable_replication: true,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper
+            .client_app
+            .add_plugins(crate::client::input_leafwing::LeafwingInputPlugin::<
+                MyProtocol,
+                LeafwingInput1,
+            >::default());
+        stepper
+            .server_app
+            .add_plugins(LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default());
+        stepper.init();
+
+        // create an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                ActionState::<LeafwingInput1>::default(),
+                Replicate::default(),
+            ))
+            .id();
+        // we need to step twice because we run client before server
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the server entity got a ActionDiffBuffer added to it
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<ActionDiffBuffer<LeafwingInput1>>()
+            .is_some());
+
+        // check that the entity is replicated, including the ActionState component
+        let client_entity = *stepper
+            .client()
+            .connection()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .unwrap();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(client_entity)
+                .get::<ActionState<LeafwingInput1>>()
+                .unwrap(),
+            &ActionState::<LeafwingInput1>::default()
+        );
+        // check that the client entity got an InputBuffer added to it
+        assert!(stepper
+            .server_app
+            .world
+            .entity(client_entity)
+            .get::<InputBuffer<LeafwingInput1>>()
+            .is_some());
+
+        // update the ActionState on the client
+        stepper
+            .client_app
+            .world
+            .entity_mut(client_entity)
+            .get_mut::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .press(LeafwingInput1::Jump);
+        stepper.frame_step();
+    }
+}

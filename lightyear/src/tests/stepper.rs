@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
+use bevy::{DefaultPlugins, MinimalPlugins};
 
 use crate::netcode::generate_key;
 use crate::prelude::client::{
@@ -73,7 +73,7 @@ impl BevyStepper {
 
         // Setup server
         let mut server_app = App::new();
-        server_app.add_plugins(MinimalPlugins.build());
+        server_app.add_plugins(DefaultPlugins.build());
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(protocol_id)
             .with_key(private_key);
@@ -88,7 +88,7 @@ impl BevyStepper {
 
         // Setup client
         let mut client_app = App::new();
-        client_app.add_plugins(MinimalPlugins.build());
+        client_app.add_plugins(DefaultPlugins.build());
         let auth = Authentication::Manual {
             server_addr: addr,
             protocol_id,
