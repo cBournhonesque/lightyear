@@ -14,7 +14,7 @@ use crate::connection::events::{
 };
 
 #[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::{InputMessage, UserAction};
+use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
@@ -142,7 +142,7 @@ impl<P: Protocol> ServerEvents<P> {
 
 #[cfg(feature = "leafwing")]
 impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
-    fn into_iter_input_messages<A: UserAction>(
+    fn into_iter_input_messages<A: LeafwingUserAction>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (InputMessage<A>, ClientId)> + '_>
     where
@@ -158,7 +158,7 @@ impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
         }))
     }
 
-    fn has_input_messages<A: UserAction>(&self) -> bool {
+    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool {
         self.events
             .iter()
             .any(|(_, connection_events)| connection_events.has_input_messages::<A>())

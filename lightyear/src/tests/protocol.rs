@@ -6,7 +6,6 @@ use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::*;
-use crate::inputs::native::UserAction;
 use crate::prelude::*;
 
 // Messages
@@ -73,13 +72,13 @@ cfg_if! {
         pub enum LeafwingInput1 {
             Jump,
         }
-        impl crate::inputs::leafwing::UserAction for LeafwingInput1 {}
+        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput1 {}
 
         #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
         pub enum LeafwingInput2 {
             Crouch,
         }
-        impl crate::inputs::leafwing::UserAction for LeafwingInput2 {}
+        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput2 {}
 
         protocolize! {
             Self = MyProtocol,

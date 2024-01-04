@@ -244,7 +244,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     // removals
                     debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
-                        events.push_remove_component(local_entity_mut.id(), kind.clone(), Tick(0));
+                        events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
                         kind.remove(&mut local_entity_mut);
                     }
 

@@ -2,7 +2,7 @@
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::connection::events::IterInputMessageEvent;
 use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer};
-use crate::inputs::leafwing::{InputMessage, UserAction};
+use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
@@ -17,12 +17,12 @@ use crate::server::systems::receive;
 use crate::shared::events::InputEvent;
 use crate::shared::sets::FixedUpdateSet;
 
-pub struct LeafwingInputPlugin<P: Protocol, A: UserAction> {
+pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     protocol_marker: std::marker::PhantomData<P>,
     input_marker: std::marker::PhantomData<A>,
 }
 
-impl<P: Protocol, A: UserAction> Default for LeafwingInputPlugin<P, A> {
+impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
         Self {
             protocol_marker: std::marker::PhantomData,
@@ -37,7 +37,7 @@ pub enum InputSystemSet {
     Update,
 }
 
-impl<P: Protocol, A: UserAction> Plugin for LeafwingInputPlugin<P, A>
+impl<P: Protocol, A: LeafwingUserAction> Plugin for LeafwingInputPlugin<P, A>
 where
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
@@ -80,7 +80,7 @@ where
 
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
-fn add_action_diff_buffer<A: UserAction>(
+fn add_action_diff_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
     action_state: Query<Entity, Added<ActionState<A>>>,
 ) {
@@ -106,7 +106,7 @@ fn add_action_diff_buffer<A: UserAction>(
 //     }
 // }
 
-fn update_action_diff_buffers<P: Protocol, A: UserAction>(
+fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
     // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
     mut server: ResMut<Server<P>>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
@@ -131,7 +131,7 @@ fn update_action_diff_buffers<P: Protocol, A: UserAction>(
 }
 
 // Read the ActionDiff for the current tick from the buffer, and use them to update the ActionState
-fn update_action_state<P: Protocol, A: UserAction>(
+fn update_action_state<P: Protocol, A: LeafwingUserAction>(
     server: Res<Server<P>>,
     // global_input_buffer: Res<InputBuffer<A>>,
     // global_action_state: Option<ResMut<ActionState<A>>>,
@@ -286,7 +286,9 @@ mod tests {
                 .get::<ActionDiffBuffer<LeafwingInput1>>()
                 .unwrap()
                 .get(client_tick),
-            vec![ActionDiff::Pressed(LeafwingInput1::Jump)]
+            vec![ActionDiff::Pressed {
+                action: LeafwingInput1::Jump
+            }]
         );
         assert_eq!(
             stepper
@@ -296,7 +298,9 @@ mod tests {
                 .get::<ActionDiffBuffer<LeafwingInput1>>()
                 .unwrap()
                 .get(client_tick + 1),
-            vec![ActionDiff::Released(LeafwingInput1::Jump)]
+            vec![ActionDiff::Released {
+                action: LeafwingInput1::Jump
+            }]
         );
         stepper.frame_step();
         stepper.frame_step();

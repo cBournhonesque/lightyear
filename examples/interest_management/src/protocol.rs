@@ -5,11 +5,11 @@ use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::Actionlike;
 use leafwing_input_manager::InputManagerBundle;
-use lightyear::inputs::native::UserAction;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use UserAction;
 
 // Player
 #[derive(Bundle)]

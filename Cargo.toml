@@ -17,6 +17,4 @@ default-members = [
   "benches",
   "examples/*",
 ]
-exclude = [
-  "examples/certificates"
-]
+exclude = ["examples/certificates"]

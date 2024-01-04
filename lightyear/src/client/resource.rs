@@ -424,7 +424,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
             .entry(group)
             .or_default()
             .update_collect_changes_since_this_tick(system_current_tick);
-        replication_sender.prepare_component_remove(entity, group, component_kind.clone());
+        replication_sender.prepare_component_remove(entity, group, component_kind);
         Ok(())
     }
 

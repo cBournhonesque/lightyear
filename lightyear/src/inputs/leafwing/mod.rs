@@ -11,7 +11,7 @@ use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub trait UserAction:
+pub trait LeafwingUserAction:
     BitSerializable
     + Copy
     + Clone
@@ -29,9 +29,9 @@ pub trait UserAction:
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum NoAction1 {}
 
-impl UserAction for NoAction1 {}
+impl LeafwingUserAction for NoAction1 {}
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum NoAction2 {}
 
-impl UserAction for NoAction2 {}
+impl LeafwingUserAction for NoAction2 {}

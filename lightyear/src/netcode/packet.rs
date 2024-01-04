@@ -508,7 +508,7 @@ mod tests {
     fn request_packet() {
         let client_id = 0x1234;
         let timeout_seconds = -1;
-        let server_addresses = AddressList::new("127.0.0.1:40000").unwrap();
+        let server_addresses = AddressList::new("127.0.0.1:40002").unwrap();
         let user_data = [0u8; USER_DATA_BYTES];
         let private_key = generate_key();
         let packet_key = generate_key();

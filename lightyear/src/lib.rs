@@ -68,7 +68,9 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
-    // pub use crate::inputs::native::UserAction;
+    #[cfg(feature = "leafwing")]
+    pub use crate::inputs::leafwing::LeafwingUserAction;
+    pub use crate::inputs::native::UserAction;
     pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};

@@ -3,7 +3,6 @@ use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
-use lightyear::inputs::leafwing::UserAction;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -135,8 +134,8 @@ pub enum AdminActions {
     None,
 }
 
-impl UserAction for PlayerActions {}
-impl UserAction for AdminActions {}
+impl LeafwingUserAction for PlayerActions {}
+impl LeafwingUserAction for AdminActions {}
 
 // Protocol
 

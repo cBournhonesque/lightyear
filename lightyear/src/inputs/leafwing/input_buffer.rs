@@ -19,7 +19,7 @@ use crate::prelude::client::SyncComponent;
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 use lightyear_macros::MessageInternal;
 
-use super::UserAction;
+use super::LeafwingUserAction;
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
@@ -37,14 +37,14 @@ use crate::shared::tick_manager::Tick;
 // - we apply the ticks on the right tick to the entity/resource
 // - no need to maintain our inputbuffer on the server
 
-impl<A: UserAction> Message for ActionState<A> {}
-impl<'a, A: UserAction> MapEntities<'a> for ActionState<A> {
+impl<A: LeafwingUserAction> Message for ActionState<A> {}
+impl<'a, A: LeafwingUserAction> MapEntities<'a> for ActionState<A> {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
     fn entities(&self) -> EntityHashSet<Entity> {
         EntityHashSet::default()
     }
 }
-impl<A: UserAction> Named for ActionState<A> {
+impl<A: LeafwingUserAction> Named for ActionState<A> {
     // const NAME: &'static str = <A as TypePath>::short_type_path();
     fn name(&self) -> &'static str {
         <ActionState<A> as TypePath>::short_type_path()
@@ -53,7 +53,7 @@ impl<A: UserAction> Named for ActionState<A> {
     }
 }
 
-impl<A: UserAction> SyncComponent for ActionState<A> {
+impl<A: LeafwingUserAction> SyncComponent for ActionState<A> {
     fn mode() -> ComponentSyncMode {
         ComponentSyncMode::Once
     }
@@ -85,11 +85,11 @@ impl<A: UserAction> SyncComponent for ActionState<A> {
 // NOTE: right now, for simplicity, we will send all the action-diffs for all entities in one single message.
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
-pub(crate) struct InputBuffer<A: UserAction> {
+pub(crate) struct InputBuffer<A: LeafwingUserAction> {
     start_tick: Option<Tick>,
     pub(crate) buffer: VecDeque<BufferItem<ActionState<A>>>,
 }
-impl<A: UserAction> std::fmt::Display for InputBuffer<A> {
+impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ty = std::any::type_name::<InputBuffer<A>>();
         let buffer_str = self
@@ -118,7 +118,7 @@ pub(crate) enum BufferItem<T> {
     Data(T),
 }
 
-impl<A: UserAction> Default for InputBuffer<A> {
+impl<A: LeafwingUserAction> Default for InputBuffer<A> {
     fn default() -> Self {
         Self {
             start_tick: None,
@@ -174,7 +174,7 @@ pub enum ActionDiff<A: Actionlike> {
     },
 }
 
-impl<A: UserAction> ActionDiff<A> {
+impl<A: LeafwingUserAction> ActionDiff<A> {
     /// Applies an [`ActionDiff`] (usually received over the network) to the [`ActionState`].
     ///
     /// This lets you reconstruct an [`ActionState`] from a stream of [`ActionDiff`]s
@@ -209,14 +209,14 @@ impl<A: UserAction> ActionDiff<A> {
 #[message(custom_map)]
 /// We serialize the inputs by sending only the ActionDiffs of the last few ticks
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<T: UserAction> {
+pub struct InputMessage<T: LeafwingUserAction> {
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     pub(crate) global_diffs: Vec<Vec<ActionDiff<T>>>,
     pub(crate) per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<T>>>)>,
 }
 
-impl<'a, A: UserAction> MapEntities<'a> for InputMessage<A> {
+impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
         self.per_entity_diffs.iter_mut().for_each(|(entity, _)| {
             if let Some(new_entity) = entity_mapper.map(*entity) {
@@ -233,7 +233,7 @@ impl<'a, A: UserAction> MapEntities<'a> for InputMessage<A> {
     }
 }
 
-impl<T: UserAction> InputMessage<T> {
+impl<T: LeafwingUserAction> InputMessage<T> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
             end_tick,
@@ -254,7 +254,7 @@ impl<T: UserAction> InputMessage<T> {
     }
 }
 
-impl<T: UserAction> InputBuffer<T> {
+impl<T: LeafwingUserAction> InputBuffer<T> {
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
     pub(crate) fn set(&mut self, tick: Tick, value: &ActionState<T>) {
@@ -371,12 +371,12 @@ impl<T: UserAction> InputBuffer<T> {
 
 /// The `ActionDiffBuffer` stores the ActionDiff received from the client for each tick
 #[derive(Resource, Component, Debug)]
-pub(crate) struct ActionDiffBuffer<A: UserAction> {
+pub(crate) struct ActionDiffBuffer<A: LeafwingUserAction> {
     start_tick: Option<Tick>,
     buffer: VecDeque<Vec<ActionDiff<A>>>,
 }
 
-impl<A: UserAction> Default for ActionDiffBuffer<A> {
+impl<A: LeafwingUserAction> Default for ActionDiffBuffer<A> {
     fn default() -> Self {
         Self {
             start_tick: None,
@@ -385,7 +385,7 @@ impl<A: UserAction> Default for ActionDiffBuffer<A> {
     }
 }
 
-impl<A: UserAction> ActionDiffBuffer<A> {
+impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
     pub(crate) fn end_tick(&self) -> Tick {
         self.start_tick.map_or(Tick(0), |start_tick| {
             start_tick + (self.buffer.len() as i16 - 1)
@@ -517,7 +517,7 @@ mod tests {
         Jump,
     }
 
-    impl UserAction for Action {}
+    impl LeafwingUserAction for Action {}
 
     #[test]
     fn test_get_set_pop() {

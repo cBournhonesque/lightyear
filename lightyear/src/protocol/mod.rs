@@ -69,9 +69,9 @@ pub(crate) mod registry;
 pub trait Protocol: Send + Sync + Clone + Debug + 'static {
     type Input: crate::inputs::native::UserAction;
     #[cfg(feature = "leafwing")]
-    type LeafwingInput1: crate::inputs::leafwing::UserAction;
+    type LeafwingInput1: crate::inputs::leafwing::LeafwingUserAction;
     #[cfg(feature = "leafwing")]
-    type LeafwingInput2: crate::inputs::leafwing::UserAction;
+    type LeafwingInput2: crate::inputs::leafwing::LeafwingUserAction;
 
     type Message: MessageProtocol<Protocol = Self>;
     type Components: ComponentProtocol<Protocol = Self>;
@@ -93,6 +93,85 @@ pub trait Protocol: Send + Sync + Clone + Debug + 'static {
 /// - `Server` is a type alias for [`Server<Protocol>`](crate::server::resource::Server)
 #[macro_export]
 macro_rules! protocolize {
+        (
+        Self = $protocol:ident,
+        Message = $message:ty,
+        Component = $components:ty,
+        Input = $input:ty,
+        Crate = $shared_crate_name:ident,
+    ) => {
+        use $shared_crate_name::_reexport::paste;
+        paste! {
+        mod [<$protocol:lower _module>] {
+            use super::*;
+            use bevy::prelude::*;
+            use $shared_crate_name::prelude::*;
+            use $shared_crate_name::_reexport::*;
+
+            #[derive(Debug, Clone)]
+            pub struct $protocol {
+                channel_registry: ChannelRegistry,
+            }
+
+            impl Protocol for $protocol {
+                type Input = $input;
+                type Message = $message;
+                type Components = $components;
+                type ComponentKinds = [<$components Kind>];
+
+                fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self {
+                    self.channel_registry.add::<C>(settings);
+                    self
+                }
+
+                fn channel_registry(&self) -> &ChannelRegistry {
+                    &self.channel_registry
+                }
+
+                fn add_per_component_replication_send_systems<R: ReplicationSend<Self>>(app: &mut App) {
+                    Self::Components::add_per_component_replication_send_systems::<R>(app);
+                }
+            }
+
+            impl Default for $protocol {
+                fn default() -> Self {
+                    let mut protocol = Self {
+                        channel_registry: ChannelRegistry::default(),
+                    };
+                    protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
+                        mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+                        direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
+                        mode: ChannelMode::UnorderedUnreliableWithAcks,
+                        direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<PingChannel>(ChannelSettings {
+                        mode: ChannelMode::SequencedUnreliable,
+                        direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<InputChannel>(ChannelSettings {
+                        mode: ChannelMode::SequencedUnreliable,
+                        direction: ChannelDirection::ClientToServer,
+                    });
+                    protocol.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
+                        mode: ChannelMode::UnorderedUnreliable,
+                        direction: ChannelDirection::Bidirectional,
+                    });
+                    protocol.add_channel::<TickBufferChannel>(ChannelSettings {
+                        mode: ChannelMode::TickBuffered,
+                        direction: ChannelDirection::ClientToServer,
+                    });
+                    protocol
+                }
+            }
+        }
+        pub use [<$protocol:lower _module>]::$protocol;
+        pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
+        pub type Client = $shared_crate_name::client::resource::Client<$protocol>;
+        pub type Server = $shared_crate_name::server::resource::Server<$protocol>;
+        }
+    };
 
     (
         Self = $protocol:ident,
@@ -230,24 +309,6 @@ macro_rules! protocolize {
             LeafwingInput1 = $leafwing_input_1,
             LeafwingInput2 = $leafwing_input_2,
             Crate = lightyear,
-        }
-    };
-
-    (
-        Self = $protocol:ident,
-        Message = $message:ty,
-        Component = $components:ty,
-        Input = $input:ty,
-        Crate = $shared_crate_name:ident,
-    ) => {
-        protocolize!{
-            Self = $protocol,
-            Message = $message,
-            Component = $components,
-            Input = $input,
-            LeafwingInput1 = NoAction1,
-            LeafwingInput2 = NoAction2,
-            Crate = $shared_crate_name,
         }
     };
 

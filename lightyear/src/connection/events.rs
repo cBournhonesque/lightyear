@@ -4,7 +4,7 @@ use std::iter;
 
 use crate::_reexport::FromType;
 #[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::{InputMessage, UserAction};
+use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use bevy::prelude::{Component, Entity};
 use bevy::utils::HashMap;
 use tracing::{info, trace};
@@ -239,18 +239,18 @@ impl<P: Protocol> ConnectionEvents<P> {
 
 #[cfg(feature = "leafwing")]
 pub trait IterInputMessageEvent<P: Protocol, Ctx: EventContext = ()> {
-    fn into_iter_input_messages<A: UserAction>(
+    fn into_iter_input_messages<A: LeafwingUserAction>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (InputMessage<A>, Ctx)> + '_>
     where
         P::Message: TryInto<InputMessage<A>, Error = ()>;
 
-    fn has_input_messages<A: UserAction>(&self) -> bool;
+    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool;
 }
 
 #[cfg(feature = "leafwing")]
 impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
-    fn into_iter_input_messages<A: UserAction>(
+    fn into_iter_input_messages<A: LeafwingUserAction>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (InputMessage<A>, ())>>
     where
@@ -270,7 +270,7 @@ impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
         Box::new(iter::empty())
     }
 
-    fn has_input_messages<A: UserAction>(&self) -> bool {
+    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool {
         let message_kind = MessageKind::of::<InputMessage<A>>();
         self.input_messages.contains_key(&message_kind)
     }

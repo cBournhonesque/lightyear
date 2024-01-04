@@ -33,13 +33,13 @@ impl<Ctx> DisconnectEvent<Ctx> {
 
 #[cfg(feature = "leafwing")]
 #[derive(Event)]
-pub(crate) struct InputMessageEvent<A: crate::inputs::leafwing::UserAction, Ctx = ()> {
+pub(crate) struct InputMessageEvent<A: crate::inputs::leafwing::LeafwingUserAction, Ctx = ()> {
     pub(crate) message: InputMessage<A>,
     pub(crate) context: Ctx,
 }
 
 #[cfg(feature = "leafwing")]
-impl<A: crate::inputs::leafwing::UserAction, Ctx> InputMessageEvent<A, Ctx> {
+impl<A: crate::inputs::leafwing::LeafwingUserAction, Ctx> InputMessageEvent<A, Ctx> {
     pub fn new(message: InputMessage<A>, context: Ctx) -> Self {
         Self { message, context }
     }

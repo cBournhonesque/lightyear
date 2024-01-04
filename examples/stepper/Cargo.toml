@@ -28,7 +28,6 @@ name = "simple"
 name = "step"
 
 
-
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]

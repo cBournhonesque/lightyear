@@ -18,7 +18,7 @@ use crate::client::sync::client_is_synced;
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage,
 };
-use crate::inputs::leafwing::UserAction;
+use crate::inputs::leafwing::LeafwingUserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 
@@ -53,13 +53,13 @@ impl Default for LeafwingInputConfig {
     }
 }
 
-pub struct LeafwingInputPlugin<P: Protocol, A: UserAction> {
+pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     config: LeafwingInputConfig,
     _protocol_marker: std::marker::PhantomData<P>,
     _action_marker: std::marker::PhantomData<A>,
 }
 
-impl<P: Protocol, A: UserAction> LeafwingInputPlugin<P, A> {
+impl<P: Protocol, A: LeafwingUserAction> LeafwingInputPlugin<P, A> {
     fn new(config: LeafwingInputConfig) -> Self {
         Self {
             config,
@@ -69,7 +69,7 @@ impl<P: Protocol, A: UserAction> LeafwingInputPlugin<P, A> {
     }
 }
 
-impl<P: Protocol, A: UserAction> Default for LeafwingInputPlugin<P, A> {
+impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
         Self {
             config: LeafwingInputConfig::default(),
@@ -79,7 +79,7 @@ impl<P: Protocol, A: UserAction> Default for LeafwingInputPlugin<P, A> {
     }
 }
 
-impl<P: Protocol, A: UserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
+impl<P: Protocol, A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
 where
     P::Message: From<InputMessage<A>>,
 {
@@ -186,7 +186,7 @@ pub enum InputSystemSet {
 
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
-fn add_action_state_buffer<A: UserAction>(
+fn add_action_state_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
     // we only add the action state buffer to predicted entities (which are controlled by the user)
     predicted_entities: Query<
@@ -223,7 +223,7 @@ fn add_action_state_buffer<A: UserAction>(
 
 // Write the value of the ActionStates for the current tick in the InputBuffer
 // We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<P: Protocol, A: UserAction>(
+fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
     // TODO: get tick from tick_manager, not client
     client: ResMut<Client<P>>,
     mut global_input_buffer: ResMut<InputBuffer<A>>,
@@ -252,7 +252,7 @@ fn buffer_action_state<P: Protocol, A: UserAction>(
 
 // During rollback, fetch the action-state from the history for the corresponding tick and use that
 // to set the ActionState resource/component
-fn get_rollback_action_state<A: UserAction>(
+fn get_rollback_action_state<A: LeafwingUserAction>(
     global_input_buffer: Res<InputBuffer<A>>,
     global_action_state: Option<ResMut<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &mut ActionState<A>, &InputBuffer<A>)>,
@@ -291,7 +291,7 @@ fn get_rollback_action_state<A: UserAction>(
 /// to compute the next ActionStates?
 /// NOTE: since we're using diffs. we need to make sure that all our diffs are sent correctly to the server.
 ///  If a diff is missing, maybe the server should make a request and we send them the entire ActionState?
-fn write_action_diffs<P: Protocol, A: UserAction>(
+fn write_action_diffs<P: Protocol, A: LeafwingUserAction>(
     client: Res<Client<P>>,
     mut global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     mut diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
@@ -315,7 +315,7 @@ fn write_action_diffs<P: Protocol, A: UserAction>(
 }
 
 // Take the input buffer, and prepare the input message to send to the server
-fn prepare_input_message<P: Protocol, A: UserAction>(
+fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     mut client: ResMut<Client<P>>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     global_input_buffer: Option<ResMut<InputBuffer<A>>>,
