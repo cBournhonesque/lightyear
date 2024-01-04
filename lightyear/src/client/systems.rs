@@ -11,7 +11,7 @@ use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
-    trace!("Receive server packets");
+    info!("Receive server packets");
     world.resource_scope(|world, mut client: Mut<Client<P>>| {
         world.resource_scope(|world, time: Mut<Time<Virtual>>| {
             let fixed_time = world.get_resource::<Time<Fixed>>().unwrap();

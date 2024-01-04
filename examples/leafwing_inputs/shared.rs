@@ -14,7 +14,7 @@ pub fn shared_config() -> SharedConfig {
         server_send_interval: Duration::from_millis(40),
         // server_send_interval: Duration::from_millis(100),
         tick: TickConfig {
-            tick_duration: Duration::from_secs_f64(1.0 / 128.0),
+            tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
         log: LogConfig {
             level: Level::INFO,

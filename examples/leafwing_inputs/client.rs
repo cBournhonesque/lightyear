@@ -33,8 +33,8 @@ impl Plugin for MyClientPlugin {
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(90),
-            incoming_jitter: Duration::from_millis(5),
-            incoming_loss: 0.00,
+            incoming_jitter: Duration::from_millis(10),
+            incoming_loss: 0.05,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),

@@ -5,6 +5,18 @@
   - one server: 1 game room per core?
 
 
+- INPUTS:
+  - on client side, we have a ActionStateBuffer for rollback, and a ActionDiffBuffer to generate the message we will send to server
+  - sometimes frames have no fixed-update, so we have a system that runs on PreUpdate after leafwing that generates inputs as events
+    which are only cleared when read
+  - then we keep the diffs in a buffer and we send the last 10 or so to the server
+  - on the server we reconstruct the action-state from the diff.
+  - ISSUES:
+    - if we miss one of the diffs (Pressed/Released) because it arrived too late on the client, our action-state on server is on a bad state.
+      - I do see cases on server where the current-tick is bigger than the latest action-diff-tick we received.
+      - Maybe we should we just send the full action-state every time? (but that's a lot of data)
+      - Maybe we could generate a diff even when the action did not change (i.e. Pressed -> Pressed), so that we still have a smaller msesage
+        but with no timing information
 
 - Since we have multiple Actionlike, how can we send them?
   - either we add Input1, Input2, etc. in the Protocol
@@ -18,122 +30,7 @@
       - we read the netid and get a `dyn ComponentBuilder`
       - we use the builder to build a `dyn Component`?
 
-
-- INPUTS:
-  - leafwing has an enum for the ActionState. Multiple inputs can modify the ActionState.
-  - leafwing:
-    - update ticks to know what was pressed/just-pressed
-    - update the action-state
-    - 
-  - ISSUES:
-    A: just_pressed does not work correctly because the leafwing tick is updated at PreUpdate and we handle inputs in FixedUpdate.
-      So we could have a just_pressed get triggered multiple times if the fixed-update tick is very quick
-    B: If the fixed-update tick is slow, an input could be missed, because we emit the input on frame T but we didn't run any
-      FixedUpdate systems during that tick. i.e. no fixed-update systems could run on a given frame.
-    C: The current system doesn't handle multiple inputs being pressed at the same time correctly? Since we can only send one input per tick.
-       But maybe it's by design; as we only want one ActionState per tick.
-    D: how do we handle the situation: we want the latest action-state to be used (if we press Left and up almost at the same time, we want to use up if we pressed it
-       after left was pressed). Just use just_pressed?
-    E: some inputs should be rolled-back (for example movement inputs, but some inputs should not be rolled-back (interacting with UI, sending a message, etc.))
-       For the things that should not be rolled-back, it might be better to send every frame using ActionsDiff?
-  - SOLUTIONS:
-    - A: we can call `consume()` so that the action cannot be used anymore until the key is released.
-    - B: we would need to be able to send inputs that are not tied to a tick, but to a frame instead? or normally we are not humanly update to press the key for only 1 frame
-         so we should be sending the input on the first system-tick after? meaning that we don't want to release the key
-    - C: we should allow multiple Actions being pressed on the same tick?
-      Look into leafwing's ActionDiff; I think they can re-generate an ActionsState from several ActionsDiff
-  - DESIGN
-    - OPTION 1:
-      - client deals with ActionState, and computes the final `Inputs` to be sent each tick depending on releases/presses/timings/etc.
-        - but how do we send information like 'ReleasedKey'?
-      - we can send multiple `inputs` per tick. Some inputs might be associated with an entity!
-        Do we need to do map_entities?
-      - PROS:
-        - allows more flexibility over what inputs get sent (user can make custom conditions based on press/release)
-        - 
-    - OPTION 2:
-      - at PreUpdate (we are at tick T) the ActionState gets updated.
-      - on PostUpdate, we generate an ActionsDiff using leafwing's method. It uses just_pressed internally
-        We store the actions-diff as being associated with tick T (tick at the start of the frame.)
-        We send them at the end of the frame.
-      - do the inputs count as being pressed during the entire frame? for some of them it might be the case but not for others.
-      - How do we send the actions for the last 15 ticks?
-        - at the end of the frame we store the actions-diff for the tick.
-        - we send the actions-diff for the last 15 ticks
-        - on server-side, we apply all ActionsDiffs since the last one we received. (we keep track of the latest one we are at)
-      - ActionState transfers both presses and releases, meaning that we consider the key pressed until it was released.
-        - on the server-side we will reconstruct the ActionState, meaning we can apply logic based on just_released, etc.
-      - Exact design:
-        - leafwing handles inputs on clients. After leafwing runs, we have an ActionState on either entity or global
-        - RESOURCE:
-          - needs to be added on both client/server
-        - COMPONENT:
-          - we cannot do normal replication of the ActionState component
-          - I guess we can replicate ActionState from server to client, but only once (we replicate the default).
-          - maybe we can add it as a special information in Replicate?
-          - or when an entity is added on the server, we add a ShouldAddActionState<A> message, that creates ActionState::default() on client
-          - we need the ActionState component on both client/server (even if for server the input-map will do nothing)
-        - ON CLIENT: for each ActionLike A, we have a plugin InputPlugin<A> that adds the following systems:
-          - add_action_state_buffer: that adds an ActionStateBuffer component/resource on the entity/app if an ActionState is added.
-          - buffer_action_state: copies the current value of the action state in the buffer (runs only when no rollback)
-          - get_buffered_action_state: gets the value of the buffered action state and copies it into the ActionState component/resource
-            (runs only when rollback)
-          - send_action_message: when send_interval is true, we create an InputMessage from all entities + global that contains the action diffs
-               this should arrive on time in the server
-        - ON SERVER:
-          - we have systems:
-            - add_action_state_diff_buffer: we add a buffer of ActionDiff to each component/global
-            - receive_message: when we receive the ActionStateMessage, we add the new diffs to our buffer of diffs
-            - prepare_action_state: before our tick, we apply the various diffs to each action state to bring them to a current actionstate
-        - BUT WAIT:
-          - instead of networking ActionDiffs, maybe we could network the Inputs directly?
-          - because with ActionDiff how do we handle lost-actions?
-            - with raw inputs, we could consider that the joystick is still pressed but going towards the middle. For buttons, we consider still pressed.
-            - but how does it work with ActionDiffs? We could do the same thing with the value (make it go towards 0.0 if we haven't received any input for float inputs,
-              for buttons we just consider that it wasn't released)
-           
-        - on client, we store a buffer of ActionStates, so that we can know for each tick what the action-state was (for rollback)
-          - we need to use the InputReader<ActionState> to get the correct action-state for either rollback or not.
-        - when we need to prepare the final message, we send a list of ActionDiffs for the last few ticks.
-        - Need to be careful to handle both Resources and Entities that have ActionState.
-      - Case 1: (frames with no fixed-update in between)
-        - tick 0
-        - frame 1: press M. Send ActionDiff just_pressed for tick 0
-        - frame 2: press M (kept pressed). No ActionDiff to send for tick 0
-        - tick 1
-        - On server-side, we reconstruct the actiondiff, and then the user can decide to consume the action.
-      - Case 2: (frames with multiple fixed-update in between)
-        - tick 0
-        - frame 1: press M. Send ActionDiff just_pressed for tick 0
-        - tick 1
-        - tick 2
-        - frame 2: press M. Don't send ActionDiff for tick 0
-      - TODO:
-        - update docstring for consume_diff method
-        - makes sure that the generate_diff/consume_diff also work with global (resource) action-states
-    - OPTION 3:
-      - support Leafwing if it is enabled
-      - otherwise if it is not, just do what we had before? (but add support for list of actions?)
-      - how do we do it; put leafwing behind a feature, and if it is enabled use that, otherwise use what we had?
-    - DEBUG:
-      - sometimes the client/server keep doing the same action
-        - hypothesis 1: it's because of rollback
-          - this seems to be it 
-        - hypothesis 2: it's because of packet loss
-          - this should not be the case, because we send a redundant amount of messages (if one is lost, the next one should contain the correct input)
-
-
-- DEBUG:
-  - if we have a frame with no fixed-update: F1 T10 F2 F3 T11 F4 T12
-    - we do Up at F1, and release Up at F2
-    - at end of F1, we send an input message with tick 10 with Up.
-    - at end of F2, we send an input message with tick 10 with Up
-    - at end of F3, we 
-  - if we have a farame with 2 fixed-update: F1 T10 T11 F2 T12 F13
-    - we do Up at F1, and release Up at F2
-  - 
-         
-    
+ 
 
 
 - CHANGE DETECTION BUG:

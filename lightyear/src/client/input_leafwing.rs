@@ -15,7 +15,9 @@ use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
-use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage};
+use crate::inputs::leafwing::input_buffer::{
+    ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage,
+};
 use crate::inputs::leafwing::UserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
@@ -29,19 +31,19 @@ pub struct LeafwingInputConfig {
     packet_redundancy: u16,
 }
 
-#[derive(Resource, Default)]
-/// Check if we should tick the leafwing input manager
-/// In the situation F1 TA F2 F3 TB, we would like to not tick at the beginning of F3, so that we can send the diffs
-/// from both F2 and F3 to the server.
-/// NOTE: if this is too complicated, just replicate the entire ActionState instead of using diffs
-pub(crate) struct LeafwingTickManager<A: UserAction> {
-    // if this is true, we do not tick the leafwing input manager
-    should_not_tick: bool,
-}
-
-pub(crate) fn should_tick<A: UserAction>(manager: Res<LeafwingTickManager<A>>) -> bool {
-    !manager.should_not_tick
-}
+// #[derive(Resource, Default)]
+// /// Check if we should tick the leafwing input manager
+// /// In the situation F1 TA F2 F3 TB, we would like to not tick at the beginning of F3, so that we can send the diffs
+// /// from both F2 and F3 to the server.
+// /// NOTE: if this is too complicated, just replicate the entire ActionState instead of using diffs
+// pub(crate) struct LeafwingTickManager<A: UserAction> {
+//     // if this is true, we do not tick the leafwing input manager
+//     should_not_tick: bool,
+// }
+//
+// pub(crate) fn should_tick<A: UserAction>(manager: Res<LeafwingTickManager<A>>) -> bool {
+//     !manager.should_not_tick
+// }
 
 impl Default for LeafwingInputConfig {
     fn default() -> Self {
@@ -88,10 +90,10 @@ where
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();
         app.init_resource::<ActionDiffBuffer<A>>();
-        app.init_resource::<LeafwingTickManager<A>>();
-        app.init_resource::<ActionDiffEvent<A>>();
+        // app.init_resource::<LeafwingTickManager<A>>();
+        app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
-        app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
+        // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
         app.configure_sets(
             FixedUpdate,
             (
@@ -115,18 +117,19 @@ where
         app.add_systems(
             PreUpdate,
             (
-                generate_action_diffs:<A>.after(InputManagerSystem::ManualControl),
+                generate_action_diffs::<A>.after(InputManagerSystem::ReleaseOnDisable),
                 add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
-                // disable tick after the tick system, so that we can send the diffs correctly
-                // even if we do not have any FixedUpdate schedule run this frame
-                disable_tick::<A>.after(InputManagerSystem::Tick),
+                // // disable tick after the tick system, so that we can send the diffs correctly
+                // // even if we do not have any FixedUpdate schedule run this frame
+                // disable_tick::<A>.after(InputManagerSystem::Tick),
             ),
         );
         app.add_systems(
             FixedUpdate,
             (
-                enable_tick::<A>.run_if(not(is_in_rollback)),
-                buffer_action_state::<P, A>.run_if(not(is_in_rollback)),
+                // enable_tick::<A>.run_if(not(is_in_rollback)),
+                (write_action_diffs::<P, A>, buffer_action_state::<P, A>)
+                    .run_if(not(is_in_rollback)),
                 get_rollback_action_state::<A>.run_if(is_in_rollback),
             )
                 .in_set(InputSystemSet::BufferInputs),
@@ -169,17 +172,17 @@ pub enum InputSystemSet {
     SendInputMessage,
 }
 
-// TODO: make this behaviour optional?
-//   it might be useful to keep an action-state on confirmed entities?
-
-/// If we ran a FixedUpdate schedule this frame, we enable ticking for next frame
-fn enable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
-    manager.should_not_tick = false;
-}
-
-fn disable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
-    manager.should_not_tick = true;
-}
+// // TODO: make this behaviour optional?
+// //   it might be useful to keep an action-state on confirmed entities?
+//
+// /// If we ran a FixedUpdate schedule this frame, we enable ticking for next frame
+// fn enable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
+//     manager.should_not_tick = false;
+// }
+//
+// fn disable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
+//     manager.should_not_tick = true;
+// }
 
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
@@ -205,8 +208,8 @@ fn add_action_state_buffer<A: UserAction>(
     for entity in predicted_entities.iter() {
         info!(?entity, "adding actions state buffer");
         commands.entity(entity).insert((
-           InputBuffer::<A>::default(),
-           ActionDiffBuffer::<A>::default(),
+            InputBuffer::<A>::default(),
+            ActionDiffBuffer::<A>::default(),
         ));
     }
     for entity in other_entities.iter() {
@@ -295,27 +298,28 @@ fn write_action_diffs<P: Protocol, A: UserAction>(
     mut action_diff_event: ResMut<Events<ActionDiffEvent<A>>>,
 ) {
     let tick = client.tick();
-    for event in action_diff_event.update_drain() {
+    // we drain the events when reading them
+    for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
-            trace!(?entity, ?tick, "write action diff");
             if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
+                info!(?entity, ?tick, "write action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         } else {
-            trace!(?tick, "write global action diff");
-            if let Some(mut global_action_diff_buffer) = global_action_diff_buffer {
-                global_action_diff_buffer.add(event.action_diff.clone(), event.owner);
+            if let Some(ref mut diff_buffer) = global_action_diff_buffer {
+                info!(?tick, "write global action diff");
+                diff_buffer.set(tick, event.action_diff);
             }
         }
-
-        action_diff_buffer.add(event.action_diff.clone(), event.owner);
     }
 }
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol, A: UserAction>(
     mut client: ResMut<Client<P>>,
+    global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     global_input_buffer: Option<ResMut<InputBuffer<A>>>,
+    mut action_diff_buffer_query: Query<(Entity, &mut ActionDiffBuffer<A>)>,
     mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
 ) where
     P::Message: From<InputMessage<A>>,
@@ -343,6 +347,16 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
         .sync_manager
         .interpolation_tick(&client.tick_manager);
 
+    for (entity, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
+        info!(
+            ?current_tick,
+            ?entity,
+            "Preparing input message with buffer: {:?}",
+            action_diff_buffer.as_ref()
+        );
+        action_diff_buffer.add_to_message(&mut message, current_tick, message_len, Some(entity));
+        action_diff_buffer.pop(interpolation_tick);
+    }
     for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
         info!(
             ?current_tick,
@@ -350,12 +364,14 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
             "Preparing input message with buffer: {}",
             input_buffer.as_ref()
         );
-        input_buffer.add_to_message(&mut message, current_tick, message_len, Some(entity));
         input_buffer.pop(interpolation_tick);
         trace!("input buffer len: {:?}", input_buffer.buffer.len());
     }
+    if let Some(mut action_diff_buffer) = global_action_diff_buffer {
+        action_diff_buffer.add_to_message(&mut message, current_tick, message_len, None);
+        action_diff_buffer.pop(interpolation_tick);
+    }
     if let Some(mut input_buffer) = global_input_buffer {
-        input_buffer.add_to_message(&mut message, current_tick, message_len, None);
         input_buffer.pop(interpolation_tick);
     }
 
@@ -379,6 +395,8 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
 /// Generates an [`Events`] stream of [`ActionDiff`] from [`ActionState`]
 ///
 /// This system is not part of the [`InputManagerPlugin`](crate::plugin::InputManagerPlugin) and must be added manually.
+// TODO: to keep correctness even in case of an input packet arriving too late on the server,
+//  we could generate a Diff even if the action is the same as the previous tick!
 pub fn generate_action_diffs<A: Actionlike>(
     action_state: Option<ResMut<ActionState<A>>>,
     action_state_query: Query<(Entity, &ActionState<A>)>,
@@ -469,7 +487,7 @@ pub fn generate_action_diffs<A: Actionlike>(
             }
         }
         for action in action_state.get_just_released() {
-            diffs.push( ActionDiff::Released {
+            diffs.push(ActionDiff::Released {
                 action: action.clone(),
             });
             if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
@@ -480,9 +498,10 @@ pub fn generate_action_diffs<A: Actionlike>(
             }
         }
         if !diffs.is_empty() {
+            info!("WRITING ACTION DIFF EVENT");
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
-                action_diffs: diffs,
+                action_diff: diffs,
             });
         }
     }

@@ -140,6 +140,14 @@ fn update_action_state<P: Protocol, A: UserAction>(
     let tick = server.tick();
 
     for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
+        // the state on the server is only updated from client inputs!
+        info!(
+            ?tick,
+            ?entity,
+            "action state: {:?}. Latest action diff buffer tick: {:?}",
+            &action_state.get_pressed(),
+            action_diff_buffer.end_tick(),
+        );
         action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
             info!(
                 ?tick,
@@ -149,14 +157,6 @@ fn update_action_state<P: Protocol, A: UserAction>(
             );
             diff.apply(action_state.deref_mut());
         });
-        // the state on the server is only updated from client inputs!
-        info!(
-            ?tick,
-            ?entity,
-            "action state: {:?}. Latest action diff buffer tick: {:?}",
-            &action_state.get_pressed(),
-            action_diff_buffer.end_tick(),
-        );
     }
 }
 

@@ -51,8 +51,8 @@ pub struct SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
-            jitter_multiple_margin: 3,
-            tick_margin: 1,
+            jitter_multiple_margin: 4,
+            tick_margin: 2,
             handshake_pings: 7,
             stats_buffer_duration: Duration::from_secs(2),
             error_margin: 1.0,

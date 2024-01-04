@@ -92,7 +92,6 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     // clear the list of newly connected clients
     // (cannot just use the ConnectionEvent because it is cleared after each frame)
     server.connection_manager.new_clients.clear();
-    info!("cleared new clients list");
 
     // TODO: clear the dependency graph for replication groups send
 }

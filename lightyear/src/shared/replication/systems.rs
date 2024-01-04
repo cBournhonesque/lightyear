@@ -303,7 +303,6 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                 let new_connected_clients = sender.new_connected_clients().clone();
                 // replicate all components to newly connected clients
                 if !new_connected_clients.is_empty() {
-                    info!("REPLICATING TO NEWLY CONNECTED CLIENTS");
                     let _ = sender
                         .prepare_component_insert(
                             entity,

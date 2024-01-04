@@ -17,7 +17,7 @@ use crate::shared::sets::{FixedUpdateSet, MainSet};
 
 #[derive(Debug, Clone)]
 pub struct InputConfig {
-    /// How many consecutive packets lossed do we want to handle?
+    /// How many consecutive packets losses do we want to handle?
     /// This is used to compute the redundancy of the input messages.
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
