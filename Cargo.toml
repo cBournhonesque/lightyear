@@ -9,7 +9,5 @@ members = [
   "examples/*",
   "vendor/bitcode",
 ]
-default-members = [
-  "lightyear",
-]
+default-members = ["lightyear"]
 exclude = ["examples/certificates"]
