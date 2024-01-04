@@ -11,10 +11,5 @@ members = [
 ]
 default-members = [
   "lightyear",
-  "macros",
-
-  # internal
-  "benches",
-  "examples/*",
 ]
 exclude = ["examples/certificates"]
