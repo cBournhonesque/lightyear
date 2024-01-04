@@ -7,7 +7,7 @@ use std::ops::Deref;
 use syn::punctuated::Punctuated;
 use syn::{
     parse_macro_input, parse_quote, Field, Fields, GenericParam, Generics, ItemEnum, MetaList,
-    Token, Type, TypeParam,
+    PathArguments, Token, Type, TypeParam,
 };
 
 #[derive(Debug, FromMeta)]
@@ -117,6 +117,24 @@ pub fn component_protocol_impl(
     input.variants.push(parse_quote! {
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
+    #[cfg(feature = "leafwing")]
+    for i in 1..3 {
+        let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
+        let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
+        input.variants.push(parse_quote! {
+            #variant(ActionState<<#protocol as Protocol>::#ty>)
+        });
+
+        // TODO: should we enable netwokring InputMap?
+        // let variant = Ident::new(&format!("InputMap{}", i), Span::call_site());
+        // let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
+        // input.variants.push(parse_quote! {
+        //     #variant(InputMap<<#protocol as Protocol>::#ty>)
+        // });
+        // input.variants.push(parse_quote! {
+        //     #variant(Wrapper<ActionState<<#protocol as Protocol>::#ty>>)
+        // });
+    }
 
     // Helper Properties
     let fields = get_fields(&input);
@@ -153,11 +171,12 @@ pub fn component_protocol_impl(
     let encode_method = encode_method();
     let decode_method = decode_method();
     let delegate_method = delegate_method(&input, &enum_kind_name);
+    let insert_method = insert_method(&input, &fields);
+    let update_method = update_method(&input, &fields);
 
     // EnumKind methods
     let enum_kind = get_enum_kind(&input, &enum_kind_name);
     let from_method = from_method(&input, &enum_kind_name, &fields);
-    let into_kind_method = into_kind_method(&input, &fields, &enum_kind_name);
     let remove_method = remove_method(&input, &fields, &enum_kind_name);
 
     let gen = quote! {
@@ -171,6 +190,8 @@ pub fn component_protocol_impl(
             use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
             use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
+            #[cfg(feature = "leafwing")]
+            use leafwing_input_manager::prelude::*;
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]
             #extra_derives
@@ -180,6 +201,8 @@ pub fn component_protocol_impl(
             impl ComponentProtocol for #enum_name {
                 type Protocol = #protocol;
 
+                #insert_method
+                #update_method
                 #add_systems_method
                 #add_events_method
                 #push_component_events_method
@@ -201,6 +224,12 @@ pub fn component_protocol_impl(
                 }
             }
 
+            impl std::fmt::Display for #enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                    std::fmt::Debug::fmt(self, f)
+                }
+            }
+
             #sync_component_impl
             #delegate_method
 
@@ -211,11 +240,16 @@ pub fn component_protocol_impl(
                 type Protocol = #protocol;
             }
 
-            #into_kind_method
             #from_method
 
             impl ComponentKindBehaviour for #enum_kind_name {
                 #remove_method
+            }
+
+            impl std::fmt::Display for #enum_kind_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                    std::fmt::Debug::fmt(self, f)
+                }
             }
             // TODO: we don't need to implement for now because we get it for free from Serialize + Deserialize + Clone
             // impl BitSerializable for #enum_name {
@@ -336,6 +370,18 @@ fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenS
         // skip components that are defined externally
         if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
             || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
+            || field
+                .ident
+                .as_ref()
+                .unwrap()
+                .to_string()
+                .starts_with("ActionState")
+        // || field
+        //     .ident
+        //     .as_ref()
+        //     .unwrap()
+        //     .to_string()
+        //     .starts_with("InputMap")
         {
             continue;
         }
@@ -477,24 +523,6 @@ fn from_method(input: &ItemEnum, enum_kind_name: &Ident, fields: &Vec<Field>) ->
     }
 }
 
-fn into_kind_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> TokenStream {
-    let component_kind_names = input.variants.iter().map(|v| &v.ident);
-    let component_types = fields.iter().map(|field| &field.ty);
-
-    let mut field_body = quote! {};
-    for (component_type, component_kind_name) in component_types.zip(component_kind_names) {
-        field_body = quote! {
-            #field_body
-            impl IntoKind<#enum_kind_name> for #component_type {
-                fn into_kind() -> #enum_kind_name {
-                    #enum_kind_name::#component_kind_name
-                }
-            }
-        };
-    }
-    field_body
-}
-
 fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> TokenStream {
     let component_kind_names = input.variants.iter().map(|v| &v.ident);
     let component_types = fields.iter().map(|field| &field.ty);
@@ -523,7 +551,7 @@ fn mode_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
         let component_type = &field.ty;
         body = quote! {
             #body
-            Self::#ident(_) => #component_type::mode(),
+            Self::#ident(_) => <#component_type>::mode(),
         };
     }
 
@@ -571,6 +599,104 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
             fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
             fn entities(&self) -> EntityHashSet<Entity> {
                 EntityHashSet::default()
+            }
+        }
+    }
+}
+
+fn insert_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let ident = &field.ident;
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            Self::#ident(x) => {
+                entity.insert(x);
+            }
+        };
+
+        // let is_wrapped = match component_type {
+        //     Type::Path(path) => path.path.segments.first().unwrap().ident.to_string() == "Wrapper",
+        //     _ => false,
+        // };
+        //
+        // if is_wrapped {
+        //     body = quote! {
+        //         #body
+        //         Self::#ident(x) => {
+        //             entity.insert(x.0);
+        //         }
+        //     };
+        // } else {
+        //     body = quote! {
+        //         #body
+        //         Self::#ident(x) => {
+        //             entity.insert(x);
+        //         }
+        //     };
+        // }
+    }
+
+    quote! {
+        fn insert(self, entity: &mut EntityWorldMut) {
+            match self {
+                #body
+            }
+        }
+    }
+}
+
+fn update_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let ident = &field.ident;
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            Self::#ident(x) => {
+                 if let Some(mut c) = entity.get_mut::<#component_type>() {
+                    *c = x;
+                 }
+            }
+        };
+        // let is_wrapped = match component_type {
+        //     Type::Path(path) => path.path.segments.first().unwrap().ident.to_string() == "Wrapper",
+        //     _ => false,
+        // };
+        //
+        // if is_wrapped {
+        //     let inner = match component_type {
+        //         Type::Path(path) => match &path.path.segments.first().unwrap().arguments {
+        //             PathArguments::AngleBracketed(generics) => generics.args.first().unwrap(),
+        //             _ => panic!(),
+        //         },
+        //         _ => panic!(),
+        //     };
+        //     body = quote! {
+        //         #body
+        //         Self::#ident(x) => {
+        //              if let Some(mut c) = entity.get_mut::<#inner>() {
+        //                 *c = x.0;
+        //              }
+        //         }
+        //     };
+        // } else {
+        //     body = quote! {
+        //         #body
+        //         Self::#ident(x) => {
+        //              if let Some(mut c) = entity.get_mut::<#component_type>() {
+        //                 *c = x;
+        //              }
+        //         }
+        //     };
+        // }
+    }
+
+    quote! {
+        fn update(self, entity: &mut EntityWorldMut) {
+            match self {
+                #body
             }
         }
     }

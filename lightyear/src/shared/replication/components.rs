@@ -1,9 +1,11 @@
 //! Components used for replication
 use bevy::prelude::{Component, Entity};
 use bevy::utils::{EntityHashSet, HashMap, HashSet};
+use cfg_if::cfg_if;
+
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::IntoKind;
+use crate::_reexport::FromType;
 use lightyear_macros::MessageInternal;
 
 use crate::channel::builder::Channel;
@@ -43,6 +45,11 @@ pub struct Replicate<P: Protocol> {
     /// By default, all components will be ignored. You can add components to this list to make them
     /// not replicated for this specific entity
     pub disabled_components: HashSet<P::ComponentKinds>,
+    /// These components will be replicated only once, when the entity is spawned.
+    /// Further updates won't be replicated.
+    /// ActionStates should be replicated once
+    // TODO: should i use this or just use ReplicatedComponent with a mode?
+    pub replicate_once: HashSet<P::ComponentKinds>,
 }
 
 impl<P: Protocol> Replicate<P> {
@@ -58,17 +65,35 @@ impl<P: Protocol> Replicate<P> {
     /// Disable the replication of a component for this entity
     pub fn disable_component<C>(&mut self)
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        self.disabled_components.insert(C::into_kind());
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.disabled_components.insert(kind);
     }
 
     /// Enable the replication of a component for this entity
-    pub(crate) fn enable_component<C>(&mut self)
+    pub fn enable_component<C>(&mut self)
     where
-        C: IntoKind<P::ComponentKinds>,
+        P::ComponentKinds: FromType<C>,
     {
-        self.disabled_components.remove(&C::into_kind());
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.disabled_components.remove(&kind);
+    }
+
+    pub fn enable_replicate_once<C>(&mut self)
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.replicate_once.insert(kind);
+    }
+
+    pub fn disable_replicate_once<C>(&mut self)
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.replicate_once.remove(&kind);
     }
 }
 
@@ -97,6 +122,23 @@ pub enum ReplicationMode {
 
 impl<P: Protocol> Default for Replicate<P> {
     fn default() -> Self {
+        cfg_if! {
+            if #[cfg(feature = "leafwing")] {
+                // the ActionState components are replicated only once when the entity is spawned
+                // then they get updated by the user inputs, not by replication
+                use leafwing_input_manager::prelude::ActionState;
+                let mut replicate_once = HashSet::default();
+                replicate_once.insert(<P::ComponentKinds as FromType<
+                    ActionState<P::LeafwingInput1>,
+                >>::from_type());
+                replicate_once.insert(<P::ComponentKinds as FromType<
+                    ActionState<P::LeafwingInput2>,
+                >>::from_type());
+            } else {
+                let replicate_once = HashSet::default();
+            }
+        }
+
         Self {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
@@ -105,6 +147,7 @@ impl<P: Protocol> Default for Replicate<P> {
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
             disabled_components: HashSet::default(),
+            replicate_once,
         }
     }
 }
@@ -154,7 +197,7 @@ impl NetworkTarget {
                 NetworkTarget::All => {}
                 NetworkTarget::Only(target_client_ids) => {
                     let mut new_included_ids = HashSet::from_iter(target_client_ids.clone());
-                    existing_client_ids.into_iter().for_each(|id| {
+                    existing_client_ids.iter_mut().for_each(|id| {
                         new_included_ids.remove(id);
                     });
                     *self = NetworkTarget::Only(Vec::from_iter(new_included_ids));
@@ -173,8 +216,8 @@ impl NetworkTarget {
                 }
                 NetworkTarget::All => {}
                 NetworkTarget::Only(target_client_ids) => {
-                    let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
-                    let mut target_included_ids = HashSet::from_iter(target_client_ids.clone());
+                    let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let target_included_ids = HashSet::from_iter(target_client_ids.clone());
                     let intersection = new_included_ids.intersection(&target_included_ids).cloned();
                     *existing_client_ids = intersection.collect::<Vec<_>>();
                 }

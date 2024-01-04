@@ -5,8 +5,8 @@ use bevy::utils::EntityHashSet;
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
 impl Named for Transform {
-    fn name(&self) -> String {
-        "Transform".to_string()
+    fn name(&self) -> &'static str {
+        "Transform"
     }
 }
 
@@ -24,8 +24,8 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "render")] {
         use bevy::prelude::{Color,  Visibility};
         impl Named for Color {
-            fn name(&self) -> String {
-                "Color".to_string()
+            fn name(&self) -> &'static str {
+                "Color"
             }
         }
 
@@ -40,8 +40,8 @@ cfg_if::cfg_if! {
         impl Message for Color {}
 
         impl Named for Visibility {
-            fn name(&self) -> String {
-                "Visibility".to_string()
+            fn name(&self) -> &'static str {
+                "Visibility"
             }
         }
 

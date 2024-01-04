@@ -43,7 +43,7 @@ pub enum MainSet {
     ///
     /// Runs in `PostUpdate`.
     SendPackets,
-    /// System to encompass all send-related systems
+    /// System to encompass all send-related systems. Runs only every send_interval
     Send,
 }
 

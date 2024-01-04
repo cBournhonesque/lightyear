@@ -13,7 +13,7 @@ use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, error, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
@@ -392,10 +392,6 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&kind) {
-            return Ok(());
-        }
 
         // handle ShouldBePredicted separately because of pre-spawning behaviour
         // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
@@ -444,10 +440,6 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&component_kind) {
-            return Ok(());
-        }
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
@@ -460,7 +452,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .entry(group)
                 .or_default()
                 .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_component_remove(entity, group, component_kind.clone());
+            replication_sender.prepare_component_remove(entity, group, component_kind);
             Ok(())
         })
     }
@@ -475,10 +467,6 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&kind) {
-            return Ok(());
-        }
 
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {

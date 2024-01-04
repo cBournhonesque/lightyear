@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, IntoKind};
+use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
@@ -244,7 +244,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     // removals
                     debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
-                        events.push_remove_component(local_entity_mut.id(), kind.clone(), Tick(0));
+                        events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
                         kind.remove(&mut local_entity_mut);
                     }
 

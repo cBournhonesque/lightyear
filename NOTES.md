@@ -5,6 +5,34 @@
   - one server: 1 game room per core?
 
 
+- INPUTS:
+  - on client side, we have a ActionStateBuffer for rollback, and a ActionDiffBuffer to generate the message we will send to server
+  - sometimes frames have no fixed-update, so we have a system that runs on PreUpdate after leafwing that generates inputs as events
+    which are only cleared when read
+  - then we keep the diffs in a buffer and we send the last 10 or so to the server
+  - on the server we reconstruct the action-state from the diff.
+  - ISSUES:
+    - if we miss one of the diffs (Pressed/Released) because it arrived too late on the client, our action-state on server is on a bad state.
+      - I do see cases on server where the current-tick is bigger than the latest action-diff-tick we received.
+      - Maybe we should we just send the full action-state every time? (but that's a lot of data)
+      - Maybe we could generate a diff even when the action did not change (i.e. Pressed -> Pressed), so that we still have a smaller msesage
+        but with no timing information
+
+- Since we have multiple Actionlike, how can we send them?
+  - either we add Input1, Input2, etc. in the Protocol
+  - either we make the API work like naia with a non-static protocol
+    - we maintain a map with NetId of each Channel,Message,Input,Component in the protocol
+    - on serialize:
+      - we find the netid of the input
+      - we'll need to pass the ComponentKinds to the serialize function to get the netid
+    - on deserialize:
+      - we pass the ComponentKinds to the deserialize function
+      - we read the netid and get a `dyn ComponentBuilder`
+      - we use the builder to build a `dyn Component`?
+
+ 
+
+
 - CHANGE DETECTION BUG:
   - What are the consequences of this?
     "System 'bevy_ecs::event::event_update_system<lightyear::shared::events::MessageEvent<lightyear::inputs::input_buffer::InputMessage<simple_box::protocol::Inputs>,

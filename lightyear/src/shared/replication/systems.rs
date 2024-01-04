@@ -2,6 +2,7 @@
 use bevy::ecs::entity::Entities;
 use std::ops::Deref;
 
+use crate::_reexport::FromType;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
@@ -10,7 +11,6 @@ use bevy::prelude::{
 use tracing::{debug, error, info, trace};
 
 use crate::prelude::{MainSet, NetworkTarget};
-use crate::protocol::component::IntoKind;
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
@@ -231,8 +231,14 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
     mut sender: ResMut<R>,
 ) where
     <P as Protocol>::Components: From<C>,
+    P::ComponentKinds: FromType<C>,
 {
+    let kind = <P::ComponentKinds as FromType<C>>::from_type();
     query.iter().for_each(|(entity, component, replicate)| {
+        // do not replicate components that are disabled
+        if replicate.disabled_components.contains(&kind) {
+            return;
+        }
         match replicate.replication_mode {
             ReplicationMode::Room => {
                 replicate
@@ -271,6 +277,10 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                             });
                                         // only update components that were not newly added
                                     } else {
+                                        // do not send updates for these components, only inserts/removes
+                                        if replicate.replicate_once.contains(&kind) {
+                                            return;
+                                        }
                                         let _ = sender
                                             .prepare_entity_update(
                                                 entity,
@@ -329,6 +339,14 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                             error!("error sending component insert: {:?}", e);
                         });
                 } else {
+                    // do not send updates for these components, only inserts/removes
+                    if replicate.replicate_once.contains(&kind) {
+                        trace!(?entity,
+                            "not replicating updates for {:?} because it is marked as replicate_once",
+                            kind
+                        );
+                        return;
+                    }
                     // otherwise send an update for all components that changed since the
                     // last update we have ack-ed
                     let _ = sender
@@ -357,10 +375,15 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
 ) where
-    C: IntoKind<<P as Protocol>::ComponentKinds>,
+    P::ComponentKinds: FromType<C>,
 {
+    let kind = <P::ComponentKinds as FromType<C>>::from_type();
     removed.read().for_each(|entity| {
         if let Ok(replicate) = query.get(entity) {
+            // do not replicate components that are disabled
+            if replicate.disabled_components.contains(&kind) {
+                return;
+            }
             match replicate.replication_mode {
                 ReplicationMode::Room => {
                     replicate.replication_clients_cache.iter().for_each(
@@ -371,7 +394,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                                     let _ = sender
                                         .prepare_component_remove(
                                             entity,
-                                            C::into_kind(),
+                                            kind,
                                             replicate,
                                             NetworkTarget::Only(vec![*client_id]),
                                             system_bevy_ticks.this_run(),
@@ -389,7 +412,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
                     let _ = sender
                         .prepare_component_remove(
                             entity,
-                            C::into_kind(),
+                            kind,
                             replicate,
                             replicate.replication_target.clone(),
                             system_bevy_ticks.this_run(),
@@ -437,8 +460,8 @@ pub fn add_per_component_replication_send_systems<
 >(
     app: &mut App,
 ) where
-    <P as Protocol>::Components: From<C>,
-    C: IntoKind<<P as Protocol>::ComponentKinds>,
+    P::Components: From<C>,
+    P::ComponentKinds: FromType<C>,
 {
     app.add_systems(
         PostUpdate,

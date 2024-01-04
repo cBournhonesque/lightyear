@@ -15,6 +15,9 @@ exclude = ["/tests"]
 [lib]
 proc-macro = true
 
+[features]
+leafwing = ["lightyear/leafwing"]
+
 
 [dependencies]
 proc-macro2 = "1.0"
@@ -28,6 +31,7 @@ uuid = { version = "1.6.1", features = ["v4"] }
 
 [dev-dependencies]
 lightyear = { path = "../lightyear" }
+leafwing-input-manager = { version = "0.11.2" }
 enum-as-inner = "0.6.0"
 bevy = { version = "0.12", default-features = false }
 enum_delegate = "0.2"

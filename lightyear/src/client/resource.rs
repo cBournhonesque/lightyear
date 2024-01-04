@@ -7,11 +7,12 @@ use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, Time, Virtual, World};
 use bevy::utils::EntityHashMap;
+use cfg_if::cfg_if;
 use tracing::{debug, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{Client as NetcodeClient, ClientId};
 use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
@@ -132,27 +133,6 @@ impl<P: Protocol> Client<P> {
     }
 
     // INPUT
-
-    // TODO: maybe put the input_buffer directly in Client ?
-    //  layer of indirection feelds annoying
-    pub fn add_input(&mut self, input: P::Input) {
-        self.connection
-            .add_input(input, self.tick_manager.current_tick());
-    }
-
-    pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
-        &self.connection.input_buffer
-    }
-
-    pub fn get_mut_input_buffer(&mut self) -> &mut InputBuffer<P::Input> {
-        &mut self.connection.input_buffer
-    }
-
-    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
-    /// to keep it for rollback)
-    pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
-        self.connection.input_buffer.get(tick).cloned()
-    }
 
     // TIME
 
@@ -297,6 +277,30 @@ impl<P: Protocol> Client<P> {
     }
 }
 
+// INPUT
+impl<P: Protocol> Client<P> {
+    // TODO: maybe put the input_buffer directly in Client ?
+    //  layer of indirection feelds annoying
+    pub fn add_input(&mut self, input: P::Input) {
+        self.connection
+            .add_input(input, self.tick_manager.current_tick());
+    }
+
+    pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
+        &self.connection.input_buffer
+    }
+
+    pub fn get_mut_input_buffer(&mut self) -> &mut InputBuffer<P::Input> {
+        &mut self.connection.input_buffer
+    }
+
+    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
+    /// to keep it for rollback)
+    pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
+        self.connection.input_buffer.get(tick).cloned()
+    }
+}
+
 impl<P: Protocol> TickManaged for Client<P> {
     fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
@@ -386,10 +390,6 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&kind) {
-            return Ok(());
-        }
         let group = replicate.group_id(Some(entity));
         debug!(
             ?entity,
@@ -416,10 +416,6 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&component_kind) {
-            return Ok(());
-        }
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
         let replication_sender = &mut self.connection.replication_sender;
@@ -428,7 +424,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
             .entry(group)
             .or_default()
             .update_collect_changes_since_this_tick(system_current_tick);
-        replication_sender.prepare_component_remove(entity, group, component_kind.clone());
+        replication_sender.prepare_component_remove(entity, group, component_kind);
         Ok(())
     }
 
@@ -442,10 +438,6 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        // do not replicate components that are disabled
-        if replicate.disabled_components.contains(&kind) {
-            return Ok(());
-        }
         let group = replicate.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         let replication_sender = &mut self.connection.replication_sender;

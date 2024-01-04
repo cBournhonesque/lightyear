@@ -27,6 +27,7 @@ webtransport = [
   "tokio/sync",
   "wtransport/dangerous-configuration",
 ]
+leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 
 
 [dependencies]
@@ -34,6 +35,7 @@ webtransport = [
 anyhow = "1.0"
 chrono = "0.4.31"
 cfg-if = "1.0"
+const_format = "0.2.32"
 derive_more = "0.99.17"
 enum_delegate = "0.2"
 enum_dispatch = "0.3"
@@ -42,6 +44,10 @@ paste = "1.0"
 rand = "0.8"
 ringbuffer = "0.15"
 thiserror = "1.0.50"
+
+# input
+leafwing-input-manager = { version = "0.11.2", optional = true }
+
 
 # transport
 wtransport = { version = "0.1.9", optional = true }

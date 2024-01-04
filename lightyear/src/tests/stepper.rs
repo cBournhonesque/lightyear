@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
+use bevy::{DefaultPlugins, MinimalPlugins};
 
 use crate::netcode::generate_key;
 use crate::prelude::client::{

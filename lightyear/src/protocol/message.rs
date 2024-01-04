@@ -6,15 +6,24 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::connection::events::IterMessageEvent;
-use crate::inputs::input_buffer::InputMessage;
+use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::MapEntities;
 use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
+#[cfg(feature = "leafwing")]
+use crate::shared::events::InputMessageEvent;
 use crate::utils::named::Named;
 
 // client writes an Enum containing all their message type
 // each message must derive message
+
+pub enum InputMessageKind {
+    #[cfg(feature = "leafwing")]
+    Leafwing,
+    Native,
+    None,
+}
 
 // that big enum will implement MessageProtocol via a proc macro
 pub trait MessageProtocol:
@@ -32,6 +41,9 @@ pub trait MessageProtocol:
     + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
 {
     type Protocol: Protocol;
+
+    /// Returns true if the message is an input message
+    fn input_message_kind(&self) -> InputMessageKind;
 
     // TODO: combine these 2 into a single function that takes app?
     /// Add events to the app

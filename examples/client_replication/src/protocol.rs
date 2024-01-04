@@ -124,7 +124,7 @@ pub enum Inputs {
     None,
 }
 
-impl UserInput for Inputs {}
+impl UserAction for Inputs {}
 
 // Protocol
 

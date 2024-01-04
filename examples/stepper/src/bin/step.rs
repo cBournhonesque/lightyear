@@ -17,8 +17,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear_examples::protocol::*;
-use lightyear_examples::stepper::{BevyStepper, Step};
+use stepper::protocol::*;
+use stepper::stepper::{BevyStepper, Step};
 
 fn client_init(mut client: ResMut<Client>) {
     info!("Connecting to server");

@@ -1,8 +1,10 @@
-use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use leafwing_input_manager::plugin::InputManagerSystem;
+use leafwing_input_manager::prelude::*;
+use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 use lightyear::_reexport::{ShouldBeInterpolated, ShouldBePredicted};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -61,6 +63,11 @@ impl Plugin for MyClientPlugin {
         let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
+        // input-handling plugin from leafwing
+        app.add_plugins(InputManagerPlugin::<Inputs>::default());
+        app.init_resource::<ActionState<Inputs>>();
+        app.insert_resource(Inputs::get_input_map());
+
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         app.add_systems(
@@ -100,37 +107,19 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client>, keypress: Res<Input<KeyCode>>) {
-    let mut direction = Direction {
-        up: false,
-        down: false,
-        left: false,
-        right: false,
-    };
-    if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
-        direction.up = true;
+pub(crate) fn buffer_input(mut client: ResMut<Client>, mut inputs: ResMut<ActionState<Inputs>>) {
+    let mut pressed = inputs.get_pressed();
+    if !pressed.is_empty() {
+        let input = pressed.pop().unwrap();
+        // in case the fixed-update systems didn't run in a frame, we still need to handle the Message input
+        if matches!(input, Inputs::Message) {
+            inputs.consume_all();
+        }
+        info!("Send input: {:?}", input);
+        return client.add_input(input);
+    } else {
+        return client.add_input(Inputs::None);
     }
-    if keypress.pressed(KeyCode::S) || keypress.pressed(KeyCode::Down) {
-        direction.down = true;
-    }
-    if keypress.pressed(KeyCode::A) || keypress.pressed(KeyCode::Left) {
-        direction.left = true;
-    }
-    if keypress.pressed(KeyCode::D) || keypress.pressed(KeyCode::Right) {
-        direction.right = true;
-    }
-    if !direction.is_none() {
-        return client.add_input(Inputs::Direction(direction));
-    }
-    if keypress.pressed(KeyCode::Delete) {
-        // currently, inputs is an enum and we can only add one input per tick
-        return client.add_input(Inputs::Delete);
-    }
-    if keypress.pressed(KeyCode::Space) {
-        return client.add_input(Inputs::Spawn);
-    }
-    // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
-    return client.add_input(Inputs::None);
 }
 
 // The client input only gets applied to predicted entities that we own

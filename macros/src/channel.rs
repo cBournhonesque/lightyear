@@ -51,8 +51,8 @@ pub fn channel_impl(
                 }
             }
             impl TypeNamed for #struct_name {
-                fn name() -> String {
-                    return #struct_name_str.to_string();
+                fn name() -> &'static str {
+                    "#struct_name_str"
                 }
             }
         }

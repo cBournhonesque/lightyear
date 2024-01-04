@@ -33,11 +33,11 @@ pub mod _reexport {
     pub use crate::connection::events::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
-    pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
-        FromType, IntoKind,
+        FromType,
     };
+    pub use crate::protocol::message::InputMessageKind;
     pub use crate::protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
@@ -68,10 +68,13 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
-    pub use crate::inputs::UserInput;
+    #[cfg(feature = "leafwing")]
+    pub use crate::inputs::leafwing::LeafwingUserAction;
+    pub use crate::inputs::native::UserAction;
     pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+    pub use crate::protocol::component::Wrapper;
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::SharedConfig;
@@ -108,6 +111,9 @@ pub mod prelude {
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
+
+        #[cfg(feature = "leafwing")]
+        pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
     }
     pub mod server {
         #[cfg(feature = "webtransport")]
@@ -121,6 +127,9 @@ pub mod prelude {
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::room::{RoomId, RoomMut, RoomRef};
+
+        #[cfg(feature = "leafwing")]
+        pub use crate::server::input_leafwing::LeafwingInputPlugin;
     }
 }
 

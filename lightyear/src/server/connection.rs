@@ -3,7 +3,8 @@ use bevy::utils::{Duration, EntityHashMap, Entry, HashMap};
 use std::rc::Rc;
 
 use crate::_reexport::{
-    EntityUpdatesChannel, InputMessage, MessageBehaviour, MessageKind, PingChannel,
+    EntityUpdatesChannel, InputMessageKind, MessageBehaviour, MessageKind, MessageProtocol,
+    PingChannel,
 };
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
@@ -15,7 +16,7 @@ use crate::channel::senders::ChannelSend;
 use crate::client::sync::SyncConfig;
 use crate::connection::events::{ConnectionEvents, IterMessageEvent};
 use crate::connection::message::{ClientMessage, ServerMessage};
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::{InputBuffer, InputMessage};
 use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::message_receivers::MessageReceiver;
@@ -86,7 +87,7 @@ impl<P: Protocol> ConnectionManager<P> {
             #[cfg(feature = "metrics")]
             metrics::increment_gauge!("connected_clients", 1.0);
 
-            debug!("New connection from id: {}", client_id);
+            info!("New connection from id: {}", client_id);
             let mut connection = Connection::new(&self.channel_registry, ping_config);
             connection.events.push_connection();
             self.new_clients.push(client_id);
@@ -357,14 +358,22 @@ impl<P: Protocol> Connection<P> {
                                 ));
                             }
                             // don't put InputMessage into events else the events won't be classified as empty
-                            if message.kind() == MessageKind::of::<InputMessage<P::Input>>() {
-                                trace!("update input buffer");
-                                let input_message = message.try_into().unwrap();
-                                // info!("Received input message: {:?}", input_message);
-                                self.input_buffer.update_from_message(input_message);
-                            } else {
-                                // buffer the message
-                                self.events.push_message(channel_kind, message);
+                            match message.input_message_kind() {
+                                #[cfg(feature = "leafwing")]
+                                InputMessageKind::Leafwing => {
+                                    info!("received input message, pushing it to events");
+                                    self.events.push_input_message(message);
+                                }
+                                InputMessageKind::Native => {
+                                    trace!("update input buffer");
+                                    let input_message = message.try_into().unwrap();
+                                    // info!("Received input message: {:?}", input_message);
+                                    self.input_buffer.update_from_message(input_message);
+                                }
+                                InputMessageKind::None => {
+                                    // buffer the message
+                                    self.events.push_message(channel_kind, message);
+                                }
                             }
                         }
                         ClientMessage::Replication(replication) => {

@@ -1,14 +1,16 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::prelude::{App, Commands, ResMut, Startup};
-use bevy::MinimalPlugins;
+use bevy::log::LogPlugin;
+use bevy::prelude::{App, Commands, PluginGroup, ResMut, Startup};
+use bevy::winit::WinitPlugin;
+use bevy::DefaultPlugins;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::Authentication;
-use lightyear_examples::protocol::*;
+use stepper::protocol::*;
 
 fn client_init(mut client: ResMut<Client>) {
     info!("Connecting to server");
@@ -38,13 +40,13 @@ fn main() -> anyhow::Result<()> {
     let server_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting server thread");
         let mut server_app = App::new();
-        server_app.add_plugins(MinimalPlugins);
-        lightyear_examples::server::bevy_setup(
-            &mut server_app,
-            server_addr,
-            protocol_id,
-            private_key,
+        server_app.add_plugins(
+            DefaultPlugins
+                .build()
+                .disable::<LogPlugin>()
+                .disable::<WinitPlugin>(),
         );
+        stepper::server::bevy_setup(&mut server_app, server_addr, protocol_id, private_key);
         server_app.add_systems(Startup, server_init);
         server_app.run();
         debug!("finish server run");
@@ -53,7 +55,12 @@ fn main() -> anyhow::Result<()> {
     let client_thread = std::thread::spawn(move || -> anyhow::Result<()> {
         debug!("Starting client thread");
         let mut client_app = App::new();
-        client_app.add_plugins(MinimalPlugins);
+        client_app.add_plugins(
+            DefaultPlugins
+                .build()
+                .disable::<LogPlugin>()
+                .disable::<WinitPlugin>(),
+        );
         let auth = Authentication::Manual {
             server_addr,
             protocol_id,

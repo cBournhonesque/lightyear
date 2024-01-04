@@ -2,15 +2,13 @@ use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, 
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationMode;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
-    position: Position,
+    position: PlayerPosition,
     color: PlayerColor,
     replicate: Replicate,
 }
@@ -19,13 +17,12 @@ impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
         Self {
             id: PlayerId(id),
-            position: Position(position),
+            position: PlayerPosition(position),
             color: PlayerColor(color),
             replicate: Replicate {
+                // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                // use rooms for replication
-                replication_mode: ReplicationMode::Room,
                 ..default()
             },
         }
@@ -35,19 +32,15 @@ impl PlayerBundle {
 // Components
 
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(pub ClientId);
+pub struct PlayerId(ClientId);
 
 #[derive(
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
-pub struct Position(pub(crate) Vec2);
+pub struct PlayerPosition(Vec2);
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
-
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
-// Marker component
-pub struct Circle;
 
 // Example of a component that contains an entity.
 // This component, when replicated, needs to have the inner entity mapped from the Server world
@@ -60,9 +53,7 @@ pub struct PlayerParent(Entity);
 
 impl<'a> MapEntities<'a> for PlayerParent {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        info!("mapping parent entity {:?}", self.0);
         self.0.map_entities(entity_mapper);
-        info!("After mapping: {:?}", self.0);
     }
 
     fn entities(&self) -> EntityHashSet<Entity> {
@@ -75,11 +66,9 @@ pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),
     #[sync(full)]
-    PlayerPosition(Position),
+    PlayerPosition(PlayerPosition),
     #[sync(once)]
     PlayerColor(PlayerColor),
-    #[sync(once)]
-    Circle(Circle),
 }
 
 // Channels
@@ -121,7 +110,7 @@ pub enum Inputs {
     None,
 }
 
-impl UserInput for Inputs {}
+impl UserAction for Inputs {}
 
 // Protocol
 

@@ -155,7 +155,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                         }
                     };
                     if should_rollback {
-                        debug!(
+                        info!(
                                 "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?}",
                                 confirmed_entity, tick,
                             );

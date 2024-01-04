@@ -41,19 +41,17 @@ impl Plugin for SharedPlugin {
 pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
-        Inputs::Direction(direction) => {
-            if direction.up {
-                position.y += MOVE_SPEED;
-            }
-            if direction.down {
-                position.y -= MOVE_SPEED;
-            }
-            if direction.left {
-                position.x -= MOVE_SPEED;
-            }
-            if direction.right {
-                position.x += MOVE_SPEED;
-            }
+        Inputs::Up => {
+            position.y += MOVE_SPEED;
+        }
+        Inputs::Down => {
+            position.y -= MOVE_SPEED;
+        }
+        Inputs::Left => {
+            position.x -= MOVE_SPEED;
+        }
+        Inputs::Right => {
+            position.x += MOVE_SPEED;
         }
         _ => {}
     }
