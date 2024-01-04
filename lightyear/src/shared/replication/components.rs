@@ -197,7 +197,7 @@ impl NetworkTarget {
                 NetworkTarget::All => {}
                 NetworkTarget::Only(target_client_ids) => {
                     let mut new_included_ids = HashSet::from_iter(target_client_ids.clone());
-                    existing_client_ids.into_iter().for_each(|id| {
+                    existing_client_ids.iter_mut().for_each(|id| {
                         new_included_ids.remove(id);
                     });
                     *self = NetworkTarget::Only(Vec::from_iter(new_included_ids));
@@ -216,8 +216,8 @@ impl NetworkTarget {
                 }
                 NetworkTarget::All => {}
                 NetworkTarget::Only(target_client_ids) => {
-                    let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
-                    let mut target_included_ids = HashSet::from_iter(target_client_ids.clone());
+                    let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let target_included_ids = HashSet::from_iter(target_client_ids.clone());
                     let intersection = new_included_ids.intersection(&target_included_ids).cloned();
                     *existing_client_ids = intersection.collect::<Vec<_>>();
                 }
