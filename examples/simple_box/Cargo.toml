@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_examples"
+name = "simple_box"
 version = "0.1.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
@@ -10,59 +10,15 @@ repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
-exclude = ["/tests"]
 publish = false
-
-[[example]]
-name = "client_replication"
-path = "client_replication/main.rs"
-
-[[example]]
-name = "interest_management"
-path = "interest_management/main.rs"
-
-[[example]]
-name = "leafwing_inputs"
-path = "leafwing_inputs/main.rs"
-
-[[example]]
-name = "replication_groups"
-path = "replication_groups/main.rs"
-
-[[example]]
-name = "simple_box"
-path = "simple_box/main.rs"
-
-[[example]]
-name = "bevy_headless"
-path = "bevy_headless.rs"
-
-[[example]]
-name = "bevy_simple"
-path = "bevy_simple.rs"
-
-[[example]]
-name = "bevy_step"
-path = "bevy_step.rs"
-
-[[example]]
-name = "input_buffer_step"
-path = "input_buffer_step.rs"
-
-[[example]]
-name = "prediction_step"
-path = "prediction_step.rs"
 
 
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
-leafwing = ["lightyear/leafwing"]
 
 [dependencies]
-#leafwing-input-manager = "0.11.2"
-leafwing-input-manager = { path = "../../leafwing-input-manager" }
-lightyear = { path = "../lightyear", features = ["webtransport", "render"] }
+lightyear = { path = "../../lightyear", features = ["webtransport", "render"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"

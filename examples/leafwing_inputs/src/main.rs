@@ -1,11 +1,10 @@
-#![cfg(feature = "leafwing")]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
 //! Run with
-//! - `cargo run --example leafwing_inputs -- server`
-//! - `cargo run --example leafwing_inputs -- client -c 1`
+//! - `cargo run -- server`
+//! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
 mod server;

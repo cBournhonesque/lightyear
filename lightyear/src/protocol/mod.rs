@@ -110,7 +110,6 @@ macro_rules! protocolize {
             use bevy::prelude::*;
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
-            #[cfg(feature = "leafwing")]
             use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
             #[derive(Debug, Clone)]
@@ -120,9 +119,7 @@ macro_rules! protocolize {
 
             impl Protocol for $protocol {
                 type Input = $input;
-                #[cfg(feature = "leafwing")]
                 type LeafwingInput1 = $leafwing_input_1;
-                #[cfg(feature = "leafwing")]
                 type LeafwingInput2 = $leafwing_input_2;
                 type Message = $message;
                 type Components = $components;
@@ -207,9 +204,6 @@ macro_rules! protocolize {
         Component = $components:ty,
         LeafwingInput1 = $leafwing_input_1:ty,
     ) => {
-        // #[cfg(feature = "leafwing")]
-//         use $shared_crate_name::inputs::leafwing::{NoAction2};
-
         protocolize!{
             Self = $protocol,
             Message = $message,
@@ -246,11 +240,6 @@ macro_rules! protocolize {
         Input = $input:ty,
         Crate = $shared_crate_name:ident,
     ) => {
-        // #[cfg(feature = "leafwing")]
-//         use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
-
-        // TODO: this will break with leafwing not enabled because NoAction does not exist..
-
         protocolize!{
             Self = $protocol,
             Message = $message,

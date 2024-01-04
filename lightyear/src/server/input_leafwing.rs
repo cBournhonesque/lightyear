@@ -100,7 +100,7 @@ fn add_action_diff_buffer<A: UserAction>(
 // {
 //     if server.events().has_input_messages::<A>() {
 //         for (message, client_id) in server.events().into_iter_input_messages::<A>() {
-//             info!("received input message, sending input message event");
+//             trace!("received input message, sending input message event");
 //             input_message_events.send(InputMessageEvent::new(message, client_id));
 //         }
 //     }
@@ -141,7 +141,7 @@ fn update_action_state<P: Protocol, A: UserAction>(
 
     for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
-        info!(
+        trace!(
             ?tick,
             ?entity,
             "action state: {:?}. Latest action diff buffer tick: {:?}",
@@ -149,7 +149,7 @@ fn update_action_state<P: Protocol, A: UserAction>(
             action_diff_buffer.end_tick(),
         );
         action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
-            info!(
+            trace!(
                 ?tick,
                 ?entity,
                 "update action state using action diff: {:?}",

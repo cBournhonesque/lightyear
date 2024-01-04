@@ -6,7 +6,7 @@ members = [
 
   # internal
   "benches",
-  "examples",
+  "examples/*",
   "vendor/bitcode",
 ]
 default-members = [
@@ -15,5 +15,8 @@ default-members = [
 
   # internal
   "benches",
-  "examples",
+  "examples/*",
+]
+exclude = [
+  "examples/certificates"
 ]

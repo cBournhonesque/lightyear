@@ -173,9 +173,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
                 let mut target = replicate.replication_target.clone();
 
                 let new_connected_clients = sender.new_connected_clients().clone();
-                info!("replicating entity spawn");
                 if !new_connected_clients.is_empty() {
-                    info!("replicating to newly connected clients");
                     // replicate all entities to newly connected clients
                     let _ = sender
                         .prepare_entity_spawn(

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use bevy::app::App;
 
-use crate::protocol::{protocol, MyProtocol};
+use crate::protocol::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 

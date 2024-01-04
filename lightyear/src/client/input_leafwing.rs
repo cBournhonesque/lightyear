@@ -206,14 +206,14 @@ fn add_action_state_buffer<A: UserAction>(
     >,
 ) {
     for entity in predicted_entities.iter() {
-        info!(?entity, "adding actions state buffer");
+        trace!(?entity, "adding actions state buffer");
         commands.entity(entity).insert((
             InputBuffer::<A>::default(),
             ActionDiffBuffer::<A>::default(),
         ));
     }
     for entity in other_entities.iter() {
-        info!(?entity, "REMOVING ACTION STATE FOR CONFIRMED");
+        trace!(?entity, "REMOVING ACTION STATE FOR CONFIRMED");
         commands.entity(entity).remove::<ActionState<A>>();
     }
 }
@@ -232,7 +232,7 @@ fn buffer_action_state<P: Protocol, A: UserAction>(
 ) {
     let tick = client.tick();
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        info!(
+        trace!(
             ?entity,
             ?tick,
             "ACTION_STATE: JUST PRESSED: {:?}/ JUST RELEASED: {:?}/ PRESSED: {:?}/ RELEASED: {:?}",
@@ -267,7 +267,7 @@ fn get_rollback_action_state<A: UserAction>(
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // let state_is_empty = input_buffer.get(tick).is_none();
         // let input_buffer = input_buffer.buffer;
-        info!(
+        trace!(
             ?entity,
             ?tick,
             "get rollback action state. Buffer: {}",
@@ -277,7 +277,7 @@ fn get_rollback_action_state<A: UserAction>(
             .get(tick)
             .unwrap_or(&ActionState::<A>::default())
             .clone();
-        info!("updated action state for rollback: {:?}", action_state);
+        trace!("updated action state for rollback: {:?}", action_state);
     }
     if let Some(mut action_state) = global_action_state {
         *action_state = global_input_buffer.get(tick).unwrap().clone();
@@ -302,12 +302,12 @@ fn write_action_diffs<P: Protocol, A: UserAction>(
     for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
             if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
-                info!(?entity, ?tick, "write action diff");
+                trace!(?entity, ?tick, "write action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         } else {
             if let Some(ref mut diff_buffer) = global_action_diff_buffer {
-                info!(?tick, "write global action diff");
+                trace!(?tick, "write global action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         }
@@ -348,7 +348,7 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
         .interpolation_tick(&client.tick_manager);
 
     for (entity, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
-        info!(
+        trace!(
             ?current_tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
@@ -358,7 +358,7 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
         action_diff_buffer.pop(interpolation_tick);
     }
     for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
-        info!(
+        trace!(
             ?current_tick,
             ?entity,
             "Preparing input message with buffer: {}",
@@ -379,7 +379,7 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        info!("sending input message: {:?}", message);
+        trace!("sending input message: {:?}", message);
         client
             .send_message::<InputChannel, InputMessage<A>>(message)
             .unwrap_or_else(|err| {
@@ -498,7 +498,7 @@ pub fn generate_action_diffs<A: Actionlike>(
             }
         }
         if !diffs.is_empty() {
-            info!("WRITING ACTION DIFF EVENT");
+            trace!("WRITING ACTION DIFF EVENT");
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,

@@ -7,7 +7,7 @@ use bevy::app::App;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
-use crate::protocol::{protocol, MyProtocol};
+use crate::protocol::*;
 
 pub fn bevy_setup(app: &mut App, auth: Authentication) {
     // create udp-socket based io
