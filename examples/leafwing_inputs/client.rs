@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
+use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
@@ -61,6 +62,14 @@ impl Plugin for MyClientPlugin {
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
         // app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
+
+        // We can modify the reporting strategy for system execution order ambiguities on a per-schedule basis
+        // app.edit_schedule(PreUpdate, |schedule| {
+        //     schedule.set_build_settings(ScheduleBuildSettings {
+        //         ambiguity_detection: LogLevel::Warn,
+        //         ..default()
+        //     });
+        // });
 
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);

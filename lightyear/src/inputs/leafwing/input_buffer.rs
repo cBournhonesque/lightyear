@@ -1,11 +1,13 @@
 use bevy::ecs::bundle::DynamicBundle;
+use bevy::math::Vec2;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
-use bevy::prelude::{Component, Entity, Resource, TypePath};
+use bevy::prelude::{Component, Entity, Event, Resource, TypePath};
 use bevy::reflect::DynamicTypePath;
 use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
 use const_format::formatcp;
+use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::common_conditions::action_just_pressed;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 use leafwing_input_manager::Actionlike;
@@ -125,23 +127,80 @@ impl<A: UserAction> Default for InputBuffer<A> {
     }
 }
 
-/// Whether an action was just pressed or released. We can use this to reconstruct the ActionState
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub enum ActionDiff<A: UserAction> {
-    Pressed(A),
-    Released(A),
+/// Will store an `ActionDiff` as well as what generated it (either an Entity, or nothing if the
+/// input actions are represented by a `Resource`)
+///
+/// These are typically accessed using the `Events<ActionDiffEvent>` resource.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Event)]
+pub struct ActionDiffEvent<A: Actionlike> {
+    /// If some: the entity that has the `ActionState<A>` component
+    /// If none: `ActionState<A>` is a Resource, not a component
+    pub owner: Option<Entity>,
+    /// The `ActionDiff` that was generated
+    pub action_diff: Vec<ActionDiff<A>>,
+}
+
+/// Stores presses and releases of buttons without timing information
+///
+/// These are typically accessed using the `Events<ActionDiffEvent>` resource.
+/// Uses a minimal storage format, in order to facilitate transport over the network.
+///
+/// An `ActionState` can be fully reconstructed from a stream of `ActionDiff`
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ActionDiff<A: Actionlike> {
+    /// The action was pressed
+    Pressed {
+        /// The value of the action
+        action: A,
+    },
+    /// The action was released
+    Released {
+        /// The value of the action
+        action: A,
+    },
+    /// The value of the action changed
+    ValueChanged {
+        /// The value of the action
+        action: A,
+        /// The new value of the action
+        value: f32,
+    },
+    /// The axis pair of the action changed
+    AxisPairChanged {
+        /// The value of the action
+        action: A,
+        /// The new value of the axis
+        axis_pair: Vec2,
+    },
 }
 
 impl<A: UserAction> ActionDiff<A> {
     pub(crate) fn apply(self, action_state: &mut ActionState<A>) {
+        /// Applies an [`ActionDiff`] (usually received over the network) to the [`ActionState`].
+        ///
+        /// This lets you reconstruct an [`ActionState`] from a stream of [`ActionDiff`]s
         match self {
-            ActionDiff::Pressed(action) => {
-                action_state.press(action);
+            ActionDiff::Pressed { action } => {
+                self.press(action.clone());
+                self.action_data_mut(action.clone()).value = 1.;
             }
-            ActionDiff::Released(action) => {
-                action_state.release(action);
+            ActionDiff::Released { action } => {
+                self.release(action.clone());
+                let action_data = self.action_data_mut(action.clone());
+                action_data.value = 0.;
+                action_data.axis_pair = None;
             }
-        }
+            ActionDiff::ValueChanged { action, value } => {
+                self.press(action.clone());
+                self.action_data_mut(action.clone()).value = *value;
+            }
+            ActionDiff::AxisPairChanged { action, axis_pair } => {
+                self.press(action.clone());
+                let action_data = self.action_data_mut(action.clone());
+                action_data.axis_pair = Some(DualAxisData::from_xy(*axis_pair));
+                action_data.value = axis_pair.length();
+            }
+        };
     }
 }
 
@@ -365,6 +424,12 @@ impl<A: UserAction> Default for ActionDiffBuffer<A> {
 }
 
 impl<A: UserAction> ActionDiffBuffer<A> {
+    pub(crate) fn end_tick(&self) -> Tick {
+        self.start_tick.map_or(Tick(0), |start_tick| {
+            start_tick + (self.buffer.len() as i16 - 1)
+        })
+    }
+
     pub(crate) fn set(&mut self, tick: Tick, diffs: Vec<ActionDiff<A>>) {
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer

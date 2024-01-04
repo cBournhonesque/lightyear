@@ -153,8 +153,9 @@ fn update_action_state<P: Protocol, A: UserAction>(
         info!(
             ?tick,
             ?entity,
-            "action state: {:?}",
-            &action_state.get_pressed()
+            "action state: {:?}. Latest action diff buffer tick: {:?}",
+            &action_state.get_pressed(),
+            action_diff_buffer.end_tick(),
         );
     }
 }

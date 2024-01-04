@@ -46,7 +46,8 @@ ringbuffer = "0.15"
 thiserror = "1.0.50"
 
 # input
-leafwing-input-manager = { version = "0.11.2", optional = true }
+leafwing-input-manager = { path = "../../leafwing-input-manager", optional = true }
+#leafwing-input-manager = { version = "0.11.2", optional = true }
 
 
 # transport

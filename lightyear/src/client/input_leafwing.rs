@@ -1,5 +1,6 @@
 //! Handles client-generated inputs
 use bevy::prelude::*;
+use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 
 use leafwing_input_manager::prelude::*;
@@ -14,7 +15,7 @@ use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
-use crate::inputs::leafwing::input_buffer::{InputBuffer, InputMessage};
+use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage};
 use crate::inputs::leafwing::UserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
@@ -26,6 +27,20 @@ pub struct LeafwingInputConfig {
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
     packet_redundancy: u16,
+}
+
+#[derive(Resource, Default)]
+/// Check if we should tick the leafwing input manager
+/// In the situation F1 TA F2 F3 TB, we would like to not tick at the beginning of F3, so that we can send the diffs
+/// from both F2 and F3 to the server.
+/// NOTE: if this is too complicated, just replicate the entire ActionState instead of using diffs
+pub(crate) struct LeafwingTickManager<A: UserAction> {
+    // if this is true, we do not tick the leafwing input manager
+    should_not_tick: bool,
+}
+
+pub(crate) fn should_tick<A: UserAction>(manager: Res<LeafwingTickManager<A>>) -> bool {
+    !manager.should_not_tick
 }
 
 impl Default for LeafwingInputConfig {
@@ -72,7 +87,11 @@ where
         // RESOURCES
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();
+        app.init_resource::<ActionDiffBuffer<A>>();
+        app.init_resource::<LeafwingTickManager<A>>();
+        app.init_resource::<ActionDiffEvent<A>>();
         // SETS
+        app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
         app.configure_sets(
             FixedUpdate,
             (
@@ -95,11 +114,18 @@ where
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
+            (
+                generate_action_diffs:<A>.after(InputManagerSystem::ManualControl),
+                add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
+                // disable tick after the tick system, so that we can send the diffs correctly
+                // even if we do not have any FixedUpdate schedule run this frame
+                disable_tick::<A>.after(InputManagerSystem::Tick),
+            ),
         );
         app.add_systems(
             FixedUpdate,
             (
+                enable_tick::<A>.run_if(not(is_in_rollback)),
                 buffer_action_state::<P, A>.run_if(not(is_in_rollback)),
                 get_rollback_action_state::<A>.run_if(is_in_rollback),
             )
@@ -108,6 +134,22 @@ where
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
         // app.add_systems(PostUpdate, clear_input_events::<P>);
+
+        // NOTE:
+        // - maybe don't include the InputManagerPlugin for all ActionLike, but only for those that need to be replicated.
+        //   For stuff that only affects the user, such as camera movement, there's no need to replicate the input?
+        // - one thing to understand is that if we have F1 TA ( frame 1 starts, and then we run one FixedUpdate schedule)
+        //   we want to add the input value computed during F1 to the buffer for tick TA, because the tick will use this value
+
+        // NOTE: we run the buffer_action_state system in the Update for several reasons:
+        // - if the fixed update schedule is too slow, we still want to have the correct input values added to the buffer
+        //   for example if I have F1 TA F2 F3 TB, and I get a new button press on F2; then I want
+        //   The value won't be marked as 'JustPressed' anymore on F3, so what we need to do is ...
+        //   WARNING: actually we don't want to buffer here, else we would override the previous value!
+        // - if the fixed update schedule is too fast, the ActionState doesn't change between the different ticks,
+        //   so setting the value once at the end of the frame is enough
+        //   for example if I have F1 TA F2 TB TC F3, we set the value after TA and after TC
+        //   'set' will apply SameAsPrecedent for TB.
         app.add_systems(
             PostUpdate,
             prepare_input_message::<P, A>
@@ -129,6 +171,15 @@ pub enum InputSystemSet {
 
 // TODO: make this behaviour optional?
 //   it might be useful to keep an action-state on confirmed entities?
+
+/// If we ran a FixedUpdate schedule this frame, we enable ticking for next frame
+fn enable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
+    manager.should_not_tick = false;
+}
+
+fn disable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
+    manager.should_not_tick = true;
+}
 
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
@@ -153,7 +204,10 @@ fn add_action_state_buffer<A: UserAction>(
 ) {
     for entity in predicted_entities.iter() {
         info!(?entity, "adding actions state buffer");
-        commands.entity(entity).insert(InputBuffer::<A>::default());
+        commands.entity(entity).insert((
+           InputBuffer::<A>::default(),
+           ActionDiffBuffer::<A>::default(),
+        ));
     }
     for entity in other_entities.iter() {
         info!(?entity, "REMOVING ACTION STATE FOR CONFIRMED");
@@ -176,9 +230,13 @@ fn buffer_action_state<P: Protocol, A: UserAction>(
     let tick = client.tick();
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         info!(
-            "ACTION_STATE: JUST PRESSED: {:?}/ JUST RELEASED: {:?}",
+            ?entity,
+            ?tick,
+            "ACTION_STATE: JUST PRESSED: {:?}/ JUST RELEASED: {:?}/ PRESSED: {:?}/ RELEASED: {:?}",
             action_state.get_just_pressed(),
-            action_state.get_just_released()
+            action_state.get_just_released(),
+            action_state.get_pressed(),
+            action_state.get_released(),
         );
         trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
@@ -220,6 +278,37 @@ fn get_rollback_action_state<A: UserAction>(
     }
     if let Some(mut action_state) = global_action_state {
         *action_state = global_input_buffer.get(tick).unwrap().clone();
+    }
+}
+
+/// Read the action-diffs and store them in a buffer.
+/// NOTE: we have an ActionState buffer used for rollbacks,
+/// and an ActionDiff buffer used for sending diffs to the server
+/// maybe instead of an entire ActionState buffer, we can just store the oldest ActionState, and re-use the diffs
+/// to compute the next ActionStates?
+/// NOTE: since we're using diffs. we need to make sure that all our diffs are sent correctly to the server.
+///  If a diff is missing, maybe the server should make a request and we send them the entire ActionState?
+fn write_action_diffs<P: Protocol, A: UserAction>(
+    client: Res<Client<P>>,
+    mut global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
+    mut diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
+    mut action_diff_event: ResMut<Events<ActionDiffEvent<A>>>,
+) {
+    let tick = client.tick();
+    for event in action_diff_event.update_drain() {
+        if let Some(entity) = event.owner {
+            trace!(?entity, ?tick, "write action diff");
+            if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
+                diff_buffer.set(tick, event.action_diff);
+            }
+        } else {
+            trace!(?tick, "write global action diff");
+            if let Some(mut global_action_diff_buffer) = global_action_diff_buffer {
+                global_action_diff_buffer.add(event.action_diff.clone(), event.owner);
+            }
+        }
+
+        action_diff_buffer.add(event.action_diff.clone(), event.owner);
     }
 }
 
@@ -285,4 +374,116 @@ fn prepare_input_message<P: Protocol, A: UserAction>(
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
     //  maybe at interpolation_tick(), since it's before any latest server update we receive?
+}
+
+/// Generates an [`Events`] stream of [`ActionDiff`] from [`ActionState`]
+///
+/// This system is not part of the [`InputManagerPlugin`](crate::plugin::InputManagerPlugin) and must be added manually.
+pub fn generate_action_diffs<A: Actionlike>(
+    action_state: Option<ResMut<ActionState<A>>>,
+    action_state_query: Query<(Entity, &ActionState<A>)>,
+    mut action_diffs: EventWriter<ActionDiffEvent<A>>,
+    mut previous_values: Local<HashMap<A, HashMap<Option<Entity>, f32>>>,
+    mut previous_axis_pairs: Local<HashMap<A, HashMap<Option<Entity>, Vec2>>>,
+) {
+    // we use None to represent the global ActionState
+    let action_state_iter = action_state_query
+        .iter()
+        .map(|(entity, action_state)| (Some(entity), action_state))
+        .chain(
+            action_state
+                .as_ref()
+                .map(|action_state| (None, action_state.as_ref())),
+        );
+    for (maybe_entity, action_state) in action_state_iter {
+        let mut diffs = vec![];
+        for action in action_state.get_just_pressed() {
+            match action_state.action_data(action.clone()).axis_pair {
+                Some(axis_pair) => {
+                    diffs.push(ActionDiff::AxisPairChanged {
+                        action: action.clone(),
+                        axis_pair: axis_pair.into(),
+                    });
+                    previous_axis_pairs
+                        .raw_entry_mut()
+                        .from_key(&action)
+                        .or_insert_with(|| (action.clone(), HashMap::default()))
+                        .1
+                        .insert(maybe_entity, axis_pair.xy());
+                }
+                None => {
+                    let value = action_state.value(action.clone());
+                    diffs.push(if value == 1. {
+                        ActionDiff::Pressed {
+                            action: action.clone(),
+                        }
+                    } else {
+                        ActionDiff::ValueChanged {
+                            action: action.clone(),
+                            value,
+                        }
+                    });
+                    previous_values
+                        .raw_entry_mut()
+                        .from_key(&action)
+                        .or_insert_with(|| (action.clone(), HashMap::default()))
+                        .1
+                        .insert(maybe_entity, value);
+                }
+            }
+        }
+        for action in action_state.get_pressed() {
+            if action_state.just_pressed(action.clone()) {
+                continue;
+            }
+            match action_state.action_data(action.clone()).axis_pair {
+                Some(axis_pair) => {
+                    let previous_axis_pairs = previous_axis_pairs.get_mut(&action).unwrap();
+
+                    if let Some(previous_axis_pair) = previous_axis_pairs.get(&maybe_entity) {
+                        if *previous_axis_pair == axis_pair.xy() {
+                            continue;
+                        }
+                    }
+                    diffs.push(ActionDiff::AxisPairChanged {
+                        action: action.clone(),
+                        axis_pair: axis_pair.into(),
+                    });
+                    previous_axis_pairs.insert(maybe_entity, axis_pair.xy());
+                }
+                None => {
+                    let value = action_state.value(action.clone());
+                    let previous_values = previous_values.get_mut(&action).unwrap();
+
+                    if let Some(previous_value) = previous_values.get(&maybe_entity) {
+                        if *previous_value == value {
+                            continue;
+                        }
+                    }
+                    diffs.push(ActionDiff::ValueChanged {
+                        action: action.clone(),
+                        value,
+                    });
+                    previous_values.insert(maybe_entity, value);
+                }
+            }
+        }
+        for action in action_state.get_just_released() {
+            diffs.push( ActionDiff::Released {
+                action: action.clone(),
+            });
+            if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
+                previous_axes.remove(&maybe_entity);
+            }
+            if let Some(previous_values) = previous_values.get_mut(&action) {
+                previous_values.remove(&maybe_entity);
+            }
+        }
+        if !diffs.is_empty() {
+            action_diffs.send(ActionDiffEvent {
+                owner: maybe_entity,
+                action_diffs: diffs,
+            });
+        }
+    }
 }

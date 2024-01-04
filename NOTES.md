@@ -125,10 +125,13 @@
 
 - DEBUG:
   - if we have a frame with no fixed-update: F1 T10 F2 F3 T11 F4 T12
-    - we do Up at F1, and Left at F2
+    - we do Up at F1, and release Up at F2
     - at end of F1, we send an input message with tick 10 with Up.
     - at end of F2, we send an input message with tick 10 with Up
     - at end of F3, we 
+  - if we have a farame with 2 fixed-update: F1 T10 T11 F2 T12 F13
+    - we do Up at F1, and release Up at F2
+  - 
          
     
 
