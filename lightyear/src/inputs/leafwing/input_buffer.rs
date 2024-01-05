@@ -12,7 +12,7 @@ use leafwing_input_manager::common_conditions::action_just_pressed;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::client::SyncComponent;
@@ -281,7 +281,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
             //  and set them)
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             for _ in 0..(tick - end_tick - 1) {
-                info!("fill ticks");
+                trace!("fill ticks");
                 self.buffer.push_back(BufferItem::SameAsPrecedent);
             }
             // add a new value to the buffer, which we will override below

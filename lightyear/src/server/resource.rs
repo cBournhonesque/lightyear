@@ -153,13 +153,6 @@ impl<P: Protocol> Server<P> {
         self.time_manager.base_relative_speed = relative_speed;
     }
 
-    // TICK
-
-    #[doc(hidden)]
-    pub fn tick(&self) -> Tick {
-        self.tick_manager.current_tick()
-    }
-
     // REPLICATION
     /// Find the list of clients that should receive the replication message
     fn apply_replication(&mut self, target: NetworkTarget) -> Box<dyn Iterator<Item = ClientId>> {
@@ -515,6 +508,10 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
 }
 
 impl<P: Protocol> TickManaged for Server<P> {
+    fn tick(&self) -> Tick {
+        self.tick_manager.current_tick()
+    }
+
     fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
     }

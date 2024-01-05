@@ -68,9 +68,9 @@ impl TimeManager {
         self.overstep
     }
 
-    /// Update the relative speed of the simulation by updating bevy's Time resource
-    pub fn update_relative_speed(&self, time: &mut Time<Virtual>) {
-        time.set_relative_speed(self.base_relative_speed * self.sync_relative_speed)
+    /// Get the relative speed at which the simulation should be running
+    pub fn get_relative_speed(&self) -> f32 {
+        self.base_relative_speed * self.sync_relative_speed
     }
 
     /// Update the time by applying the latest delta

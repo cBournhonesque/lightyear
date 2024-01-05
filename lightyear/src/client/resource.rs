@@ -144,26 +144,7 @@ impl<P: Protocol> Client<P> {
         self.time_manager.base_relative_speed = relative_speed;
     }
 
-    pub(crate) fn update_relative_speed(&mut self, time: &mut Time<Virtual>) {
-        // check if we need to set the relative speed to something else
-        if self.connection.sync_manager.is_synced() {
-            self.connection.sync_manager.update_prediction_time(
-                &mut self.time_manager,
-                &mut self.tick_manager,
-                &self.connection.ping_manager,
-            );
-            // update bevy's relative speed
-            self.time_manager.update_relative_speed(time);
-            // let relative_speed = time.relative_speed();
-            // info!( relative_speed = ?time.relative_speed(), "client virtual speed");
-        }
-    }
-
     // TICK
-
-    pub fn tick(&self) -> Tick {
-        self.tick_manager.current_tick()
-    }
 
     pub fn latest_received_server_tick(&self) -> Tick {
         self.connection
@@ -218,6 +199,14 @@ impl<P: Protocol> Client<P> {
                 &self.config.interpolation.delay,
                 self.config.shared.server_send_interval,
             );
+
+            if self.is_synced() {
+                self.connection.sync_manager.update_prediction_time(
+                    &mut self.time_manager,
+                    &mut self.tick_manager,
+                    &self.connection.ping_manager,
+                );
+            }
         }
     }
 
@@ -302,6 +291,10 @@ impl<P: Protocol> Client<P> {
 }
 
 impl<P: Protocol> TickManaged for Client<P> {
+    fn tick(&self) -> Tick {
+        self.tick_manager.current_tick()
+    }
+
     fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
     }
@@ -339,11 +332,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group = replicate.group_id(Some(entity));
-        trace!(
-            ?entity,
-            "Send entity spawn for tick {:?}",
-            self.tick_manager.current_tick()
-        );
+        trace!(?entity, "Send entity spawn for tick {:?}", self.tick());
         let replication_sender = &mut self.connection.replication_sender;
         // update the collect changes tick
         replication_sender
@@ -364,11 +353,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group = replicate.group_id(Some(entity));
-        trace!(
-            ?entity,
-            "Send entity despawn for tick {:?}",
-            self.tick_manager.current_tick()
-        );
+        trace!(?entity, "Send entity despawn for tick {:?}", self.tick());
         let replication_sender = &mut self.connection.replication_sender;
         // update the collect changes tick
         replication_sender

@@ -14,6 +14,7 @@ use crate::client::sync::client_is_synced;
 use crate::inputs::native::UserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::tick_manager::TickManaged;
 
 #[derive(Debug, Clone)]
 pub struct InputConfig {

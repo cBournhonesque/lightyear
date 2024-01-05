@@ -361,7 +361,7 @@ impl<P: Protocol> Connection<P> {
                             match message.input_message_kind() {
                                 #[cfg(feature = "leafwing")]
                                 InputMessageKind::Leafwing => {
-                                    info!("received input message, pushing it to events");
+                                    trace!("received input message, pushing it to events");
                                     self.events.push_input_message(message);
                                 }
                                 InputMessageKind::Native => {

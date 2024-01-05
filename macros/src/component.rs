@@ -35,6 +35,8 @@ struct SyncField {
     simple: bool,
     #[darling(default)]
     once: bool,
+    #[darling(default)]
+    external: bool,
 
     #[darling(default)]
     lerp: Option<Ident>,
@@ -112,9 +114,11 @@ pub fn component_protocol_impl(
 
     // Add extra variants
     input.variants.push(parse_quote! {
+        #[sync(external)]
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
+        #[sync(external)]
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     #[cfg(feature = "leafwing")]
@@ -122,6 +126,7 @@ pub fn component_protocol_impl(
         let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
         let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
         input.variants.push(parse_quote! {
+            #[sync(external)]
             #variant(ActionState<<#protocol as Protocol>::#ty>)
         });
 
@@ -368,21 +373,21 @@ fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenS
     let mut body = quote! {};
     for field in fields {
         // skip components that are defined externally
-        if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
-            || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
-            || field
-                .ident
-                .as_ref()
-                .unwrap()
-                .to_string()
-                .starts_with("ActionState")
-        // || field
-        //     .ident
-        //     .as_ref()
-        //     .unwrap()
-        //     .to_string()
-        //     .starts_with("InputMap")
-        {
+        if field.external {
+            // if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
+            //     || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
+            //     || field
+            //         .ident
+            //         .as_ref()
+            //         .unwrap()
+            //         .to_string()
+            //         .starts_with("ActionState")
+            // || field
+            //     .ident
+            //     .as_ref()
+            //     .unwrap()
+            //     .to_string()
+            //     .starts_with("InputMap")
             continue;
         }
         let component_type = &field.ty;

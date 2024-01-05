@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use crate::_reexport::FromType;
 use bevy::prelude::{
     Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, With, Without, World,
 };
@@ -11,6 +12,7 @@ use crate::client::events::{ComponentInsertEvent, ComponentRemoveEvent, Componen
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
+use crate::shared::tick_manager::TickManaged;
 
 use super::predicted_history::PredictionHistory;
 use super::{Predicted, Rollback, RollbackState};
@@ -54,10 +56,10 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     >,
     confirmed_query: Query<(Option<&C>, &Confirmed)>,
     mut rollback: ResMut<Rollback>,
-)
-// where
-// <P as Protocol>::Components: From<C>,
+) where
+    <P as Protocol>::ComponentKinds: FromType<C>,
 {
+    let kind = <P::ComponentKinds as FromType<C>>::from_type();
     // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
     if C::mode() != ComponentSyncMode::Full {
         return;
@@ -156,8 +158,8 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                     };
                     if should_rollback {
                         info!(
-                                "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?}",
-                                confirmed_entity, tick,
+                                "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}",
+                                confirmed_entity, tick, kind
                             );
 
                         // we need to clear the history so we can write a new one

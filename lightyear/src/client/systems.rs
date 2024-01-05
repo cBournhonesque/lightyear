@@ -1,10 +1,14 @@
 //! Defines the client bevy systems and run conditions
 use crate::_reexport::ReplicationSend;
 use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
+#[cfg(feature = "xpbd_2d")]
+use bevy_xpbd_2d::prelude::PhysicsTime;
+use cfg_if::cfg_if;
 use tracing::{error, info, trace};
 
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;
+use crate::client::sync::SyncManager;
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -96,10 +100,23 @@ pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {
 pub(crate) fn sync_update<P: Protocol>(world: &mut World) {
     world.resource_scope(|world, mut client: Mut<Client<P>>| {
         world.resource_scope(|world, mut time: Mut<Time<Virtual>>| {
-            // Handle pongs, update RTT estimates, update client's speed
+            // Handle pongs, update RTT estimates, update client prediction time
             client.sync_update();
+
             // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-            client.update_relative_speed(&mut time);
+            if client.is_synced() {
+                let relative_speed = client.time_manager.get_relative_speed();
+                time.set_relative_speed(relative_speed);
+
+                cfg_if! {
+                    if #[cfg(feature = "xpbd_2d")] {
+                        use bevy_xpbd_2d::prelude::Physics;
+                        if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
+                            physics_time.set_relative_speed(relative_speed);
+                        }
+                    }
+                }
+            };
         })
     })
 }

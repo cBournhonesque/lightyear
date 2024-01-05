@@ -1,6 +1,9 @@
 //! Implement lightyear traits for some common bevy types
+use crate::_reexport::{InterpolatedComponent, LinearInterpolation};
+use crate::client::components::{ComponentSyncMode, SyncComponent};
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
+use std::ops::Mul;
 
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
@@ -9,6 +12,16 @@ impl Named for Transform {
         "Transform"
     }
 }
+
+// impl SyncComponent for Transform {
+//     fn mode() -> ComponentSyncMode {
+//         ComponentSyncMode::Full
+//     }
+// }
+//
+// impl InterpolatedComponent<Transform> for Transform {
+//     type Fn = Custom;
+// }
 
 impl<'a> MapEntities<'a> for Transform {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}

@@ -16,6 +16,7 @@ use crate::server::resource::Server;
 use crate::server::systems::receive;
 use crate::shared::events::InputEvent;
 use crate::shared::sets::FixedUpdateSet;
+use crate::shared::tick_manager::TickManaged;
 
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     protocol_marker: std::marker::PhantomData<P>,

@@ -1,10 +1,14 @@
 use bevy::prelude::*;
 use bevy::utils::EntityHashSet;
+use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+
+pub const BALL_SIZE: f32 = 15.0;
+pub const PLAYER_SIZE: f32 = 40.0;
 
 // Player
 #[derive(Bundle)]
@@ -13,6 +17,7 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: ColorComponent,
     replicate: Replicate,
+    physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
 }
 
@@ -33,6 +38,7 @@ impl PlayerBundle {
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
+            physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
                 input_map,
@@ -48,6 +54,32 @@ pub(crate) struct BallBundle {
     color: ColorComponent,
     replicate: Replicate,
     marker: BallMarker,
+    physics: PhysicsBundle,
+}
+
+#[derive(Bundle)]
+pub(crate) struct PhysicsBundle {
+    collider: Collider,
+    collider_density: ColliderDensity,
+    rigid_body: RigidBody,
+}
+
+impl PhysicsBundle {
+    pub(crate) fn ball() -> Self {
+        Self {
+            collider: Collider::ball(BALL_SIZE),
+            collider_density: ColliderDensity(2.0),
+            rigid_body: RigidBody::Dynamic,
+        }
+    }
+
+    pub(crate) fn player() -> Self {
+        Self {
+            collider: Collider::cuboid(PLAYER_SIZE, PLAYER_SIZE),
+            collider_density: ColliderDensity(0.2),
+            rigid_body: RigidBody::Dynamic,
+        }
+    }
 }
 
 impl BallBundle {
@@ -58,11 +90,13 @@ impl BallBundle {
             replicate: Replicate {
                 replication_target: NetworkTarget::All,
                 // the ball is predicted by all players!
-                prediction_target: NetworkTarget::All,
+                // prediction_target: NetworkTarget::All,
                 // prediction_target: NetworkTarget::Only(vec![id]),
+                interpolation_target: NetworkTarget::All,
                 // interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
+            physics: PhysicsBundle::ball(),
             marker: BallMarker,
         }
     }
@@ -72,10 +106,10 @@ impl BallBundle {
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
-)]
-pub struct Position(Vec2);
+// #[derive(
+//     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
+// )]
+// pub struct Position(Vec2);
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
@@ -92,14 +126,19 @@ pub struct CursorPosition(pub Vec2);
 pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),
-    #[sync(full)]
-    Position(Position),
     #[sync(once)]
     ColorComponent(ColorComponent),
     #[sync(full)]
     CursorPosition(CursorPosition),
     #[sync(once)]
     BallMarker(BallMarker),
+    // external components have to be marked with this attribute, to avoid compile errors
+    // the necessary traits (Message, SyncComponent) must already been implemented on the external type
+    // this will be improved in future releases
+    #[sync(external, full)]
+    Position(Position),
+    #[sync(external, full)]
+    LinearVelocity(LinearVelocity),
 }
 
 // Channels

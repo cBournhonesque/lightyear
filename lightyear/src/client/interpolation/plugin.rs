@@ -189,8 +189,6 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
                 InterpolationSet::SpawnHistoryFlush,
                 InterpolationSet::Despawn,
                 InterpolationSet::DespawnFlush,
-                // TODO: maybe run in a schedule in-between FixedUpdate and Update?
-                //  or maybe run during PostUpdate?
                 InterpolationSet::PrepareInterpolation,
                 InterpolationSet::Interpolate,
             )

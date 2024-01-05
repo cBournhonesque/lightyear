@@ -14,6 +14,7 @@ use crate::client::prediction::Predicted;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
+use crate::shared::tick_manager::TickManaged;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity

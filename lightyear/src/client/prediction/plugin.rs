@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::_reexport::FromType;
 use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate,
     Res, SystemSet,
@@ -110,7 +111,10 @@ pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
     matches!(rollback.state, RollbackState::ShouldRollback { .. })
 }
 
-pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut App) {
+pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut App)
+where
+    <P as Protocol>::ComponentKinds: FromType<C>,
+{
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,

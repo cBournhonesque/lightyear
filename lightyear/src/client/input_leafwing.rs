@@ -21,6 +21,7 @@ use crate::inputs::leafwing::input_buffer::{
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::tick_manager::TickManaged;
 
 #[derive(Debug, Clone)]
 pub struct LeafwingInputConfig {

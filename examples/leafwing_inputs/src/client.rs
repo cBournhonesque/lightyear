@@ -3,6 +3,8 @@ use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
+use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
+use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
 use lightyear::prelude::client::LeafwingInputPlugin;
@@ -32,9 +34,9 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(90),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.05,
+            incoming_latency: Duration::from_millis(100),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -78,6 +80,7 @@ impl Plugin for MyClientPlugin {
         app.add_systems(
             Update,
             (
+                spawn_ball,
                 receive_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
@@ -142,17 +145,32 @@ pub(crate) fn init(
     client.connect();
 }
 
+/// Blueprint pattern: when the ball gets replicated from the server, add all the components
+/// that we need that are not replicated.
+/// (for example physical properties that are constant, so they don't need to be networked)
+///
+/// We only add the physical properties on the ball that is displayed on screen (i.e the Interpolated ball)
+/// We want the ball to be rigid so that when players collide with it, they bounce off.
+///
+/// However we remove the Position because we want the balls position to be interpolated, without being computed/updated
+/// by the physics engine? Actually this shouldn't matter because we run interpolation in PostUpdate...
+fn spawn_ball(
+    mut commands: Commands,
+    mut ball_query: Query<Entity, (With<BallMarker>, Added<Interpolated>)>,
+) {
+    for entity in ball_query.iter_mut() {
+        commands.entity(entity).insert(PhysicsBundle::ball());
+    }
+}
+
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    mut position_query: Query<(&mut Position, &ActionState<PlayerActions>), With<Predicted>>,
+    mut velocity_query: Query<(&mut LinearVelocity, &ActionState<PlayerActions>), With<Predicted>>,
 ) {
-    if Position::mode() != ComponentSyncMode::Full {
-        return;
-    }
-    for (position, action_state) in position_query.iter_mut() {
-        shared_movement_behaviour(position, action_state);
+    for (velocity, action_state) in velocity_query.iter_mut() {
+        shared_movement_behaviour(velocity, action_state);
     }
 }
 
