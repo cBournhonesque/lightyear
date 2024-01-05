@@ -52,25 +52,35 @@ pub enum Transports {
 enum Cli {
     SinglePlayer,
     Server {
+        /// If true, disable any rendering-related plugins
         #[arg(long, default_value = "false")]
         headless: bool,
 
+        /// If true, enable bevy_inspector_egui
         #[arg(short, long, default_value = "false")]
         inspector: bool,
 
+        /// The port to listen on
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
+        /// Which transport to use
         #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
         transport: Transports,
+
+        /// If true, clients will predict everything (themselves, the ball, other clients)
+        #[arg(long, default_value = "false")]
+        predict: bool,
     },
     Client {
+        /// If true, enable bevy_inspector_egui
         #[arg(short, long, default_value = "false")]
         inspector: bool,
 
         #[arg(short, long, default_value_t = 0)]
         client_id: u16,
 
+        /// The port to listen on
         #[arg(long, default_value_t = CLIENT_PORT)]
         client_port: u16,
 
@@ -80,8 +90,13 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
+        /// Which transport to use
         #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
         transport: Transports,
+
+        /// If true, clients will predict everything (themselves, the ball, other clients)
+        #[arg(long, default_value = "false")]
+        predict: bool,
     },
 }
 
@@ -93,8 +108,13 @@ fn setup(app: &mut App, cli: Cli) {
             inspector,
             port,
             transport,
+            predict,
         } => {
-            let server_plugin = MyServerPlugin { port, transport };
+            let server_plugin = MyServerPlugin {
+                port,
+                transport,
+                predict_all: predict,
+            };
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
@@ -112,6 +132,7 @@ fn setup(app: &mut App, cli: Cli) {
             server_addr,
             server_port,
             transport,
+            predict,
         } => {
             let client_plugin = MyClientPlugin {
                 client_id: client_id as ClientId,
@@ -119,6 +140,7 @@ fn setup(app: &mut App, cli: Cli) {
                 server_addr,
                 server_port,
                 transport,
+                predict_all: predict,
             };
             app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             if inspector {

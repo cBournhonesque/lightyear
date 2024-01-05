@@ -21,6 +21,11 @@ pub struct MyClientPlugin {
     pub(crate) server_addr: Ipv4Addr,
     pub(crate) server_port: u16,
     pub(crate) transport: Transports,
+    /// If this is true, we will predict the client's entities, but also the ball and other clients' entities!
+    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
+    ///
+    /// If this is false, we will predict the client's entites but simple interpolate everything else.
+    pub(crate) predict_all: bool,
 }
 
 impl Plugin for MyClientPlugin {
@@ -115,10 +120,11 @@ pub(crate) fn init(
             ..default()
         },
     ));
+    let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
     let mut entity = commands.spawn(PlayerBundle::new(
         plugin.client_id,
-        Vec2::new(-50.0, 0.0),
+        Vec2::new(-50.0, y),
         color_from_id(plugin.client_id),
         InputMap::new([
             (KeyCode::W, PlayerActions::Up),
@@ -137,7 +143,7 @@ pub(crate) fn init(
 
     let mut entity = commands.spawn(PlayerBundle::new(
         plugin.client_id,
-        Vec2::new(50.0, 0.0),
+        Vec2::new(50.0, y),
         color_from_id(plugin.client_id),
         InputMap::new([
             (KeyCode::Up, PlayerActions::Up),
@@ -167,13 +173,21 @@ pub(crate) fn init(
 /// by the physics engine? Actually this shouldn't matter because we run interpolation in PostUpdate...
 fn spawn_ball(
     mut commands: Commands,
-    mut ball_query: Query<Entity, (With<BallMarker>, Added<Interpolated>)>,
+    mut ball_query: Query<
+        Entity,
+        (
+            With<BallMarker>,
+            // insert the physics components on the ball that is displayed on screen
+            // (either interpolated or predicted)
+            Or<(Added<Interpolated>, Added<Predicted>)>,
+        ),
+    >,
 ) {
     for entity in ball_query.iter_mut() {
         commands.entity(entity).insert(PhysicsBundle::ball());
-        commands
-            .entity(entity)
-            .remove::<(Position, LinearVelocity)>();
+        // commands
+        //     .entity(entity)
+        //     .remove::<(Position, LinearVelocity)>();
     }
 }
 
@@ -181,9 +195,15 @@ fn spawn_ball(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
+    plugin: Res<MyClientPlugin>,
     client: Res<Client>,
     mut velocity_query: Query<
-        (&Position, &mut LinearVelocity, &ActionState<PlayerActions>),
+        (
+            &PlayerId,
+            &Position,
+            &mut LinearVelocity,
+            &ActionState<PlayerActions>,
+        ),
         With<Predicted>,
     >,
     // mut velocity_query: Query<
@@ -191,7 +211,11 @@ fn player_movement(
     //     With<Predicted>,
     // >,
 ) {
-    for (position, velocity, action_state) in velocity_query.iter_mut() {
+    for (player_id, position, velocity, action_state) in velocity_query.iter_mut() {
+        // only apply the inputs to our own controlled entities
+        if player_id.0 != plugin.client_id {
+            continue;
+        }
         shared_movement_behaviour(client.tick(), position, velocity, action_state);
     }
 }

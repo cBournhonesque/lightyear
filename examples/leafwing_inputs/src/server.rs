@@ -10,9 +10,15 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
+#[derive(Resource, Clone, Copy)]
 pub struct MyServerPlugin {
     pub(crate) port: u16,
     pub(crate) transport: Transports,
+    /// If this is true, we will predict the client's entities, but also the ball and other clients' entities!
+    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
+    ///
+    /// If this is false, we will predict the client's entites but simple interpolate everything else.
+    pub(crate) predict_all: bool,
 }
 
 impl Plugin for MyServerPlugin {
@@ -46,6 +52,7 @@ impl Plugin for MyServerPlugin {
         // add leafwing plugins to handle inputs
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
         // app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
+        app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
@@ -63,7 +70,7 @@ impl Plugin for MyServerPlugin {
     }
 }
 
-pub(crate) fn init(mut commands: Commands) {
+pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         "Server",
@@ -75,7 +82,12 @@ pub(crate) fn init(mut commands: Commands) {
     ));
 
     // the ball is server-authoritative
-    commands.spawn(BallBundle::new(Vec2::new(0.0, 0.0), Color::AZURE));
+    commands.spawn(BallBundle::new(
+        Vec2::new(0.0, 0.0),
+        Color::AZURE,
+        // if true, we predict the ball on clients
+        plugin.predict_all,
+    ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection
@@ -117,6 +129,7 @@ pub(crate) fn movement(
 // Replicate the pre-spawned entities back to the client
 
 pub(crate) fn replicate_players(
+    plugin: Res<MyServerPlugin>,
     mut commands: Commands,
     mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerId>>,
 ) {
@@ -127,19 +140,24 @@ pub(crate) fn replicate_players(
 
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients
+
         if let Some(mut e) = commands.get_entity(*entity) {
+            let mut replicate = Replicate {
+                // we want to replicate back to the original client, since they are using a pre-spawned entity
+                replication_target: NetworkTarget::All,
+                ..default()
+            };
+            if plugin.predict_all {
+                replicate.prediction_target = NetworkTarget::All;
+            } else {
+                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
+                replicate.prediction_target = NetworkTarget::Only(vec![*client_id]);
+                // we want the other clients to apply interpolation for the player
+                replicate.interpolation_target = NetworkTarget::AllExcept(vec![*client_id]);
+            }
             e.insert((
-                Replicate {
-                    // we want to replicate back to the original client, since they are using a pre-spawned entity
-                    replication_target: NetworkTarget::All,
-                    // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                    // NOTE: Be careful to not override the pre-spawned prediction! we do not need to enable prediction
-                    //  because there is a pre-spawned predicted entity
-                    prediction_target: NetworkTarget::Only(vec![*client_id]),
-                    // we want the other clients to apply interpolation for the player
-                    interpolation_target: NetworkTarget::AllExcept(vec![*client_id]),
-                    ..default()
-                },
+                replicate,
+                // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
             ));
         }

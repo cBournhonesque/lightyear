@@ -33,6 +33,12 @@
    
 - TODO: when rollback is initiated, only rollback together the entities that have the same replication_group!!!
   - this allows the possibility of having separate replication groups for entities that are predicted but don't need to be rolled back together.
+- TODO: should the server send other client' inputs to a client so that they can run client-prediction more accurately on other clients?
+- TODO: physics states might be expensive to network (full f32). What we can do is:
+  - compress the physics on the server before running physics step
+  - then run physics step
+  - and network the compressed physics
+  - then the client/server are working with the same numbers, so fewer desyncs
 
 
 

@@ -29,7 +29,6 @@ use super::{
     ReplicationMessageData,
 };
 
-// TODO: maybe separate send/receive side for clarity?
 pub(crate) struct ReplicationReceiver<P: Protocol> {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
@@ -235,10 +234,13 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         component.insert(&mut local_entity_mut);
 
                         // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
-                        // we should immediately take ownership of it, so we won't receive a despawn for it
-                        // thus, we should remove it from the entity map right after receiving it!
-                        // Actually, we should figure out a way to cleanup every received entity where the sender
-                        // stopped replicating or didn't replicate the Spawn, as this could just cause memory to accumulate
+                        //  we should immediately take ownership of it, so we won't receive a despawn for it
+                        //  thus, we should remove it from the entity map right after receiving it!
+                        //  Actually, we should figure out a way to cleanup every received entity where the sender
+                        //  stopped replicating or didn't replicate the Spawn, as this could just cause memory to accumulate
+
+                        // TODO: maybe if is-server, attach the client-id to the ShouldBePredicted entity
+                        //  to know for which client we should do the pre-prediction
                     }
 
                     // removals

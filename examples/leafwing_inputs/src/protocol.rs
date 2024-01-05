@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
+// For prediction, we want everything entity that is predicted to be part of the same replication group
+// This will make sure that they will be replicated in the same message and that all the entities in the group
+// will always be consistent (= on the same tick)
+pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::Group(1);
+
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
@@ -41,7 +46,7 @@ impl PlayerBundle {
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: ReplicationGroup::Group(1),
+                replication_group: REPLICATION_GROUP,
                 ..default()
             },
             physics: PhysicsBundle::player(),
@@ -90,20 +95,22 @@ impl PhysicsBundle {
 }
 
 impl BallBundle {
-    pub(crate) fn new(position: Vec2, color: Color) -> Self {
+    pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
+        let mut replicate = Replicate {
+            replication_target: NetworkTarget::All,
+            ..default()
+        };
+        if predicted {
+            replicate.prediction_target = NetworkTarget::All;
+            replicate.replication_group = REPLICATION_GROUP;
+        } else {
+            replicate.interpolation_target = NetworkTarget::All;
+        }
         Self {
             // transform: Transform::from_xyz(transform.x, transform.y, 0.0),
             position: Position(position),
             color: ColorComponent(color),
-            replicate: Replicate {
-                replication_target: NetworkTarget::All,
-                // the ball is predicted by all players!
-                // prediction_target: NetworkTarget::All,
-                // prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::All,
-                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                ..default()
-            },
+            replicate,
             physics: PhysicsBundle::ball(),
             marker: BallMarker,
         }
@@ -178,13 +185,11 @@ pub enum PlayerActions {
     Down,
     Left,
     Right,
-    None,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum AdminActions {
     Reset,
-    None,
 }
 
 impl LeafwingUserAction for PlayerActions {}

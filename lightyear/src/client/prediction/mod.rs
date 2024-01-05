@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::{
     Added, Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, ResMut, Resource,
-    With,
+    With, Without,
 };
 use tracing::{debug, error, info};
 
@@ -84,7 +84,18 @@ pub(crate) fn spawn_predicted_entity(
         }
 
         let predicted_entity: Entity;
+        // check if we are in a pre-prediction scenario
         if let Some(client_entity) = should_be_predicted.client_entity {
+            // NOTE: the check that the entity exists is necessary, because we could have
+            // Client 1 spawn a pre-predicted entity (and attaches ShouldBePredicted)
+            // But all servers want to predict that pre-predicted entity.
+
+            // How do we distinguish that only for client-1 the entity is pre-predicted?
+            // 1) Maybe on receive-side we can add the original client as Target
+            // 2) Maybe just check that the client already has an entity with ShouldBePredicted (not perfect, because
+            //    multiple clients could have the same pre-predicted entity)
+            // 3) Maybe add the possibility to replicate a component differently to different clients, and we only replicate
+            //    ShouldBePredicted to the original client
             if client_entity == confirmed_entity {
                 // this is the pre-spawned predicted entity, ignore
                 continue;

@@ -42,14 +42,32 @@ pub struct Replicate<P: Protocol> {
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
     pub replication_group: ReplicationGroup,
 
-    /// By default, all components will be ignored. You can add components to this list to make them
-    /// not replicated for this specific entity
-    pub disabled_components: HashSet<P::ComponentKinds>,
-    /// These components will be replicated only once, when the entity is spawned.
-    /// Further updates won't be replicated.
-    /// ActionStates should be replicated once
-    // TODO: should i use this or just use ReplicatedComponent with a mode?
-    pub replicate_once: HashSet<P::ComponentKinds>,
+    /// Lets you override the replication modalities for a specific component
+    pub per_component_metadata: HashMap<P::ComponentKinds, PerComponentReplicationMetadata>,
+}
+
+/// This lets you specify how to customize the replication behaviour for a given component
+#[derive(Clone, Debug, PartialEq)]
+pub struct PerComponentReplicationMetadata {
+    /// If true, do not replicate the component. (By default, all components of this entity that are present in the
+    /// ComponentProtocol) will be replicated.
+    disabled: bool,
+    /// If true, replicate only inserts/removals of the component, not the updates.
+    /// (i.e. the component will only get replicated once at spawn)
+    /// This is useful for components such as `ActionState`, which should only be replicated once
+    replicate_once: bool,
+    /// Custom replication target for this component. We will replicate to the intersection of
+    /// the entity's replication target and this target
+    target: NetworkTarget,
+}
+impl Default for PerComponentReplicationMetadata {
+    fn default() -> Self {
+        Self {
+            disabled: false,
+            replicate_once: false,
+            target: NetworkTarget::All,
+        }
+    }
 }
 
 impl<P: Protocol> Replicate<P> {
@@ -62,13 +80,56 @@ impl<P: Protocol> Replicate<P> {
         }
     }
 
+    /// Returns true if we don't want to replicate the component
+    pub fn is_disabled<C>(&self) -> bool
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.per_component_metadata
+            .get(&kind)
+            .is_some_and(|metadata| metadata.disabled)
+    }
+
+    /// If true, the component will be replicated only once, when the entity is spawned.
+    /// We do not replicate component updates
+    pub fn is_replicate_once<C>(&self) -> bool
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.per_component_metadata
+            .get(&kind)
+            .is_some_and(|metadata| metadata.replicate_once)
+    }
+
+    /// Replication target for this specific component
+    /// This will be the intersection of the provided `entity_target`, and the `target` of the component
+    /// if it exists
+    pub fn target<C>(&self, mut entity_target: NetworkTarget) -> NetworkTarget
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        match self.per_component_metadata.get(&kind) {
+            None => entity_target,
+            Some(metadata) => {
+                entity_target.intersection(metadata.target.clone());
+                entity_target
+            }
+        }
+    }
+
     /// Disable the replication of a component for this entity
     pub fn disable_component<C>(&mut self)
     where
         P::ComponentKinds: FromType<C>,
     {
         let kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.disabled_components.insert(kind);
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .disabled = true;
     }
 
     /// Enable the replication of a component for this entity
@@ -77,7 +138,16 @@ impl<P: Protocol> Replicate<P> {
         P::ComponentKinds: FromType<C>,
     {
         let kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.disabled_components.remove(&kind);
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .disabled = false;
+        // if we are back at the default, remove the entry
+        if self.per_component_metadata.get(&kind).unwrap()
+            == &PerComponentReplicationMetadata::default()
+        {
+            self.per_component_metadata.remove(&kind);
+        }
     }
 
     pub fn enable_replicate_once<C>(&mut self)
@@ -85,7 +155,10 @@ impl<P: Protocol> Replicate<P> {
         P::ComponentKinds: FromType<C>,
     {
         let kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.replicate_once.insert(kind);
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .replicate_once = true;
     }
 
     pub fn disable_replicate_once<C>(&mut self)
@@ -93,7 +166,30 @@ impl<P: Protocol> Replicate<P> {
         P::ComponentKinds: FromType<C>,
     {
         let kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.replicate_once.remove(&kind);
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .replicate_once = false;
+        // if we are back at the default, remove the entry
+        if self.per_component_metadata.get(&kind).unwrap()
+            == &PerComponentReplicationMetadata::default()
+        {
+            self.per_component_metadata.remove(&kind);
+        }
+    }
+
+    pub fn add_target<C>(&mut self, target: NetworkTarget)
+    where
+        P::ComponentKinds: FromType<C>,
+    {
+        let kind = <P::ComponentKinds as FromType<C>>::from_type();
+        self.per_component_metadata.entry(kind).or_default().target = target;
+        // if we are back at the default, remove the entry
+        if self.per_component_metadata.get(&kind).unwrap()
+            == &PerComponentReplicationMetadata::default()
+        {
+            self.per_component_metadata.remove(&kind);
+        }
     }
 }
 
@@ -122,33 +218,25 @@ pub enum ReplicationMode {
 
 impl<P: Protocol> Default for Replicate<P> {
     fn default() -> Self {
-        cfg_if! {
-            if #[cfg(feature = "leafwing")] {
-                // the ActionState components are replicated only once when the entity is spawned
-                // then they get updated by the user inputs, not by replication
-                use leafwing_input_manager::prelude::ActionState;
-                let mut replicate_once = HashSet::default();
-                replicate_once.insert(<P::ComponentKinds as FromType<
-                    ActionState<P::LeafwingInput1>,
-                >>::from_type());
-                replicate_once.insert(<P::ComponentKinds as FromType<
-                    ActionState<P::LeafwingInput2>,
-                >>::from_type());
-            } else {
-                let replicate_once = HashSet::default();
-            }
-        }
-
-        Self {
+        let mut replicate = Self {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,
             interpolation_target: NetworkTarget::None,
             replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
-            disabled_components: HashSet::default(),
-            replicate_once,
+            per_component_metadata: HashMap::default(),
+        };
+        cfg_if! {
+            // the ActionState components are replicated only once when the entity is spawned
+            // then they get updated by the user inputs, not by replication
+            if #[cfg(feature = "leafwing")] {
+                use leafwing_input_manager::prelude::ActionState;
+                replicate.enable_replicate_once::<ActionState<P::LeafwingInput1>>();
+                replicate.enable_replicate_once::<ActionState<P::LeafwingInput2>>();
+            }
         }
+        replicate
     }
 }
 
