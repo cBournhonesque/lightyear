@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
@@ -50,9 +51,18 @@ impl Plugin for SharedPlugin {
                 PhysicsSet::StepSimulation,
                 PhysicsSet::Sync,
             )
-                .before(FixedUpdateSet::Main),
+                .after(FixedUpdateSet::Main)
+                .before(PredictionSet::EntityDespawn), // .before(FixedUpdateSet::Main)
+                                                       // .after(FixedUpdateSet::TickUpdate),
         );
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
+
+        if app.world.contains_resource::<Client>() {
+            app.add_systems(Last, after_physics_log::<Client>);
+        }
+        if app.world.contains_resource::<Server>() {
+            app.add_systems(Last, after_physics_log::<Server>);
+        }
     }
 }
 
@@ -66,6 +76,8 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
 
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(
+    tick: Tick,
+    position: &Position,
     mut velocity: Mut<LinearVelocity>,
     action: &ActionState<PlayerActions>,
 ) {
@@ -83,7 +95,30 @@ pub(crate) fn shared_movement_behaviour(
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
-    info!("in Main. Velocity: {:?}", velocity);
+    info!(
+        ?tick,
+        "in Main. Player Velocity: {:?}. Position: {:?}", velocity, position
+    );
+}
+
+pub(crate) fn after_physics_log<T: TickManaged>(
+    ticker: Res<T>,
+    players: Query<(&Position, &LinearVelocity), (Without<BallMarker>, Without<Confirmed>)>,
+    ball: Query<(&Position, &LinearVelocity), (With<BallMarker>, Without<Confirmed>)>,
+) {
+    let tick = ticker.tick();
+    for (position, velocity) in players.iter() {
+        info!(
+            ?tick,
+            "Player post update physics. Velocity: {:?}. Position: {:?}", velocity, position
+        );
+    }
+    for (position, velocity) in ball.iter() {
+        info!(
+            ?tick,
+            "Ball post update physics. Velocity: {:?}. Position: {:?}", velocity, position
+        );
+    }
 }
 
 pub(crate) fn log() {

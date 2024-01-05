@@ -8,7 +8,17 @@
   - A: if I run FixedUpdate::MAIN AFTER PhysicsSets, I have a smooth physics simulation on client
     if I run FixedUpdate::MAIN BEFORE PhysicsSets, it's very jittery. Why? It should be the opposite!
   - B: the interpolation of the ball is weirdly jittery
+    - is it because we run the physics simulation on the interpolated entity?
   - C: collisions cause weird artifacts when we do rollback. Investigate why.
+    - check tick 1935. On server, we have some values.
+      On client, we have completely different values! After rollback, we get the server values, but only at tick 1936.
+      Is there a off-by-one issue?
+      Also the client value was completely different than the server value before the rollback, why?
+    - I think I found the issue, it's because we need to run the physics after applying the Actions, but before 
+      we record the ComponentHistory for prediction. This also explains A.
+  - D: the client prediction seems very slighly jittery. Could it be because we apply `relative_time_updates` to FixedUpdate on client, 
+      so we might run a different number of FixedUpdate ticks than on server? Shouln't matter because we still apply inputs on the same ticks?
+     
    
 
 - INPUTS:

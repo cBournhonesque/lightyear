@@ -108,8 +108,8 @@ pub(crate) fn sync_update<P: Protocol>(world: &mut World) {
                 let relative_speed = client.time_manager.get_relative_speed();
                 time.set_relative_speed(relative_speed);
 
-                // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
-                //  client and server. Enabling this will cause the simulations to diverge
+                // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
+                // //  client and server. Enabling this will cause the simulations to diverge
                 // cfg_if! {
                 //     if #[cfg(feature = "xpbd_2d")] {
                 //         use bevy_xpbd_2d::prelude::Physics;

@@ -106,7 +106,7 @@ pub mod prelude {
             InterpFn, InterpolateStatus, Interpolated, InterpolatedComponent,
         };
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
-        pub use crate::client::prediction::plugin::PredictionConfig;
+        pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::resource::Authentication;

@@ -170,10 +170,14 @@ fn spawn_ball(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    mut velocity_query: Query<(&mut LinearVelocity, &ActionState<PlayerActions>), With<Predicted>>,
+    client: Res<Client>,
+    mut velocity_query: Query<
+        (&Position, &mut LinearVelocity, &ActionState<PlayerActions>),
+        With<Predicted>,
+    >,
 ) {
-    for (velocity, action_state) in velocity_query.iter_mut() {
-        shared_movement_behaviour(velocity, action_state);
+    for (position, velocity, action_state) in velocity_query.iter_mut() {
+        shared_movement_behaviour(client.tick(), position, velocity, action_state);
     }
 }
 

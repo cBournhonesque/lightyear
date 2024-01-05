@@ -92,12 +92,13 @@ pub(crate) fn handle_disconnections(
 /// Read client inputs and move players
 /// NOTE: this system can now be run in both client/server!
 pub(crate) fn movement(
-    mut action_query: Query<(&mut LinearVelocity, &ActionState<PlayerActions>)>,
+    server: Res<Server>,
+    mut action_query: Query<(&Position, &mut LinearVelocity, &ActionState<PlayerActions>)>,
 ) {
-    for (velocity, action) in action_query.iter_mut() {
+    for (position, velocity, action) in action_query.iter_mut() {
         // NOTE: be careful to directly pass Mut<PlayerPosition>
         // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-        shared_movement_behaviour(velocity, action);
+        shared_movement_behaviour(server.tick(), position, velocity, action);
         // debug!(
         //     "Moving player: {:?} to position: {:?} on tick: {:?}",
         //     player_id,
