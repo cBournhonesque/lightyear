@@ -4,6 +4,12 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+- PHYSICS:
+  - A: if I run FixedUpdate::MAIN AFTER PhysicsSets, I have a smooth physics simulation on client
+    if I run FixedUpdate::MAIN BEFORE PhysicsSets, it's very jittery. Why? It should be the opposite!
+  - B: the interpolation of the ball is weirdly jittery
+  - C: collisions cause weird artifacts when we do rollback. Investigate why.
+   
 
 - INPUTS:
   - on client side, we have a ActionStateBuffer for rollback, and a ActionDiffBuffer to generate the message we will send to server

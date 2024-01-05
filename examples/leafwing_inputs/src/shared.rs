@@ -43,13 +43,14 @@ impl Plugin for SharedPlugin {
             .insert_resource(Gravity(Vec2::ZERO));
         app.configure_sets(
             FixedUpdate,
-            // make sure that any physics simulation happens inside the Main SystemSet
+            // make sure that any physics simulation happens after the Main SystemSet
+            // (where we apply user's actions)
             (
                 PhysicsSet::Prepare,
                 PhysicsSet::StepSimulation,
                 PhysicsSet::Sync,
             )
-                .in_set(FixedUpdateSet::Main),
+                .before(FixedUpdateSet::Main),
         );
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
     }
@@ -82,6 +83,7 @@ pub(crate) fn shared_movement_behaviour(
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
+    info!("in Main. Velocity: {:?}", velocity);
 }
 
 pub(crate) fn log() {

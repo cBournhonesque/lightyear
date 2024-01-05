@@ -124,24 +124,24 @@ pub(crate) fn init(
         client_entity: Some(entity_id),
     });
 
-    let mut entity = commands.spawn(PlayerBundle::new(
-        plugin.client_id,
-        Vec2::new(50.0, 0.0),
-        color_from_id(plugin.client_id),
-        InputMap::new([
-            (KeyCode::Up, PlayerActions::Up),
-            (KeyCode::Down, PlayerActions::Down),
-            (KeyCode::Left, PlayerActions::Left),
-            (KeyCode::Right, PlayerActions::Right),
-        ]),
-    ));
-    let entity_id = entity.id();
-    // IMPORTANT: this lets the server know that the entity is pre-predicted
-    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-    // as the Predicted version
-    entity.insert(ShouldBePredicted {
-        client_entity: Some(entity_id),
-    });
+    // let mut entity = commands.spawn(PlayerBundle::new(
+    //     plugin.client_id,
+    //     Vec2::new(50.0, 0.0),
+    //     color_from_id(plugin.client_id),
+    //     InputMap::new([
+    //         (KeyCode::Up, PlayerActions::Up),
+    //         (KeyCode::Down, PlayerActions::Down),
+    //         (KeyCode::Left, PlayerActions::Left),
+    //         (KeyCode::Right, PlayerActions::Right),
+    //     ]),
+    // ));
+    // let entity_id = entity.id();
+    // // IMPORTANT: this lets the server know that the entity is pre-predicted
+    // // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+    // // as the Predicted version
+    // entity.insert(ShouldBePredicted {
+    //     client_entity: Some(entity_id),
+    // });
     client.connect();
 }
 
@@ -160,6 +160,9 @@ fn spawn_ball(
 ) {
     for entity in ball_query.iter_mut() {
         commands.entity(entity).insert(PhysicsBundle::ball());
+        commands
+            .entity(entity)
+            .remove::<(Position, LinearVelocity)>();
     }
 }
 

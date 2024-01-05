@@ -11,6 +11,7 @@ use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
 pub mod position {
     use super::*;
+    use tracing::info;
     impl Named for Position {
         fn name(&self) -> &'static str {
             "Position"
@@ -21,7 +22,12 @@ pub mod position {
 
     impl InterpFn<Position> for PositionLinearInterpolation {
         fn lerp(start: Position, other: Position, t: f32) -> Position {
-            Position::new(start.0 * (1.0 - t) + other.0 * t)
+            let res = Position::new(start.0 * (1.0 - t) + other.0 * t);
+            info!(
+                "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
+                start, other, t, res
+            );
+            res
         }
     }
 
@@ -48,6 +54,7 @@ pub mod position {
 
 pub mod velocity {
     use super::*;
+    use tracing::info;
     impl Named for LinearVelocity {
         fn name(&self) -> &'static str {
             "LinearVelocity"
@@ -58,7 +65,12 @@ pub mod velocity {
 
     impl InterpFn<LinearVelocity> for LinearVelocityLinearInterpolation {
         fn lerp(start: LinearVelocity, other: LinearVelocity, t: f32) -> LinearVelocity {
-            LinearVelocity(start.0 * (1.0 - t) + other.0 * t)
+            let res = LinearVelocity(start.0 * (1.0 - t) + other.0 * t);
+            info!(
+                "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
+                start, other, t, res
+            );
+            res
         }
     }
 
