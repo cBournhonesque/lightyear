@@ -14,6 +14,7 @@ pub const PLAYER_SIZE: f32 = 40.0;
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
+    // transform: Transform,
     position: Position,
     color: ColorComponent,
     replicate: Replicate,
@@ -24,18 +25,23 @@ pub(crate) struct PlayerBundle {
 impl PlayerBundle {
     pub(crate) fn new(
         id: ClientId,
+        // transform: Vec2,
         position: Vec2,
         color: Color,
         input_map: InputMap<PlayerActions>,
     ) -> Self {
         Self {
             id: PlayerId(id),
+            // transform: Transform::from_xyz(transform.x, transform.y, 0.0),
             position: Position(position),
             color: ColorComponent(color),
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
                 prediction_target: NetworkTarget::Only(vec![id]),
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                // NOTE (important): all entities that are being predicted need to be part of the same replication-group
+                //  so that all their updates are sent as a single message and are consistent (on the same tick)
+                replication_group: ReplicationGroup::Group(1),
                 ..default()
             },
             physics: PhysicsBundle::player(),
@@ -50,6 +56,7 @@ impl PlayerBundle {
 // Ball
 #[derive(Bundle)]
 pub(crate) struct BallBundle {
+    // transform: Transform,
     position: Position,
     color: ColorComponent,
     replicate: Replicate,
@@ -85,6 +92,7 @@ impl PhysicsBundle {
 impl BallBundle {
     pub(crate) fn new(position: Vec2, color: Color) -> Self {
         Self {
+            // transform: Transform::from_xyz(transform.x, transform.y, 0.0),
             position: Position(position),
             color: ColorComponent(color),
             replicate: Replicate {
@@ -135,10 +143,16 @@ pub enum Components {
     // external components have to be marked with this attribute, to avoid compile errors
     // the necessary traits (Message, SyncComponent) must already been implemented on the external type
     // this will be improved in future releases
+    // #[sync(external, full)]
+    // Transform(Transform),
     #[sync(external, full)]
     Position(Position),
     #[sync(external, full)]
+    Rotation(Rotation),
+    #[sync(external, full)]
     LinearVelocity(LinearVelocity),
+    #[sync(external, full)]
+    AngularVelocity(AngularVelocity),
 }
 
 // Channels

@@ -1,9 +1,12 @@
 //! Implement lightyear traits for some common bevy types
 use crate::_reexport::{InterpolatedComponent, LinearInterpolation};
 use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::interpolation::InterpFn;
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
+use bevy_xpbd_2d::components::Position;
 use std::ops::Mul;
+use tracing::info;
 
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
@@ -13,15 +16,35 @@ impl Named for Transform {
     }
 }
 
-// impl SyncComponent for Transform {
-//     fn mode() -> ComponentSyncMode {
-//         ComponentSyncMode::Full
-//     }
-// }
-//
-// impl InterpolatedComponent<Transform> for Transform {
-//     type Fn = Custom;
-// }
+impl SyncComponent for Transform {
+    fn mode() -> ComponentSyncMode {
+        ComponentSyncMode::Full
+    }
+}
+
+pub struct TransformLinearInterpolation;
+
+impl InterpFn<Transform> for TransformLinearInterpolation {
+    fn lerp(start: Transform, other: Transform, t: f32) -> Transform {
+        let translation = start.translation * (1.0 - t) + other.translation * t;
+        let rotation = start.rotation.lerp(other.rotation, t);
+        let scale = start.scale * (1.0 - t) + other.scale * t;
+        let res = Transform {
+            translation,
+            rotation,
+            scale,
+        };
+        info!(
+            "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
+            start, other, t, res
+        );
+        res
+    }
+}
+
+impl InterpolatedComponent<Transform> for Transform {
+    type Fn = TransformLinearInterpolation;
+}
 
 impl<'a> MapEntities<'a> for Transform {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}

@@ -53,7 +53,12 @@ impl Plugin for MyServerPlugin {
             (replicate_players).in_set(MainSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, (movement).in_set(FixedUpdateSet::Main));
+        app.add_systems(
+            FixedUpdate,
+            (movement)
+                .in_set(FixedUpdateSet::Main)
+                .before(PhysicsSet::Prepare),
+        );
         app.add_systems(Update, handle_disconnections);
     }
 }
@@ -94,6 +99,7 @@ pub(crate) fn handle_disconnections(
 pub(crate) fn movement(
     server: Res<Server>,
     mut action_query: Query<(&Position, &mut LinearVelocity, &ActionState<PlayerActions>)>,
+    // mut action_query: Query<(&Transform, &mut LinearVelocity, &ActionState<PlayerActions>)>,
 ) {
     for (position, velocity, action) in action_query.iter_mut() {
         // NOTE: be careful to directly pass Mut<PlayerPosition>

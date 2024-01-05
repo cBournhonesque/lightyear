@@ -7,17 +7,38 @@
 - PHYSICS:
   - A: if I run FixedUpdate::MAIN AFTER PhysicsSets, I have a smooth physics simulation on client
     if I run FixedUpdate::MAIN BEFORE PhysicsSets, it's very jittery. Why? It should be the opposite!
+    - SOLVED: same as C
   - B: the interpolation of the ball is weirdly jittery
     - is it because we run the physics simulation on the interpolated entity?
+    - SOLVED: it was because we were running Interpolation at PostUpdate, but drawing at Update.
   - C: collisions cause weird artifacts when we do rollback. Investigate why.
     - check tick 1935. On server, we have some values.
       On client, we have completely different values! After rollback, we get the server values, but only at tick 1936.
       Is there a off-by-one issue?
       Also the client value was completely different than the server value before the rollback, why?
-    - I think I found the issue, it's because we need to run the physics after applying the Actions, but before 
+    - SOLVED: I think I found the issue, it's because we need to run the physics after applying the Actions, but before 
       we record the ComponentHistory for prediction. This also explains A.
-  - D: the client prediction seems very slighly jittery. Could it be because we apply `relative_time_updates` to FixedUpdate on client, 
+  - D: the client prediction with the ball seems very slighly jittery. Could it be because we apply `relative_time_updates` to FixedUpdate on client, 
       so we might run a different number of FixedUpdate ticks than on server? Shouln't matter because we still apply inputs on the same ticks?
+    - HYPOTHESIS:
+      1) try interpolating/smoothing the client rollback towards the confirmed output
+      2) predict everything!
+  - E: client prediction for collisions between two predicted entities (player controlled entities) is also jittery. Why?
+     Is it because rotation is not replicated?
+    - SOLVED: that was it, I needed to replicate angular velocity and rotation as well.
+  - F: client is always slightly jittery compared to server.
+    - SOLVED: it's because we are predicting 2 entities so we need to make sure that they are in the same replication group,
+      otherwise the `confirmed_tick` for 1 entity might not be the same as for another entity!
+   
+   
+- TODO: when rollback is initiated, only rollback together the entities that have the same replication_group!!!
+  - this allows the possibility of having separate replication groups for entities that are predicted but don't need to be rolled back together.
+
+
+
+QUESTIONS:
+- is there a way to make an object purely a 'collider'? It has velocity/position, but the position isn't recomputed by the physics engine
+- when does the syncing between transform and rotation/position happen?
      
    
 

@@ -7,6 +7,7 @@ use bevy::prelude::{
     apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
+use bevy::transform::TransformSystem;
 
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
@@ -115,13 +116,15 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                         ReplicationSet::SendComponentUpdates,
                         ReplicationSet::SendDespawnsAndRemovals,
                     )
-                        .in_set(ReplicationSet::All),
+                        .in_set(ReplicationSet::All)
+                        .after(TransformSystem::TransformPropagate),
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
                         MainSet::SendPackets,
                     )
-                        .in_set(MainSet::Send),
+                        .in_set(MainSet::Send)
+                        .after(TransformSystem::TransformPropagate),
                     // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),

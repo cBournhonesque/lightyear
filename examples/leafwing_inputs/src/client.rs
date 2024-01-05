@@ -76,7 +76,12 @@ impl Plugin for MyClientPlugin {
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(
+            FixedUpdate,
+            player_movement
+                .in_set(FixedUpdateSet::Main)
+                .before(PhysicsSet::Prepare),
+        );
         app.add_systems(
             Update,
             (
@@ -86,6 +91,12 @@ impl Plugin for MyClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
+        // NOTE: on the client we are doing interpolation at PostUpdate time, so we need to sync the physics components
+        //  to transform again after that
+        // app.add_plugins(
+        //     PostUpdate,
+        //     (sync_physics_to_transform).in_set(PostUpdateSet::Main),
+        // );
     }
 }
 
@@ -124,24 +135,24 @@ pub(crate) fn init(
         client_entity: Some(entity_id),
     });
 
-    // let mut entity = commands.spawn(PlayerBundle::new(
-    //     plugin.client_id,
-    //     Vec2::new(50.0, 0.0),
-    //     color_from_id(plugin.client_id),
-    //     InputMap::new([
-    //         (KeyCode::Up, PlayerActions::Up),
-    //         (KeyCode::Down, PlayerActions::Down),
-    //         (KeyCode::Left, PlayerActions::Left),
-    //         (KeyCode::Right, PlayerActions::Right),
-    //     ]),
-    // ));
-    // let entity_id = entity.id();
-    // // IMPORTANT: this lets the server know that the entity is pre-predicted
-    // // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-    // // as the Predicted version
-    // entity.insert(ShouldBePredicted {
-    //     client_entity: Some(entity_id),
-    // });
+    let mut entity = commands.spawn(PlayerBundle::new(
+        plugin.client_id,
+        Vec2::new(50.0, 0.0),
+        color_from_id(plugin.client_id),
+        InputMap::new([
+            (KeyCode::Up, PlayerActions::Up),
+            (KeyCode::Down, PlayerActions::Down),
+            (KeyCode::Left, PlayerActions::Left),
+            (KeyCode::Right, PlayerActions::Right),
+        ]),
+    ));
+    let entity_id = entity.id();
+    // IMPORTANT: this lets the server know that the entity is pre-predicted
+    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+    // as the Predicted version
+    entity.insert(ShouldBePredicted {
+        client_entity: Some(entity_id),
+    });
     client.connect();
 }
 
@@ -175,6 +186,10 @@ fn player_movement(
         (&Position, &mut LinearVelocity, &ActionState<PlayerActions>),
         With<Predicted>,
     >,
+    // mut velocity_query: Query<
+    //     (&Transform, &mut LinearVelocity, &ActionState<PlayerActions>),
+    //     With<Predicted>,
+    // >,
 ) {
     for (position, velocity, action_state) in velocity_query.iter_mut() {
         shared_movement_behaviour(client.tick(), position, velocity, action_state);

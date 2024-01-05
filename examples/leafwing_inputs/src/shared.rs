@@ -35,7 +35,11 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
-            app.add_systems(Update, draw_elements);
+            // draw after interpolation is done
+            app.add_systems(
+                PostUpdate,
+                draw_elements.after(InterpolationSet::Interpolate),
+            );
         }
 
         // physics
@@ -51,10 +55,9 @@ impl Plugin for SharedPlugin {
                 PhysicsSet::StepSimulation,
                 PhysicsSet::Sync,
             )
-                .after(FixedUpdateSet::Main)
-                .before(PredictionSet::EntityDespawn), // .before(FixedUpdateSet::Main)
-                                                       // .after(FixedUpdateSet::TickUpdate),
+                .in_set(FixedUpdateSet::Main),
         );
+        // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
         if app.world.contains_resource::<Client>() {
@@ -78,6 +81,7 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
 pub(crate) fn shared_movement_behaviour(
     tick: Tick,
     position: &Position,
+    // position: &Transform,
     mut velocity: Mut<LinearVelocity>,
     action: &ActionState<PlayerActions>,
 ) {
@@ -128,8 +132,11 @@ pub(crate) fn log() {
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &ColorComponent), (Without<Confirmed>, Without<BallMarker>)>,
-    cursors: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
+    players: Query<
+        (&Position, &Rotation, &ColorComponent),
+        (Without<Confirmed>, Without<BallMarker>),
+    >,
+    balls: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
     // players: Query<
     //     (&Position, &ColorComponent),
     //     (
@@ -143,15 +150,21 @@ pub(crate) fn draw_elements(
     //     (Without<Predicted>, Without<Interpolated>, With<BallMarker>),
     // >,
 ) {
-    for (position, color) in &players {
+    for (position, rotation, color) in &players {
+        // gizmos.rect_2d(
+        //     position.translation.truncate(),
+        //     position.rotation.,
+        //     Vec2::ONE * PLAYER_SIZE,
+        //     color.0,
+        // );
         gizmos.rect_2d(
             Vec2::new(position.x, position.y),
-            0.0,
+            rotation.as_radians(),
             Vec2::ONE * PLAYER_SIZE,
             color.0,
         );
     }
-    for (position, color) in &cursors {
+    for (position, color) in &balls {
         gizmos.circle_2d(Vec2::new(position.x, position.y), BALL_SIZE, color.0);
     }
 }

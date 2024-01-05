@@ -1,5 +1,5 @@
 use bevy::prelude::{Component, Query, ResMut};
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;

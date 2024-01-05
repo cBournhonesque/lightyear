@@ -101,7 +101,9 @@ pub mod prelude {
         };
         pub use crate::client::input::{InputConfig, InputSystemSet};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-        pub use crate::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
+        pub use crate::client::interpolation::plugin::{
+            InterpolationConfig, InterpolationDelay, InterpolationSet,
+        };
         pub use crate::client::interpolation::{
             InterpFn, InterpolateStatus, Interpolated, InterpolatedComponent,
         };

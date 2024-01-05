@@ -66,7 +66,6 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     }
 
     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
-
     if !client.is_synced() || !client.received_new_server_tick() {
         return;
     }

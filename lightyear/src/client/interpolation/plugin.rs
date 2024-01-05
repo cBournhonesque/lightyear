@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use bevy::prelude::{
     apply_deferred, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, SystemSet,
+    Update,
 };
 
 use crate::client::components::SyncComponent;
@@ -146,7 +147,7 @@ pub enum InterpolationSet {
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
-        PostUpdate,
+        Update,
         (
             (add_component_history::<C, P>).in_set(InterpolationSet::SpawnHistory),
             (removed_components::<C>).in_set(InterpolationSet::Despawn),
@@ -164,7 +165,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mu
 // ComponentSyncMode::Full components to need the InterpolatedComponent bounds
 pub fn add_interpolation_systems<C: InterpolatedComponent<C>, P: Protocol>(app: &mut App) {
     app.add_systems(
-        PostUpdate,
+        Update,
         interpolate::<C>.in_set(InterpolationSet::Interpolate),
     );
 }
@@ -180,9 +181,8 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         app.init_resource::<InterpolationManager>();
         // SETS
         app.configure_sets(
-            PostUpdate,
+            Update,
             (
-                MainSet::Receive,
                 InterpolationSet::SpawnInterpolation,
                 InterpolationSet::SpawnInterpolationFlush,
                 InterpolationSet::SpawnHistory,
@@ -196,7 +196,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         );
         // SYSTEMS
         app.add_systems(
-            PostUpdate,
+            Update,
             (
                 // TODO: we want to run these flushes only if something actually happened in the previous set!
                 //  because running the flush-system is expensive (needs exclusive world access)
@@ -207,7 +207,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             ),
         );
         app.add_systems(
-            PostUpdate,
+            Update,
             (
                 spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
