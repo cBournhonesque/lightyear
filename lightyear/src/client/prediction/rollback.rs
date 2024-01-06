@@ -246,7 +246,12 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
         current_tick: current_rollback_tick,
     } = rollback.state
     {
-        let num_rollback_ticks = current_tick - current_rollback_tick;
+        // NOTE: careful! we restored the state to the end of tick `confirmed` = `current_rollback_tick - 1`
+        //  we want to run fixed-update to be at the end of `current_tick`, so we need to run
+        // `current_tick - (current_rollback_tick - 1)` ticks
+        // (we set `current_rollback_tick` to `confirmed + 1` so that on the FixedUpdate rollback run, we fetch the input for
+        // `confirmed + 1`
+        let num_rollback_ticks = current_tick + 1 - current_rollback_tick;
         debug!(
             "Rollback between {:?} and {:?}",
             current_rollback_tick, current_tick

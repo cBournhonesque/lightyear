@@ -142,7 +142,7 @@ fn update_action_state<P: Protocol, A: LeafwingUserAction>(
 
     for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
-        trace!(
+        info!(
             ?tick,
             ?entity,
             "action state: {:?}. Latest action diff buffer tick: {:?}",

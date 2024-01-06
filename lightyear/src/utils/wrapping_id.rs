@@ -121,6 +121,13 @@ macro_rules! wrapping_id {
                     self.0 = self.0.wrapping_add(rhs);
                 }
             }
+            // impl Add<u16> for $struct_name {
+            //     type Output = Self;
+            //
+            //     fn add(self, rhs: u16) -> Self::Output {
+            //         Self(self.0.wrapping_add(rhs))
+            //     }
+            // }
 
             impl Add<i16> for $struct_name {
                 type Output = Self;

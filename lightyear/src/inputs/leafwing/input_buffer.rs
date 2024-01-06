@@ -369,6 +369,17 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
             BufferItem::Data(data) => Some(data),
         }
     }
+
+    /// Get latest ActionState present in the buffer
+    pub(crate) fn get_last(&self) -> Option<&ActionState<T>> {
+        let Some(start_tick) = self.start_tick else {
+            return None;
+        };
+        if self.buffer.is_empty() {
+            return None;
+        }
+        self.get(start_tick + (self.buffer.len() as i16 - 1))
+    }
 }
 
 /// The `ActionDiffBuffer` stores the ActionDiff received from the client for each tick

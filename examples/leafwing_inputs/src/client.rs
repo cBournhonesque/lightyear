@@ -16,6 +16,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
+pub const INPUT_DELAY_TICKS: u16 = 10;
+
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
     pub(crate) client_id: ClientId,
@@ -69,7 +71,10 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
+            LeafwingInputConfig::<PlayerActions>::default()
+                .with_input_delay_ticks(INPUT_DELAY_TICKS),
+        ));
         // app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
 
         // We can modify the reporting strategy for system execution order ambiguities on a per-schedule basis

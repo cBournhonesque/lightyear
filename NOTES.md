@@ -80,6 +80,20 @@ CLIENT 2 (which moves)
     the buffer of ActionStates. i.e. when we reach tick 16, we get the ActionState from the buffer.
   - flow is: press input (at client tick 10), update-action-state, store it in buffer for tick 16, then read from buffer at tick 10 to set action set.
     - if the total RTT is smaller than 6 ticks, then we will never get a rollback because server and client will have run the same sequence of actions!
+  - STATUS: 
+    - implemented the delayed inputs. The inputs are actually delayed, but it causes some amount of mispredictions, even 
+      with only one client. (which was the opposite of what we wanted lol)
+  - DEBUG: 
+    - i'm sending a lot more diffs than necessary. It's because when we fetch the older data from the buffer.
+    - i see a case where an action (release Left) has not been received on the server
+      - why? maybe just send full diffs then, so that we can recover for this case.
+      - absolutely 0 rollbacks with no input delay, so it is related
+    - after that, constant rollbacks, even though the later actions are correct
+      - SOLVED: off by 1 error!!!!!!!!!!!!
+
+
+
+
 - TODO: prediction smoothing. 2 options.
   - we do rollback, compute the new predicted entity now. And then we interpolate by 'smooth' amount to it instead of just teleporting to it
     that means that we might do a lot of rollbacks in a row.
