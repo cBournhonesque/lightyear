@@ -67,6 +67,25 @@ CLIENT 2 (which moves)
     2024-01-06T07:17:11.207943Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=7v0 position=Position(Vec2(-50.0, -200.0))
 
 
+- TODO: lockstep. All player just see what's happening on the server. that means inputs are not applied on the client (no prediction).
+  the client just uses the confirmed state from server. (with maybe interpolation) 
+ 
+  CONS: delay.
+  PROS: no visual desyncs.
+
+- TODO:
+  - DELAYED INPUTS: on local, our render tick (prediction timeline) is 10. But when we press a button, we will add the button press to the buffer
+    at tick 16, and we immediately send to the server all the actions up to tick 16. The input timeline is in the future compared to the render timeline.
+    That means that on client, we don't use directly the ActionState (which gets updated immediately), but instead we must get the correct ActionState from 
+    the buffer of ActionStates. i.e. when we reach tick 16, we get the ActionState from the buffer.
+  - flow is: press input (at client tick 10), update-action-state, store it in buffer for tick 16, then read from buffer at tick 10 to set action set.
+    - if the total RTT is smaller than 6 ticks, then we will never get a rollback because server and client will have run the same sequence of actions!
+- TODO: prediction smoothing. 2 options.
+  - we do rollback, compute the new predicted entity now. And then we interpolate by 'smooth' amount to it instead of just teleporting to it
+    that means that we might do a lot of rollbacks in a row.
+  - we do rollback, compute the new predicted entity in X ticks from now. then we enter RollbackStage::Smooth where we interpolate
+    between now and X+5. We disable checking for rollbacks during that time. Client inputs should affect both the entity now and 
+    the entity we are aiming for (X+5)
 
 
 - TODO: also remove ShouldBePredicted or ShouldBeInterpolated on server after we have sent it once
