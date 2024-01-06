@@ -51,8 +51,8 @@ pub struct SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
-            jitter_multiple_margin: 4,
-            tick_margin: 2,
+            jitter_multiple_margin: 3,
+            tick_margin: 1,
             handshake_pings: 7,
             stats_buffer_duration: Duration::from_secs(2),
             error_margin: 1.0,
@@ -459,19 +459,21 @@ impl SyncManager {
         let delta_tick = client_ideal_tick - tick_manager.current_tick();
         // Update client ticks
         let latency = rtt / 2;
-        info!(
-            buffer_len = ?ping_manager.sync_stats.len(),
-            ?latency,
-            ?jitter,
-            ?delta_tick,
-            predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
-            client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter),
-            ?client_ideal_time,
-            ?client_ideal_tick,
-            server_tick = ?self.latest_received_server_tick,
-            client_current_tick = ?tick_manager.current_tick(),
-            "Finished syncing!"
-        );
+        if latency != Duration::default() {
+            info!(
+                buffer_len = ?ping_manager.sync_stats.len(),
+                ?latency,
+                ?jitter,
+                ?delta_tick,
+                predicted_server_receive_time = ?self.predicted_server_receive_time(rtt),
+                client_ahead_time = ?self.client_ahead_minimum(tick_duration, jitter),
+                ?client_ideal_time,
+                ?client_ideal_tick,
+                server_tick = ?self.latest_received_server_tick,
+                client_current_tick = ?tick_manager.current_tick(),
+                "Finished syncing!"
+            );
+        }
         tick_manager.set_tick_to(client_ideal_tick)
     }
 }

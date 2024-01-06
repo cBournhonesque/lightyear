@@ -8,7 +8,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, ResMut, With, Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::prelude::{MainSet, NetworkTarget};
 use crate::protocol::Protocol;
@@ -344,7 +344,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                 } else {
                     // do not send updates for these components, only inserts/removes
                     if replicate.is_replicate_once::<C>() {
-                        trace!(?entity,
+                        warn!(?entity,
                             "not replicating updates for {:?} because it is marked as replicate_once",
                             kind
                         );

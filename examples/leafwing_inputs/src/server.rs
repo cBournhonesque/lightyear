@@ -72,22 +72,28 @@ impl Plugin for MyServerPlugin {
 
 pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        "Server",
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
+    commands.spawn(
+        TextBundle::from_section(
+            "Server",
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(Style {
+            align_self: AlignSelf::End,
             ..default()
-        },
-    ));
+        }),
+    );
 
     // the ball is server-authoritative
-    commands.spawn(BallBundle::new(
-        Vec2::new(0.0, 0.0),
-        Color::AZURE,
-        // if true, we predict the ball on clients
-        plugin.predict_all,
-    ));
+    // commands.spawn(BallBundle::new(
+    //     Vec2::new(0.0, 0.0),
+    //     Color::AZURE,
+    //     // if true, we predict the ball on clients
+    //     plugin.predict_all,
+    // ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection
@@ -110,13 +116,19 @@ pub(crate) fn handle_disconnections(
 /// NOTE: this system can now be run in both client/server!
 pub(crate) fn movement(
     server: Res<Server>,
-    mut action_query: Query<(&Position, &mut LinearVelocity, &ActionState<PlayerActions>)>,
+    mut action_query: Query<(
+        Entity,
+        &Position,
+        &mut LinearVelocity,
+        &ActionState<PlayerActions>,
+    )>,
     // mut action_query: Query<(&Transform, &mut LinearVelocity, &ActionState<PlayerActions>)>,
 ) {
-    for (position, velocity, action) in action_query.iter_mut() {
+    for (entity, position, velocity, action) in action_query.iter_mut() {
         // NOTE: be careful to directly pass Mut<PlayerPosition>
         // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-        shared_movement_behaviour(server.tick(), position, velocity, action);
+        shared_movement_behaviour(velocity, action);
+        info!(?entity, tick = ?server.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
         // debug!(
         //     "Moving player: {:?} to position: {:?} on tick: {:?}",
         //     player_id,
@@ -151,6 +163,12 @@ pub(crate) fn replicate_players(
             };
             if plugin.predict_all {
                 replicate.prediction_target = NetworkTarget::All;
+                // if we predict other players, we need to replicate their actions to all clients other than the original one
+                // (the original client will apply the actions locally)
+                replicate.disable_replicate_once::<ActionState<PlayerActions>>();
+                replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExcept(vec![
+                    *client_id,
+                ]));
             } else {
                 // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                 replicate.prediction_target = NetworkTarget::Only(vec![*client_id]);

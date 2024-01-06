@@ -194,6 +194,7 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         Entity,
         (
             Added<ActionState<A>>,
+            With<InputMap<A>>,
             Or<(With<Predicted>, With<ShouldBePredicted>)>,
         ),
     >,
@@ -206,17 +207,22 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         ),
     >,
 ) {
+    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
+    //  maybe provide the "controlled" component?
+
     for entity in predicted_entities.iter() {
         trace!(?entity, "adding actions state buffer");
+        // TODO: THIS SHOULD ONLY BE FOR THE ENTITIES CONTROLLED BY THE CLIENT, SO MAYBE ADD THEM MANUALLY?
+        //   BECAUSE WHEN PREDICTING OTHER PLAYERS, WE DO NOT WANT TO ADD THE ACTION STATE BUFFER
         commands.entity(entity).insert((
             InputBuffer::<A>::default(),
             ActionDiffBuffer::<A>::default(),
         ));
     }
-    for entity in other_entities.iter() {
-        trace!(?entity, "REMOVING ACTION STATE FOR CONFIRMED");
-        commands.entity(entity).remove::<ActionState<A>>();
-    }
+    // for entity in other_entities.iter() {
+    //     trace!(?entity, "REMOVING ACTION STATE FOR CONFIRMED");
+    //     commands.entity(entity).remove::<ActionState<A>>();
+    // }
 }
 
 // non rollback: action-state have been written for us, nothing to do

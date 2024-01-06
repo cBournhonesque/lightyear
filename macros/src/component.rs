@@ -126,7 +126,7 @@ pub fn component_protocol_impl(
         let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
         let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
         input.variants.push(parse_quote! {
-            #[sync(external)]
+            #[sync(external, simple)]
             #variant(ActionState<<#protocol as Protocol>::#ty>)
         });
 

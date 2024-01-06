@@ -5,7 +5,7 @@ use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
     Without,
 };
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::client::components::SyncComponent;
 use crate::client::prediction::resource::PredictionManager;
@@ -168,6 +168,7 @@ pub fn add_component_history<C: SyncComponent + Named, P: Protocol>(
                 // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
                     if confirmed_component.is_added() {
+                        debug!(kind = ?confirmed_component.name(), "Component added on confirmed side");
                         // safety: we know the entity exists
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();
@@ -185,6 +186,7 @@ pub fn add_component_history<C: SyncComponent + Named, P: Protocol>(
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
+                                debug!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(new_component);
                             }

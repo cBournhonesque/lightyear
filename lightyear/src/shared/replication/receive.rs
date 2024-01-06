@@ -220,8 +220,8 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         .insert
                         .iter()
                         .map(|c| c.into())
-                        .collect::<Vec<P::ComponentKinds>>();
-                    trace!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
+                        .collect::<HashSet<P::ComponentKinds>>();
+                    debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
                     for mut component in actions.insert {
                         // map any entities inside the component
                         component.map_entities(Box::new(&self.remote_entity_map));
@@ -244,7 +244,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     }
 
                     // removals
-                    debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
+                    trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
                         events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
                         kind.remove(&mut local_entity_mut);

@@ -5,6 +5,7 @@ use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::time::Duration;
@@ -18,7 +19,7 @@ pub fn shared_config() -> SharedConfig {
     SharedConfig {
         enable_replication: true,
         client_send_interval: Duration::default(),
-        server_send_interval: Duration::from_millis(40),
+        server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
         // server_send_interval: Duration::from_millis(100),
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
@@ -37,10 +38,16 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
             // limit frame rate
-            app.add_plugins(bevy_framepace::FramepacePlugin);
-            app.world
-                .resource_mut::<bevy_framepace::FramepaceSettings>()
-                .limiter = bevy_framepace::Limiter::from_framerate(FRAME_HZ);
+            // app.add_plugins(bevy_framepace::FramepacePlugin);
+            // app.world
+            //     .resource_mut::<bevy_framepace::FramepaceSettings>()
+            //     .limiter = bevy_framepace::Limiter::from_framerate(FRAME_HZ);
+
+            // show framerate
+            // use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+            // app.add_plugins(FrameTimeDiagnosticsPlugin::default());
+
+            app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
 
             // draw after interpolation is done
             app.add_systems(
@@ -68,10 +75,18 @@ impl Plugin for SharedPlugin {
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
         if app.world.contains_resource::<Client>() {
-            app.add_systems(Last, after_physics_log::<Client>);
+            app.add_systems(
+                FixedUpdate,
+                after_physics_log::<Client>.after(FixedUpdateSet::Main),
+            );
+            // app.add_systems(Last, last_log::<Client>);
         }
         if app.world.contains_resource::<Server>() {
-            app.add_systems(Last, after_physics_log::<Server>);
+            app.add_systems(
+                Last,
+                after_physics_log::<Server>.after(FixedUpdateSet::Main),
+            );
+            // app.add_systems(Last, last_log::<Server>);
         }
 
         // registry types for reflection
@@ -89,9 +104,6 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
 
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(
-    tick: Tick,
-    position: &Position,
-    // position: &Transform,
     mut velocity: Mut<LinearVelocity>,
     action: &ActionState<PlayerActions>,
 ) {
@@ -109,23 +121,39 @@ pub(crate) fn shared_movement_behaviour(
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
-    debug!(
-        ?tick,
-        "in Main. Player Velocity: {:?}. Position: {:?}", velocity, position
-    );
 }
 
 pub(crate) fn after_physics_log<T: TickManaged>(
+    ticker: Res<T>,
+    rollback: Option<Res<Rollback>>,
+    players: Query<(Entity, &Position), (Without<BallMarker>, Without<Confirmed>)>,
+    ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
+) {
+    let mut tick = ticker.tick();
+    if let Some(rollback) = rollback {
+        if let RollbackState::ShouldRollback { current_tick } = rollback.state {
+            tick = current_tick;
+        }
+    }
+    for (entity, position) in players.iter() {
+        info!(?tick, ?entity, ?position, "Player after physics update");
+    }
+    for position in ball.iter() {
+        debug!(?tick, ?position, "Ball after physics update");
+    }
+}
+
+pub(crate) fn last_log<T: TickManaged>(
     ticker: Res<T>,
     players: Query<(Entity, &Position), (Without<BallMarker>, Without<Confirmed>)>,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let tick = ticker.tick();
     for (entity, position) in players.iter() {
-        info!(?tick, ?entity, ?position, "Player post physics update");
+        info!(?tick, ?entity, ?position, "Player LAST update");
     }
-    for (position) in ball.iter() {
-        debug!(?tick, ?position, "Ball post physics update");
+    for position in ball.iter() {
+        debug!(?tick, ?position, "Ball LAST update");
     }
 }
 

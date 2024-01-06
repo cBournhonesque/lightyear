@@ -32,7 +32,7 @@ pub struct Predicted {
 
 #[derive(Resource)]
 pub struct Rollback {
-    pub(crate) state: RollbackState,
+    pub state: RollbackState,
 }
 
 /// Resource that will track whether we should do rollback or not

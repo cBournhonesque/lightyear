@@ -29,8 +29,47 @@
   - F: client is always slightly jittery compared to server.
     - SOLVED: it's because we are predicting 2 entities so we need to make sure that they are in the same replication group,
       otherwise the `confirmed_tick` for 1 entity might not be the same as for another entity!
+  - G: why does the simulation go completely bananas if there are a lot of mis-predictions? Is it spiral of death?
+  - H: having a faster send_interval on the server side makes the simulation less good, paradoxically! Why?
+    - do i have an off-by-one error somewhere?
+  - I: how to make good client prediction for other clients?
+    - maybe we replicate the ActionState of other clients, and then we can do some kind of decay on the inputs; or consider
+      that they will still be pressed?
    
-   
+STATUS:
+- it looks like there's 0 rollback if we only have 1 client and predict the ball. Smooth
+- goes crazy if I predict the other player
+  - for some reason there was a crazy tick diff. Rollback at tick 934, but client1 was at tick 988!!
+  - then the rollback goes crazy because we predict that the entity is moving at their low velocity for the next 50 ticks.
+- I think for proper prediction of other clients we need to know what their latest input was, and then consider that they
+  pressed the same input during the prediction time. We can also decay the inputs over prediction time?
+  - TODO: if we rollback, we ALSO need to restore the other clients inputs to what they were at the rollback tick!!!!
+- Status: 
+  - when I press buttons for client 2, the FPS starts dropping. Death spiral?
+  - again, huge tick diff for the rollback (50 ticks) -> WHY???? (only at the start though)
+  - client 1 has some mispredictions but overall seems ok?
+  - sometimes the rotation is completely different?
+  - Not synced during rollback!!!
+CLIENT 1:
+    2024-01-06T07:17:11.473029Z [32m INFO lightyear::client::prediction::rollback: Rollback check: mismatch for component between predicted and confirmed 6v0 on tick Tick(1018) for component Position. Current tick: Tick(1037)
+    2024-01-06T07:17:11.473435Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=4v0 tick=Tick(1037) position=Position(Vec2(-50.0, -200.0)) actions=[]
+    2024-01-06T07:17:11.473510Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=7v0 tick=Tick(1037) position=Position(Vec2(44.978268, 85.351845)) actions=[]
+    2024-01-06T07:17:11.475257Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=4v0 position=Position(Vec2(-50.0, -200.0))
+    2024-01-06T07:17:11.475301Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=7v0 position=Position(Vec2(46.824062, 87.87348))
+CLIENT 2 (which moves)
+    2024-01-06T07:17:11.189520Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=4v0 tick=Tick(1018) position=Position(Vec2(41.28668, 80.30857)) actions=[]
+    2024-01-06T07:17:11.189561Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=7v0 tick=Tick(1018) position=Position(Vec2(-50.0, -200.0)) actions=[]
+    2024-01-06T07:17:11.191098Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1018) entity=4v0 position=Position(Vec2(43.132473, 82.83021))
+    2024-01-06T07:17:11.191129Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1018) entity=7v0 position=Position(Vec2(-50.0, -200.0))
+    2024-01-06T07:17:11.206116Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=4v0 tick=Tick(1019) position=Position(Vec2(43.132473, 82.83021)) actions=[]
+    2024-01-06T07:17:11.206169Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=7v0 tick=Tick(1019) position=Position(Vec2(-50.0, -200.0)) actions=[]
+    2024-01-06T07:17:11.207895Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=4v0 position=Position(Vec2(44.978268, 85.351845))
+    2024-01-06T07:17:11.207943Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=7v0 position=Position(Vec2(-50.0, -200.0))
+
+
+
+
+- TODO: also remove ShouldBePredicted or ShouldBeInterpolated on server after we have sent it once
 - TODO: why do I get duplicate ComponentInsertEvent ShouldBePredicted?
 - TODO: when rollback is initiated, only rollback together the entities that have the same replication_group!!!
   - this allows the possibility of having separate replication groups for entities that are predicted but don't need to be rolled back together.

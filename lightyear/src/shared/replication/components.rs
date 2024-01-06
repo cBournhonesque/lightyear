@@ -4,6 +4,7 @@ use bevy::utils::{EntityHashSet, HashMap, HashSet};
 use cfg_if::cfg_if;
 
 use serde::{Deserialize, Serialize};
+use tracing::{trace, warn};
 
 use crate::_reexport::FromType;
 use lightyear_macros::MessageInternal;
@@ -115,6 +116,7 @@ impl<P: Protocol> Replicate<P> {
             None => entity_target,
             Some(metadata) => {
                 entity_target.intersection(metadata.target.clone());
+                trace!(?kind, "final target: {:?}", entity_target);
                 entity_target
             }
         }

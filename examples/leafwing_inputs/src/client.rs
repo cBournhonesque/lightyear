@@ -5,8 +5,10 @@ use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
+use leafwing_input_manager::action_state::ActionDiff;
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
+use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -97,12 +99,6 @@ impl Plugin for MyClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
-        // NOTE: on the client we are doing interpolation at PostUpdate time, so we need to sync the physics components
-        //  to transform again after that
-        // app.add_plugins(
-        //     PostUpdate,
-        //     (sync_physics_to_transform).in_set(PostUpdateSet::Main),
-        // );
     }
 }
 
@@ -113,14 +109,20 @@ pub(crate) fn init(
     plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        format!("Client {}", plugin.client_id),
-        TextStyle {
-            font_size: 30.0,
-            color: bevy::prelude::Color::WHITE,
+    commands.spawn(
+        TextBundle::from_section(
+            format!("Client {}", plugin.client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(Style {
+            align_self: AlignSelf::End,
             ..default()
-        },
-    ));
+        }),
+    );
     let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
     commands.spawn(PlayerBundle::new(
@@ -134,17 +136,17 @@ pub(crate) fn init(
             (KeyCode::D, PlayerActions::Right),
         ]),
     ));
-    commands.spawn(PlayerBundle::new(
-        plugin.client_id,
-        Vec2::new(50.0, y),
-        color_from_id(plugin.client_id),
-        InputMap::new([
-            (KeyCode::Up, PlayerActions::Up),
-            (KeyCode::Down, PlayerActions::Down),
-            (KeyCode::Left, PlayerActions::Left),
-            (KeyCode::Right, PlayerActions::Right),
-        ]),
-    ));
+    // commands.spawn(PlayerBundle::new(
+    //     plugin.client_id,
+    //     Vec2::new(50.0, y),
+    //     color_from_id(plugin.client_id),
+    //     InputMap::new([
+    //         (KeyCode::Up, PlayerActions::Up),
+    //         (KeyCode::Down, PlayerActions::Down),
+    //         (KeyCode::Left, PlayerActions::Left),
+    //         (KeyCode::Right, PlayerActions::Right),
+    //     ]),
+    // ));
     client.connect();
 }
 
@@ -197,7 +199,7 @@ fn add_player_physics(
             continue;
         }
         info!(?entity, ?player_id, "adding physics to predicted player");
-        commands.entity(entity).insert(PhysicsBundle::ball());
+        commands.entity(entity).insert(PhysicsBundle::player());
     }
 }
 
@@ -209,6 +211,7 @@ fn player_movement(
     client: Res<Client>,
     mut velocity_query: Query<
         (
+            Entity,
             &PlayerId,
             &Position,
             &mut LinearVelocity,
@@ -221,12 +224,16 @@ fn player_movement(
     //     With<Predicted>,
     // >,
 ) {
-    for (player_id, position, velocity, action_state) in velocity_query.iter_mut() {
-        // only apply the inputs to our own controlled entities
-        if player_id.0 != plugin.client_id {
-            continue;
-        }
-        shared_movement_behaviour(client.tick(), position, velocity, action_state);
+    for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
+        // // only apply the inputs to our own controlled entities
+        // if  player_id.0 != plugin.client_id {
+        //     continue;
+        // }
+
+        // note that we also apply the input to the other predicted clients!
+        // TODO: add input decay?
+        shared_movement_behaviour(velocity, action_state);
+        info!(?entity, tick = ?client.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
     }
 }
 

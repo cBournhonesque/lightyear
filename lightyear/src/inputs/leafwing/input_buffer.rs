@@ -55,7 +55,9 @@ impl<A: LeafwingUserAction> Named for ActionState<A> {
 
 impl<A: LeafwingUserAction> SyncComponent for ActionState<A> {
     fn mode() -> ComponentSyncMode {
-        ComponentSyncMode::Once
+        // For client-side prediction of other clients, we need the ActionState to be synced from the Confirmed
+        // to the predicted entity
+        ComponentSyncMode::Simple
     }
 }
 
