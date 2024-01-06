@@ -12,7 +12,7 @@ use bevy::transform::TransformSystem;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
-use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
+use crate::client::prediction::plugin::{is_connected, is_in_rollback, PredictionPlugin};
 use crate::client::prediction::{clean_prespawned_entity, Rollback};
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
@@ -128,6 +128,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
+                    // only replicate entities once client is connected
+                    ReplicationSet::All.run_if(is_connected::<P>),
                 ),
             )
             .configure_sets(
@@ -165,7 +167,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    (send::<P>, clean_prespawned_entity::<P>).in_set(MainSet::SendPackets),
+                    send::<P>.in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
             );

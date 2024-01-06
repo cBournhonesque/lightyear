@@ -359,14 +359,16 @@ impl SyncComponent for ShouldBeInterpolated {
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
 // NOTE: we do not map entities for this component, we want to receive the entities as is
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ShouldBePredicted {
     // TODO: rename this?
     //  - also the server already gets the client entity in the message, so it's a waste of space...
     //  - maybe use a different component: ClientToServer -> Prespawned (None)
     //  - ServerToClient -> Prespawned (entity)
     // if this is set, the predicted entity has been pre-spawned on the client
-    pub client_entity: Option<Entity>,
+    pub(crate) client_entity: Option<Entity>,
+    // this is set by the server to know which client did the pre-prediction
+    pub(crate) client_id: Option<ClientId>,
 }
 
 // NOTE: need to define this here because otherwise we get the error

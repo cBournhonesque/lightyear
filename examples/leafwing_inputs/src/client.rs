@@ -90,7 +90,8 @@ impl Plugin for MyClientPlugin {
         app.add_systems(
             Update,
             (
-                spawn_ball,
+                add_ball_physics,
+                add_player_physics,
                 receive_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
@@ -122,7 +123,7 @@ pub(crate) fn init(
     ));
     let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-    let mut entity = commands.spawn(PlayerBundle::new(
+    commands.spawn(PlayerBundle::new(
         plugin.client_id,
         Vec2::new(-50.0, y),
         color_from_id(plugin.client_id),
@@ -133,15 +134,7 @@ pub(crate) fn init(
             (KeyCode::D, PlayerActions::Right),
         ]),
     ));
-    let entity_id = entity.id();
-    // IMPORTANT: this lets the server know that the entity is pre-predicted
-    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-    // as the Predicted version
-    entity.insert(ShouldBePredicted {
-        client_entity: Some(entity_id),
-    });
-
-    let mut entity = commands.spawn(PlayerBundle::new(
+    commands.spawn(PlayerBundle::new(
         plugin.client_id,
         Vec2::new(50.0, y),
         color_from_id(plugin.client_id),
@@ -152,13 +145,6 @@ pub(crate) fn init(
             (KeyCode::Right, PlayerActions::Right),
         ]),
     ));
-    let entity_id = entity.id();
-    // IMPORTANT: this lets the server know that the entity is pre-predicted
-    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-    // as the Predicted version
-    entity.insert(ShouldBePredicted {
-        client_entity: Some(entity_id),
-    });
     client.connect();
 }
 
@@ -171,7 +157,7 @@ pub(crate) fn init(
 ///
 /// However we remove the Position because we want the balls position to be interpolated, without being computed/updated
 /// by the physics engine? Actually this shouldn't matter because we run interpolation in PostUpdate...
-fn spawn_ball(
+fn add_ball_physics(
     mut commands: Commands,
     mut ball_query: Query<
         Entity,
@@ -188,6 +174,30 @@ fn spawn_ball(
         // commands
         //     .entity(entity)
         //     .remove::<(Position, LinearVelocity)>();
+    }
+}
+
+/// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
+/// so that our predicted entities can predict collisions with them correctly
+fn add_player_physics(
+    plugin: Res<MyClientPlugin>,
+    mut commands: Commands,
+    mut player_query: Query<
+        (Entity, &PlayerId),
+        (
+            // insert the physics components on the player that is displayed on screen
+            // (either interpolated or predicted)
+            Or<(Added<Interpolated>, Added<Predicted>)>,
+        ),
+    >,
+) {
+    for (entity, player_id) in player_query.iter_mut() {
+        if player_id.0 == plugin.client_id {
+            // only need to do this for other players' entities
+            continue;
+        }
+        info!(?entity, ?player_id, "adding physics to predicted player");
+        commands.entity(entity).insert(PhysicsBundle::ball());
     }
 }
 

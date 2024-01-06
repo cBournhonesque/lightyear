@@ -25,6 +25,10 @@ pub(crate) struct PlayerBundle {
     replicate: Replicate,
     physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
+    // IMPORTANT: this lets the server know that the entity is pre-predicted
+    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+    // as the Predicted version
+    should_be_predicted: ShouldBePredicted,
 }
 
 impl PlayerBundle {
@@ -41,9 +45,6 @@ impl PlayerBundle {
             position: Position(position),
             color: ColorComponent(color),
             replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 replication_group: REPLICATION_GROUP,
@@ -54,6 +55,7 @@ impl PlayerBundle {
                 action_state: ActionState::default(),
                 input_map,
             },
+            should_be_predicted: ShouldBePredicted::default(),
         }
     }
 }
@@ -118,7 +120,7 @@ impl BallBundle {
 }
 
 // Components
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub ClientId);
 
 // #[derive(
@@ -132,19 +134,12 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-#[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
-)]
-pub struct CursorPosition(pub Vec2);
-
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
     #[sync(once)]
     PlayerId(PlayerId),
     #[sync(once)]
     ColorComponent(ColorComponent),
-    #[sync(full)]
-    CursorPosition(CursorPosition),
     #[sync(once)]
     BallMarker(BallMarker),
     // external components have to be marked with this attribute, to avoid compile errors

@@ -28,7 +28,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
-            app.add_systems(Update, draw_elements);
+            app.add_systems(PostUpdate, draw_elements);
         }
     }
 }

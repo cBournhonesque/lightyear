@@ -112,6 +112,8 @@ impl<P: Protocol> Client<P> {
         self.io.local_addr()
     }
 
+    // NETCODE
+
     /// Start the connection process with the server
     pub fn connect(&mut self) {
         self.netcode.connect();
@@ -124,6 +126,11 @@ impl<P: Protocol> Client<P> {
     /// Returns true if the client is connected and has been time-synced with the server
     pub fn is_synced(&self) -> bool {
         self.connection.sync_manager.is_synced()
+    }
+
+    /// Returns the client id assigned by the server
+    pub fn id(&self) -> ClientId {
+        self.netcode.id()
     }
 
     // IO

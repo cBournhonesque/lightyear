@@ -141,10 +141,12 @@ pub(crate) fn replicate_players(
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients
 
-        if let Some(mut e) = commands.get_entity(*entity) {
+        if let Some(mut e) = commands.get_entity(entity) {
             let mut replicate = Replicate {
                 // we want to replicate back to the original client, since they are using a pre-spawned entity
                 replication_target: NetworkTarget::All,
+                // make sure that all entities that are predicted are part of the same replication group
+                replication_group: REPLICATION_GROUP,
                 ..default()
             };
             if plugin.predict_all {

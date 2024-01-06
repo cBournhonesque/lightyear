@@ -329,9 +329,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 replication_sender.prepare_component_insert(
                     entity,
                     group,
-                    P::Components::from(ShouldBePredicted {
-                        client_entity: None,
-                    }),
+                    P::Components::from(ShouldBePredicted::default()),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
@@ -385,6 +383,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+
+        // TODO: think about this. this feels a bit clumsy
 
         // handle ShouldBePredicted separately because of pre-spawning behaviour
         // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.

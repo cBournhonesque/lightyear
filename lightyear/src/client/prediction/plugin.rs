@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use crate::_reexport::FromType;
 use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate,
-    Res, SystemSet,
+    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
+    PreUpdate, Res, SystemSet,
 };
 
 use crate::client::components::SyncComponent;
@@ -13,14 +13,18 @@ use crate::client::prediction::despawn::{
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::Named;
+use crate::client::resource::Client;
+use crate::prelude::{Named, ReplicationSet};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
-use super::{spawn_predicted_entity, ComponentSyncMode, Rollback, RollbackState};
+use super::{
+    clean_prespawned_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
+    Rollback, RollbackState,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PredictionConfig {
@@ -109,6 +113,11 @@ pub fn is_eligible_for_rollback<C: SyncComponent>() -> bool {
 /// Returns true if we are doing rollback
 pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
     matches!(rollback.state, RollbackState::ShouldRollback { .. })
+}
+
+/// Returns true if the client is connected
+pub fn is_connected<P: Protocol>(client: Res<Client<P>>) -> bool {
+    client.is_connected()
 }
 
 pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut App)
@@ -216,7 +225,17 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PreUpdate,
             // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
             //  not at every fixed-update tick, since it only depends on server messages
-            (spawn_predicted_entity, despawn_confirmed).in_set(PredictionSet::SpawnPrediction),
+            (spawn_predicted_entity::<P>, despawn_confirmed).in_set(PredictionSet::SpawnPrediction),
+        );
+        app.add_systems(
+            PostUpdate,
+            (
+                // fill in the client_entity and client_id for pre-predicted entities
+                handle_pre_prediction::<P>.before(ReplicationSet::All),
+                // clean-up the ShouldBePredicted components after we've sent them
+                clean_prespawned_entity::<P>.after(ReplicationSet::All),
+            )
+                .run_if(is_connected::<P>),
         );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state

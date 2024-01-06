@@ -19,7 +19,7 @@ use super::{
     },
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
-    MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
 };
 
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
@@ -177,6 +177,7 @@ pub enum ClientState {
 /// client.connect();
 /// ```
 pub struct Client<Ctx = ()> {
+    id: ClientId,
     state: ClientState,
     time: f64,
     start_time: f64,
@@ -210,6 +211,7 @@ impl<Ctx> Client<Ctx> {
             }
         };
         Ok(Self {
+            id: 0,
             state: ClientState::Disconnected,
             time: 0.0,
             start_time: 0.0,
@@ -385,9 +387,10 @@ impl<Ctx> Client<Ctx> {
             (Packet::KeepAlive(_), ClientState::Connected) => {
                 trace!("client received connection keep-alive packet from server");
             }
-            (Packet::KeepAlive(_), ClientState::SendingChallengeResponse) => {
+            (Packet::KeepAlive(pkt), ClientState::SendingChallengeResponse) => {
                 debug!("client received connection keep-alive packet from server");
                 self.set_state(ClientState::Connected);
+                self.id = pkt.client_id;
                 info!("client connected to server");
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
@@ -482,6 +485,11 @@ impl<Ctx> Client<Ctx> {
             self.recv_packet(buf, now, addr)?;
         }
         Ok(())
+    }
+
+    /// Returns the global client id of the client once it is connected, or returns 0 if not connected.
+    pub fn id(&self) -> ClientId {
+        self.id
     }
 
     /// Prepares the client to connect to the server.

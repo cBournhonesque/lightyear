@@ -4,7 +4,6 @@ use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::interpolation::InterpFn;
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
-use bevy_xpbd_2d::components::Position;
 use std::ops::Mul;
 use tracing::info;
 

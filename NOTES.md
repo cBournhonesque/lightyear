@@ -31,6 +31,7 @@
       otherwise the `confirmed_tick` for 1 entity might not be the same as for another entity!
    
    
+- TODO: why do I get duplicate ComponentInsertEvent ShouldBePredicted?
 - TODO: when rollback is initiated, only rollback together the entities that have the same replication_group!!!
   - this allows the possibility of having separate replication groups for entities that are predicted but don't need to be rolled back together.
 - TODO: should the server send other client' inputs to a client so that they can run client-prediction more accurately on other clients?
@@ -39,6 +40,7 @@
   - then run physics step
   - and network the compressed physics
   - then the client/server are working with the same numbers, so fewer desyncs
+- TODO: input decay: https://www.snapnet.dev/blog/netcode-architectures-part-2-rollback/#input-decay
 
 
 

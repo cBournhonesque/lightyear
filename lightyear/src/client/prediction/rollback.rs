@@ -75,9 +75,9 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     // 0. We want to do a rollback check every time the component for the confirmed entity got modified in any way (removed/added/updated)
     let confirmed_entity_with_updates = updates
         .read()
-        .map(|event| *event.entity())
-        .chain(inserts.read().map(|event| *event.entity()))
-        .chain(removals.read().map(|event| *event.entity()))
+        .map(|event| event.entity())
+        .chain(inserts.read().map(|event| event.entity()))
+        .chain(removals.read().map(|event| event.entity()))
         .collect::<EntityHashSet<Entity>>();
 
     for confirmed_entity in confirmed_entity_with_updates {
@@ -157,8 +157,8 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                     };
                     if should_rollback {
                         info!(
-                                "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}",
-                                confirmed_entity, tick, kind
+                                "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
+                                confirmed_entity, tick, kind, client.tick()
                             );
 
                         // we need to clear the history so we can write a new one
@@ -238,14 +238,18 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
     let client = world.get_resource::<Client<P>>().unwrap();
     let rollback = world.get_resource::<Rollback>().unwrap();
 
+    let current_tick = client.tick();
+
     // NOTE: all predicted entities should be on the same tick!
     // TODO: might not need to check the state, because we only run this system if we are in rollback
-    if let RollbackState::ShouldRollback { current_tick } = rollback.state {
-        let num_rollback_ticks = client.tick() - current_tick;
+    if let RollbackState::ShouldRollback {
+        current_tick: current_rollback_tick,
+    } = rollback.state
+    {
+        let num_rollback_ticks = current_tick - current_rollback_tick;
         debug!(
             "Rollback between {:?} and {:?}",
-            current_tick,
-            client.tick()
+            current_rollback_tick, current_tick
         );
 
         // run the physics fixed update schedule (which should contain ALL predicted/rollback components)
@@ -254,6 +258,7 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
             //  for example we only want to run the physics on non-confirmed entities
             world.run_schedule(FixedUpdate)
         }
+        info!("Finished rollback. Current tick: {:?}", current_tick);
     }
 
     // revert the state of Rollback for the next frame

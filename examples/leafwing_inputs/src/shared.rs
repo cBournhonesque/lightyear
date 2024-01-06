@@ -10,6 +10,7 @@ use lightyear::prelude::*;
 use std::time::Duration;
 use tracing::Level;
 
+const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
 const MAX_VELOCITY: f32 = 200.0;
 
@@ -23,7 +24,7 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
         log: LogConfig {
-            level: Level::WARN,
+            level: Level::INFO,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
         },
@@ -35,6 +36,12 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            // limit frame rate
+            app.add_plugins(bevy_framepace::FramepacePlugin);
+            app.world
+                .resource_mut::<bevy_framepace::FramepaceSettings>()
+                .limiter = bevy_framepace::Limiter::from_framerate(FRAME_HZ);
+
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
@@ -66,6 +73,9 @@ impl Plugin for SharedPlugin {
         if app.world.contains_resource::<Server>() {
             app.add_systems(Last, after_physics_log::<Server>);
         }
+
+        // registry types for reflection
+        app.register_type::<PlayerId>();
     }
 }
 
@@ -99,7 +109,7 @@ pub(crate) fn shared_movement_behaviour(
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
-    info!(
+    debug!(
         ?tick,
         "in Main. Player Velocity: {:?}. Position: {:?}", velocity, position
     );
@@ -107,26 +117,20 @@ pub(crate) fn shared_movement_behaviour(
 
 pub(crate) fn after_physics_log<T: TickManaged>(
     ticker: Res<T>,
-    players: Query<(&Position, &LinearVelocity), (Without<BallMarker>, Without<Confirmed>)>,
-    ball: Query<(&Position, &LinearVelocity), (With<BallMarker>, Without<Confirmed>)>,
+    players: Query<(Entity, &Position), (Without<BallMarker>, Without<Confirmed>)>,
+    ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let tick = ticker.tick();
-    for (position, velocity) in players.iter() {
-        info!(
-            ?tick,
-            "Player post update physics. Velocity: {:?}. Position: {:?}", velocity, position
-        );
+    for (entity, position) in players.iter() {
+        info!(?tick, ?entity, ?position, "Player post physics update");
     }
-    for (position, velocity) in ball.iter() {
-        info!(
-            ?tick,
-            "Ball post update physics. Velocity: {:?}. Position: {:?}", velocity, position
-        );
+    for (position) in ball.iter() {
+        debug!(?tick, ?position, "Ball post physics update");
     }
 }
 
 pub(crate) fn log() {
-    info!("run physics schedule!");
+    debug!("run physics schedule!");
 }
 
 /// System that draws the player's boxes and cursors

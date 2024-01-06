@@ -96,6 +96,9 @@ pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
     // TODO: clear the dependency graph for replication groups send
 }
 
+/// Clear the received events
+/// We put this in a separate as send because we want to run this every frame, and
+/// Send only runs every send_interval
 pub(crate) fn clear_events<P: Protocol>(mut server: ResMut<Server<P>>) {
     server.clear_events();
 }

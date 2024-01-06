@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
+use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, ShouldBePredicted};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
@@ -220,8 +220,8 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         .insert
                         .iter()
                         .map(|c| c.into())
-                        .collect::<HashSet<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
+                        .collect::<Vec<P::ComponentKinds>>();
+                    trace!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
                     for mut component in actions.insert {
                         // map any entities inside the component
                         component.map_entities(Box::new(&self.remote_entity_map));
@@ -237,7 +237,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         //  we should immediately take ownership of it, so we won't receive a despawn for it
                         //  thus, we should remove it from the entity map right after receiving it!
                         //  Actually, we should figure out a way to cleanup every received entity where the sender
-                        //  stopped replicating or didn't replicate the Spawn, as this could just cause memory to accumulate
+                        //  stopped replicating or didn't replicate the Despawn, as this could just cause memory to accumulate
 
                         // TODO: maybe if is-server, attach the client-id to the ShouldBePredicted entity
                         //  to know for which client we should do the pre-prediction
