@@ -91,7 +91,12 @@ impl<P: Protocol> Client<P> {
         let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
             .expect("could not create netcode client");
 
-        let connection = Connection::new(protocol.channel_registry(), config.sync, &config.ping);
+        let connection = Connection::new(
+            protocol.channel_registry(),
+            config.sync,
+            &config.ping,
+            config.prediction.input_delay_ticks,
+        );
         Self {
             io,
             config: config_clone,

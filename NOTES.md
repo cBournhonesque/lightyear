@@ -83,15 +83,23 @@ CLIENT 2 (which moves)
   - STATUS: 
     - implemented the delayed inputs. The inputs are actually delayed, but it causes some amount of mispredictions, even 
       with only one client. (which was the opposite of what we wanted lol)
+    - implemented quickening the client-time based on delayed inputs, so that there's a lot less prediction to do!
   - DEBUG: 
     - i'm sending a lot more diffs than necessary. It's because when we fetch the older data from the buffer.
     - i see a case where an action (release Left) has not been received on the server
       - why? maybe just send full diffs then, so that we can recover for this case.
       - absolutely 0 rollbacks with no input delay, so it is related
+      - SOLVED: it's because we need to use the delayed action-state at the start of PreUpdate!
     - after that, constant rollbacks, even though the later actions are correct
       - SOLVED: off by 1 error!!!!!!!!!!!!
+    - sometimes at the beginning of sync, i get: "Error too big, snapping prediction time/tick to objective"
+      the current-prediction time was way behind the estimated server time
 
-
+- TODO: if something interacts only with the client entity but not on server. The server does not send an update so
+  we have no rollback! maybe we should check for rollback everytime the confirmed_tick of the group is updated.
+- TODO: also the rollback for a replication group is not done correctly. If ANY component of the group is rolled back,
+  then we should reset ALL components of the group to the rollback state before doing rollback.
+  Maybe add a component ConfirmedTick to each replicated entity that has prediction, and do rollback if ConfirmedTick is changed.
 
 
 - TODO: prediction smoothing. 2 options.
@@ -104,6 +112,7 @@ CLIENT 2 (which moves)
 
 - TODO: also remove ShouldBePredicted or ShouldBeInterpolated on server after we have sent it once
 - TODO: why do I get duplicate ComponentInsertEvent ShouldBePredicted?
+  - SOLVED!
 - TODO: when rollback is initiated, only rollback together the entities that have the same replication_group!!!
   - this allows the possibility of having separate replication groups for entities that are predicted but don't need to be rolled back together.
 - TODO: should the server send other client' inputs to a client so that they can run client-prediction more accurately on other clients?

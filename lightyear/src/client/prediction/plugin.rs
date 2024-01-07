@@ -33,6 +33,11 @@ pub struct PredictionConfig {
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
     always_rollback: bool,
+    /// The amount of ticks that the player's inputs will be delayed by.
+    /// This can be useful to mitigate the amount of client-prediction
+    /// This setting is global instead of per Actionlike because it affects how ahead the client will be
+    /// compared to the server
+    pub input_delay_ticks: u16,
 }
 
 impl PredictionConfig {
@@ -43,6 +48,12 @@ impl PredictionConfig {
 
     pub fn always_rollback(mut self, always_rollback: bool) -> Self {
         self.always_rollback = always_rollback;
+        self
+    }
+
+    /// Update the amount of input delay (number of ticks)
+    pub fn with_input_delay_ticks(mut self, tick: u16) -> Self {
+        self.input_delay_ticks = tick;
         self
     }
 }

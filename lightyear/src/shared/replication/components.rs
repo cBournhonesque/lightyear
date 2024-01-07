@@ -220,6 +220,7 @@ pub enum ReplicationMode {
 
 impl<P: Protocol> Default for Replicate<P> {
     fn default() -> Self {
+        #[allow(unused_mut)]
         let mut replicate = Self {
             replication_target: NetworkTarget::All,
             prediction_target: NetworkTarget::None,

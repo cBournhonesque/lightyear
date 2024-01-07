@@ -51,6 +51,7 @@ impl<P: Protocol> Connection<P> {
         channel_registry: &ChannelRegistry,
         sync_config: SyncConfig,
         ping_config: &PingConfig,
+        input_delay_ticks: u16,
     ) -> Self {
         // create the message manager and the channels
         let mut message_manager = MessageManager::new(channel_registry);
@@ -69,7 +70,7 @@ impl<P: Protocol> Connection<P> {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             input_buffer: InputBuffer::default(),
-            sync_manager: SyncManager::new(sync_config),
+            sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
         }
     }

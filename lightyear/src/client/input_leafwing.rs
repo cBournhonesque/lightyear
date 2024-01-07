@@ -338,12 +338,12 @@ fn get_non_rollback_action_state<C: TickManaged, A: LeafwingUserAction>(
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // let state_is_empty = input_buffer.get(tick).is_none();
         // let input_buffer = input_buffer.buffer;
-        info!(?entity, ?tick, "get action state. Buffer: {}", input_buffer);
+        trace!(?entity, ?tick, "get action state. Buffer: {}", input_buffer);
         *action_state = input_buffer
             .get(tick)
             .unwrap_or(&ActionState::<A>::default())
             .clone();
-        trace!(
+        info!(
             ?tick,
             "fetched action state from buffer: {:?}",
             action_state.get_pressed()
@@ -486,7 +486,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        trace!("sending input message: {:?}", message);
+        trace!(?tick, "sending input message: {:?}", message);
         client
             .send_message::<InputChannel, InputMessage<A>>(message)
             .unwrap_or_else(|err| {
@@ -582,7 +582,7 @@ pub fn generate_action_diffs<A: Actionlike + Debug>(
 
                     if let Some(previous_value) = previous_values.get(&maybe_entity) {
                         if *previous_value == value {
-                            info!(?action, "Same value as last time; not sending diff");
+                            trace!(?action, "Same value as last time; not sending diff");
                             continue;
                         }
                     }
