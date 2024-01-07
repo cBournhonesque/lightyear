@@ -51,7 +51,7 @@ impl Plugin for MyServerPlugin {
         app.add_plugins(shared::SharedPlugin);
         // add leafwing plugins to handle inputs
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
-        // app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.

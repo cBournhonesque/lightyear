@@ -40,20 +40,6 @@ pub struct LeafwingInputConfig<A: LeafwingUserAction> {
     _marker: std::marker::PhantomData<A>,
 }
 
-// #[derive(Resource, Default)]
-// /// Check if we should tick the leafwing input manager
-// /// In the situation F1 TA F2 F3 TB, we would like to not tick at the beginning of F3, so that we can send the diffs
-// /// from both F2 and F3 to the server.
-// /// NOTE: if this is too complicated, just replicate the entire ActionState instead of using diffs
-// pub(crate) struct LeafwingTickManager<A: UserAction> {
-//     // if this is true, we do not tick the leafwing input manager
-//     should_not_tick: bool,
-// }
-//
-// pub(crate) fn should_tick<A: UserAction>(manager: Res<LeafwingTickManager<A>>) -> bool {
-//     !manager.should_not_tick
-// }
-
 impl<A: LeafwingUserAction> Default for LeafwingInputConfig<A> {
     fn default() -> Self {
         LeafwingInputConfig {
@@ -150,12 +136,13 @@ where
         app.add_systems(
             PreUpdate,
             (
-                // if there is an input delay, restore the delayed action-state
-                // because our inputs should be applied to the delayed action-state
-                get_delayed_action_state::<A>
-                    .run_if(is_input_delay::<A>)
-                    .before(InputManagerSystem::Tick)
-                    .before(InputManagerSystem::Update),
+                // // if there is an input delay, restore the delayed action-state
+                // // because our inputs should be applied to the delayed action-state
+                // // (we need this before LeafwingPlugin in case the FixedUpdate schedule did not run in the previous frame)
+                // get_delayed_action_state::<A>
+                //     .run_if(is_input_delay::<A>)
+                //     .before(InputManagerSystem::Tick)
+                //     .before(InputManagerSystem::Update),
                 generate_action_diffs::<A>
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
@@ -166,19 +153,35 @@ where
                 // disable_tick::<A>.after(InputManagerSystem::Tick),
             ),
         );
+        // NOTE: we do not tick the ActionState during FixedUpdate
+        // This means that an ActionState can stay 'JustPressed' for multiple ticks, if we have multiple tick within a single frame.
+        // You have 2 options:
+        // - handle `JustPressed` actions in the Update schedule, where they can only happen once
+        // - `consume` the action when you read it, so that it can only happen once
         app.add_systems(
             FixedUpdate,
             (
-                // enable_tick::<A>.run_if(not(is_in_rollback)),
                 (
-                    (write_action_diffs::<P, A>, buffer_action_state::<P, A>),
-                    get_non_rollback_action_state::<Client<P>, A>.run_if(is_input_delay::<A>),
+                    (
+                        (write_action_diffs::<P, A>, buffer_action_state::<P, A>),
+                        // get the non-delayed action-state, for the user to act on the current tick's actions
+                        get_non_rollback_action_state::<Client<P>, A>.run_if(is_input_delay::<A>),
+                    )
+                        .chain()
+                        .run_if(not(is_in_rollback)),
+                    get_rollback_action_state::<A>.run_if(is_in_rollback),
                 )
-                    .chain()
-                    .run_if(not(is_in_rollback)),
-                get_rollback_action_state::<A>.run_if(is_in_rollback),
-            )
-                .in_set(InputSystemSet::BufferInputs),
+                    .in_set(InputSystemSet::BufferInputs),
+                // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
+                // we want:
+                // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
+                //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
+                // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
+                get_delayed_action_state::<A>
+                    .run_if(is_input_delay::<A>)
+                    .run_if(not(is_in_rollback))
+                    .after(FixedUpdateSet::Main),
+            ),
         );
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
@@ -217,18 +220,6 @@ pub enum InputSystemSet {
     /// System Set to prepare the input message
     SendInputMessage,
 }
-
-// // TODO: make this behaviour optional?
-// //   it might be useful to keep an action-state on confirmed entities?
-//
-// /// If we ran a FixedUpdate schedule this frame, we enable ticking for next frame
-// fn enable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
-//     manager.should_not_tick = false;
-// }
-//
-// fn disable_tick<A: UserAction>(manager: ResMut<LeafwingTickManager<A>>) {
-//     manager.should_not_tick = true;
-// }
 
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
@@ -377,14 +368,11 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
             "get rollback action state. Buffer: {}",
             input_buffer
         );
-        *action_state = input_buffer
-            .get(tick)
-            .unwrap_or(&ActionState::<A>::default())
-            .clone();
+        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
         trace!("updated action state for rollback: {:?}", action_state);
     }
     if let Some(mut action_state) = global_action_state {
-        *action_state = global_input_buffer.get(tick).unwrap().clone();
+        *action_state = global_input_buffer.get(tick).cloned().unwrap_or_default();
     }
 }
 
@@ -563,7 +551,8 @@ pub fn generate_action_diffs<A: Actionlike + Debug>(
             }
             match action_state.action_data(action.clone()).axis_pair {
                 Some(axis_pair) => {
-                    let previous_axis_pairs = previous_axis_pairs.get_mut(&action).unwrap();
+                    let previous_axis_pairs =
+                        previous_axis_pairs.entry(action.clone()).or_default();
 
                     if let Some(previous_axis_pair) = previous_axis_pairs.get(&maybe_entity) {
                         if *previous_axis_pair == axis_pair.xy() {
@@ -578,7 +567,7 @@ pub fn generate_action_diffs<A: Actionlike + Debug>(
                 }
                 None => {
                     let value = action_state.value(action.clone());
-                    let previous_values = previous_values.get_mut(&action).unwrap();
+                    let previous_values = previous_values.entry(action.clone()).or_default();
 
                     if let Some(previous_value) = previous_values.get(&maybe_entity) {
                         if *previous_value == value {

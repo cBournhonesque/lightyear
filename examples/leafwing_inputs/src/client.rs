@@ -75,15 +75,13 @@ impl Plugin for MyClientPlugin {
             LeafwingInputConfig::<PlayerActions>::default()
                 .with_input_delay_ticks(INPUT_DELAY_TICKS),
         ));
-        // app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
-
-        // We can modify the reporting strategy for system execution order ambiguities on a per-schedule basis
-        // app.edit_schedule(PreUpdate, |schedule| {
-        //     schedule.set_build_settings(ScheduleBuildSettings {
-        //         ambiguity_detection: LogLevel::Warn,
-        //         ..default()
-        //     });
-        // });
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
+        // To send global inputs, insert the ActionState and the InputMap as Resources
+        app.init_resource::<ActionState<AdminActions>>();
+        app.insert_resource(InputMap::<AdminActions>::new([
+            (KeyCode::M, AdminActions::SendMessage),
+            (KeyCode::R, AdminActions::Reset),
+        ]));
 
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
@@ -99,7 +97,7 @@ impl Plugin for MyClientPlugin {
             (
                 add_ball_physics,
                 add_player_physics,
-                receive_message,
+                send_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
@@ -242,10 +240,10 @@ fn player_movement(
     }
 }
 
-// System to receive messages on the client
-pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
-    for event in reader.read() {
-        info!("Received message: {:?}", event.message());
+// System to send messages on the client
+pub(crate) fn send_message(action_state: Res<ActionState<AdminActions>>) {
+    if action_state.just_pressed(AdminActions::SendMessage) {
+        info!("Send message");
     }
 }
 

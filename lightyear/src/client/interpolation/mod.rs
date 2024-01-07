@@ -1,7 +1,7 @@
 //! Handles interpolation of entities between server updates
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut};
+use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
 use tracing::{debug, info};
 
 pub use interpolate::InterpolateStatus;
@@ -10,6 +10,8 @@ pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::resource::Client;
+use crate::protocol::Protocol;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 mod despawn;
@@ -60,7 +62,8 @@ pub struct Interpolated {
     //    - or do this only for certain components (audio, animation, particles..) -> mode on PredictedComponent
 }
 
-pub fn spawn_interpolated_entity(
+pub fn spawn_interpolated_entity<P: Protocol>(
+    client: Res<Client<P>>,
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
@@ -82,9 +85,16 @@ pub fn spawn_interpolated_entity(
         if let Some(mut confirmed) = confirmed {
             confirmed.interpolated = Some(interpolated);
         } else {
+            // get the confirmed tick for the entity
+            // if we don't have it, something has gone very wrong
+            let confirmed_tick = client
+                .replication_receiver()
+                .get_confirmed_tick(confirmed_entity)
+                .unwrap();
             confirmed_entity_mut.insert(Confirmed {
                 interpolated: Some(interpolated),
                 predicted: None,
+                tick: confirmed_tick,
             });
         }
         debug!(

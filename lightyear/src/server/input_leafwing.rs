@@ -124,7 +124,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
         // }
         for (entity, diffs) in std::mem::take(&mut message.per_entity_diffs) {
             if let Ok(mut buffer) = query.get_mut(entity) {
-                info!(?diffs, "update action diff buffer using input message");
+                info!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
                 buffer.update_from_message(message.end_tick, diffs);
             }
         }

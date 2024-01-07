@@ -152,9 +152,16 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
             if let Some(mut confirmed) = confirmed {
                 confirmed.predicted = Some(predicted_entity);
             } else {
+                // get the confirmed tick for the entity
+                // if we don't have it, something has gone very wrong
+                let confirmed_tick = client
+                    .replication_receiver()
+                    .get_confirmed_tick(confirmed_entity)
+                    .unwrap();
                 confirmed_entity_mut.insert(Confirmed {
                     predicted: Some(predicted_entity),
                     interpolated: None,
+                    tick: confirmed_tick,
                 });
             }
         } else {

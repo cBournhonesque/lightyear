@@ -129,6 +129,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
                     // only replicate entities once client is connected
+                    // TODO: should it be only when the client is synced? because before that the ticks might be incorrect!
                     ReplicationSet::All.run_if(is_connected::<P>),
                 ),
             )

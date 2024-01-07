@@ -83,7 +83,7 @@ impl Plugin for SharedPlugin {
         }
         if app.world.contains_resource::<Server>() {
             app.add_systems(
-                Last,
+                FixedUpdate,
                 after_physics_log::<Server>.after(FixedUpdateSet::Main),
             );
             // app.add_systems(Last, last_log::<Server>);
@@ -150,7 +150,7 @@ pub(crate) fn last_log<T: TickManaged>(
 ) {
     let tick = ticker.tick();
     for (entity, position) in players.iter() {
-        info!(?tick, ?entity, ?position, "Player LAST update");
+        debug!(?tick, ?entity, ?position, "Player LAST update");
     }
     for position in ball.iter() {
         debug!(?tick, ?position, "Ball LAST update");

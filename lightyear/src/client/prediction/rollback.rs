@@ -2,7 +2,8 @@ use std::fmt::Debug;
 
 use crate::_reexport::FromType;
 use bevy::prelude::{
-    Commands, Entity, EventReader, FixedUpdate, Query, Res, ResMut, With, Without, World,
+    Commands, DetectChanges, Entity, EventReader, FixedUpdate, Query, Ref, Res, ResMut, With,
+    Without, World,
 };
 use bevy::utils::EntityHashSet;
 use tracing::{debug, error, info, trace, trace_span};
@@ -44,9 +45,9 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     mut commands: Commands,
     client: Res<Client<P>>,
 
-    mut updates: EventReader<ComponentUpdateEvent<C>>,
-    mut inserts: EventReader<ComponentInsertEvent<C>>,
-    mut removals: EventReader<ComponentRemoveEvent<C>>,
+    // mut updates: EventReader<ComponentUpdateEvent<C>>,
+    // mut inserts: EventReader<ComponentInsertEvent<C>>,
+    // mut removals: EventReader<ComponentRemoveEvent<C>>,
 
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
@@ -54,7 +55,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         (With<Predicted>, Without<Confirmed>),
     >,
-    confirmed_query: Query<(Option<&C>, &Confirmed)>,
+    confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     mut rollback: ResMut<Rollback>,
 ) where
     <P as Protocol>::ComponentKinds: FromType<C>,
@@ -72,24 +73,29 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     // TODO: can just enable bevy spans?
     let _span = trace_span!("client rollback check");
 
-    // 0. We want to do a rollback check every time the component for the confirmed entity got modified in any way (removed/added/updated)
-    let confirmed_entity_with_updates = updates
-        .read()
-        .map(|event| event.entity())
-        .chain(inserts.read().map(|event| event.entity()))
-        .chain(removals.read().map(|event| event.entity()))
-        .collect::<EntityHashSet<Entity>>();
+    // // 0. We want to do a rollback check every time the component for the confirmed entity got modified in any way (removed/added/updated)
+    // let confirmed_entity_with_updates = updates
+    //     .read()
+    //     .map(|event| event.entity())
+    //     .chain(inserts.read().map(|event| event.entity()))
+    //     .chain(removals.read().map(|event| event.entity()))
+    //     .collect::<EntityHashSet<Entity>>();
 
-    for confirmed_entity in confirmed_entity_with_updates {
-        let Ok((confirmed_component, confirmed)) = confirmed_query.get(confirmed_entity) else {
-            // this could happen if the entity was despawned but we received updates for it.
-            // maybe only send events for an entity if it still exists?
-            debug!(
-                "could not find the confirmed entity: {:?} that received an update",
-                confirmed_entity
-            );
+    for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
+        // only check rollback when any entity in the replication group has been updated
+        if !confirmed.is_changed() {
             continue;
-        };
+        }
+        // for confirmed_entity in confirmed_entity_with_updates {
+        //     let Ok((confirmed_component, confirmed)) = confirmed_query.get(confirmed_entity) else {
+        //         // this could happen if the entity was despawned but we received updates for it.
+        //         // maybe only send events for an entity if it still exists?
+        //         debug!(
+        //             "could not find the confirmed entity: {:?} that received an update",
+        //             confirmed_entity
+        //         );
+        //         continue;
+        //     };
 
         // TODO: get the tick of the update from context of ComponentUpdateEvent if we switch to that
         // let confirmed_entity = event.entity();
@@ -108,16 +114,16 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
             // - Confirmed contains the server state at the tick
             // - History contains the history of what we predicted at the tick
             // get the tick that the confirmed entity is at
-            let Some(tick) = client
-                .replication_receiver()
-                .get_confirmed_tick(confirmed_entity)
-            else {
-                error!(
-                    "Could not find replication channel for entity {:?}",
-                    confirmed_entity
+            let tick = confirmed.tick;
+            if tick > client.tick() {
+                info!(
+                    "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
+                    confirmed_entity,
+                    tick,
+                    client.tick()
                 );
                 continue;
-            };
+            }
 
             // Note: it may seem like an optimization to only compare the history/server-state if we are not sure
             // that we should rollback (RollbackState::Default)

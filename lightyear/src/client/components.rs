@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::prelude::{MapEntities, Named};
+use crate::prelude::{MapEntities, Named, Tick};
 
 /// Marks an entity that contains the server-updates that are received from the Server
 /// (this entity is a copy of Predicted that is RTT ticks behind)
@@ -13,6 +13,9 @@ use crate::prelude::{MapEntities, Named};
 pub struct Confirmed {
     pub predicted: Option<Entity>,
     pub interpolated: Option<Entity>,
+    /// The tick that the confirmed entity is at.
+    /// (this is latest server tick for which we applied updates to the entity)
+    pub tick: Tick,
 }
 
 // TODO: add TypeNamed as well

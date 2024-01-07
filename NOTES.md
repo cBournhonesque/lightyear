@@ -50,21 +50,10 @@ STATUS:
   - client 1 has some mispredictions but overall seems ok?
   - sometimes the rotation is completely different?
   - Not synced during rollback!!!
-CLIENT 1:
-    2024-01-06T07:17:11.473029Z [32m INFO lightyear::client::prediction::rollback: Rollback check: mismatch for component between predicted and confirmed 6v0 on tick Tick(1018) for component Position. Current tick: Tick(1037)
-    2024-01-06T07:17:11.473435Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=4v0 tick=Tick(1037) position=Position(Vec2(-50.0, -200.0)) actions=[]
-    2024-01-06T07:17:11.473510Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=7v0 tick=Tick(1037) position=Position(Vec2(44.978268, 85.351845)) actions=[]
-    2024-01-06T07:17:11.475257Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=4v0 position=Position(Vec2(-50.0, -200.0))
-    2024-01-06T07:17:11.475301Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=7v0 position=Position(Vec2(46.824062, 87.87348))
-CLIENT 2 (which moves)
-    2024-01-06T07:17:11.189520Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=4v0 tick=Tick(1018) position=Position(Vec2(41.28668, 80.30857)) actions=[]
-    2024-01-06T07:17:11.189561Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=7v0 tick=Tick(1018) position=Position(Vec2(-50.0, -200.0)) actions=[]
-    2024-01-06T07:17:11.191098Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1018) entity=4v0 position=Position(Vec2(43.132473, 82.83021))
-    2024-01-06T07:17:11.191129Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1018) entity=7v0 position=Position(Vec2(-50.0, -200.0))
-    2024-01-06T07:17:11.206116Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=4v0 tick=Tick(1019) position=Position(Vec2(43.132473, 82.83021)) actions=[]
-    2024-01-06T07:17:11.206169Z [32m INFO leafwing_inputs::client: applying movement to predicted player entity=7v0 tick=Tick(1019) position=Position(Vec2(-50.0, -200.0)) actions=[]
-    2024-01-06T07:17:11.207895Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=4v0 position=Position(Vec2(44.978268, 85.351845))
-    2024-01-06T07:17:11.207943Z [32m INFO leafwing_inputs::shared: Player after physics update tick=Tick(1019) entity=7v0 position=Position(Vec2(-50.0, -200.0))
+- STATUS:
+  - perfect sync if input_delay > RTT, but with initial sync issues
+  - jarring mispredictions if input_delay < RTT
+  - sometimes the state is stuck in a misprediction spiral WHY?
 
 
 - TODO: lockstep. All player just see what's happening on the server. that means inputs are not applied on the client (no prediction).
@@ -84,6 +73,9 @@ CLIENT 2 (which moves)
     - implemented the delayed inputs. The inputs are actually delayed, but it causes some amount of mispredictions, even 
       with only one client. (which was the opposite of what we wanted lol)
     - implemented quickening the client-time based on delayed inputs, so that there's a lot less prediction to do!
+    - with sufficient input delay, I get 0 predictions, past an initial period that doesn't work well.
+      For some reason I have some frames where I run a lot of FixedUpdate, and then the client is very desynced.
+      It looks like I have 1 frame that took 0.7 seconds ??
   - DEBUG: 
     - i'm sending a lot more diffs than necessary. It's because when we fetch the older data from the buffer.
     - i see a case where an action (release Left) has not been received on the server
@@ -92,14 +84,33 @@ CLIENT 2 (which moves)
       - SOLVED: it's because we need to use the delayed action-state at the start of PreUpdate!
     - after that, constant rollbacks, even though the later actions are correct
       - SOLVED: off by 1 error!!!!!!!!!!!!
-    - sometimes at the beginning of sync, i get: "Error too big, snapping prediction time/tick to objective"
+  - REMAINING ISSUES:
+    - in general, at the beginning I do a lot of sync adjustements, and after a while not anymore... why?
+    - sometimes at the beginning of sync, I get: "Error too big, snapping prediction time/tick to objective"
       the current-prediction time was way behind the estimated server time
+      - TODO: understand this!!!
+    - I got a case where immediately after sync, we rollback because the current-tick is further than the latest-received-server-tick.
+      - SOLVED: don't rollback if the server-tick is ahead of client-tick
+    - I got cases where the server-tick on client is ahead of when we should get the input.
+      - that's weird because we should have even more margin because we take care of having the client tick ahead of server tick...
+      - it happens a lot actually!
+      - SOLVED: it's because we don't send an input message with no diffs, and we keep popping from the action diff buffer, so this log is not reliable.
+    - The diffs that the server receives have some duplicate consecutive Pressed. It shouldn't be possible because the diffs should only contain
+      pure changes
+    - with higher tick rate, the frame rate drops to 20.. spiral of death?
+
+
+- TODO: leafwing inputs should be doing something similar as what I do for replication
+  - regularly send full action-state via a reliable channel
+  - the rest of the time send unreliable diffs?
 
 - TODO: if something interacts only with the client entity but not on server. The server does not send an update so
   we have no rollback! maybe we should check for rollback everytime the confirmed_tick of the group is updated.
-- TODO: also the rollback for a replication group is not done correctly. If ANY component of the group is rolled back,
-  then we should reset ALL components of the group to the rollback state before doing rollback.
+ 
+- TODO: also the rollback for a replication group is not done correctly. If ANY component of ANY entity the group is rolled back,
+  then we should reset ALL components for ALL ENTITIES the group to the rollback state before doing rollback.
   Maybe add a component ConfirmedTick to each replicated entity that has prediction, and do rollback if ConfirmedTick is changed.
+  - SOLVED: now we reset all components of ALL entities in the group if we need to do rollback.
 
 
 - TODO: prediction smoothing. 2 options.

@@ -59,8 +59,8 @@ impl Default for SyncConfig {
             error_margin: 1.0,
             max_error_margin: 8.0,
             speedup_factor: 1.1,
-            server_time_estimate_smoothing: 0.0,
-            // server_time_estimate_smoothing: 0.2,
+            // server_time_estimate_smoothing: 0.0,
+            server_time_estimate_smoothing: 0.2,
         }
     }
 }
@@ -234,13 +234,13 @@ impl SyncManager {
                 * self.config.server_time_estimate_smoothing
                 + new_server_time_estimate * (1.0 - self.config.server_time_estimate_smoothing);
         }
-        debug!(
+        info!(
             ?new_server_time_estimate,
-            updates_server_time_estimate = ?self.server_time_estimate,
+            updated_server_time_estimate = ?self.server_time_estimate,
             ?self.latest_received_server_tick,
             ?self.duration_since_latest_received_server_tick,
             ?rtt,
-            "update server time estimate"
+            "updated server time estimate"
         );
     }
 
@@ -431,7 +431,7 @@ impl SyncManager {
         }
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            trace!(
+            info!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
@@ -445,7 +445,7 @@ impl SyncManager {
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            trace!(
+            info!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
@@ -490,10 +490,9 @@ impl SyncManager {
         //     client_ideal_time
         // }
 
-        // we add 1 to get the div_ceil
-        let client_ideal_tick = Tick(
-            (client_ideal_time.elapsed_us_wrapped / tick_duration.as_micros() as u32) as u16 + 1,
-        );
+        // TODO: should we add 1 to get the div_ceil?
+        let client_ideal_tick =
+            Tick((client_ideal_time.elapsed_us_wrapped / tick_duration.as_micros() as u32) as u16);
 
         let delta_tick = client_ideal_tick - tick_manager.current_tick();
         // Update client ticks

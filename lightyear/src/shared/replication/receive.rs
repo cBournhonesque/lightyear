@@ -67,6 +67,14 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     return;
                 }
 
+                // update the list of entities in the group
+                m.actions
+                    .iter()
+                    .map(|(entity, _)| entity)
+                    .for_each(|entity| {
+                        channel.remote_entities.insert(*entity);
+                    });
+
                 // add the message to the buffer
                 // TODO: I guess this handles potential duplicates?
                 channel
@@ -156,6 +164,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn apply_world(
         &mut self,
         world: &mut World,
+        tick: Tick,
         replication: ReplicationMessageData<P::Components, P::ComponentKinds>,
         group_id: ReplicationGroupId,
         events: &mut ConnectionEvents<P>,
@@ -198,6 +207,9 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         debug!(remote_entity = ?entity, "Received entity despawn");
                         if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
                         {
+                            if let Some(group) = self.group_channels.get_mut(&group_id) {
+                                group.remote_entities.remove(&entity);
+                            }
                             world.despawn(local_entity);
                             self.remote_entity_to_group.remove(&entity);
                             events.push_despawn(local_entity);
@@ -295,12 +307,34 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
             }
         }
+
+        // update the Confirmed tick for all entities in the replication group
+        // // TODO: maybe get the confirmed tick from the apply_world message directly?
+        // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
+        self.group_channels
+            .get(&group_id)
+            .map(|g| g.remote_entities.clone())
+            .iter()
+            .flatten()
+            .for_each(|remote_entity| {
+                if let Ok(mut local_entity_mut) =
+                    self.remote_entity_map.get_by_remote(world, *remote_entity)
+                {
+                    info!(?tick, "updating confirmed tick for entity");
+                    if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                        confirmed.tick = tick;
+                    }
+                }
+            });
     }
 }
 
 /// Channel to keep track of receiving/sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel<P: Protocol> {
+    // entities
+    // set of remote entities that are part of the same Replication Group
+    remote_entities: HashSet<Entity>,
     // actions
     pub actions_pending_recv_message_id: MessageId,
     pub actions_recv_message_buffer:
@@ -317,6 +351,7 @@ pub struct GroupChannel<P: Protocol> {
 impl<P: Protocol> Default for GroupChannel<P> {
     fn default() -> Self {
         Self {
+            remote_entities: HashSet::default(),
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates: Default::default(),

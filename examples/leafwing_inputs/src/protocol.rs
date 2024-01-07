@@ -184,6 +184,7 @@ pub enum PlayerActions {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum AdminActions {
+    SendMessage,
     Reset,
 }
 
