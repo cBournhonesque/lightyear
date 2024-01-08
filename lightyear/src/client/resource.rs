@@ -477,7 +477,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
 
 // Functions related to Interpolation (maybe make it a trait)?
 impl<P: Protocol> Client<P> {
-    pub(crate) fn interpolation_tick(&self) -> Tick {
+    pub fn interpolation_tick(&self) -> Tick {
         self.connection
             .sync_manager
             .interpolation_tick(&self.tick_manager)

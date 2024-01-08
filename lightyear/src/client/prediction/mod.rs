@@ -16,6 +16,7 @@ use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
 
+pub(crate) mod correction;
 mod despawn;
 pub mod plugin;
 pub mod predicted_history;
@@ -186,6 +187,8 @@ pub(crate) fn handle_pre_prediction<P: Protocol>(
             client_id = ?client.id(),
             entity = ?entity,
             "adding pre-prediction info!");
+        // TODO: actually we don't need to add the client_entity to the message.
+        //  on the server, for pre-predictions, we can just use the entity that was sent in the message to set the value of ClientEntity.
         should_be_predicted.client_entity = Some(entity);
         should_be_predicted.client_id = Some(client.id());
     }

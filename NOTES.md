@@ -112,6 +112,9 @@ STATUS:
   Maybe add a component ConfirmedTick to each replicated entity that has prediction, and do rollback if ConfirmedTick is changed.
   - SOLVED: now we reset all components of ALL entities in the group if we need to do rollback.
 
+- TODO: think about handling alt-tabbing on client, which might slow down frames a lot and fuck some stuff?
+  Could it be ok for the client to run behind the server, if it just buffers the server's updates? 
+  i.e. in Receiver we only read the replication messages if the local tick is >= to the remote tick.
 
 - TODO: prediction smoothing. 2 options.
   - we do rollback, compute the new predicted entity now. And then we interpolate by 'smooth' amount to it instead of just teleporting to it
@@ -371,9 +374,13 @@ TODO:
 - Channels:
   - TODO: add channel priority with accumulation. Some channels need infinite priority though (such as pings)
     with bandwidth limiting. Should be possible, just take the last 1 second to compute the bandwidth used/left.
+  - TODO: actually add a priority per ReplicationGroup. The PRIORITY DEPENDS ON THE CLIENT. (for example distance to client!)
+    - priority
+    - update_period: send_interval for this packet. if 0, then we use the server's send_interval.
 
 - UI:
   - TODO: UI that lets us see which packets are sent at every system update?
+  - TODO: UI (afte rpriotitization that shows the bandwidth used/priority of each object)
 
 - Metrics/Logs:
   - add more metrics

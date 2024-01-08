@@ -244,7 +244,7 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     >,
 ) {
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component?
+    //  maybe provide the "controlled" component? or just use With<InputMap>?
 
     for entity in predicted_entities.iter() {
         trace!(?entity, "adding actions state buffer");
@@ -335,6 +335,7 @@ fn get_non_rollback_action_state<C: TickManaged, A: LeafwingUserAction>(
             .unwrap_or(&ActionState::<A>::default())
             .clone();
         info!(
+            ?entity,
             ?tick,
             "fetched action state from buffer: {:?}",
             action_state.get_pressed()
@@ -347,6 +348,9 @@ fn get_non_rollback_action_state<C: TickManaged, A: LeafwingUserAction>(
 
 // During rollback, fetch the action-state from the history for the corresponding tick and use that
 // to set the ActionState resource/component
+// For actions from other players (with no InputBuffer), no need to do anything, because we just received their latest action
+//  and we consider that they will keep playing that action in the future
+// TODO: implement some decay for the rollback ActionState of other players?
 fn get_rollback_action_state<A: LeafwingUserAction>(
     global_input_buffer: Res<InputBuffer<A>>,
     global_action_state: Option<ResMut<ActionState<A>>>,

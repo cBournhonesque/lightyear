@@ -40,6 +40,8 @@ struct SyncField {
 
     #[darling(default)]
     lerp: Option<Ident>,
+    #[darling(default)]
+    corrector: Option<Ident>,
 }
 
 impl SyncField {
@@ -114,11 +116,11 @@ pub fn component_protocol_impl(
 
     // Add extra variants
     input.variants.push(parse_quote! {
-        #[sync(external)]
+        // #[sync(external)]
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
-        #[sync(external)]
+        // #[sync(external)]
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     #[cfg(feature = "leafwing")]
@@ -126,7 +128,7 @@ pub fn component_protocol_impl(
         let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
         let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
         input.variants.push(parse_quote! {
-            #[sync(external, simple)]
+            #[sync(simple)]
             #variant(ActionState<<#protocol as Protocol>::#ty>)
         });
 
@@ -165,14 +167,14 @@ pub fn component_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Impls
-    let sync_component_impl = sync_component_impl(&sync_fields, protocol);
+    let sync_component_impl = sync_metadata_impl(&sync_fields, enum_name);
 
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
     let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
-    let mode_method = mode_method(&input, &fields);
+    // let mode_method = mode_method(&input, &fields);
     let encode_method = encode_method();
     let decode_method = decode_method();
     let delegate_method = delegate_method(&input, &enum_kind_name);
@@ -212,7 +214,7 @@ pub fn component_protocol_impl(
                 #add_events_method
                 #push_component_events_method
                 #add_sync_systems_method
-                #mode_method
+                // #mode_method
             }
 
             // impl std::hash::Hash for #enum_name {
@@ -369,53 +371,54 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn sync_component_impl(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
+fn sync_metadata_impl(fields: &Vec<SyncField>, enum_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         // skip components that are defined externally
-        if field.external {
-            // if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
-            //     || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
-            //     || field
-            //         .ident
-            //         .as_ref()
-            //         .unwrap()
-            //         .to_string()
-            //         .starts_with("ActionState")
-            // || field
-            //     .ident
-            //     .as_ref()
-            //     .unwrap()
-            //     .to_string()
-            //     .starts_with("InputMap")
-            continue;
-        }
+        // if field.external {
+        //     // if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
+        //     //     || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
+        //     //     || field
+        //     //         .ident
+        //     //         .as_ref()
+        //     //         .unwrap()
+        //     //         .to_string()
+        //     //         .starts_with("ActionState")
+        //     // || field
+        //     //     .ident
+        //     //     .as_ref()
+        //     //     .unwrap()
+        //     //     .to_string()
+        //     //     .starts_with("InputMap")
+        //     continue;
+        // }
+
         let component_type = &field.ty;
+        // mode
         let mode = field.get_mode_tokens();
+        // interpolation
+        let interpolator = &field.lerp.clone().unwrap_or_else(|| {
+            if field.full {
+                Ident::new("LinearInterpolator", Span::call_site())
+            } else {
+                Ident::new("NullInterpolator", Span::call_site())
+            }
+        });
+        // prediction
+        let mut corrector = field
+            .corrector
+            .clone()
+            .unwrap_or(Ident::new("InstantCorrector", Span::call_site()));
+        if corrector == "InterpolatedCorrector" {
+            corrector = interpolator.clone();
+        }
         body = quote! {
             #body
-            impl SyncComponent for #component_type {
+            impl SyncMetadata<#component_type> for #enum_name {
+                type Interpolator = #interpolator;
+                type Corrector = #corrector;
                 fn mode() -> ComponentSyncMode {
                     #mode
-                }
-            }
-        };
-        if field.full {
-            // custom
-            let lerp_mode = if let Some(lerp_fn) = &field.lerp {
-                quote! {
-                    type Fn = #lerp_fn;
-                }
-            } else {
-                // by default, use linear interpolation
-                quote! {
-                    type Fn = LinearInterpolation;
-                }
-            };
-            body = quote! {
-                #body
-                impl InterpolatedComponent<#component_type> for #component_type {
-                    #lerp_mode
                 }
             }
         }
@@ -548,26 +551,26 @@ fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> 
     }
 }
 
-fn mode_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
-    let mut body = quote! {};
-    for field in fields {
-        let ident = &field.ident;
-
-        let component_type = &field.ty;
-        body = quote! {
-            #body
-            Self::#ident(_) => <#component_type>::mode(),
-        };
-    }
-
-    quote! {
-        fn mode(&self) -> ComponentSyncMode {
-            match self {
-                #body
-            }
-        }
-    }
-}
+// fn mode_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+//     let mut body = quote! {};
+//     for field in fields {
+//         let ident = &field.ident;
+//
+//         let component_type = &field.ty;
+//         body = quote! {
+//             #body
+//             Self::#ident(_) => <#component_type>::mode(),
+//         };
+//     }
+//
+//     quote! {
+//         fn mode(&self) -> ComponentSyncMode {
+//             match self {
+//                 #body
+//             }
+//         }
+//     }
+// }
 
 fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
     let enum_name = &input.ident;

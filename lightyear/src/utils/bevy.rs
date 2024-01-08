@@ -1,7 +1,6 @@
 //! Implement lightyear traits for some common bevy types
-use crate::_reexport::{InterpolatedComponent, LinearInterpolation};
-use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::interpolation::InterpFn;
+use crate::_reexport::LinearInterpolator;
+use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
 use std::ops::Mul;
@@ -15,15 +14,9 @@ impl Named for Transform {
     }
 }
 
-impl SyncComponent for Transform {
-    fn mode() -> ComponentSyncMode {
-        ComponentSyncMode::Full
-    }
-}
-
 pub struct TransformLinearInterpolation;
 
-impl InterpFn<Transform> for TransformLinearInterpolation {
+impl LerpFn<Transform> for TransformLinearInterpolation {
     fn lerp(start: Transform, other: Transform, t: f32) -> Transform {
         let translation = start.translation * (1.0 - t) + other.translation * t;
         let rotation = start.rotation.lerp(other.rotation, t);
@@ -39,10 +32,6 @@ impl InterpFn<Transform> for TransformLinearInterpolation {
         );
         res
     }
-}
-
-impl InterpolatedComponent<Transform> for Transform {
-    type Fn = TransformLinearInterpolation;
 }
 
 impl<'a> MapEntities<'a> for Transform {

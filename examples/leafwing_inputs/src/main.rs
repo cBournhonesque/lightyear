@@ -117,6 +117,10 @@ fn setup(app: &mut App, cli: Cli) {
             };
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+                // app.add_plugins(DefaultPlugins.set(LogPlugin {
+                //     filter: "info,wgpu_core=warn,wgpu_hal=warn,mygame=debug".into(),
+                //     level: bevy::log::Level::WARN,
+                // }));
             } else {
                 app.add_plugins(MinimalPlugins);
             }
@@ -143,6 +147,10 @@ fn setup(app: &mut App, cli: Cli) {
                 predict_all: predict,
             };
             app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
+            // app.add_plugins(DefaultPlugins.set(LogPlugin {
+            //     filter: "info,wgpu_core=warn,wgpu_hal=warn,mygame=debug".into(),
+            //     level: bevy::log::Level::WARN,
+            // }));
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }

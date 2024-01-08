@@ -4,7 +4,9 @@ use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use lightyear::_reexport::ShouldBePredicted;
+use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
+use lightyear::utils::bevy_xpbd_2d::*;
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -142,18 +144,38 @@ pub enum Components {
     ColorComponent(ColorComponent),
     #[sync(once)]
     BallMarker(BallMarker),
-    // external components have to be marked with this attribute, to avoid compile errors
-    // the necessary traits (Message, SyncComponent) must already been implemented on the external type
-    // this will be improved in future releases
-    // #[sync(external, full)]
-    // Transform(Transform),
-    #[sync(external, full)]
+    // You need to specify how to do interpolation for the component
+    // Normally LinearInterpolation is fine, but it's not possible for xpbd's components
+    // as they do not implement Mul<f32> and Add<Self>
+    // Instead, lightyear already implemented the interpolation for xpbd's components
+    //
+    // Then you can also specify how to correct the component when there is a mispredictions
+    // The default is `InstantCorrector` which just snaps to the corrected value
+    // You can also use `InterpolatedCorrector` which will re-use your interpolation function to
+    // interpolate smoothly from the previously predicted value to the newly corrected value
+    #[sync(
+        full,
+        lerp = "PositionLinearInterpolation",
+        corrector = "InterpolatedCorrector"
+    )]
     Position(Position),
-    #[sync(external, full)]
+    #[sync(
+        full,
+        lerp = "RotationLinearInterpolation",
+        corrector = "InterpolatedCorrector"
+    )]
     Rotation(Rotation),
-    #[sync(external, full)]
+    #[sync(
+        full,
+        lerp = "LinearVelocityLinearInterpolation",
+        corrector = "InterpolatedCorrector"
+    )]
     LinearVelocity(LinearVelocity),
-    #[sync(external, full)]
+    #[sync(
+        full,
+        lerp = "AngularVelocityLinearInterpolation",
+        corrector = "InterpolatedCorrector"
+    )]
     AngularVelocity(AngularVelocity),
 }
 

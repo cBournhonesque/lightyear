@@ -16,7 +16,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const INPUT_DELAY_TICKS: u16 = 20;
+pub const INPUT_DELAY_TICKS: u16 = 10;
+pub const CORRECTION_TICKS: u16 = 10;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
@@ -62,7 +63,11 @@ impl Plugin for MyClientPlugin {
             netcode: Default::default(),
             ping: PingConfig::default(),
             sync: SyncConfig::default(),
-            prediction: PredictionConfig::default().with_input_delay_ticks(INPUT_DELAY_TICKS),
+            prediction: PredictionConfig {
+                input_delay_ticks: INPUT_DELAY_TICKS,
+                correction_ticks: CORRECTION_TICKS,
+                ..default()
+            },
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),

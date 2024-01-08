@@ -26,10 +26,11 @@ pub mod _reexport {
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
     pub use crate::client::interpolation::{
-        add_interpolation_systems, add_prepare_interpolation_systems, InterpolatedComponent,
+        add_interpolation_systems, add_prepare_interpolation_systems,
     };
-    pub use crate::client::interpolation::{LinearInterpolation, NoInterpolation};
+    pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
     pub use crate::client::prediction::add_prediction_systems;
+    pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
     pub use crate::connection::events::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
@@ -92,7 +93,9 @@ pub mod prelude {
     pub use crate::utils::named::{Named, TypeNamed};
 
     pub mod client {
-        pub use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+        pub use crate::client::components::{
+            ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
+        };
         pub use crate::client::config::ClientConfig;
         pub use crate::client::config::NetcodeConfig;
         pub use crate::client::events::{
@@ -104,9 +107,7 @@ pub mod prelude {
         pub use crate::client::interpolation::plugin::{
             InterpolationConfig, InterpolationDelay, InterpolationSet,
         };
-        pub use crate::client::interpolation::{
-            InterpFn, InterpolateStatus, Interpolated, InterpolatedComponent,
-        };
+        pub use crate::client::interpolation::{InterpolateStatus, Interpolated};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};

@@ -8,7 +8,7 @@ use cfg_if::cfg_if;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::client::components::ComponentSyncMode;
+use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
@@ -73,8 +73,28 @@ pub trait ComponentProtocol:
     /// Add all component systems for the Interpolation SystemSet
     fn add_interpolation_systems(app: &mut App);
 
+    // /// Get the sync mode for the component
+    // fn mode<C>() -> ComponentSyncMode
+    // where
+    //     Self: SyncMetadata<C>,
+    // {
+    //     <Self as SyncMetadata<C>>::mode()
+    // }
+
     /// Get the sync mode for the component
-    fn mode(&self) -> ComponentSyncMode;
+    fn lerp<C>(start: C, other: C, t: f32) -> C
+    where
+        Self: SyncMetadata<C>,
+    {
+        <Self as SyncMetadata<C>>::Interpolator::lerp(start, other, t)
+    }
+
+    fn correct<C>(predicted: C, corrected: C, t: f32) -> C
+    where
+        Self: SyncMetadata<C>,
+    {
+        <Self as SyncMetadata<C>>::Corrector::lerp(predicted, corrected, t)
+    }
 }
 
 /// Helper trait to wrap a component to replicate so that you can circumvent the orphan rule

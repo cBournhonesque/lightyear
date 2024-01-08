@@ -352,12 +352,6 @@ impl NetworkTarget {
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ShouldBeInterpolated;
 
-impl SyncComponent for ShouldBeInterpolated {
-    fn mode() -> ComponentSyncMode {
-        ComponentSyncMode::None
-    }
-}
-
 // TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
@@ -372,16 +366,6 @@ pub struct ShouldBePredicted {
     pub(crate) client_entity: Option<Entity>,
     // this is set by the server to know which client did the pre-prediction
     pub(crate) client_id: Option<ClientId>,
-}
-
-// NOTE: need to define this here because otherwise we get the error
-// "impl doesn't use only types from inside the current crate"
-// TODO: does this mean that we cannot use existing types such as Transform?
-//  might need a list of pre-existing types?
-impl SyncComponent for ShouldBePredicted {
-    fn mode() -> ComponentSyncMode {
-        ComponentSyncMode::None
-    }
 }
 
 #[cfg(test)]

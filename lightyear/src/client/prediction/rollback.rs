@@ -10,8 +10,10 @@ use tracing::{debug, error, info, trace, trace_span};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
+use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::resource::Client;
+use crate::prelude::client::SyncMetadata;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::TickManaged;
 
@@ -59,10 +61,11 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
     mut rollback: ResMut<Rollback>,
 ) where
     <P as Protocol>::ComponentKinds: FromType<C>,
+    P::Components: SyncMetadata<C>,
 {
     let kind = <P::ComponentKinds as FromType<C>>::from_type();
     // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
-    if C::mode() != ComponentSyncMode::Full {
+    if P::Components::mode() != ComponentSyncMode::Full {
         return;
     }
 
@@ -165,12 +168,16 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                         info!(
                                 "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                                 confirmed_entity, tick, kind, client.tick()
-                            );
+                        );
 
                         // we need to clear the history so we can write a new one
                         predicted_history.clear();
                         // SAFETY: we know the predicted entity exists
                         let mut entity_mut = commands.entity(predicted_entity);
+
+                        // we update the state to the Corrected state
+                        // NOTE: visually, we will use the CorrectionFn to interpolate between the current Predicted state and the Corrected state
+                        //  even though for other purposes (physics, etc.) we switch directly to the Corrected state
                         match confirmed_component {
                             // confirm does not exist, remove on predicted
                             None => {
@@ -190,6 +197,19 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                                         entity_mut.insert(c.clone());
                                     }
                                     Some(mut predicted_component) => {
+                                        // insert the Correction information only if the component exists on both confirmed and predicted
+                                        let correction_ticks =
+                                            client.config().prediction.correction_ticks;
+                                        // no need to add the Correction if the correction is instant
+                                        if correction_ticks != 0 {
+                                            entity_mut.insert(Correction {
+                                                original_prediction: predicted_component.clone(),
+                                                original_tick: client.tick(),
+                                                final_correction_tick: client.tick()
+                                                    + correction_ticks as i16,
+                                                current_correction: None,
+                                            });
+                                        }
                                         *predicted_component = c.clone();
                                     }
                                 };
@@ -229,6 +249,19 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                                     entity_mut.insert(c.clone());
                                 }
                                 Some(mut predicted_component) => {
+                                    // insert the Correction information only if the component exists on both confirmed and predicted
+                                    let correction_ticks =
+                                        client.config().prediction.correction_ticks;
+                                    // no need to add the Correction if the correction is instant
+                                    if correction_ticks != 0 {
+                                        entity_mut.insert(Correction {
+                                            original_prediction: predicted_component.clone(),
+                                            original_tick: client.tick(),
+                                            final_correction_tick: client.tick()
+                                                + correction_ticks as i16,
+                                            current_correction: None,
+                                        });
+                                    }
                                     *predicted_component = c.clone();
                                 }
                             };

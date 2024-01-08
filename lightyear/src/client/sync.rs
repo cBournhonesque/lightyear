@@ -56,8 +56,8 @@ impl Default for SyncConfig {
             tick_margin: 1,
             handshake_pings: 7,
             stats_buffer_duration: Duration::from_secs(2),
-            error_margin: 1.0,
-            max_error_margin: 8.0,
+            error_margin: 0.5,
+            max_error_margin: 5.0,
             speedup_factor: 1.1,
             // server_time_estimate_smoothing: 0.0,
             server_time_estimate_smoothing: 0.2,
@@ -420,12 +420,14 @@ impl SyncManager {
                 ?jitter,
                 ?current_prediction_time,
                 ?client_ideal_time,
+                stats = ?ping_manager.sync_stats,
                 latest_received_server_tick = ?self.latest_received_server_tick,
                 client_tick = ?tick_manager.current_tick(),
                 error_ms = ?error.num_milliseconds(),
                 error_margin_time_ms = ?error_margin_time.num_milliseconds(),
                 "Error too big, snapping prediction time/tick to objective",
             );
+
             self.finalize(time_manager, tick_manager, ping_manager);
             return;
         }

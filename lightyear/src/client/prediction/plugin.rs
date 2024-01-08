@@ -2,11 +2,15 @@ use std::marker::PhantomData;
 
 use crate::_reexport::FromType;
 use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    PreUpdate, Res, SystemSet,
+    apply_deferred, App, Component, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    PostUpdate, PreUpdate, Res, SystemSet,
 };
+use bevy::transform::TransformSystem;
 
-use crate::client::components::SyncComponent;
+use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::client::prediction::correction::{
+    get_visually_corrected_state, restore_corrected_state,
+};
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back,
@@ -29,15 +33,17 @@ use super::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin
-    disable: bool,
+    pub disable: bool,
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
-    always_rollback: bool,
+    pub always_rollback: bool,
     /// The amount of ticks that the player's inputs will be delayed by.
     /// This can be useful to mitigate the amount of client-prediction
     /// This setting is global instead of per Actionlike because it affects how ahead the client will be
     /// compared to the server
     pub input_delay_ticks: u16,
+    /// Number of ticks it will take to visually update the Predicted state to the new Corrected state
+    pub correction_ticks: u16,
 }
 
 impl PredictionConfig {
@@ -54,6 +60,12 @@ impl PredictionConfig {
     /// Update the amount of input delay (number of ticks)
     pub fn with_input_delay_ticks(mut self, tick: u16) -> Self {
         self.input_delay_ticks = tick;
+        self
+    }
+
+    /// Update the amount of input delay (number of ticks)
+    pub fn with_correction_ticks(mut self, num_ticks: u16) -> Self {
+        self.correction_ticks = num_ticks;
         self
     }
 }
@@ -87,8 +99,6 @@ impl<P: Protocol> Default for PredictionPlugin<P> {
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PredictionSet {
     // PreUpdate Sets
-    // // Contains the other pre-update prediction stes
-    // PreUpdatePrediction,
     /// Spawn predicted entities,
     /// We will also use this do despawn predicted entities when confirmed entities are despawned
     SpawnPrediction,
@@ -104,6 +114,7 @@ pub enum PredictionSet {
     /// Perform rollback
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
+
     // FixedUpdate Sets
     /// Increment the rollback tick after the main fixed-update physics loop has run
     IncrementRollbackTick,
@@ -114,11 +125,10 @@ pub enum PredictionSet {
     EntityDespawnFlush,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
-}
 
-/// Returns true if the component is registered for rollback checks
-pub fn is_eligible_for_rollback<C: SyncComponent>() -> bool {
-    matches!(C::mode(), ComponentSyncMode::Full)
+    // PostUpdate Sets
+    /// Visually interpolate the predicted components to the corrected state
+    VisualCorrection,
 }
 
 /// Returns true if we are doing rollback
@@ -131,9 +141,10 @@ pub fn is_connected<P: Protocol>(client: Res<Client<P>>) -> bool {
     client.is_connected()
 }
 
-pub fn add_prediction_systems<C: SyncComponent + Named, P: Protocol>(app: &mut App)
+pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
-    <P as Protocol>::ComponentKinds: FromType<C>,
+    P::ComponentKinds: FromType<C>,
+    P::Components: SyncMetadata<C>,
 {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
@@ -143,17 +154,22 @@ where
             add_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
         ),
     );
-    match C::mode() {
+    match P::Components::mode() {
         ComponentSyncMode::Full => {
             app.add_systems(
                 PreUpdate,
                 // for SyncMode::Full, we need to check if we need to rollback
-                client_rollback_check::<C, P>.in_set(PredictionSet::CheckRollback),
+                ((restore_corrected_state::<C>, client_rollback_check::<C, P>).chain())
+                    .in_set(PredictionSet::CheckRollback),
             );
             app.add_systems(
                 FixedUpdate,
                 // we need to run this during fixed update to know accurately the history for each tick
                 update_prediction_history::<C, P>.in_set(PredictionSet::UpdateHistory),
+            );
+            app.add_systems(
+                PostUpdate,
+                get_visually_corrected_state::<C, P>.in_set(PredictionSet::VisualCorrection),
             );
         }
         ComponentSyncMode::Simple => {
@@ -182,7 +198,7 @@ where
     };
     app.add_systems(
         FixedUpdate,
-        remove_component_for_despawn_predicted::<C>.in_set(PredictionSet::EntityDespawn),
+        remove_component_for_despawn_predicted::<C, P>.in_set(PredictionSet::EntityDespawn),
     );
 }
 
@@ -280,6 +296,13 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.add_systems(
             FixedUpdate,
             remove_despawn_marker.in_set(PredictionSet::EntityDespawnFlush),
+        );
+
+        // PostUpdate systems
+        // 1. Visually interpolate the prediction to the corrected state
+        app.configure_sets(
+            PostUpdate,
+            PredictionSet::VisualCorrection.before(TransformSystem::TransformPropagate),
         );
     }
 }

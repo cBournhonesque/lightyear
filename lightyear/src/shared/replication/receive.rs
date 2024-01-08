@@ -172,7 +172,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                debug!(?m, "Received replication actions");
+                info!(?tick, ?m, "Received replication actions");
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
@@ -284,6 +284,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
             }
             ReplicationMessageData::Updates(m) => {
+                info!(?tick, ?m, "Received replication updates");
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists
@@ -320,7 +321,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 if let Ok(mut local_entity_mut) =
                     self.remote_entity_map.get_by_remote(world, *remote_entity)
                 {
-                    info!(?tick, "updating confirmed tick for entity");
+                    trace!(?tick, "updating confirmed tick for entity");
                     if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
                         confirmed.tick = tick;
                     }
@@ -370,6 +371,8 @@ impl<P: Protocol> GroupChannel<P> {
     fn read_action(
         &mut self,
     ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
+        // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
+
         // Check if we have received the message we are waiting for
         let Some(message) = self
             .actions_recv_message_buffer
