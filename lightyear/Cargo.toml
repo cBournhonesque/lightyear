@@ -79,7 +79,7 @@ tracing-subscriber = { version = "0.3.17", features = [
 crossbeam-channel = { version = "0.5.8", features = [] }
 
 # metrics
-metrics = { version = "0.21", optional = true }
+metrics = { version = "0.22", optional = true }
 metrics-util = { version = "0.15", optional = true }
 metrics-tracing-context = { version = "0.14", optional = true }
 metrics-exporter-prometheus = { version = "0.12.1", optional = true, default-features = false, features = [
