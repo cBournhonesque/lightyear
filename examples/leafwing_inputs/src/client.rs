@@ -17,7 +17,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub const INPUT_DELAY_TICKS: u16 = 10;
-pub const CORRECTION_TICKS: u16 = 10;
+pub const CORRECTION_TICKS: u16 = 6;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {

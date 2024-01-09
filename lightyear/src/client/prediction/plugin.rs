@@ -106,6 +106,7 @@ pub enum PredictionSet {
     /// Add component history for all predicted entities' predicted components
     SpawnHistory,
     SpawnHistoryFlush,
+    RestoreVisualCorrection,
     /// Check if rollback is needed, potentially clear history and snap prediction histories to server state
     CheckRollback,
     // we might need a flush because check-rollback might remove/add components.
@@ -158,12 +159,14 @@ where
         ComponentSyncMode::Full => {
             app.add_systems(
                 PreUpdate,
+                // restore to the corrected state (as the visual state might be interpolating
+                // between the predicted and corrected state)
+                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
+            );
+            app.add_systems(
+                PreUpdate,
                 // for SyncMode::Full, we need to check if we need to rollback.
-                // Prior to that, restore to the corrected state (as the visual state might be interpolating
-                //  between the predicted and corrected state)
-                (restore_corrected_state::<C>, client_rollback_check::<C, P>)
-                    .chain()
-                    .in_set(PredictionSet::CheckRollback),
+                client_rollback_check::<C, P>.in_set(PredictionSet::CheckRollback),
             );
             app.add_systems(
                 FixedUpdate,
@@ -228,6 +231,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 PredictionSet::SpawnPredictionFlush,
                 PredictionSet::SpawnHistory,
                 PredictionSet::SpawnHistoryFlush,
+                PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
                 PredictionSet::CheckRollbackFlush,
                 PredictionSet::Rollback.run_if(is_in_rollback),

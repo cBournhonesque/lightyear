@@ -89,9 +89,11 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
         let mut t = (current_tick - correction.original_tick) as f32
             / (correction.final_correction_tick - correction.original_tick) as f32;
         t = t.clamp(0.0, 1.0);
+        // if t == 1.0 || &correction.original_prediction == component.as_ref() {
         if t == 1.0 {
             info!(
-                "Correction if over. Removing Correction for: {:?}",
+                ?t,
+                "Correction is over. Removing Correction for: {:?}",
                 component.name()
             );
             // correction is over
@@ -99,7 +101,7 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
         } else {
             // store the current component value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
-            info!(?t, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
+            info!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
             // TODO: avoid all these clones
             // visually update the component
             let corrected = P::Components::correct(

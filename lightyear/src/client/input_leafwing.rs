@@ -445,7 +445,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         .connection
         .sync_manager
         .interpolation_tick(&client.tick_manager);
-    info!(
+    trace!(
         "popping all inputs since interpolation tick: {:?}",
         interpolation_tick
     );
