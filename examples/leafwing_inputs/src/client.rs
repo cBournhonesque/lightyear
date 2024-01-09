@@ -16,8 +16,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const INPUT_DELAY_TICKS: u16 = 10;
-pub const CORRECTION_TICKS: u16 = 6;
+pub const INPUT_DELAY_TICKS: u16 = 5;
+pub const CORRECTION_TICKS: u16 = 15;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {

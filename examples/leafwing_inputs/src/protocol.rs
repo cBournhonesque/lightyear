@@ -73,31 +73,6 @@ pub(crate) struct BallBundle {
     physics: PhysicsBundle,
 }
 
-#[derive(Bundle)]
-pub(crate) struct PhysicsBundle {
-    collider: Collider,
-    collider_density: ColliderDensity,
-    rigid_body: RigidBody,
-}
-
-impl PhysicsBundle {
-    pub(crate) fn ball() -> Self {
-        Self {
-            collider: Collider::ball(BALL_SIZE),
-            collider_density: ColliderDensity(2.0),
-            rigid_body: RigidBody::Dynamic,
-        }
-    }
-
-    pub(crate) fn player() -> Self {
-        Self {
-            collider: Collider::cuboid(PLAYER_SIZE, PLAYER_SIZE),
-            collider_density: ColliderDensity(0.2),
-            rigid_body: RigidBody::Dynamic,
-        }
-    }
-}
-
 impl BallBundle {
     pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
         let mut replicate = Replicate {
@@ -117,6 +92,31 @@ impl BallBundle {
             replicate,
             physics: PhysicsBundle::ball(),
             marker: BallMarker,
+        }
+    }
+}
+
+#[derive(Bundle)]
+pub(crate) struct PhysicsBundle {
+    pub(crate) collider: Collider,
+    pub(crate) collider_density: ColliderDensity,
+    pub(crate) rigid_body: RigidBody,
+}
+
+impl PhysicsBundle {
+    pub(crate) fn ball() -> Self {
+        Self {
+            collider: Collider::ball(BALL_SIZE),
+            collider_density: ColliderDensity(2.0),
+            rigid_body: RigidBody::Dynamic,
+        }
+    }
+
+    pub(crate) fn player() -> Self {
+        Self {
+            collider: Collider::cuboid(PLAYER_SIZE, PLAYER_SIZE),
+            collider_density: ColliderDensity(0.2),
+            rigid_body: RigidBody::Dynamic,
         }
     }
 }

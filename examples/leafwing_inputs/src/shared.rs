@@ -14,6 +14,7 @@ use tracing::Level;
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
 const MAX_VELOCITY: f32 = 200.0;
+const WALL_SIZE: f32 = 350.0;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
@@ -46,7 +47,6 @@ impl Plugin for SharedPlugin {
             // show framerate
             // use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
             // app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-
             app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
 
             // draw after interpolation is done
@@ -55,6 +55,8 @@ impl Plugin for SharedPlugin {
                 draw_elements.after(InterpolationSet::Interpolate),
             );
         }
+        // bundles
+        app.add_systems(Startup, init);
 
         // physics
         app.add_plugins(PhysicsPlugins::new(FixedUpdate))
@@ -100,6 +102,29 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
+}
+
+pub(crate) fn init(mut commands: Commands) {
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -170,11 +195,9 @@ pub(crate) fn log() {
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<
-        (&Position, &Rotation, &ColorComponent),
-        (Without<Confirmed>, Without<BallMarker>),
-    >,
+    players: Query<(&Position, &Rotation, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
     balls: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
+    walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
     // players: Query<
     //     (&Position, &ColorComponent),
     //     (
@@ -204,5 +227,42 @@ pub(crate) fn draw_elements(
     }
     for (position, color) in &balls {
         gizmos.circle_2d(Vec2::new(position.x, position.y), BALL_SIZE, color.0);
+    }
+    for (wall, color) in &walls {
+        // gizmos.rect_2d(
+        //     position.translation.truncate(),
+        //     position.rotation.,
+        //     Vec2::ONE * PLAYER_SIZE,
+        //     color.0,
+        // );
+        gizmos.line_2d(wall.start, wall.end, color.0);
+    }
+}
+
+// Wall
+#[derive(Bundle)]
+pub(crate) struct WallBundle {
+    color: ColorComponent,
+    physics: PhysicsBundle,
+    wall: Wall,
+}
+
+#[derive(Component)]
+pub(crate) struct Wall {
+    start: Vec2,
+    end: Vec2,
+}
+
+impl WallBundle {
+    pub(crate) fn new(start: Vec2, end: Vec2, color: Color) -> Self {
+        Self {
+            color: ColorComponent(color),
+            physics: PhysicsBundle {
+                collider: Collider::segment(start, end),
+                collider_density: ColliderDensity(1.0),
+                rigid_body: RigidBody::Static,
+            },
+            wall: Wall { start, end },
+        }
     }
 }

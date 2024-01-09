@@ -69,7 +69,11 @@ pub struct Correction<C: Component> {
     /// This is the tick at which we will have finished the correction
     pub final_correction_tick: Tick,
 
-    /// This is the current correction value. We need this to swap between the visual correction
+    /// This is the current visual value. We compute this so that if we rollback again in the middle of an
+    /// existing correction, we start again from the current visual value.
+    pub current_visual: Option<C>,
+
+    /// This is the current objective (corrected) value. We need this to swap between the visual correction
     /// (interpolated between the original prediction and the final correction)
     /// and the final correction value
     pub current_correction: Option<C>,
@@ -109,6 +113,9 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
                 component.clone(),
                 t,
             );
+
+            // store the current visual value
+            correction.current_visual = Some(corrected.clone());
             *component = corrected;
         }
     }
