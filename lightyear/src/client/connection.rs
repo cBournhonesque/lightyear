@@ -113,7 +113,7 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
-    pub fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+    pub fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
         // NOTE: this doesn't work too well because then duplicate actions/updates are accumulated before the connection is synced
         // if !self.sync_manager.is_synced() {
         //
@@ -148,7 +148,7 @@ impl<P: Protocol> Connection<P> {
                 if should_track_ack {
                     self.replication_sender
                         .updates_message_id_to_group_id
-                        .insert(message_id, group_id);
+                        .insert(message_id, (group_id, bevy_tick));
                 }
                 Ok(())
             })
@@ -277,9 +277,8 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
-        bevy_tick: BevyTick,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks(bevy_tick);
+        self.replication_sender.recv_update_acks();
 
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);

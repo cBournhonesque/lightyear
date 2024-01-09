@@ -150,6 +150,8 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                     //    - we remove the component from predicted.
 
                     let history_value = predicted_history.pop_until_tick(tick);
+                    let predicted_exist = history_value.is_some();
+                    let confirmed_exist = confirmed_component.is_some();
                     let should_rollback = match confirmed_component {
                         // TODO: history-value should not be empty here; should we panic if it is?
                         // confirm does not exist. rollback if history value is not Removed
@@ -166,6 +168,7 @@ pub(crate) fn client_rollback_check<C: SyncComponent, P: Protocol>(
                     };
                     if should_rollback {
                         info!(
+                            ?predicted_exist, ?confirmed_exist,
                                 "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                                 confirmed_entity, tick, kind, client.tick()
                         );

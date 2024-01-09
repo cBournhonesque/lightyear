@@ -54,6 +54,7 @@ STATUS:
   - perfect sync if input_delay > RTT, but with initial sync issues
   - jarring mispredictions if input_delay < RTT
   - sometimes the state is stuck in a misprediction spiral WHY?
+  - looks like the input wasn't taken into account???? sometimes the release is not handled correctly.
 
 
 - TODO: lockstep. All player just see what's happening on the server. that means inputs are not applied on the client (no prediction).

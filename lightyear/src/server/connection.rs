@@ -159,11 +159,18 @@ impl<P: Protocol> ConnectionManager<P> {
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
-    pub(crate) fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+    /// Buffer all the replication messages to send.
+    /// Keep track of the bevy Change Tick: when a message is acked, we know that we only have to send
+    /// the updates since that Change Tick
+    pub(crate) fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<()> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
-            .try_for_each(move |c| c.buffer_replication_messages(tick))
+            .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
     }
 
     pub fn receive(&mut self, world: &mut World, time_manager: &TimeManager) -> Result<()> {
@@ -256,7 +263,11 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
-    pub(crate) fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+    pub(crate) fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<()> {
         self.replication_sender
             .finalize(tick)
             .into_iter()
@@ -282,7 +293,7 @@ impl<P: Protocol> Connection<P> {
                 if should_track_ack {
                     self.replication_sender
                         .updates_message_id_to_group_id
-                        .insert(message_id, group_id);
+                        .insert(message_id, (group_id, bevy_tick));
                 }
                 Ok(())
             })
@@ -424,9 +435,8 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
-        bevy_tick: BevyTick,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks(bevy_tick);
+        self.replication_sender.recv_update_acks();
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())

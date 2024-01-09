@@ -188,7 +188,7 @@ pub fn add_component_history<C: SyncComponent, P: Protocol>(
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
-                                debug!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
+                                info!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(new_component);
                             }

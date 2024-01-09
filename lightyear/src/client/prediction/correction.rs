@@ -97,16 +97,17 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
             // correction is over
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            info!("Applying visual correction for {:?}", component.name());
+            // store the current component value so that we can restore it at the start of the next frame
+            correction.current_correction = Some(component.clone());
+            info!(?t, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
             // TODO: avoid all these clones
+            // visually update the component
             let corrected = P::Components::correct(
                 correction.original_prediction.clone(),
                 component.clone(),
                 t,
             );
             *component = corrected;
-            // store the current component value so that we can restore it at the start of the next frame
-            correction.current_correction = Some(component.clone());
         }
     }
 }
@@ -119,6 +120,11 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
         if let Some(correction) = std::mem::take(&mut correction.current_correction) {
             info!("restoring corrected component: {:?}", component.name());
             *component = correction;
+        } else {
+            info!(
+                "Corrected component was None so couldn't restore: {:?}",
+                component.name()
+            );
         }
     }
 }

@@ -34,7 +34,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
             client.update(time.delta(), fixed_time.overstep()).unwrap();
 
             // buffer packets into message managers
-            client.recv_packets(world.change_tick()).unwrap();
+            client.recv_packets().unwrap();
             // receive packets from message managers
             let mut events = client.receive(world);
             if !events.is_empty() {
@@ -83,17 +83,21 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     });
 }
 
-pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
-    trace!("Send packets to server");
-    // finalize any packets that are needed for replication
-    client.buffer_replication_messages().unwrap_or_else(|e| {
-        error!("Error preparing replicate send: {}", e);
-    });
-    // send buffered packets to io
-    client.send_packets().unwrap();
+pub(crate) fn send<P: Protocol>(world: &mut World) {
+    world.resource_scope(|world, mut client: Mut<Client<P>>| {
+        trace!("Send packets to server");
+        // finalize any packets that are needed for replication
+        client
+            .buffer_replication_messages(world.change_tick())
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
+        // send buffered packets to io
+        client.send_packets().unwrap();
 
-    // no need to clear the connection, because we already std::mem::take it
-    // client.connection.clear();
+        // no need to clear the connection, because we already std::mem::take it
+        // client.connection.clear();
+    });
 }
 
 pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {

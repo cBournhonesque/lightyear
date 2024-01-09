@@ -269,10 +269,10 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub(crate) fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
+    pub(crate) fn recv_packets(&mut self) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
             self.connection
-                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
+                .recv_packet(&mut reader, &self.tick_manager)?;
         }
         Ok(())
     }
@@ -465,10 +465,10 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         Ok(())
     }
 
-    fn buffer_replication_messages(&mut self) -> Result<()> {
+    fn buffer_replication_messages(&mut self, bevy_tick: BevyTick) -> Result<()> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.connection
-            .buffer_replication_messages(self.tick_manager.current_tick())
+            .buffer_replication_messages(self.tick_manager.current_tick(), bevy_tick)
     }
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
         &mut self.connection.replication_sender.replicate_component_cache

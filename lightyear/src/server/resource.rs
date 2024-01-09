@@ -261,12 +261,12 @@ impl<P: Protocol> Server<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
+    pub fn recv_packets(&mut self) -> Result<()> {
         while let Some((mut reader, client_id)) = self.netcode.recv() {
             // TODO: use connection to apply on BOTH message manager and replication manager
             self.connection_manager
                 .connection_mut(client_id)?
-                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
+                .recv_packet(&mut reader, &self.tick_manager)?;
         }
         Ok(())
     }
@@ -474,6 +474,12 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
+            info!(
+                ?kind,
+                change_tick = ?component_change_tick,
+                ?collect_changes_since_this_tick,
+                "prepare entity update changed check"
+            );
 
             if collect_changes_since_this_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
@@ -484,7 +490,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                     current_tick = ?system_current_tick,
                     "prepare entity update changed check"
                 );
-                trace!(
+                info!(
                     ?entity,
                     component = ?kind,
                     tick = ?self.tick_manager.current_tick(),
@@ -497,9 +503,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     }
 
     /// Buffer the replication messages
-    fn buffer_replication_messages(&mut self) -> Result<()> {
+    fn buffer_replication_messages(&mut self, bevy_tick: BevyTick) -> Result<()> {
         self.connection_manager
-            .buffer_replication_messages(self.tick_manager.current_tick())
+            .buffer_replication_messages(self.tick_manager.current_tick(), bevy_tick)
     }
 
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {

@@ -445,6 +445,10 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         .connection
         .sync_manager
         .interpolation_tick(&client.tick_manager);
+    info!(
+        "popping all inputs since interpolation tick: {:?}",
+        interpolation_tick
+    );
 
     for (entity, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
         trace!(

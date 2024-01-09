@@ -25,7 +25,7 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
         log: LogConfig {
-            level: Level::WARN,
+            level: Level::INFO,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
         },
@@ -126,7 +126,7 @@ pub(crate) fn shared_movement_behaviour(
 pub(crate) fn after_physics_log<T: TickManaged>(
     ticker: Res<T>,
     rollback: Option<Res<Rollback>>,
-    players: Query<(Entity, &Position), (Without<BallMarker>, Without<Confirmed>)>,
+    players: Query<(Entity, &Position, &Rotation), (Without<BallMarker>, Without<Confirmed>)>,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let mut tick = ticker.tick();
@@ -135,8 +135,14 @@ pub(crate) fn after_physics_log<T: TickManaged>(
             tick = current_tick;
         }
     }
-    for (entity, position) in players.iter() {
-        info!(?tick, ?entity, ?position, "Player after physics update");
+    for (entity, position, rotation) in players.iter() {
+        info!(
+            ?tick,
+            ?entity,
+            ?position,
+            ?rotation,
+            "Player after physics update"
+        );
     }
     for position in ball.iter() {
         debug!(?tick, ?position, "Ball after physics update");

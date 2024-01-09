@@ -158,8 +158,11 @@ where
         ComponentSyncMode::Full => {
             app.add_systems(
                 PreUpdate,
-                // for SyncMode::Full, we need to check if we need to rollback
-                ((restore_corrected_state::<C>, client_rollback_check::<C, P>).chain())
+                // for SyncMode::Full, we need to check if we need to rollback.
+                // Prior to that, restore to the corrected state (as the visual state might be interpolating
+                //  between the predicted and corrected state)
+                (restore_corrected_state::<C>, client_rollback_check::<C, P>)
+                    .chain()
                     .in_set(PredictionSet::CheckRollback),
             );
             app.add_systems(

@@ -18,7 +18,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         // update client state, send keep-alives, receive packets from io
         server.update(time.delta()).unwrap();
         // buffer packets into message managers
-        server.recv_packets(world.change_tick()).unwrap();
+        server.recv_packets().unwrap();
 
         // receive events
         server.receive(world);
@@ -80,20 +80,24 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 }
 
 // or do additional send stuff here
-pub(crate) fn send<P: Protocol>(mut server: ResMut<Server<P>>) {
+pub(crate) fn send<P: Protocol>(world: &mut World) {
     trace!("Send packets to clients");
-    // finalize any packets that are needed for replication
-    server.buffer_replication_messages().unwrap_or_else(|e| {
-        error!("Error preparing replicate send: {}", e);
+    world.resource_scope(|world, mut server: Mut<Server<P>>| {
+        // finalize any packets that are needed for replication
+        server
+            .buffer_replication_messages(world.change_tick())
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
+        // send buffered packets to io
+        server.send_packets().unwrap();
+
+        // clear the list of newly connected clients
+        // (cannot just use the ConnectionEvent because it is cleared after each frame)
+        server.connection_manager.new_clients.clear();
+
+        // TODO: clear the dependency graph for replication groups send
     });
-    // send buffered packets to io
-    server.send_packets().unwrap();
-
-    // clear the list of newly connected clients
-    // (cannot just use the ConnectionEvent because it is cleared after each frame)
-    server.connection_manager.new_clients.clear();
-
-    // TODO: clear the dependency graph for replication groups send
 }
 
 /// Clear the received events
