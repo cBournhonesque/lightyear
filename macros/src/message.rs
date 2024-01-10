@@ -44,15 +44,11 @@ pub fn message_impl(
             use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::prelude::*;
 
-            impl #impl_generics Message for #struct_name #type_generics #where_clause {}
-
             #map_entities_trait
 
             // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
             impl #impl_generics Named for #struct_name #type_generics #where_clause {
-                fn name(&self) -> &'static str {
-                    #struct_name_str
-                }
+                const NAME: &'static str = #struct_name_str;
             }
         }
     };
@@ -152,14 +148,15 @@ pub fn message_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Methods
+    let from_into_impl = from_into_impl(&input, &fields);
+    let message_kind_method = message_kind_method(&input, &fields);
     let input_message_kind_method = input_message_kind_method(&input);
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
-    let delegate_method = delegate_method(&input);
+    let name_method = name_method(&input, &fields);
+    let map_entities_impl = map_entities_impl(&input);
     let encode_method = encode_method();
     let decode_method = decode_method();
-
-    let from_into_methods = from_into_methods(&input, &fields, enum_name);
 
     let output = quote! {
         #[doc(hidden)]
@@ -177,17 +174,19 @@ pub fn message_protocol_impl(
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]
             #extra_derives
-            #[enum_delegate::implement(MessageBehaviour)]
-            // #[derive(EnumAsInner)]
             #input
 
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
 
+                #name_method
+                #message_kind_method
                 #input_message_kind_method
                 #add_events_method
                 #push_message_events_method
             }
+
+            #from_into_impl
 
             impl std::fmt::Debug for #enum_name {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -196,7 +195,7 @@ pub fn message_protocol_impl(
             }
 
             // #from_into_methods
-            #delegate_method
+            #map_entities_impl
             // impl BitSerializable for #enum_name {
             //     #encode_method
             //     #decode_method
@@ -209,7 +208,7 @@ pub fn message_protocol_impl(
     proc_macro::TokenStream::from(output)
 }
 
-fn push_message_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> TokenStream {
+fn push_message_events_method(fields: &Vec<Field>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let message_type = &field.ty;
@@ -225,6 +224,73 @@ fn push_message_events_method(fields: &Vec<&Field>, protocol_name: &Ident) -> To
         )
         {
             #body
+        }
+    }
+}
+
+fn from_into_impl(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+    let enum_name = &input.ident;
+    let mut body = quote! {};
+    for field in fields.iter() {
+        let ident = &field.ident;
+        let ty = &field.ty;
+        body = quote! {
+            #body
+            impl From<#ty> for #enum_name {
+                fn from(value: #ty) -> Self {
+                    #enum_name::#ident(value)
+                }
+            }
+            impl TryInto<#ty> for #enum_name {
+                type Error = ();
+                fn try_into(self) -> Result<#ty, Self::Error> {
+                    match self {
+                        #enum_name::#ident(inner) => Ok(inner),
+                        _ => Err(()),
+                    }
+                }
+            }
+            impl<'a> TryInto<&'a #ty> for &'a #enum_name {
+                type Error = ();
+                fn try_into(self) -> Result<&'a #ty, Self::Error> {
+                    match self {
+                        #enum_name::#ident(inner) => Ok(inner),
+                        _ => Err(()),
+                    }
+                }
+            }
+            impl<'a> TryInto<&'a mut #ty> for &'a mut #enum_name {
+                type Error = ();
+                fn try_into(self) -> Result<&'a mut #ty, Self::Error> {
+                    match self {
+                        #enum_name::#ident(inner) => Ok(inner),
+                        _ => Err(()),
+                    }
+                }
+            }
+        };
+    }
+
+    body
+}
+
+fn message_kind_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+    let enum_name = &input.ident;
+    let mut body = quote! {};
+    for field in fields.iter() {
+        let ident = &field.ident;
+        let ty = &field.ty;
+        body = quote! {
+            #body
+            &#enum_name::#ident(_) => MessageKind::of::<#ty>(),
+        };
+    }
+
+    quote! {
+        fn kind(&self) -> MessageKind {
+            match self {
+                #body
+            }
         }
     }
 }
@@ -263,7 +329,7 @@ fn input_message_kind_method(input: &ItemEnum) -> TokenStream {
     }
 }
 
-fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
+fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -280,18 +346,33 @@ fn add_events_method(fields: &Vec<&Field>) -> TokenStream {
     }
 }
 
-fn delegate_method(input: &ItemEnum) -> TokenStream {
+fn name_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+    let enum_name = &input.ident;
+    let mut body = quote! {};
+    for field in fields.iter() {
+        let ident = &field.ident;
+        body = quote! {
+            #body
+            &#enum_name::#ident(ref x) => x.name(),
+        };
+    }
+
+    quote! {
+        fn name(&self) -> &'static str {
+            match self {
+                #body
+            }
+        }
+    }
+}
+
+fn map_entities_impl(input: &ItemEnum) -> TokenStream {
     let enum_name = &input.ident;
     let variants = input.variants.iter().map(|v| v.ident.clone());
-    let mut name_body = quote! {};
     let mut map_entities_body = quote! {};
     let mut entities_body = quote! {};
     for variant in input.variants.iter() {
         let ident = &variant.ident;
-        name_body = quote! {
-            #name_body
-            &#enum_name::#ident(ref x) => x.name(),
-        };
         map_entities_body = quote! {
             #map_entities_body
             #enum_name::#ident(ref mut x) => x.map_entities(entity_mapper),
@@ -303,13 +384,6 @@ fn delegate_method(input: &ItemEnum) -> TokenStream {
     }
 
     quote! {
-        impl Named for #enum_name {
-            fn name(&self) -> &'static str {
-                match self {
-                    #name_body
-                }
-            }
-        }
         impl<'a> MapEntities<'a> for #enum_name {
             fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
                 match self {
@@ -322,36 +396,6 @@ fn delegate_method(input: &ItemEnum) -> TokenStream {
                 }
             }
         }
-    }
-}
-
-fn from_into_methods(input: &ItemEnum, fields: &[&Field], enum_name: &Ident) -> TokenStream {
-    let enum_name = &input.ident;
-    let variants = input.variants.iter().map(|v| v.ident.clone());
-    let mut body = quote! {};
-    for (variant, field) in input.variants.iter().zip(fields.iter()) {
-        let ident = &variant.ident;
-        body = quote! {
-            #body
-            impl From<#field> for #enum_name {
-                fn from(value: #field) -> Self {
-                    #enum_name::#ident(value)
-                }
-            }
-            impl TryInto<#field> for #enum_name {
-                type Error = ();
-                fn try_into(self) -> Result<#field, Self::Error> {
-                    match self {
-                        #enum_name::#ident(x) => Ok(x),
-                        _ => Err(()),
-                    }
-                }
-            }
-        }
-    }
-
-    quote! {
-        #body
     }
 }
 
@@ -372,14 +416,15 @@ fn decode_method() -> TokenStream {
     }
 }
 
-fn get_fields(input: &ItemEnum) -> Vec<&Field> {
+fn get_fields(input: &ItemEnum) -> Vec<Field> {
     let mut fields = Vec::new();
     for field in &input.variants {
         let Fields::Unnamed(unnamed) = &field.fields else {
             panic!("Field must be unnamed");
         };
         assert_eq!(unnamed.unnamed.len(), 1);
-        let component = unnamed.unnamed.first().unwrap();
+        let mut component = unnamed.unnamed.first().unwrap().clone();
+        component.ident = Some(field.ident.clone());
         fields.push(component);
     }
     fields

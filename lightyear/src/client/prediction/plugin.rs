@@ -24,7 +24,7 @@ use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 
 use super::predicted_history::{add_component_history, apply_confirmed_update};
-use super::rollback::{client_rollback_check, increment_rollback_tick, run_rollback};
+use super::rollback::{check_rollback, increment_rollback_tick, prepare_rollback, run_rollback};
 use super::{
     clean_prespawned_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
     Rollback, RollbackState,
@@ -42,8 +42,11 @@ pub struct PredictionConfig {
     /// This setting is global instead of per Actionlike because it affects how ahead the client will be
     /// compared to the server
     pub input_delay_ticks: u16,
-    /// Number of ticks it will take to visually update the Predicted state to the new Corrected state
-    pub correction_ticks: u16,
+    /// The number of correction ticks will be a multiplier of the number of ticks between
+    /// the client and the server correction
+    /// (i.e. if the client is 10 ticks head and correction_ticks is 1.0, then the correction will be done over 10 ticks)
+    // Number of ticks it will take to visually update the Predicted state to the new Corrected state
+    pub correction_ticks_factor: f32,
 }
 
 impl PredictionConfig {
@@ -64,8 +67,8 @@ impl PredictionConfig {
     }
 
     /// Update the amount of input delay (number of ticks)
-    pub fn with_correction_ticks(mut self, num_ticks: u16) -> Self {
-        self.correction_ticks = num_ticks;
+    pub fn with_correction_ticks_factor(mut self, factor: f32) -> Self {
+        self.correction_ticks_factor = factor;
         self
     }
 }
@@ -107,11 +110,13 @@ pub enum PredictionSet {
     SpawnHistory,
     SpawnHistoryFlush,
     RestoreVisualCorrection,
-    /// Check if rollback is needed, potentially clear history and snap prediction histories to server state
+    /// Check if rollback is needed
     CheckRollback,
-    // we might need a flush because check-rollback might remove/add components.
-    // TODO: a bit confusing that check rollback needs a flush. It's because check-rollback applies the initial rollback state, maybe only rollback should do that?
-    CheckRollbackFlush,
+    /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
+    PrepareRollback,
+    // we might need a flush because prepare-rollback might remove/add components when snapping the current state
+    // to the confirmed state
+    PrepareRollbackFlush,
     /// Perform rollback
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
@@ -165,8 +170,11 @@ where
             );
             app.add_systems(
                 PreUpdate,
-                // for SyncMode::Full, we need to check if we need to rollback.
-                client_rollback_check::<C, P>.in_set(PredictionSet::CheckRollback),
+                (
+                    // for SyncMode::Full, we need to check if we need to rollback.
+                    check_rollback::<C, P>.in_set(PredictionSet::CheckRollback),
+                    prepare_rollback::<C, P>.in_set(PredictionSet::PrepareRollback),
+                ),
             );
             app.add_systems(
                 FixedUpdate,
@@ -186,8 +194,8 @@ where
                     apply_confirmed_update::<C, P>.in_set(PredictionSet::CheckRollback),
                     // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
                     restore_components_if_despawn_rolled_back::<C>
-                        .before(run_rollback::<P>)
-                        .in_set(PredictionSet::Rollback),
+                        // .before(run_rollback::<P>)
+                        .in_set(PredictionSet::PrepareRollback),
                 ),
             );
         }
@@ -196,8 +204,8 @@ where
                 PreUpdate,
                 // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
                 restore_components_if_despawn_rolled_back::<C>
-                    .before(run_rollback::<P>)
-                    .in_set(PredictionSet::Rollback),
+                    // .before(run_rollback::<P>)
+                    .in_set(PredictionSet::PrepareRollback),
             );
         }
         _ => {}
@@ -233,7 +241,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 PredictionSet::SpawnHistoryFlush,
                 PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
-                PredictionSet::CheckRollbackFlush,
+                PredictionSet::PrepareRollback.run_if(is_in_rollback),
+                PredictionSet::PrepareRollbackFlush.run_if(is_in_rollback),
                 PredictionSet::Rollback.run_if(is_in_rollback),
             )
                 .chain(),
@@ -246,7 +255,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 //  check how I can do this in bevy
                 apply_deferred.in_set(PredictionSet::SpawnPredictionFlush),
                 apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
-                apply_deferred.in_set(PredictionSet::CheckRollbackFlush),
+                apply_deferred.in_set(PredictionSet::PrepareRollbackFlush),
             ),
         );
         app.add_systems(

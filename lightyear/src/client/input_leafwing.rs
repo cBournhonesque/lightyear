@@ -21,15 +21,18 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::protocol::Protocol;
+use crate::shared::replication::entity_map::PredictedEntityMap;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::tick_manager::TickManaged;
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Clone, Resource)]
-pub struct LeafwingInputConfig<A: LeafwingUserAction> {
-    /// The amount of ticks that the player's inputs will be delayed by.
-    /// This can be useful to mitigate the amount of client-prediction
-    pub input_delay_ticks: u16,
+pub struct LeafwingInputConfig<A> {
+    // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
+    //  I'm not sure if we can have different input_delay_ticks per ActionType
+    // /// The amount of ticks that the player's inputs will be delayed by.
+    // /// This can be useful to mitigate the amount of client-prediction
+    // pub input_delay_ticks: u16,
     /// How many consecutive packets losses do we want to handle?
     /// This is used to compute the redundancy of the input messages.
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
@@ -37,24 +40,32 @@ pub struct LeafwingInputConfig<A: LeafwingUserAction> {
     // TODO: this seems unused now
     pub packet_redundancy: u16,
 
-    _marker: std::marker::PhantomData<A>,
+    /// If true, we only send diffs on the tick they were generated. (i.e. we will send a key-press only once)
+    /// There is a risk that the packet arrives too late on the server and the server does not apply the diffs,
+    /// which would break the input handling on the server.
+    /// Turn this on if you want to optimize the bandwidth that the client sends to the server.
+    pub send_diffs_only: bool,
+    // TODO: add an option where we send all diffs vs send only just-pressed diffs
+    pub _marker: std::marker::PhantomData<A>,
 }
 
-impl<A: LeafwingUserAction> Default for LeafwingInputConfig<A> {
+impl<A> Default for LeafwingInputConfig<A> {
     fn default() -> Self {
         LeafwingInputConfig {
-            input_delay_ticks: 0,
+            // input_delay_ticks: 0,
             packet_redundancy: 10,
+            // TODO: false IS BROKEN!
+            send_diffs_only: true,
             _marker: std::marker::PhantomData,
         }
     }
 }
 
-impl<A: LeafwingUserAction> LeafwingInputConfig<A> {
-    pub fn with_input_delay_ticks(mut self, tick: u16) -> Self {
-        self.input_delay_ticks = tick;
-        self
-    }
+impl<A> LeafwingInputConfig<A> {
+    // pub fn with_input_delay_ticks(mut self, tick: u16) -> Self {
+    //     self.input_delay_ticks = tick;
+    //     self
+    // }
 }
 
 /// Adds a plugin to handle inputs using the LeafwingInputManager
@@ -85,8 +96,12 @@ impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
 }
 
 /// Returns true if there is input delay present
-fn is_input_delay<A: LeafwingUserAction>(config: Res<LeafwingInputConfig<A>>) -> bool {
-    config.input_delay_ticks > 0
+// fn is_input_delay<A: LeafwingUserAction>(config: Res<LeafwingInputConfig<A>>) -> bool {
+//     config.input_delay_ticks > 0
+// }
+
+fn is_input_delay<P: Protocol>(client: Res<Client<P>>) -> bool {
+    client.config().prediction.input_delay_ticks > 0
 }
 
 impl<P: Protocol, A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
@@ -136,21 +151,11 @@ where
         app.add_systems(
             PreUpdate,
             (
-                // // if there is an input delay, restore the delayed action-state
-                // // because our inputs should be applied to the delayed action-state
-                // // (we need this before LeafwingPlugin in case the FixedUpdate schedule did not run in the previous frame)
-                // get_delayed_action_state::<A>
-                //     .run_if(is_input_delay::<A>)
-                //     .before(InputManagerSystem::Tick)
-                //     .before(InputManagerSystem::Update),
                 generate_action_diffs::<A>
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
                     .after(InputManagerSystem::Tick),
                 add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
-                // // disable tick after the tick system, so that we can send the diffs correctly
-                // // even if we do not have any FixedUpdate schedule run this frame
-                // disable_tick::<A>.after(InputManagerSystem::Tick),
             ),
         );
         // NOTE: we do not tick the ActionState during FixedUpdate
@@ -165,7 +170,7 @@ where
                     (
                         (write_action_diffs::<P, A>, buffer_action_state::<P, A>),
                         // get the non-delayed action-state, for the user to act on the current tick's actions
-                        get_non_rollback_action_state::<Client<P>, A>.run_if(is_input_delay::<A>),
+                        get_non_rollback_action_state::<Client<P>, A>.run_if(is_input_delay::<P>),
                     )
                         .chain()
                         .run_if(not(is_in_rollback)),
@@ -178,7 +183,7 @@ where
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
                 get_delayed_action_state::<A>
-                    .run_if(is_input_delay::<A>)
+                    .run_if(is_input_delay::<P>)
                     .run_if(not(is_in_rollback))
                     .after(FixedUpdateSet::Main),
             ),
@@ -289,18 +294,18 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 /// We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
     // TODO: get tick from tick_manager, not client
-    config: Res<LeafwingInputConfig<A>>,
     client: ResMut<Client<P>>,
     mut global_input_buffer: ResMut<InputBuffer<A>>,
     global_action_state: Option<Res<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &ActionState<A>, &mut InputBuffer<A>)>,
 ) {
-    let tick = client.tick() + config.input_delay_ticks as i16;
+    let input_delay_ticks = client.config().prediction.input_delay_ticks as i16;
+    let tick = client.tick() + input_delay_ticks;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(
             ?entity,
             ?tick,
-            delay = ?config.input_delay_ticks,
+            delay = ?input_delay_ticks,
             "ACTION_STATE: JUST PRESSED: {:?}/ JUST RELEASED: {:?}/ PRESSED: {:?}/ RELEASED: {:?}",
             action_state.get_just_pressed(),
             action_state.get_just_released(),
@@ -342,7 +347,10 @@ fn get_non_rollback_action_state<C: TickManaged, A: LeafwingUserAction>(
         );
     }
     if let Some(mut action_state) = global_action_state {
-        *action_state = global_input_buffer.get(tick).unwrap().clone();
+        *action_state = global_input_buffer
+            .get(tick)
+            .unwrap_or(&ActionState::<A>::default())
+            .clone();
     }
 }
 
@@ -388,13 +396,12 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
 /// NOTE: since we're using diffs. we need to make sure that all our diffs are sent correctly to the server.
 ///  If a diff is missing, maybe the server should make a request and we send them the entire ActionState?
 fn write_action_diffs<P: Protocol, A: LeafwingUserAction>(
-    config: Res<LeafwingInputConfig<A>>,
     client: Res<Client<P>>,
     mut global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     mut diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
     mut action_diff_event: ResMut<Events<ActionDiffEvent<A>>>,
 ) {
-    let delay = config.input_delay_ticks as i16;
+    let delay = client.config().prediction.input_delay_ticks as i16;
     let tick = client.tick() + delay;
     // we drain the events when reading them
     for event in action_diff_event.drain() {
@@ -414,16 +421,15 @@ fn write_action_diffs<P: Protocol, A: LeafwingUserAction>(
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
-    config: Res<LeafwingInputConfig<A>>,
     mut client: ResMut<Client<P>>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     global_input_buffer: Option<ResMut<InputBuffer<A>>>,
-    mut action_diff_buffer_query: Query<(Entity, &mut ActionDiffBuffer<A>)>,
+    mut action_diff_buffer_query: Query<(Entity, Option<&Predicted>, &mut ActionDiffBuffer<A>)>,
     mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
 ) where
     P::Message: From<InputMessage<A>>,
 {
-    let tick = client.tick() + config.input_delay_ticks as i16;
+    let tick = client.tick() + client.config().prediction.input_delay_ticks as i16;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
@@ -450,7 +456,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         interpolation_tick
     );
 
-    for (entity, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
+    for (entity, predicted, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
         trace!(
             ?tick,
             ?entity,
@@ -458,6 +464,20 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
             action_diff_buffer.as_ref()
         );
         action_diff_buffer.add_to_message(&mut message, tick, message_len, Some(entity));
+
+        // TODO: make this better, this is a bit awkward.
+        //  also does that mean that inputs before we receive the confirmation on client are not mapped?
+        // TODO: actually we don't need this, because the remote_entity_map on server contains the Predicted entity!
+        // Convert the entity in the message from the Predicted tot he Confirmed, so that the server
+        // can map to their own local entity
+        // if let Some(predicted) = predicted {
+        //     info!("has predicted!!");
+        //     if let Some(confirmed) = predicted.confirmed_entity {
+        //         info!("mapping the entity in the input message from Predicted to Confirmed");
+        //         message.per_entity_diffs.last_mut().unwrap().0 = confirmed
+        //     }
+        // }
+
         action_diff_buffer.pop(interpolation_tick);
     }
     for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
@@ -482,7 +502,12 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        trace!(?tick, "sending input message: {:?}", message);
+        info!(
+            action = ?A::short_type_path(),
+            ?tick,
+            "sending input message: {:?}",
+            message.per_entity_diffs
+        );
         client
             .send_message::<InputChannel, InputMessage<A>>(message)
             .unwrap_or_else(|err| {
@@ -495,12 +520,12 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     //  maybe at interpolation_tick(), since it's before any latest server update we receive?
 }
 
+// TODO: should run this only for entities with InputMap?
 /// Generates an [`Events`] stream of [`ActionDiff`] from [`ActionState`]
 ///
 /// We run this in the PreUpdate stage so that we generate diffs even if the frame has no fixed-update schedule
-// TODO: to keep correctness even in case of an input packet arriving too late on the server,
-//  we could generate a Diff even if the action is the same as the previous tick!
-pub fn generate_action_diffs<A: Actionlike + Debug>(
+pub fn generate_action_diffs<A: LeafwingUserAction>(
+    config: Res<LeafwingInputConfig<A>>,
     action_state: Option<ResMut<ActionState<A>>>,
     action_state_query: Query<(Entity, &ActionState<A>)>,
     mut action_diffs: EventWriter<ActionDiffEvent<A>>,
@@ -518,23 +543,82 @@ pub fn generate_action_diffs<A: Actionlike + Debug>(
         );
     for (maybe_entity, action_state) in action_state_iter {
         let mut diffs = vec![];
-        for action in action_state.get_just_pressed() {
+        // TODO: optimize config.send_diffs_only at compile time?
+        if config.send_diffs_only {
+            for action in action_state.get_just_pressed() {
+                match action_state.action_data(action.clone()).axis_pair {
+                    Some(axis_pair) => {
+                        diffs.push(ActionDiff::AxisPairChanged {
+                            action: action.clone(),
+                            axis_pair: axis_pair.into(),
+                        });
+                        previous_axis_pairs
+                            .raw_entry_mut()
+                            .from_key(&action)
+                            .or_insert_with(|| (action.clone(), HashMap::default()))
+                            .1
+                            .insert(maybe_entity, axis_pair.xy());
+                    }
+                    None => {
+                        let value = action_state.value(action.clone());
+                        diffs.push(if value == 1. {
+                            ActionDiff::Pressed {
+                                action: action.clone(),
+                            }
+                        } else {
+                            ActionDiff::ValueChanged {
+                                action: action.clone(),
+                                value,
+                            }
+                        });
+                        previous_values
+                            .raw_entry_mut()
+                            .from_key(&action)
+                            .or_insert_with(|| (action.clone(), HashMap::default()))
+                            .1
+                            .insert(maybe_entity, value);
+                    }
+                }
+            }
+        }
+        for action in action_state.get_pressed() {
+            if config.send_diffs_only {
+                if action_state.just_pressed(action.clone()) {
+                    continue;
+                }
+            }
             match action_state.action_data(action.clone()).axis_pair {
                 Some(axis_pair) => {
+                    if config.send_diffs_only {
+                        let previous_axis_pairs =
+                            previous_axis_pairs.entry(action.clone()).or_default();
+
+                        if let Some(previous_axis_pair) = previous_axis_pairs.get(&maybe_entity) {
+                            if *previous_axis_pair == axis_pair.xy() {
+                                continue;
+                            }
+                        }
+                        previous_axis_pairs.insert(maybe_entity, axis_pair.xy());
+                    }
                     diffs.push(ActionDiff::AxisPairChanged {
                         action: action.clone(),
                         axis_pair: axis_pair.into(),
                     });
-                    previous_axis_pairs
-                        .raw_entry_mut()
-                        .from_key(&action)
-                        .or_insert_with(|| (action.clone(), HashMap::default()))
-                        .1
-                        .insert(maybe_entity, axis_pair.xy());
                 }
                 None => {
                     let value = action_state.value(action.clone());
-                    diffs.push(if value == 1. {
+                    if config.send_diffs_only {
+                        let previous_values = previous_values.entry(action.clone()).or_default();
+
+                        if let Some(previous_value) = previous_values.get(&maybe_entity) {
+                            if *previous_value == value {
+                                trace!(?action, "Same value as last time; not sending diff");
+                                continue;
+                            }
+                        }
+                        previous_values.insert(maybe_entity, value);
+                    }
+                    diffs.push(if value == 1. && !config.send_diffs_only {
                         ActionDiff::Pressed {
                             action: action.clone(),
                         }
@@ -544,66 +628,30 @@ pub fn generate_action_diffs<A: Actionlike + Debug>(
                             value,
                         }
                     });
-                    previous_values
-                        .raw_entry_mut()
-                        .from_key(&action)
-                        .or_insert_with(|| (action.clone(), HashMap::default()))
-                        .1
-                        .insert(maybe_entity, value);
                 }
             }
         }
-        for action in action_state.get_pressed() {
-            if action_state.just_pressed(action.clone()) {
-                continue;
-            }
-            match action_state.action_data(action.clone()).axis_pair {
-                Some(axis_pair) => {
-                    let previous_axis_pairs =
-                        previous_axis_pairs.entry(action.clone()).or_default();
-
-                    if let Some(previous_axis_pair) = previous_axis_pairs.get(&maybe_entity) {
-                        if *previous_axis_pair == axis_pair.xy() {
-                            continue;
-                        }
-                    }
-                    diffs.push(ActionDiff::AxisPairChanged {
-                        action: action.clone(),
-                        axis_pair: axis_pair.into(),
-                    });
-                    previous_axis_pairs.insert(maybe_entity, axis_pair.xy());
-                }
-                None => {
-                    let value = action_state.value(action.clone());
-                    let previous_values = previous_values.entry(action.clone()).or_default();
-
-                    if let Some(previous_value) = previous_values.get(&maybe_entity) {
-                        if *previous_value == value {
-                            trace!(?action, "Same value as last time; not sending diff");
-                            continue;
-                        }
-                    }
-                    diffs.push(ActionDiff::ValueChanged {
-                        action: action.clone(),
-                        value,
-                    });
-                    previous_values.insert(maybe_entity, value);
-                }
-            }
-        }
-        for action in action_state.get_just_released() {
+        let release_diffs = if config.send_diffs_only {
+            action_state.get_just_released()
+        } else {
+            action_state.get_released()
+        };
+        for action in release_diffs {
             diffs.push(ActionDiff::Released {
                 action: action.clone(),
             });
-            if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
-                previous_axes.remove(&maybe_entity);
-            }
-            if let Some(previous_values) = previous_values.get_mut(&action) {
-                previous_values.remove(&maybe_entity);
+            if config.send_diffs_only {
+                if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
+                    previous_axes.remove(&maybe_entity);
+                }
+                if let Some(previous_values) = previous_values.get_mut(&action) {
+                    previous_values.remove(&maybe_entity);
+                }
             }
         }
+
         if !diffs.is_empty() {
-            info!("writing action diffs: {:?}", diffs);
+            info!(?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,

@@ -16,8 +16,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const INPUT_DELAY_TICKS: u16 = 5;
-pub const CORRECTION_TICKS: u16 = 15;
+pub const INPUT_DELAY_TICKS: u16 = 3;
+pub const CORRECTION_TICKS_FACTOR: f32 = 1.2;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
@@ -26,11 +26,6 @@ pub struct MyClientPlugin {
     pub(crate) server_addr: Ipv4Addr,
     pub(crate) server_port: u16,
     pub(crate) transport: Transports,
-    /// If this is true, we will predict the client's entities, but also the ball and other clients' entities!
-    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
-    ///
-    /// If this is false, we will predict the client's entites but simple interpolate everything else.
-    pub(crate) predict_all: bool,
 }
 
 impl Plugin for MyClientPlugin {
@@ -44,7 +39,7 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
+            incoming_latency: Duration::from_millis(75),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
@@ -65,7 +60,7 @@ impl Plugin for MyClientPlugin {
             sync: SyncConfig::default(),
             prediction: PredictionConfig {
                 input_delay_ticks: INPUT_DELAY_TICKS,
-                correction_ticks: CORRECTION_TICKS,
+                correction_ticks_factor: CORRECTION_TICKS_FACTOR,
                 ..default()
             },
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
@@ -77,10 +72,17 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(crate::shared::SharedPlugin);
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
-            LeafwingInputConfig::<PlayerActions>::default()
-                .with_input_delay_ticks(INPUT_DELAY_TICKS),
+            LeafwingInputConfig::<PlayerActions> {
+                send_diffs_only: false,
+                ..default()
+            },
         ));
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
+            LeafwingInputConfig::<AdminActions> {
+                send_diffs_only: false,
+                ..default()
+            },
+        ));
         // To send global inputs, insert the ActionState and the InputMap as Resources
         app.init_resource::<ActionState<AdminActions>>();
         app.insert_resource(InputMap::<AdminActions>::new([
@@ -181,9 +183,6 @@ fn add_ball_physics(
 ) {
     for entity in ball_query.iter_mut() {
         commands.entity(entity).insert(PhysicsBundle::ball());
-        // commands
-        //     .entity(entity)
-        //     .remove::<(Position, LinearVelocity)>();
     }
 }
 
@@ -227,17 +226,8 @@ fn player_movement(
         ),
         With<Predicted>,
     >,
-    // mut velocity_query: Query<
-    //     (&Transform, &mut LinearVelocity, &ActionState<PlayerActions>),
-    //     With<Predicted>,
-    // >,
 ) {
     for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
-        // // only apply the inputs to our own controlled entities
-        // if  player_id.0 != plugin.client_id {
-        //     continue;
-        // }
-
         // note that we also apply the input to the other predicted clients!
         // TODO: add input decay?
         shared_movement_behaviour(velocity, action_state);

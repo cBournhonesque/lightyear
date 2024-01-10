@@ -197,6 +197,7 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         world: &mut World,
         time_manager: &TimeManager,
+        tick_manager: &TickManager,
     ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages::<ServerMessage<P>>() {
@@ -248,7 +249,10 @@ impl<P: Protocol> Connection<P> {
                 }
                 // Check if we have any replication messages we can apply to the World (and emit events)
                 if self.sync_manager.is_synced() {
-                    for (group, replication_list) in self.replication_receiver.read_messages() {
+                    for (group, replication_list) in self
+                        .replication_receiver
+                        .read_messages(tick_manager.current_tick())
+                    {
                         trace!(?group, ?replication_list, "read replication messages");
                         replication_list
                             .into_iter()

@@ -254,7 +254,8 @@ impl<P: Protocol> Client<P> {
     /// Receive messages from the server
     pub(crate) fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
-        self.connection.receive(world, &self.time_manager)
+        self.connection
+            .receive(world, &self.time_manager, &self.tick_manager)
     }
 
     /// Send packets that are ready from the message manager through the transport layer

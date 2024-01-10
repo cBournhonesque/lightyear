@@ -5,7 +5,7 @@ pub(crate) mod input_buffer;
 pub use input_buffer::InputMessage;
 
 use crate::protocol::BitSerializable;
-use bevy::prelude::TypePath;
+use bevy::prelude::{FromReflect, TypePath};
 use bevy::reflect::Reflect;
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,7 @@ pub trait LeafwingUserAction:
     + Debug
     + Actionlike
     + TypePath
+    + FromReflect
     + 'static
 {
 }

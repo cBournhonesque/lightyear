@@ -56,6 +56,24 @@ STATUS:
   - sometimes the state is stuck in a misprediction spiral WHY?
   - looks like the input wasn't taken into account???? sometimes the release is not handled correctly.
 
+- STATUS: best-settings. Input-delay = 10, Correction = 8.
+
+- Problem 1: if one of the inputs has a correction, all of them should get have it!
+  (after rollback check, iterate through every predicted element in the replication group, and add corrections to those who don't have it.
+   if they don't have it that means their predicted component is already equal to the confirmed component
+
+  Actually I don't think it's an issue maybe? Because if one of the components doesn't have a correction it's because their predicted value was equal to the confirmed value at the time?
+
+- Problem 2: if I set a very high correction-tick number, the movement becomes very saccade for some reason, understand that.
+
+- TODO:
+  - maybe add an option to disable correction for the player-controlled entities (not entities controlled by other players)?
+  - why do i need to not sync the ActionState from server to client for it to work? I guess the problem is that the 
+    ActionState on the Confirmed is ticking and being replicated to Predicted all the time...
+  - enable having multiple different rollbacks (with different ticks) for different replication groups
+  - i still get stuck inputs even when sending full diffs!!! why?
+
+
 
 - TODO: lockstep. All player just see what's happening on the server. that means inputs are not applied on the client (no prediction).
   the client just uses the confirmed state from server. (with maybe interpolation) 

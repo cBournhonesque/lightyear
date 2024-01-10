@@ -2,7 +2,7 @@
 */
 use std::iter;
 
-use crate::_reexport::FromType;
+use crate::_reexport::{FromType, MessageProtocol};
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use bevy::prelude::{Component, Entity};
@@ -12,7 +12,7 @@ use tracing::{info, trace};
 use crate::packet::message::Message;
 use crate::prelude::{Named, Tick};
 use crate::protocol::channel::ChannelKind;
-use crate::protocol::message::{MessageBehaviour, MessageKind};
+use crate::protocol::message::MessageKind;
 use crate::protocol::{EventContext, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
@@ -112,7 +112,7 @@ impl<P: Protocol> ConnectionEvents<P> {
 
     #[cfg(feature = "leafwing")]
     pub(crate) fn push_input_message(&mut self, message: P::Message) {
-        trace!(
+        info!(
             "Received input message: {:?}. Kind: {:?}",
             message.name(),
             message.kind()
@@ -258,7 +258,8 @@ impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
         P::Message: TryInto<InputMessage<A>, Error = ()>,
     {
         let message_kind = MessageKind::of::<InputMessage<A>>();
-        trace!("Trying to read messages of kind: {:?}", message_kind);
+        info!(?self.input_messages, "Trying to read messages of kind: {:?}", message_kind);
+
         if let Some(data) = self.input_messages.remove(&message_kind) {
             return Box::new(data.into_iter().map(|message| {
                 trace!("GOT INPUT MESSAGE: {:?}", message);

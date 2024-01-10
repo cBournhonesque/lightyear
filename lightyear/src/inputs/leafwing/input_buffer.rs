@@ -1,12 +1,11 @@
-use bevy::ecs::bundle::DynamicBundle;
 use bevy::math::Vec2;
+use const_format::{concatcp, formatcp};
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
-use bevy::prelude::{Component, Entity, Event, Resource, TypePath};
+use bevy::prelude::{Component, Entity, Event, FromReflect, Reflect, Resource, TypePath};
 use bevy::reflect::DynamicTypePath;
 use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
-use const_format::formatcp;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::common_conditions::action_just_pressed;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
@@ -37,7 +36,6 @@ use crate::shared::tick_manager::Tick;
 // - we apply the ticks on the right tick to the entity/resource
 // - no need to maintain our inputbuffer on the server
 
-impl<A: LeafwingUserAction> Message for ActionState<A> {}
 impl<'a, A: LeafwingUserAction> MapEntities<'a> for ActionState<A> {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
     fn entities(&self) -> EntityHashSet<Entity> {
@@ -45,12 +43,9 @@ impl<'a, A: LeafwingUserAction> MapEntities<'a> for ActionState<A> {
     }
 }
 impl<A: LeafwingUserAction> Named for ActionState<A> {
-    // const NAME: &'static str = <A as TypePath>::short_type_path();
-    fn name(&self) -> &'static str {
-        <ActionState<A> as TypePath>::short_type_path()
-        // <A as TypePath>::short_type_path()
-        // formatcp!("ActionState<{}>", Name)
-    }
+    // const NAME: &'static str = formatcp!("ActionState<{}>", A::short_type_path());
+    const NAME: &'static str = "ActionState";
+    // const NAME: &'static str = Self::short_type_path();
 }
 
 // impl<A: LeafwingUserAction> SyncComponent for ActionState<A> {
@@ -134,7 +129,7 @@ impl<A: LeafwingUserAction> Default for InputBuffer<A> {
 ///
 /// These are typically accessed using the `Events<ActionDiffEvent>` resource.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Event)]
-pub struct ActionDiffEvent<A: Actionlike> {
+pub struct ActionDiffEvent<A: LeafwingUserAction> {
     /// If some: the entity that has the `ActionState<A>` component
     /// If none: `ActionState<A>` is a Resource, not a component
     pub owner: Option<Entity>,
@@ -148,8 +143,8 @@ pub struct ActionDiffEvent<A: Actionlike> {
 /// Uses a minimal storage format, in order to facilitate transport over the network.
 ///
 /// An `ActionState` can be fully reconstructed from a stream of `ActionDiff`
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ActionDiff<A: Actionlike> {
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
+pub enum ActionDiff<A: LeafwingUserAction> {
     /// The action was pressed
     Pressed {
         /// The value of the action
@@ -177,6 +172,18 @@ pub enum ActionDiff<A: Actionlike> {
 }
 
 impl<A: LeafwingUserAction> ActionDiff<A> {
+    pub(crate) fn action(&self) -> A {
+        match self {
+            ActionDiff::Pressed { action } => action.clone(),
+            ActionDiff::Released { action } => action.clone(),
+            ActionDiff::ValueChanged { action, value: _ } => action.clone(),
+            ActionDiff::AxisPairChanged {
+                action,
+                axis_pair: _,
+            } => action.clone(),
+        }
+    }
+
     /// Applies an [`ActionDiff`] (usually received over the network) to the [`ActionState`].
     ///
     /// This lets you reconstruct an [`ActionState`] from a stream of [`ActionDiff`]s
@@ -207,15 +214,20 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 }
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
-#[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
-#[message(custom_map)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// We serialize the inputs by sending only the ActionDiffs of the last few ticks
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<T: LeafwingUserAction> {
+pub struct InputMessage<A: LeafwingUserAction> {
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
-    pub(crate) global_diffs: Vec<Vec<ActionDiff<T>>>,
-    pub(crate) per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<T>>>)>,
+    pub(crate) global_diffs: Vec<Vec<ActionDiff<A>>>,
+    pub(crate) per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<A>>>)>,
+}
+
+impl<A: LeafwingUserAction> Named for InputMessage<A> {
+    // const NAME: &'static str = formatcp!("InputMessage<{}>", A::short_type_path());
+    const NAME: &'static str = "InputMessage";
+    // const NAME: &'static str = <Self as TypePath>::short_type_path();
 }
 
 impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
@@ -386,7 +398,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 #[derive(Resource, Component, Debug)]
 pub(crate) struct ActionDiffBuffer<A: LeafwingUserAction> {
     start_tick: Option<Tick>,
-    buffer: VecDeque<Vec<ActionDiff<A>>>,
+    buffer: VecDeque<HashMap<A, ActionDiff<A>>>,
 }
 
 impl<A: LeafwingUserAction> Default for ActionDiffBuffer<A> {
@@ -405,7 +417,14 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
         })
     }
 
+    /// Take the ActionDiff generated in the frame and use them to populate the buffer
+    /// Note that multiple frame can use the same tick, in which case we will use the latest ActionDiff events
+    /// for a given action
     pub(crate) fn set(&mut self, tick: Tick, diffs: Vec<ActionDiff<A>>) {
+        let diffs = diffs
+            .into_iter()
+            .map(|diff| (diff.action(), diff))
+            .collect();
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
@@ -422,7 +441,7 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
         if tick > end_tick {
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             for _ in 0..(tick - end_tick - 1) {
-                self.buffer.push_back(vec![]);
+                self.buffer.push_back(HashMap::default());
             }
             // add a new value to the buffer, which we will override below
             self.buffer.push_back(diffs);
@@ -460,7 +479,10 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
         }
         self.start_tick = Some(tick + 1);
 
-        self.buffer.pop_front().unwrap_or(vec![])
+        self.buffer
+            .pop_front()
+            .map(|v| v.into_values().collect())
+            .unwrap_or(vec![])
     }
 
     /// Get the ActionState for the given tick
@@ -473,8 +495,8 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
         }
         self.buffer
             .get((tick.0 - start_tick.0) as usize)
-            .unwrap_or(&vec![])
-            .clone()
+            .map(|v| v.values().cloned().collect())
+            .unwrap_or(vec![])
     }
     pub(crate) fn update_from_message(&mut self, end_tick: Tick, diffs: Vec<Vec<ActionDiff<A>>>) {
         let message_start_tick = end_tick - diffs.len() as u16 + 1;

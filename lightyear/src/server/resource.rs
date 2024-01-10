@@ -100,7 +100,6 @@ impl<P: Protocol> Server<P> {
 
     /// Generate a connect token for a client with id `client_id`
     pub fn token(&mut self, client_id: ClientId) -> ConnectToken {
-        info!("timeout: {:?}", self.config.netcode.client_timeout_secs);
         self.netcode
             .token(client_id, self.local_addr())
             .timeout_seconds(self.config.netcode.client_timeout_secs)
@@ -188,7 +187,7 @@ impl<P: Protocol> Server<P> {
         P::Message: From<M>,
     {
         let _span =
-            debug_span!("send_message", channel = ?C::name(), message = ?message.name(), ?target)
+            debug_span!("send_message", channel = ?C::type_name(), message = ?message.name(), ?target)
                 .entered();
         self.connection_manager
             .buffer_message(message.into(), ChannelKind::of::<C>(), target)
@@ -240,7 +239,7 @@ impl<P: Protocol> Server<P> {
     /// Receive messages from each connection, and update the events buffer
     pub fn receive(&mut self, world: &mut World) {
         self.connection_manager
-            .receive(world, &self.time_manager)
+            .receive(world, &self.time_manager, &self.tick_manager)
             .unwrap_or_else(|e| {
                 error!("Error during receive: {}", e);
             });
@@ -474,7 +473,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
-            info!(
+            trace!(
                 ?kind,
                 change_tick = ?component_change_tick,
                 ?collect_changes_since_this_tick,
@@ -490,7 +489,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                     current_tick = ?system_current_tick,
                     "prepare entity update changed check"
                 );
-                info!(
+                trace!(
                     ?entity,
                     component = ?kind,
                     tick = ?self.tick_manager.current_tick(),

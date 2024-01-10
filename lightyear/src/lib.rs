@@ -39,7 +39,7 @@ pub mod _reexport {
         FromType,
     };
     pub use crate::protocol::message::InputMessageKind;
-    pub use crate::protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
+    pub use crate::protocol::message::{MessageKind, MessageProtocol};
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -75,7 +75,6 @@ pub mod prelude {
     pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
-    pub use crate::protocol::component::Wrapper;
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::SharedConfig;
@@ -90,7 +89,7 @@ pub mod prelude {
     pub use crate::shared::tick_manager::{Tick, TickConfig, TickManaged};
     pub use crate::transport::conditioner::LinkConditionerConfig;
     pub use crate::transport::io::{Io, IoConfig, TransportConfig};
-    pub use crate::utils::named::{Named, TypeNamed};
+    pub use crate::utils::named::Named;
 
     pub mod client {
         pub use crate::client::components::{
@@ -109,6 +108,7 @@ pub mod prelude {
         };
         pub use crate::client::interpolation::{InterpolateStatus, Interpolated};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
+        pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};

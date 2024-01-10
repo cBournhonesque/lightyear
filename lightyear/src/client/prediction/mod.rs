@@ -2,6 +2,7 @@
 use std::fmt::Debug;
 
 use bevy::prelude::*;
+use bevy::utils::EntityHashMap;
 use tracing::{debug, error, info, trace};
 
 pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
@@ -13,7 +14,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{Replicate, ShouldBePredicted};
+use crate::shared::replication::components::{Replicate, ReplicationGroupId, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
 
 pub(crate) mod correction;
@@ -34,6 +35,7 @@ pub struct Predicted {
 #[derive(Resource)]
 pub struct Rollback {
     pub state: RollbackState,
+    // pub rollback_groups: EntityHashMap<ReplicationGroupId, RollbackState>,
 }
 
 /// Resource that will track whether we should do rollback or not
@@ -80,6 +82,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
     // get the list of entities who get ShouldBePredicted replicated from server
     mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
+    mut predicted_entities: Query<&mut Predicted>,
 ) {
     for message in should_be_predicted_added.read() {
         let entity = message.entity();
@@ -115,6 +118,10 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                         "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
                         predicted_entity, confirmed_entity
                     );
+                    if let Ok(mut predicted) = predicted_entities.get_mut(client_entity) {
+                        predicted.confirmed_entity = Some(confirmed_entity);
+                    }
+
                     #[cfg(feature = "metrics")]
                     {
                         metrics::increment_counter!("prespawn_predicted_entity");

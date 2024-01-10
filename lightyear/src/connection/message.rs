@@ -1,9 +1,10 @@
 /*!
 Defines the [`ClientMessage`] and [`ServerMessage`] enums that are used to send messages over the network
 */
+use crate::_reexport::MessageProtocol;
 use crate::prelude::{ChannelKind, NetworkTarget};
 use serde::{Deserialize, Serialize};
-use tracing::{info_span, trace};
+use tracing::{info, info_span, trace};
 
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
@@ -30,7 +31,7 @@ impl<P: Protocol> ClientMessage<P> {
         match self {
             ClientMessage::Message(message, _) => {
                 let message_name = message.name();
-                trace!(channel = ?channel_name, message = ?message_name, "Sending message");
+                info!(channel = ?channel_name, message = ?message_name, "Sending message");
                 #[cfg(metrics)]
                 metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
             }
@@ -140,7 +141,7 @@ impl<P: Protocol> ServerMessage<P> {
         match self {
             ServerMessage::Message(message) => {
                 let message_name = message.name();
-                trace!(channel = ?channel_name, message = ?message_name, "Sending message");
+                trace!(channel = ?channel_name, message = ?message_name, kind = ?message.kind(), "Sending message");
                 #[cfg(metrics)]
                 metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
             }

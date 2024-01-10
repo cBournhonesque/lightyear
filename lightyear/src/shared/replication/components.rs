@@ -4,7 +4,7 @@ use bevy::utils::{EntityHashSet, HashMap, HashSet};
 use cfg_if::cfg_if;
 
 use serde::{Deserialize, Serialize};
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::_reexport::FromType;
 use lightyear_macros::MessageInternal;
@@ -230,9 +230,12 @@ impl<P: Protocol> Default for Replicate<P> {
             replication_group: Default::default(),
             per_component_metadata: HashMap::default(),
         };
+        // those metadata components can be only replicated once
+        replicate.enable_replicate_once::<ShouldBePredicted>();
+        replicate.enable_replicate_once::<ShouldBeInterpolated>();
         cfg_if! {
             // the ActionState components are replicated only once when the entity is spawned
-            // then they get updated by the user inputs, not by replication
+            // then they get updated by the user inputs, not by replication!
             if #[cfg(feature = "leafwing")] {
                 use leafwing_input_manager::prelude::ActionState;
                 replicate.enable_replicate_once::<ActionState<P::LeafwingInput1>>();

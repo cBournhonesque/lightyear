@@ -86,7 +86,6 @@ impl BallBundle {
             replicate.interpolation_target = NetworkTarget::All;
         }
         Self {
-            // transform: Transform::from_xyz(transform.x, transform.y, 0.0),
             position: Position(position),
             color: ColorComponent(color),
             replicate,
@@ -107,7 +106,7 @@ impl PhysicsBundle {
     pub(crate) fn ball() -> Self {
         Self {
             collider: Collider::ball(BALL_SIZE),
-            collider_density: ColliderDensity(2.0),
+            collider_density: ColliderDensity(0.05),
             rigid_body: RigidBody::Dynamic,
         }
     }
@@ -124,11 +123,6 @@ impl PhysicsBundle {
 // Components
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub ClientId);
-
-// #[derive(
-//     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
-// )]
-// pub struct Position(Vec2);
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
@@ -147,7 +141,7 @@ pub enum Components {
     // You need to specify how to do interpolation for the component
     // Normally LinearInterpolation is fine, but it's not possible for xpbd's components
     // as they do not implement Mul<f32> and Add<Self>
-    // Instead, lightyear already implemented the interpolation for xpbd's components
+    // Instead, lightyear already implemented the interpolation for xpbd's components (although you could also implement it yourself)
     //
     // Then you can also specify how to correct the component when there is a mispredictions
     // The default is `InstantCorrector` which just snaps to the corrected value
@@ -165,17 +159,10 @@ pub enum Components {
         corrector = "InterpolatedCorrector"
     )]
     Rotation(Rotation),
-    #[sync(
-        full,
-        lerp = "LinearVelocityLinearInterpolation",
-        corrector = "InterpolatedCorrector"
-    )]
+    // NOTE: correction is only needed for components that are visually displayed!
+    #[sync(full, lerp = "LinearVelocityLinearInterpolation")]
     LinearVelocity(LinearVelocity),
-    #[sync(
-        full,
-        lerp = "AngularVelocityLinearInterpolation",
-        corrector = "InterpolatedCorrector"
-    )]
+    #[sync(full, lerp = "AngularVelocityLinearInterpolation")]
     AngularVelocity(AngularVelocity),
 }
 

@@ -104,9 +104,16 @@ impl<P: Protocol> ReplicationReceiver<P> {
     /// Return the list of replication messages that are ready to be applied to the World
     /// Also include the server_tick when that replication message was emitted
     ///
+    /// A message is ready if:
+    /// - actions are read in order
+    /// - updates are read in order, and only if the actions that preceded them have already been read
+    /// - the remote tick is <= the current tick (i.e. we do not read messages from the future)
+    ///
+    ///
     /// Updates the `latest_tick` for this group
     pub(crate) fn read_messages(
         &mut self,
+        current_tick: Tick,
     ) -> Vec<(
         ReplicationGroupId,
         Vec<(
@@ -118,7 +125,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
             .iter_mut()
             .filter_map(|(group_id, channel)| {
                 channel
-                    .read_messages()
+                    .read_messages(current_tick)
                     .map(|messages| (*group_id, messages))
             })
             .collect()
@@ -129,6 +136,17 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
         self.channel_by_local(confirmed_entity)
             .map(|channel| channel.latest_tick)
+    }
+
+    /// Get the replication group id associated with a given local entity
+    pub(crate) fn get_replication_group_id(
+        &self,
+        confirmed_entity: Entity,
+    ) -> Option<ReplicationGroupId> {
+        self.remote_entity_map
+            .get_remote(confirmed_entity)
+            .and_then(|remote_entity| self.remote_entity_to_group.get(remote_entity))
+            .copied()
     }
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
@@ -370,16 +388,26 @@ impl<P: Protocol> GroupChannel<P> {
     /// If had received updates that were waiting on a given action, we also return them
     fn read_action(
         &mut self,
+        current_tick: Tick,
     ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
 
-        // Check if we have received the message we are waiting for
         let Some(message) = self
             .actions_recv_message_buffer
-            .remove(&self.actions_pending_recv_message_id)
+            .get(&self.actions_pending_recv_message_id)
         else {
             return None;
         };
+        // if the message is from the future, keep it there
+        if message.0 > current_tick {
+            return None;
+        }
+
+        // We have received the message we are waiting for
+        let message = self
+            .actions_recv_message_buffer
+            .remove(&self.actions_pending_recv_message_id)
+            .unwrap();
 
         self.actions_pending_recv_message_id += 1;
         // Update the latest server tick that we have processed
@@ -409,6 +437,7 @@ impl<P: Protocol> GroupChannel<P> {
 
     fn read_messages(
         &mut self,
+        current_tick: Tick,
     ) -> Option<
         Vec<(
             Tick,
@@ -418,7 +447,7 @@ impl<P: Protocol> GroupChannel<P> {
         let mut res = Vec::new();
 
         // check for any actions that are ready to be applied
-        while let Some((tick, actions)) = self.read_action() {
+        while let Some((tick, actions)) = self.read_action(current_tick) {
             res.push((tick, ReplicationMessageData::Actions(actions)));
         }
 
@@ -537,7 +566,7 @@ mod tests {
             .is_some());
 
         // read messages: only read the first action and update
-        let read_messages = manager.read_messages();
+        let read_messages = manager.read_messages(Tick(10));
         let replication_data = &read_messages.first().unwrap().1;
         assert_eq!(replication_data.get(0).unwrap().0, Tick(0));
         assert_eq!(replication_data.get(1).unwrap().0, Tick(1));
@@ -553,7 +582,7 @@ mod tests {
             },
             Tick(3),
         );
-        assert!(manager.read_messages().is_empty());
+        assert!(manager.read_messages(Tick(10)).is_empty());
 
         // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
         manager.recv_message(
@@ -566,7 +595,7 @@ mod tests {
             },
             Tick(2),
         );
-        let read_messages = manager.read_messages();
+        let read_messages = manager.read_messages(Tick(10));
         let replication_data = &read_messages.first().unwrap().1;
         assert_eq!(replication_data.len(), 3);
         assert_eq!(replication_data.get(0).unwrap().0, Tick(2));

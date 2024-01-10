@@ -47,12 +47,14 @@ impl Plugin for SharedPlugin {
             // show framerate
             // use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
             // app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-            app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
+            // app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
 
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
-                draw_elements.after(InterpolationSet::Interpolate),
+                draw_elements
+                    .after(InterpolationSet::Interpolate)
+                    .after(PredictionSet::VisualCorrection),
             );
         }
         // bundles
@@ -81,14 +83,13 @@ impl Plugin for SharedPlugin {
                 FixedUpdate,
                 after_physics_log::<Client>.after(FixedUpdateSet::Main),
             );
-            // app.add_systems(Last, last_log::<Client>);
+            app.add_systems(Last, last_log::<Client>);
         }
         if app.world.contains_resource::<Server>() {
             app.add_systems(
                 FixedUpdate,
                 after_physics_log::<Server>.after(FixedUpdateSet::Main),
             );
-            // app.add_systems(Last, last_log::<Server>);
         }
 
         // registry types for reflection
@@ -151,7 +152,10 @@ pub(crate) fn shared_movement_behaviour(
 pub(crate) fn after_physics_log<T: TickManaged>(
     ticker: Res<T>,
     rollback: Option<Res<Rollback>>,
-    players: Query<(Entity, &Position, &Rotation), (Without<BallMarker>, Without<Confirmed>)>,
+    players: Query<
+        (Entity, &Position, &Rotation),
+        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+    >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let mut tick = ticker.tick();
@@ -165,7 +169,7 @@ pub(crate) fn after_physics_log<T: TickManaged>(
             ?tick,
             ?entity,
             ?position,
-            ?rotation,
+            rotation = ?rotation.as_degrees(),
             "Player after physics update"
         );
     }
@@ -176,12 +180,28 @@ pub(crate) fn after_physics_log<T: TickManaged>(
 
 pub(crate) fn last_log<T: TickManaged>(
     ticker: Res<T>,
-    players: Query<(Entity, &Position), (Without<BallMarker>, Without<Confirmed>)>,
+    players: Query<
+        (
+            Entity,
+            &Position,
+            &Rotation,
+            Option<&Correction<Position>>,
+            Option<&Correction<Rotation>>,
+        ),
+        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+    >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let tick = ticker.tick();
-    for (entity, position) in players.iter() {
-        debug!(?tick, ?entity, ?position, "Player LAST update");
+    for (entity, position, rotation, correction, rotation_correction) in players.iter() {
+        info!(?tick, ?entity, ?position, ?correction, "Player LAST update");
+        info!(
+            ?tick,
+            ?entity,
+            rotation = ?rotation.as_degrees(),
+            ?rotation_correction,
+            "Player LAST update"
+        );
     }
     for position in ball.iter() {
         debug!(?tick, ?position, "Ball LAST update");
@@ -198,26 +218,8 @@ pub(crate) fn draw_elements(
     players: Query<(&Position, &Rotation, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
     balls: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
     walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
-    // players: Query<
-    //     (&Position, &ColorComponent),
-    //     (
-    //         Without<Predicted>,
-    //         Without<Interpolated>,
-    //         Without<BallMarker>,
-    //     ),
-    // >,
-    // cursors: Query<
-    //     (&Position, &ColorComponent),
-    //     (Without<Predicted>, Without<Interpolated>, With<BallMarker>),
-    // >,
 ) {
     for (position, rotation, color) in &players {
-        // gizmos.rect_2d(
-        //     position.translation.truncate(),
-        //     position.rotation.,
-        //     Vec2::ONE * PLAYER_SIZE,
-        //     color.0,
-        // );
         gizmos.rect_2d(
             Vec2::new(position.x, position.y),
             rotation.as_radians(),
@@ -229,12 +231,6 @@ pub(crate) fn draw_elements(
         gizmos.circle_2d(Vec2::new(position.x, position.y), BALL_SIZE, color.0);
     }
     for (wall, color) in &walls {
-        // gizmos.rect_2d(
-        //     position.translation.truncate(),
-        //     position.rotation.,
-        //     Vec2::ONE * PLAYER_SIZE,
-        //     color.0,
-        // );
         gizmos.line_2d(wall.start, wall.end, color.0);
     }
 }

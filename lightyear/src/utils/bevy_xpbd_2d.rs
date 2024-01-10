@@ -12,9 +12,7 @@ use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 pub mod position {
     use super::*;
     impl Named for Position {
-        fn name(&self) -> &'static str {
-            "Position"
-        }
+        const NAME: &'static str = "Position";
     }
 
     pub struct PositionLinearInterpolation;
@@ -40,31 +38,34 @@ pub mod position {
             EntityHashSet::default()
         }
     }
-
-    impl Message for Position {}
 }
 pub use position::*;
 
 pub mod rotation {
     use super::*;
     impl Named for Rotation {
-        fn name(&self) -> &'static str {
-            "Rotation"
-        }
+        const NAME: &'static str = "Rotation";
     }
 
     pub struct RotationLinearInterpolation;
 
     impl LerpFn<Rotation> for RotationLinearInterpolation {
         fn lerp(start: Rotation, other: Rotation, t: f32) -> Rotation {
-            let res =
-                Rotation::from_degrees(start.as_degrees() * (1.0 - t) + other.as_degrees() * t);
+            let shortest_angle =
+                ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
+            let res = Rotation::from_degrees(start.as_degrees() + shortest_angle * t);
+            // // as_radians() returns a value between -Pi and Pi
+            // // add Pi to get positive values, for interpolation
+            // let res = Rotation::from_radians(
+            //     (start.as_radians() + std::f32::consts::PI) * (1.0 - t)
+            //         + (other.as_radians() + std::f32::consts::PI) * t,
+            // );
             trace!(
                 "rotation lerp: start: {:?} end: {:?} t: {} res: {:?}",
-                start,
-                other,
+                start.as_degrees(),
+                other.as_degrees(),
                 t,
-                res
+                res.as_degrees()
             );
             res
         }
@@ -77,17 +78,13 @@ pub mod rotation {
             EntityHashSet::default()
         }
     }
-
-    impl Message for Rotation {}
 }
 pub use rotation::*;
 
 pub mod linear_velocity {
     use super::*;
     impl Named for LinearVelocity {
-        fn name(&self) -> &'static str {
-            "LinearVelocity"
-        }
+        const NAME: &'static str = "LinearVelocity";
     }
 
     pub struct LinearVelocityLinearInterpolation;
@@ -113,17 +110,13 @@ pub mod linear_velocity {
             EntityHashSet::default()
         }
     }
-
-    impl Message for LinearVelocity {}
 }
 pub use linear_velocity::*;
 
 pub mod angular_velocity {
     use super::*;
     impl Named for AngularVelocity {
-        fn name(&self) -> &'static str {
-            "AngularVelocity"
-        }
+        const NAME: &'static str = "AngularVelocity";
     }
 
     pub struct AngularVelocityLinearInterpolation;
@@ -149,8 +142,6 @@ pub mod angular_velocity {
             EntityHashSet::default()
         }
     }
-
-    impl Message for AngularVelocity {}
 }
 pub use angular_velocity::*;
 
@@ -160,9 +151,7 @@ pub use angular_velocity::*;
 pub mod mass {
     use super::*;
     impl Named for Mass {
-        fn name(&self) -> &'static str {
-            "Mass"
-        }
+        const NAME: &'static str = "Mass";
     }
     impl<'a> MapEntities<'a> for Mass {
         fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
@@ -171,7 +160,5 @@ pub mod mass {
             EntityHashSet::default()
         }
     }
-
-    impl Message for Mass {}
 }
 pub use mass::*;

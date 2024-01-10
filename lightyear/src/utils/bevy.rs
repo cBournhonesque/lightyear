@@ -9,9 +9,7 @@ use tracing::info;
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
 impl Named for Transform {
-    fn name(&self) -> &'static str {
-        "Transform"
-    }
+    const NAME: &'static str = "Transform";
 }
 
 pub struct TransformLinearInterpolation;
@@ -42,15 +40,11 @@ impl<'a> MapEntities<'a> for Transform {
     }
 }
 
-impl Message for Transform {}
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "render")] {
         use bevy::prelude::{Color,  Visibility};
         impl Named for Color {
-            fn name(&self) -> &'static str {
-                "Color"
-            }
+            const NAME: &'static str = "Color";
         }
 
         impl<'a> MapEntities<'a> for Color {
@@ -61,12 +55,9 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl Message for Color {}
 
         impl Named for Visibility {
-            fn name(&self) -> &'static str {
-                "Visibility"
-            }
+            const NAME: &'static str = "Visibility";
         }
 
         impl<'a> MapEntities<'a> for Visibility {
@@ -77,6 +68,5 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl Message for Visibility {}
     }
 }

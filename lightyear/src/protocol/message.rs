@@ -32,8 +32,6 @@ pub trait MessageProtocol:
     + DeserializeOwned
     + Clone
     + for<'a> MapEntities<'a>
-    + MessageBehaviour
-    + Named
     + Debug
     + Send
     + Sync
@@ -41,6 +39,12 @@ pub trait MessageProtocol:
     + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
 {
     type Protocol: Protocol;
+
+    /// Get the name of the Message
+    fn name(&self) -> &'static str;
+
+    /// Returns the MessageKind of the Message
+    fn kind(&self) -> MessageKind;
 
     /// Returns true if the message is an input message
     fn input_message_kind(&self) -> InputMessageKind;
@@ -54,18 +58,6 @@ pub trait MessageProtocol:
         world: &mut World,
         events: &mut E,
     );
-}
-
-/// Trait to delegate a method from the messageProtocol enum to the inner Message type
-#[enum_delegate::register]
-pub trait MessageBehaviour {
-    fn kind(&self) -> MessageKind;
-}
-
-impl<M: Message> MessageBehaviour for M {
-    fn kind(&self) -> MessageKind {
-        MessageKind::of::<M>()
-    }
 }
 
 /// MessageKind - internal wrapper around the type of the message

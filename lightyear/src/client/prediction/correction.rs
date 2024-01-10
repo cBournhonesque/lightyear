@@ -60,7 +60,7 @@ pub struct InterpolatedCorrector;
 //     // }
 // }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Correction<C: Component> {
     /// This is what the original predicted value was before any correction was applied
     pub original_prediction: C,
@@ -103,20 +103,20 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
             // correction is over
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            // store the current component value so that we can restore it at the start of the next frame
-            correction.current_correction = Some(component.clone());
             info!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
+            // store the current corrected value so that we can restore it at the start of the next frame
+            correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
             // visually update the component
-            let corrected = P::Components::correct(
+            let visual = P::Components::correct(
                 correction.original_prediction.clone(),
                 component.clone(),
                 t,
             );
-
             // store the current visual value
-            correction.current_visual = Some(corrected.clone());
-            *component = corrected;
+            correction.current_visual = Some(visual.clone());
+            // set the component value to the visual value
+            *component = visual;
         }
     }
 }

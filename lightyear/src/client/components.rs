@@ -31,8 +31,8 @@ pub trait LerpFn<C> {
 
 /// Defines how to do interpolation/correction for the component
 pub trait SyncMetadata<C> {
-    type Interpolator: LerpFn<C>;
-    type Corrector: LerpFn<C>;
+    type Interpolator: LerpFn<C> + 'static;
+    type Corrector: LerpFn<C> + 'static;
 
     fn mode() -> ComponentSyncMode;
 }

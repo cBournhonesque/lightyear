@@ -93,10 +93,6 @@ enum Cli {
         /// Which transport to use
         #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
         transport: Transports,
-
-        /// If true, clients will predict everything (themselves, the ball, other clients)
-        #[arg(long, default_value = "false")]
-        predict: bool,
     },
 }
 
@@ -136,7 +132,6 @@ fn setup(app: &mut App, cli: Cli) {
             server_addr,
             server_port,
             transport,
-            predict,
         } => {
             let client_plugin = MyClientPlugin {
                 client_id: client_id as ClientId,
@@ -144,7 +139,6 @@ fn setup(app: &mut App, cli: Cli) {
                 server_addr,
                 server_port,
                 transport,
-                predict_all: predict,
             };
             app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             // app.add_plugins(DefaultPlugins.set(LogPlugin {

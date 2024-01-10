@@ -345,6 +345,7 @@ impl MessageContainer {
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 pub trait Message: EventContext + Named + for<'a> MapEntities<'a> {}
+impl<T: EventContext + Named + for<'a> MapEntities<'a>> Message for T {}
 
 #[cfg(test)]
 mod tests {

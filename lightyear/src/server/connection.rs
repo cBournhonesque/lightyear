@@ -3,8 +3,7 @@ use bevy::utils::{Duration, EntityHashMap, Entry, HashMap};
 use std::rc::Rc;
 
 use crate::_reexport::{
-    EntityUpdatesChannel, InputMessageKind, MessageBehaviour, MessageKind, MessageProtocol,
-    PingChannel,
+    EntityUpdatesChannel, InputMessageKind, MessageKind, MessageProtocol, PingChannel,
 };
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
@@ -173,14 +172,19 @@ impl<P: Protocol> ConnectionManager<P> {
             .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
     }
 
-    pub fn receive(&mut self, world: &mut World, time_manager: &TimeManager) -> Result<()> {
+    pub fn receive(
+        &mut self,
+        world: &mut World,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<()> {
         let mut messages_to_rebroadcast = vec![];
         self.connections
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
                 // receive
-                let events = connection.receive(world, time_manager);
+                let events = connection.receive(world, time_manager, tick_manager);
                 self.events.push_events(*client_id, events);
 
                 // rebroadcast messages
@@ -342,6 +346,7 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         world: &mut World,
         time_manager: &TimeManager,
+        tick_manager: &TickManager,
     ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages::<ClientMessage<P>>() {
@@ -357,6 +362,10 @@ impl<P: Protocol> Connection<P> {
                 for (tick, message) in messages.into_iter() {
                     match message {
                         ClientMessage::Message(mut message, target) => {
+                            trace!(
+                                "remote entity map: {:?}",
+                                self.replication_receiver.remote_entity_map
+                            );
                             // map any entities inside the message
                             message.map_entities(Box::new(
                                 &self.replication_receiver.remote_entity_map,
@@ -406,22 +415,26 @@ impl<P: Protocol> Connection<P> {
                         }
                     }
                 }
-                // Check if we have any replication messages we can apply to the World (and emit events)
-                for (group, replication_list) in self.replication_receiver.read_messages() {
-                    trace!(?group, ?replication_list, "read replication messages");
-                    replication_list
-                        .into_iter()
-                        .for_each(|(tick, replication)| {
-                            // TODO: we could include the server tick when this replication_message was sent.
-                            self.replication_receiver.apply_world(
-                                world,
-                                tick,
-                                replication,
-                                group,
-                                &mut self.events,
-                            );
-                        });
-                }
+            }
+            // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
+            // Check if we have any replication messages we can apply to the World (and emit events)
+            for (group, replication_list) in self
+                .replication_receiver
+                .read_messages(tick_manager.current_tick())
+            {
+                trace!(?group, ?replication_list, "read replication messages");
+                replication_list
+                    .into_iter()
+                    .for_each(|(tick, replication)| {
+                        // TODO: we could include the server tick when this replication_message was sent.
+                        self.replication_receiver.apply_world(
+                            world,
+                            tick,
+                            replication,
+                            group,
+                            &mut self.events,
+                        );
+                    });
             }
         }
 

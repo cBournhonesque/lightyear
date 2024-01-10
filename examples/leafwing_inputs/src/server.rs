@@ -28,7 +28,7 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
+            incoming_latency: Duration::from_millis(75),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
@@ -161,14 +161,17 @@ pub(crate) fn replicate_players(
                 replication_group: REPLICATION_GROUP,
                 ..default()
             };
+            // We don't want to replicate the ActionState to the original client, since they are updating it with
+            // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+            // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExcept(vec![
+                *client_id,
+            ]));
             if plugin.predict_all {
                 replicate.prediction_target = NetworkTarget::All;
                 // if we predict other players, we need to replicate their actions to all clients other than the original one
                 // (the original client will apply the actions locally)
                 replicate.disable_replicate_once::<ActionState<PlayerActions>>();
-                replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExcept(vec![
-                    *client_id,
-                ]));
             } else {
                 // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                 replicate.prediction_target = NetworkTarget::Only(vec![*client_id]);
