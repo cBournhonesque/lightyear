@@ -122,19 +122,12 @@ pub(crate) fn movement(
         &mut LinearVelocity,
         &ActionState<PlayerActions>,
     )>,
-    // mut action_query: Query<(&Transform, &mut LinearVelocity, &ActionState<PlayerActions>)>,
 ) {
     for (entity, position, velocity, action) in action_query.iter_mut() {
         // NOTE: be careful to directly pass Mut<PlayerPosition>
         // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
         shared_movement_behaviour(velocity, action);
         info!(?entity, tick = ?server.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
-        // debug!(
-        //     "Moving player: {:?} to position: {:?} on tick: {:?}",
-        //     player_id,
-        //     position,
-        //     server.tick()
-        // );
     }
 }
 
