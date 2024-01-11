@@ -16,6 +16,11 @@ This example showcases several things:
     from the current state to the corrected state. This parameter helps make mispredictions less jittery.
 
 
+https://github.com/cBournhonesque/lightyear/assets/8112632/ac6fb465-26b8-4f5b-b22b-d79d0f48f7dd
+
+*Example with 150ms of simulated RTT, a 32Hz server replication rate, 7 ticks of input-delay, and rollback-corrections enabled.*
+
+
 
 # Usage
 
