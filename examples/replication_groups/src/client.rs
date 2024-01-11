@@ -3,9 +3,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear::client::interpolation::plugin::InterpolationSet;
-use lightyear::client::prediction::plugin::PredictionSet;
-use lightyear::inputs::input_buffer::InputBuffer;
+use lightyear::_reexport::LinearInterpolator;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;
@@ -157,7 +155,7 @@ pub(crate) fn movement(
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if PlayerPosition::mode() != ComponentSyncMode::Full {
+    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
         return;
     }
     for input in input_reader.read() {
@@ -328,7 +326,7 @@ pub(crate) fn interpolate(
                         }
                         // the path is straight! just move the head and adjust the tail
                         *parent_position =
-                            PlayerPosition::lerp(pos_start.clone(), pos_end.clone(), t);
+                            LinearInterpolator::lerp(pos_start.clone(), pos_end.clone(), t);
                         tail.shorten_back(parent_position.0, tail_length.0);
                         debug!(
                             ?tail,

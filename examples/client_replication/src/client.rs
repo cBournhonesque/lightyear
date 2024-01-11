@@ -148,7 +148,7 @@ fn player_movement(
     // InputEvent is a special case: we get an event for every fixed-update system run instead of every frame!
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if PlayerPosition::mode() != ComponentSyncMode::Full {
+    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
         return;
     }
     for input in input_reader.read() {

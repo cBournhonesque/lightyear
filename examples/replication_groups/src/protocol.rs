@@ -1,7 +1,7 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Reflect, Vec2};
 use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
-use lightyear::prelude::client::InterpFn;
+use lightyear::prelude::client::LerpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
 use serde::{Deserialize, Serialize};
@@ -208,8 +208,8 @@ pub enum Components {
     #[sync(once)]
     TailLength(TailLength),
     // we set the interpolation function to NoInterpolation because we are using our own custom interpolation logic
-    // (by default it would use LinearInterpolation, which requires Add and Mul bounds on this component)
-    #[sync(full, lerp = "NoInterpolation")]
+    // (by default it would use LinearInterpolator, which requires Add and Mul bounds on this component)
+    #[sync(full, lerp = "NullInterpolator")]
     TailPoints(TailPoints),
     #[sync(once)]
     PlayerParent(PlayerParent),
