@@ -137,7 +137,7 @@ fn player_movement(
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if PlayerPosition::mode() != ComponentSyncMode::Full {
+    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
         return;
     }
     for input in input_reader.read() {

@@ -131,7 +131,7 @@ pub(crate) fn movement(
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
     // if we are not doing prediction, no need to read inputs
-    if Position::mode() != ComponentSyncMode::Full {
+    if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
         return;
     }
     for input in input_reader.read() {

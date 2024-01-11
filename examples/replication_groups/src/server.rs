@@ -2,7 +2,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear::inputs::input_buffer::InputBuffer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;

@@ -419,7 +419,7 @@ impl SyncManager {
                 ?jitter,
                 ?current_prediction_time,
                 ?client_ideal_time,
-                stats = ?ping_manager.sync_stats,
+                // stats = ?ping_manager.sync_stats,
                 latest_received_server_tick = ?self.latest_received_server_tick,
                 client_tick = ?tick_manager.current_tick(),
                 error_ms = ?error.num_milliseconds(),
