@@ -1,5 +1,6 @@
 # Features
 
+
 This example showcases several things:
 - how to integrate lightyear with `leafwing_input_manager`. In particular you can simply attach an `ActionState` and an `InputMap`
   to an `Entity`, and the `ActionState` for that `Entity` will be replicated automatically
@@ -13,6 +14,7 @@ This example showcases several things:
      there should be no mispredictions at all, but the game will feel more laggy.
   - `correction_ticks`: when there is a misprediction, we don't immediately snapback to the corrected state, but instead we visually interpolate
     from the current state to the corrected state. This parameter helps make mispredictions less jittery.
+
 
 
 # Usage
