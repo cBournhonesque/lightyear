@@ -1,10 +1,7 @@
 //! Defines the server bevy resource
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crate::_reexport::FromType;
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
@@ -12,8 +9,8 @@ use bevy::utils::{EntityHashMap, HashSet};
 use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, error, info, trace, trace_span};
 
+use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
-use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
@@ -29,7 +26,7 @@ use crate::transport::io::Io;
 use crate::transport::{PacketSender, Transport};
 
 use super::config::ServerConfig;
-use super::connection::{Connection, ConnectionManager};
+use super::connection::ConnectionManager;
 use super::events::ServerEvents;
 
 #[derive(Resource)]
@@ -160,6 +157,12 @@ impl<P: Protocol> Server<P> {
                 // TODO: maybe only send stuff when the client is time-synced ?
                 Box::new(self.netcode.connected_client_ids().into_iter())
             }
+            NetworkTarget::AllExceptSingle(client_id) => Box::new(
+                self.netcode
+                    .connected_client_ids()
+                    .into_iter()
+                    .filter(move |id| *id != client_id),
+            ),
             NetworkTarget::AllExcept(client_ids) => {
                 let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
                 Box::new(
@@ -169,7 +172,19 @@ impl<P: Protocol> Server<P> {
                         .filter(move |id| !client_ids.contains(id)),
                 )
             }
-            NetworkTarget::Only(client_ids) => Box::new(client_ids.into_iter()),
+            NetworkTarget::Single(client_id) => {
+                if self.connection_manager.connections.contains_key(&client_id) {
+                    Box::new(std::iter::once(client_id))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            NetworkTarget::Only(client_ids) => Box::new(
+                self.netcode
+                    .connected_client_ids()
+                    .into_iter()
+                    .filter(move |id| client_ids.contains(id)),
+            ),
             NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }

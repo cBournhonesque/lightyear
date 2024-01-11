@@ -1,12 +1,12 @@
 use std::ops::Deref;
 
-use crate::_reexport::ShouldBePredicted;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
     Without,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
+use crate::_reexport::ShouldBePredicted;
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
@@ -188,7 +188,7 @@ pub fn add_component_history<C: SyncComponent, P: Protocol>(
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
-                                info!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
+                                debug!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(new_component);
                             }

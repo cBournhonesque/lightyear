@@ -1,18 +1,17 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 use std::collections::HashMap;
 
+use bevy::prelude::{Component, Entity};
+use tracing::trace;
+
 use crate::_reexport::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
-use bevy::prelude::{Component, Entity};
-use tracing::{info, trace};
-
 #[cfg(feature = "leafwing")]
 use crate::connection::events::IterInputMessageEvent;
 use crate::connection::events::{
     ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
 };
-
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::netcode::ClientId;
@@ -150,6 +149,7 @@ impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
     {
         trace!("num client events: {:?}", self.events.len());
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
+            trace!("reading all input messages for client: {:?}", client_id);
             let messages = events
                 .into_iter_input_messages::<A>()
                 .map(|(message, _)| message);

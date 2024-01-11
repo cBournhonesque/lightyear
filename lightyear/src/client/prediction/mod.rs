@@ -2,8 +2,7 @@
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use bevy::utils::EntityHashMap;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info};
 
 pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
@@ -14,7 +13,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{Replicate, ReplicationGroupId, ShouldBePredicted};
+use crate::shared::replication::components::{Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
 
 pub(crate) mod correction;
@@ -60,7 +59,7 @@ pub(crate) fn clean_prespawned_entity<P: Protocol>(
     pre_predicted_entities: Query<Entity, With<ShouldBePredicted>>,
 ) {
     for entity in pre_predicted_entities.iter() {
-        info!(?entity, "removing replicate from pre-spawned entity");
+        debug!(?entity, "removing replicate from pre-spawned entity");
         commands
             .entity(entity)
             .remove::<Replicate<P>>()
@@ -105,7 +104,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                 }
                 let client_id = should_be_predicted.client_id.unwrap();
                 if client_id != client.id() {
-                    info!(
+                    debug!(
                         local_client = ?client_id,
                         should_be_predicted_client = ?client.id(),
                         "Received ShouldBePredicted component from server for an entity that is pre-predicted by another client: {:?}!", entity);
@@ -114,7 +113,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     // just re-use the existing one!
                     should_spawn_predicted = false;
                     predicted_entity = Some(client_entity);
-                    info!(
+                    debug!(
                         "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
                         predicted_entity, confirmed_entity
                     );
@@ -135,7 +134,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     confirmed_entity: Some(confirmed_entity),
                 });
                 predicted_entity = Some(predicted_entity_mut.id());
-                info!(
+                debug!(
                     "Spawn predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );
@@ -190,7 +189,7 @@ pub(crate) fn handle_pre_prediction<P: Protocol>(
 ) {
     for (entity, mut should_be_predicted) in query.iter_mut() {
         assert!(client.is_connected());
-        info!(
+        debug!(
             client_id = ?client.id(),
             entity = ?entity,
             "adding pre-prediction info!");

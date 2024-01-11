@@ -1,21 +1,16 @@
-use std::any::TypeId;
 use std::fmt::Debug;
 
-use crate::_reexport::{ComponentProtocol, FromType, InstantCorrector};
 use bevy::prelude::{
-    Commands, DetectChanges, Entity, EventReader, FixedUpdate, Query, Ref, Res, ResMut, With,
-    Without, World,
+    Commands, DetectChanges, Entity, FixedUpdate, Query, Ref, Res, ResMut, With, Without, World,
 };
-use bevy::utils::EntityHashSet;
-use tracing::{debug, error, info, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
+use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::resource::Client;
 use crate::prelude::client::SyncMetadata;
-use crate::prelude::Tick;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::TickManaged;
 
@@ -372,7 +367,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                         if correction_ticks != 0 && P::Components::has_correction() {
                             let final_correction_tick = client.tick() + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
-                                info!("updating existing correction");
+                                debug!("updating existing correction");
                                 // if there is a correction, start the correction again from the previous
                                 // visual state to avoid glitches
                                 correction.original_prediction =
@@ -383,7 +378,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                                 // TODO: can set this to None, shouldnt make any diff
                                 correction.current_correction = Some(c.clone());
                             } else {
-                                info!("inserting new correction");
+                                debug!("inserting new correction");
                                 entity_mut.insert(Correction {
                                     original_prediction: predicted_component.clone(),
                                     original_tick: client.tick(),
@@ -456,7 +451,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
         // get the tick that the confirmed entity is at
         let tick = confirmed.tick;
         if tick > client.tick() {
-            info!(
+            debug!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
                 confirmed_entity,
                 tick,

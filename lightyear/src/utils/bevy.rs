@@ -4,7 +4,7 @@ use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
 use std::ops::Mul;
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
 
@@ -24,9 +24,12 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
             rotation,
             scale,
         };
-        info!(
+        trace!(
             "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
-            start, other, t, res
+            start,
+            other,
+            t,
+            res
         );
         res
     }

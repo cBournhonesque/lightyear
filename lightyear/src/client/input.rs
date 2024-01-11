@@ -3,7 +3,7 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::events::InputEvent;

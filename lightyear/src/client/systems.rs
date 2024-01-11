@@ -1,21 +1,19 @@
 //! Defines the client bevy systems and run conditions
-use crate::_reexport::ReplicationSend;
-use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
+use bevy::prelude::{Events, Fixed, Mut, Res, Time, Virtual, World};
 #[cfg(feature = "xpbd_2d")]
 use bevy_xpbd_2d::prelude::PhysicsTime;
-use cfg_if::cfg_if;
 use tracing::{error, info, trace};
 
+use crate::_reexport::ReplicationSend;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;
-use crate::client::sync::SyncManager;
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
-    info!("Receive server packets");
+    trace!("Receive server packets");
     world.resource_scope(|world, mut client: Mut<Client<P>>| {
         world.resource_scope(|world, time: Mut<Time<Virtual>>| {
             let fixed_time = world.get_resource::<Time<Fixed>>().unwrap();

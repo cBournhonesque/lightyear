@@ -17,7 +17,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub const INPUT_DELAY_TICKS: u16 = 3;
-pub const CORRECTION_TICKS_FACTOR: f32 = 1.2;
+pub const CORRECTION_TICKS_FACTOR: f32 = 1.0;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
@@ -40,8 +40,8 @@ impl Plugin for MyClientPlugin {
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(75),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
+            incoming_jitter: Duration::from_millis(10),
+            incoming_loss: 0.02,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -73,13 +73,13 @@ impl Plugin for MyClientPlugin {
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
             LeafwingInputConfig::<PlayerActions> {
-                send_diffs_only: false,
+                send_diffs_only: true,
                 ..default()
             },
         ));
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
             LeafwingInputConfig::<AdminActions> {
-                send_diffs_only: false,
+                send_diffs_only: true,
                 ..default()
             },
         ));
@@ -146,17 +146,17 @@ pub(crate) fn init(
             (KeyCode::D, PlayerActions::Right),
         ]),
     ));
-    // commands.spawn(PlayerBundle::new(
-    //     plugin.client_id,
-    //     Vec2::new(50.0, y),
-    //     color_from_id(plugin.client_id),
-    //     InputMap::new([
-    //         (KeyCode::Up, PlayerActions::Up),
-    //         (KeyCode::Down, PlayerActions::Down),
-    //         (KeyCode::Left, PlayerActions::Left),
-    //         (KeyCode::Right, PlayerActions::Right),
-    //     ]),
-    // ));
+    commands.spawn(PlayerBundle::new(
+        plugin.client_id,
+        Vec2::new(50.0, y),
+        color_from_id(plugin.client_id),
+        InputMap::new([
+            (KeyCode::Up, PlayerActions::Up),
+            (KeyCode::Down, PlayerActions::Down),
+            (KeyCode::Left, PlayerActions::Left),
+            (KeyCode::Right, PlayerActions::Right),
+        ]),
+    ));
     client.connect();
 }
 

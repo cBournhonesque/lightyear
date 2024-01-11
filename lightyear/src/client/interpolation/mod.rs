@@ -2,7 +2,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
-use tracing::{debug, info};
+use tracing::debug;
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;

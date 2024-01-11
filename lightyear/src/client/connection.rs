@@ -1,21 +1,19 @@
 //! Specify how a Client sends/receives messages with a Server
 use std::time::Duration;
 
-use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, info, trace, trace_span};
+use serde::Serialize;
+use tracing::{debug, trace, trace_span};
 
+use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::client::sync::SyncConfig;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::message_receivers::MessageReceiver;
-use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{ChannelKind, MapEntities, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;

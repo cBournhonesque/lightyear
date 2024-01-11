@@ -1,27 +1,20 @@
 //! Specify how a Server sends/receives messages with a Client
-use bevy::utils::{Duration, EntityHashMap, Entry, HashMap};
-use std::rc::Rc;
-
-use crate::_reexport::{
-    EntityUpdatesChannel, InputMessageKind, MessageKind, MessageProtocol, PingChannel,
-};
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, World};
-use serde::{Deserialize, Serialize};
-use tracing::{debug, debug_span, info, trace, trace_span};
+use bevy::utils::{EntityHashMap, Entry, HashMap};
+use serde::Serialize;
+use tracing::{debug, info, trace, trace_span};
 
+use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
-use crate::client::sync::SyncConfig;
-use crate::connection::events::{ConnectionEvents, IterMessageEvent};
+use crate::connection::events::ConnectionEvents;
 use crate::connection::message::{ClientMessage, ServerMessage};
-use crate::inputs::native::input_buffer::{InputBuffer, InputMessage};
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::message_receivers::MessageReceiver;
-use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities};
+use crate::prelude::{ChannelKind, MapEntities};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -179,6 +172,7 @@ impl<P: Protocol> ConnectionManager<P> {
         tick_manager: &TickManager,
     ) -> Result<()> {
         let mut messages_to_rebroadcast = vec![];
+        // TODO: do this in parallel
         self.connections
             .iter_mut()
             .for_each(|(client_id, connection)| {
@@ -358,7 +352,7 @@ impl<P: Protocol> Connection<P> {
             let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
             if !messages.is_empty() {
-                trace!(?channel_name, "Received messages");
+                trace!(?channel_name, ?messages, "Received messages");
                 for (tick, message) in messages.into_iter() {
                     match message {
                         ClientMessage::Message(mut message, target) => {

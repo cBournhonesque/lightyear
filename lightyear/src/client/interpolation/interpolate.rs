@@ -1,7 +1,7 @@
-use crate::_reexport::ComponentProtocol;
 use bevy::prelude::{Component, Query, ResMut};
-use tracing::{info, trace};
+use tracing::trace;
 
+use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::resource::Client;

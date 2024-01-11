@@ -88,12 +88,12 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     );
 
     // the ball is server-authoritative
-    // commands.spawn(BallBundle::new(
-    //     Vec2::new(0.0, 0.0),
-    //     Color::AZURE,
-    //     // if true, we predict the ball on clients
-    //     plugin.predict_all,
-    // ));
+    commands.spawn(BallBundle::new(
+        Vec2::new(0.0, 0.0),
+        Color::AZURE,
+        // if true, we predict the ball on clients
+        plugin.predict_all,
+    ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection

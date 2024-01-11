@@ -1,15 +1,14 @@
 /*!
 Defines the [`ClientMessage`] and [`ServerMessage`] enums that are used to send messages over the network
 */
+use serde::{Deserialize, Serialize};
+use tracing::{info_span, trace};
+
 use crate::_reexport::MessageProtocol;
 use crate::prelude::{ChannelKind, NetworkTarget};
-use serde::{Deserialize, Serialize};
-use tracing::{info, info_span, trace};
-
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
-use crate::utils::named::Named;
 
 pub(crate) struct MessageMetadata {
     pub(crate) target: NetworkTarget,
@@ -31,7 +30,7 @@ impl<P: Protocol> ClientMessage<P> {
         match self {
             ClientMessage::Message(message, _) => {
                 let message_name = message.name();
-                info!(channel = ?channel_name, message = ?message_name, "Sending message");
+                trace!(channel = ?channel_name, message = ?message_name, kind = ?message.kind(), "Sending message");
                 #[cfg(metrics)]
                 metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
             }

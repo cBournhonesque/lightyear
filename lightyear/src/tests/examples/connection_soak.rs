@@ -95,7 +95,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         let mut rng = rand::thread_rng();
         loop {
             server.update(start.elapsed())?;
-            server.recv_packets(BevyTick::new(0))?;
+            server.recv_packets()?;
             server.send_packets()?;
             server.receive(&mut world);
 
@@ -124,7 +124,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         loop {
             // can use 0 overstep if not in Bevy
             client.update(start.elapsed(), Duration::default())?;
-            client.recv_packets(BevyTick::new(0))?;
+            client.recv_packets()?;
             client.send_packets()?;
 
             if client.is_connected() {

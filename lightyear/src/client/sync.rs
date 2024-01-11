@@ -9,7 +9,6 @@ use tracing::{debug, info, trace, warn};
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::client::resource::Client;
 use crate::packet::packet::PacketId;
-use crate::prelude::client::PredictionConfig;
 use crate::protocol::Protocol;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
@@ -234,7 +233,7 @@ impl SyncManager {
                 * self.config.server_time_estimate_smoothing
                 + new_server_time_estimate * (1.0 - self.config.server_time_estimate_smoothing);
         }
-        info!(
+        debug!(
             ?new_server_time_estimate,
             updated_server_time_estimate = ?self.server_time_estimate,
             ?self.latest_received_server_tick,
@@ -433,7 +432,7 @@ impl SyncManager {
         }
 
         time_manager.sync_relative_speed = if error > error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
@@ -447,7 +446,7 @@ impl SyncManager {
             // we are too far ahead of the server, slow down
             1.0 / self.config.speedup_factor
         } else if error < -error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,

@@ -252,12 +252,16 @@ pub enum NetworkTarget {
     #[default]
     /// Message sent to no client
     None,
+    /// Message sent to all clients except one
+    AllExceptSingle(ClientId),
     /// Message sent to all clients except for these
     AllExcept(Vec<ClientId>),
     /// Message sent to all clients
     All,
     /// Message sent to only these
     Only(Vec<ClientId>),
+    /// Message sent to only this one client
+    Single(ClientId),
 }
 
 impl NetworkTarget {
@@ -265,8 +269,10 @@ impl NetworkTarget {
     pub(crate) fn should_send_to(&self, client_id: &ClientId) -> bool {
         match self {
             NetworkTarget::All => true,
+            NetworkTarget::AllExceptSingle(single) => client_id != single,
             NetworkTarget::AllExcept(client_ids) => !client_ids.contains(client_id),
             NetworkTarget::Only(client_ids) => client_ids.contains(client_id),
+            NetworkTarget::Single(single) => client_id == single,
             NetworkTarget::None => false,
         }
     }
@@ -277,9 +283,19 @@ impl NetworkTarget {
             NetworkTarget::All => {
                 *self = target;
             }
+            NetworkTarget::AllExceptSingle(existing_client_id) => {
+                let mut a = NetworkTarget::AllExcept(vec![*existing_client_id]);
+                a.intersection(target);
+                *self = a;
+            }
             NetworkTarget::AllExcept(existing_client_ids) => match target {
                 NetworkTarget::None => {
                     *self = NetworkTarget::None;
+                }
+                NetworkTarget::AllExceptSingle(target_client_id) => {
+                    let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                    new_excluded_ids.insert(target_client_id);
+                    *existing_client_ids = Vec::from_iter(new_excluded_ids);
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
                     let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
@@ -296,10 +312,22 @@ impl NetworkTarget {
                     });
                     *self = NetworkTarget::Only(Vec::from_iter(new_included_ids));
                 }
+                NetworkTarget::Single(target_client_id) => {
+                    if existing_client_ids.contains(&target_client_id) {
+                        *self = NetworkTarget::None;
+                    } else {
+                        *self = NetworkTarget::Single(target_client_id);
+                    }
+                }
             },
             NetworkTarget::Only(existing_client_ids) => match target {
                 NetworkTarget::None => {
                     *self = NetworkTarget::None;
+                }
+                NetworkTarget::AllExceptSingle(target_client_id) => {
+                    let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
+                    new_included_ids.remove(&target_client_id);
+                    *existing_client_ids = Vec::from_iter(new_included_ids);
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
                     let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
@@ -309,6 +337,13 @@ impl NetworkTarget {
                     *existing_client_ids = Vec::from_iter(new_included_ids);
                 }
                 NetworkTarget::All => {}
+                NetworkTarget::Single(target_client_id) => {
+                    if existing_client_ids.contains(&target_client_id) {
+                        *self = NetworkTarget::Single(target_client_id);
+                    } else {
+                        *self = NetworkTarget::None;
+                    }
+                }
                 NetworkTarget::Only(target_client_ids) => {
                     let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
                     let target_included_ids = HashSet::from_iter(target_client_ids.clone());
@@ -316,6 +351,11 @@ impl NetworkTarget {
                     *existing_client_ids = intersection.collect::<Vec<_>>();
                 }
             },
+            NetworkTarget::Single(existing_client_id) => {
+                let mut a = NetworkTarget::Only(vec![*existing_client_id]);
+                a.intersection(target);
+                *self = a;
+            }
             NetworkTarget::None => {}
         }
     }
@@ -325,6 +365,11 @@ impl NetworkTarget {
         match self {
             NetworkTarget::All => {
                 *self = NetworkTarget::AllExcept(client_ids);
+            }
+            NetworkTarget::AllExceptSingle(existing_client_id) => {
+                let mut new_excluded_ids = HashSet::from_iter(client_ids.clone());
+                new_excluded_ids.insert(*existing_client_id);
+                *self = NetworkTarget::AllExcept(Vec::from_iter(new_excluded_ids));
             }
             NetworkTarget::AllExcept(existing_client_ids) => {
                 let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
@@ -342,6 +387,11 @@ impl NetworkTarget {
                     *self = NetworkTarget::None;
                 } else {
                     *existing_client_ids = Vec::from_iter(new_ids);
+                }
+            }
+            NetworkTarget::Single(client_id) => {
+                if client_ids.contains(client_id) {
+                    *self = NetworkTarget::None;
                 }
             }
             NetworkTarget::None => {}

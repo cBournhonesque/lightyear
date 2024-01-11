@@ -151,7 +151,11 @@ macro_rules! protocolize {
                         direction: ChannelDirection::Bidirectional,
                     });
                     protocol.add_channel::<InputChannel>(ChannelSettings {
-                        mode: ChannelMode::SequencedUnreliable,
+                        // we want to use unordered unreliable because the server has a buffer to re-order the inputs anyway
+                        // Also multiple 'types' of inputs share the same channel
+                        // TODO: maybe we should have a different input channel per input, and use sequenced?
+                        //  because our messages contain the last 10 ticks of input anyway, so we don't need to read older ones.
+                        mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::ClientToServer,
                     });
                     protocol.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
@@ -236,7 +240,7 @@ macro_rules! protocolize {
                         direction: ChannelDirection::Bidirectional,
                     });
                     protocol.add_channel::<InputChannel>(ChannelSettings {
-                        mode: ChannelMode::SequencedUnreliable,
+                        mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::ClientToServer,
                     });
                     protocol.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {

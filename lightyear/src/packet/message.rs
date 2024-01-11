@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 
-use bitcode::encoding::{Fixed, Gamma};
 use bytes::Bytes;
+
+use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::EventContext;

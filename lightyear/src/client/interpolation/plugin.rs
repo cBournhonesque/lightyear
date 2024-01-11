@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::prelude::{
-    apply_deferred, App, Component, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    SystemSet, Update,
+    apply_deferred, App, Component, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, SystemSet,
+    Update,
 };
 
 use crate::client::components::{SyncComponent, SyncMetadata};
@@ -12,7 +12,6 @@ use crate::client::interpolation::interpolate::{interpolate, update_interpolate_
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
-use crate::shared::sets::MainSet;
 
 use super::interpolation_history::{add_component_history, apply_confirmed_update};
 use super::spawn_interpolated_entity;

@@ -155,7 +155,14 @@ STATUS:
   - and network the compressed physics
   - then the client/server are working with the same numbers, so fewer desyncs
 - TODO: input decay: https://www.snapnet.dev/blog/netcode-architectures-part-2-rollback/#input-decay
+- TODO: use a sequenced-unreliable channel per actionlike, instead of a global unrealible unordered channel for all inputs
 
+
+- TODO: how to do entity mapping for inputs?
+  - A) inputs on pre-predicted entity. Ok because server maintains mapping between server-local and client-predicted!
+  - B) inputs on confirmed. Ok because server maintains mapping between server-local and client-confirmed!
+  - C) inputs on predicted. How do we do it? Maybe distinguish between Pre-Predicted entities and normal predicted entities?
+       For normal predicted entities, we map the entity to the confirmed one before sending?
 
 
 QUESTIONS:

@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::_reexport::FromType;
 use bevy::prelude::{
-    apply_deferred, App, Component, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Res, SystemSet,
+    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
+    PreUpdate, Res, SystemSet,
 };
 use bevy::transform::TransformSystem;
 
+use crate::_reexport::FromType;
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
@@ -18,7 +18,7 @@ use crate::client::prediction::despawn::{
 use crate::client::prediction::predicted_history::update_prediction_history;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
-use crate::prelude::{Named, ReplicationSet};
+use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};

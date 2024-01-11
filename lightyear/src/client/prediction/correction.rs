@@ -6,13 +6,14 @@
 // - interpolate (provided)
 // - custom
 
+use bevy::prelude::{Commands, Component, Entity, Query, Res};
+use tracing::{debug, info};
+
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
 use crate::client::resource::Client;
 use crate::prelude::{Tick, TickManaged};
 use crate::protocol::Protocol;
-use bevy::prelude::{Commands, Component, Entity, Query, Res};
-use tracing::info;
 
 // TODO: instead of requiring the component to implement the correction, we could have a separate
 //  'type registry' that stores the correction function for each component type.
@@ -95,7 +96,7 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
         t = t.clamp(0.0, 1.0);
         // if t == 1.0 || &correction.original_prediction == component.as_ref() {
         if t == 1.0 {
-            info!(
+            debug!(
                 ?t,
                 "Correction is over. Removing Correction for: {:?}",
                 component.name()
@@ -103,7 +104,7 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
             // correction is over
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            info!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
+            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
@@ -127,10 +128,10 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
 ) {
     for (mut component, mut correction) in query.iter_mut() {
         if let Some(correction) = std::mem::take(&mut correction.current_correction) {
-            info!("restoring corrected component: {:?}", component.name());
+            debug!("restoring corrected component: {:?}", component.name());
             *component = correction;
         } else {
-            info!(
+            debug!(
                 "Corrected component was None so couldn't restore: {:?}",
                 component.name()
             );

@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::prelude::{MapEntities, Message, Named, Tick};
+use crate::prelude::{MapEntities, Named, Tick};
 
 /// Marks an entity that contains the server-updates that are received from the Server
 /// (this entity is a copy of Predicted that is RTT ticks behind)

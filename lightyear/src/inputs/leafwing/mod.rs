@@ -1,15 +1,17 @@
 //! Handles buffering and networking of inputs from client to server, using `leafwing_input_manager`
 
-pub(crate) mod input_buffer;
+use std::fmt::Debug;
 
-pub use input_buffer::InputMessage;
-
-use crate::protocol::BitSerializable;
 use bevy::prelude::{FromReflect, TypePath};
 use bevy::reflect::Reflect;
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+
+pub use input_buffer::InputMessage;
+
+use crate::protocol::BitSerializable;
+
+pub(crate) mod input_buffer;
 
 pub trait LeafwingUserAction:
     BitSerializable

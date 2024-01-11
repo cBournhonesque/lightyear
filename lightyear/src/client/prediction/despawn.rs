@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::_reexport::ShouldBePredicted;
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
-    Commands, Component, Entity, EventReader, Query, RemovedComponents, ResMut, With, Without,
-    World,
+    Commands, Component, Entity, Query, RemovedComponents, ResMut, With, Without, World,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
+use crate::_reexport::ShouldBePredicted;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
