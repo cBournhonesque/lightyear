@@ -1,10 +1,10 @@
 //! Bevy events that will be emitted upon receiving network messages
 use std::marker::PhantomData;
 
-#[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::InputMessage;
 use bevy::prelude::{Component, Entity, Event};
 
+#[cfg(feature = "leafwing")]
+use crate::inputs::leafwing::InputMessage;
 use crate::packet::message::Message;
 
 #[derive(Event)]

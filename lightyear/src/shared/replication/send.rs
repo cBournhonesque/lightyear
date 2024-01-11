@@ -1,19 +1,17 @@
 //! General struct handling replication
-use std::collections::BTreeMap;
 use std::iter::Extend;
 
 use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, World};
+use bevy::prelude::Entity;
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashMap, HashSet};
 use crossbeam_channel::Receiver;
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, error, trace, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType, ShouldBePredicted};
-use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::{MapEntities, Tick};
 use crate::protocol::channel::ChannelKind;
@@ -22,11 +20,7 @@ use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
-use super::entity_map::{InterpolatedEntityMap, PredictedEntityMap, RemoteEntityMap};
-use super::{
-    EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessage,
-    ReplicationMessageData,
-};
+use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
 
 pub(crate) struct ReplicationSender<P: Protocol> {
     // SEND

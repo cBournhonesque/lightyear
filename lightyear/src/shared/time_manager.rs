@@ -13,10 +13,11 @@ use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use std::time::Duration;
 
-use bevy::prelude::{Time, Timer, TimerMode, Virtual};
-use bitcode::{Decode, Encode};
+use bevy::prelude::{Time, Timer, TimerMode};
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
+
+use bitcode::{Decode, Encode};
 
 /// Time wraps after u32::MAX in microseconds (a bit over an hour)
 pub const WRAPPING_TIME_US: u32 = u32::MAX;
