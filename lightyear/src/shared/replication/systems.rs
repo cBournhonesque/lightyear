@@ -1,15 +1,15 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
-use bevy::ecs::entity::Entities;
 use std::ops::Deref;
 
-use crate::_reexport::FromType;
+use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
-    PreUpdate, Query, Ref, RemovedComponents, ResMut, With, Without,
+    PreUpdate, Query, Ref, RemovedComponents, ResMut, Without,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
+use crate::_reexport::FromType;
 use crate::prelude::{MainSet, NetworkTarget};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;

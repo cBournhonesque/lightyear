@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -36,7 +36,6 @@ xpbd_2d = ["dep:bevy_xpbd_2d"]
 anyhow = "1.0"
 chrono = "0.4.31"
 cfg-if = "1.0"
-const_format = "0.2.32"
 derive_more = "0.99.17"
 enum_delegate = "0.2"
 enum_dispatch = "0.3"

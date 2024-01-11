@@ -1,5 +1,5 @@
 use bevy::prelude::ResMut;
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::shared::tick_manager::TickManaged;
 

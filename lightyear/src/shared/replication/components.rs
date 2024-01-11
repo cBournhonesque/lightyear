@@ -1,16 +1,15 @@
 //! Components used for replication
 use bevy::prelude::{Component, Entity};
-use bevy::utils::{EntityHashSet, HashMap, HashSet};
+use bevy::utils::{HashMap, HashSet};
 use cfg_if::cfg_if;
-
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace, warn};
+use tracing::trace;
 
-use crate::_reexport::FromType;
 use lightyear_macros::MessageInternal;
 
+use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
-use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::client::components::SyncComponent;
 use crate::netcode::ClientId;
 use crate::prelude::{EntityMapper, MapEntities};
 use crate::protocol::Protocol;

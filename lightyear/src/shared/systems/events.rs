@@ -1,6 +1,6 @@
-use crate::_reexport::FromType;
 use bevy::prelude::{Component, Events, World};
 
+use crate::_reexport::FromType;
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, IterMessageEvent,
 };
