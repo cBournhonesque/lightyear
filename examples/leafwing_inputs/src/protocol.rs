@@ -21,7 +21,6 @@ pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::Group(1);
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
-    // transform: Transform,
     position: Position,
     color: ColorComponent,
     replicate: Replicate,
@@ -36,14 +35,12 @@ pub(crate) struct PlayerBundle {
 impl PlayerBundle {
     pub(crate) fn new(
         id: ClientId,
-        // transform: Vec2,
         position: Vec2,
         color: Color,
         input_map: InputMap<PlayerActions>,
     ) -> Self {
         Self {
             id: PlayerId(id),
-            // transform: Transform::from_xyz(transform.x, transform.y, 0.0),
             position: Position(position),
             color: ColorComponent(color),
             replicate: Replicate {
@@ -65,7 +62,6 @@ impl PlayerBundle {
 // Ball
 #[derive(Bundle)]
 pub(crate) struct BallBundle {
-    // transform: Transform,
     position: Position,
     color: ColorComponent,
     replicate: Replicate,

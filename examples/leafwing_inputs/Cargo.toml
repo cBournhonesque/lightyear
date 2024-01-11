@@ -14,9 +14,7 @@ mock_time = ["lightyear/mock_time"]
 bevy_framepace = "0.14.1"
 bevy-fps-counter = "0.3.0"
 leafwing-input-manager = "0.11.2"
-bevy_xpbd_2d = { git = "https://github.com/Jondolf/bevy_xpbd", features = [
-  "serialize",
-] }
+bevy_xpbd_2d = { version = "0.3.3", features = ["serialize"] }
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "render",
