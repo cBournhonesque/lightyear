@@ -16,7 +16,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const INPUT_DELAY_TICKS: u16 = 3;
+pub const INPUT_DELAY_TICKS: u16 = 10;
 pub const CORRECTION_TICKS_FACTOR: f32 = 1.0;
 
 #[derive(Resource, Clone, Copy)]
@@ -73,7 +73,7 @@ impl Plugin for MyClientPlugin {
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
             LeafwingInputConfig::<PlayerActions> {
-                send_diffs_only: true,
+                send_diffs_only: false,
                 ..default()
             },
         ));
