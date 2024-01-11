@@ -16,7 +16,7 @@ exclude = ["/tests"]
 proc-macro = true
 
 [features]
-leafwing = ["lightyear/leafwing"]
+leafwing = []
 
 
 [dependencies]
