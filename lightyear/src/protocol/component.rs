@@ -1,3 +1,4 @@
+use std::any::TypeId;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
@@ -5,10 +6,11 @@ use bevy::prelude::{App, Component, Entity, EntityWorldMut, World};
 use bevy::utils::EntityHashSet;
 use cfg_if::cfg_if;
 
+use crate::_reexport::{InstantCorrector, NullInterpolator};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::client::components::ComponentSyncMode;
+use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
@@ -73,35 +75,71 @@ pub trait ComponentProtocol:
     /// Add all component systems for the Interpolation SystemSet
     fn add_interpolation_systems(app: &mut App);
 
+    // /// Get the sync mode for the component
+    // fn mode<C>() -> ComponentSyncMode
+    // where
+    //     Self: SyncMetadata<C>,
+    // {
+    //     <Self as SyncMetadata<C>>::mode()
+    // }
+
+    /// If false, we don't want to apply any interpolation
+    fn has_interpolation<C>() -> bool
+    where
+        Self: SyncMetadata<C>,
+    {
+        TypeId::of::<<Self as SyncMetadata<C>>::Interpolator>() != TypeId::of::<NullInterpolator>()
+    }
+
+    /// If false, we don't want to apply any corrections
+    fn has_correction<C>() -> bool
+    where
+        Self: SyncMetadata<C>,
+    {
+        TypeId::of::<<Self as SyncMetadata<C>>::Corrector>() != TypeId::of::<InstantCorrector>()
+    }
+
     /// Get the sync mode for the component
-    fn mode(&self) -> ComponentSyncMode;
-}
+    fn lerp<C>(start: C, other: C, t: f32) -> C
+    where
+        Self: SyncMetadata<C>,
+    {
+        <Self as SyncMetadata<C>>::Interpolator::lerp(start, other, t)
+    }
 
-/// Helper trait to wrap a component to replicate so that you can circumvent the orphan rule
-/// and implement new traits for an existing component.
-///
-/// When replicating, the inner component will be replicated
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-pub struct Wrapper<T: Message>(pub T);
-
-impl<T: Message> Named for Wrapper<T> {
-    fn name(&self) -> &'static str {
-        self.0.name()
+    fn correct<C>(predicted: C, corrected: C, t: f32) -> C
+    where
+        Self: SyncMetadata<C>,
+    {
+        <Self as SyncMetadata<C>>::Corrector::lerp(predicted, corrected, t)
     }
 }
 
-impl<'a, T: Message> MapEntities<'a> for Wrapper<T> {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        self.0.map_entities(entity_mapper)
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        self.0.entities()
-    }
-}
-
-impl<T: Message> Message for Wrapper<T> {}
-
+// /// Helper trait to wrap a component to replicate so that you can circumvent the orphan rule
+// /// and implement new traits for an existing component.
+// ///
+// /// When replicating, the inner component will be replicated
+// #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+// pub struct Wrapper<T: Message>(pub T);
+//
+// impl<T: Message> Named for Wrapper<T> {
+//     fn name(&self) -> &'static str {
+//         self.0.name()
+//     }
+// }
+//
+// impl<'a, T: Message> MapEntities<'a> for Wrapper<T> {
+//     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+//         self.0.map_entities(entity_mapper)
+//     }
+//
+//     fn entities(&self) -> EntityHashSet<Entity> {
+//         self.0.entities()
+//     }
+// }
+//
+// impl<T: Message> Message for Wrapper<T> {}
+//
 // TODO: enum_delegate doesn't work with generics + cannot be used multiple times since it derives a bunch of Into/From traits
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 ///  We use it mainly for the IntoKind, From implementations

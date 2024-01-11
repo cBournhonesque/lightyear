@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel};
+use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, ShouldBePredicted};
 use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
@@ -29,7 +29,6 @@ use super::{
     ReplicationMessageData,
 };
 
-// TODO: maybe separate send/receive side for clarity?
 pub(crate) struct ReplicationReceiver<P: Protocol> {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
@@ -68,6 +67,14 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     return;
                 }
 
+                // update the list of entities in the group
+                m.actions
+                    .iter()
+                    .map(|(entity, _)| entity)
+                    .for_each(|entity| {
+                        channel.remote_entities.insert(*entity);
+                    });
+
                 // add the message to the buffer
                 // TODO: I guess this handles potential duplicates?
                 channel
@@ -97,9 +104,16 @@ impl<P: Protocol> ReplicationReceiver<P> {
     /// Return the list of replication messages that are ready to be applied to the World
     /// Also include the server_tick when that replication message was emitted
     ///
+    /// A message is ready if:
+    /// - actions are read in order
+    /// - updates are read in order, and only if the actions that preceded them have already been read
+    /// - the remote tick is <= the current tick (i.e. we do not read messages from the future)
+    ///
+    ///
     /// Updates the `latest_tick` for this group
     pub(crate) fn read_messages(
         &mut self,
+        current_tick: Tick,
     ) -> Vec<(
         ReplicationGroupId,
         Vec<(
@@ -111,7 +125,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
             .iter_mut()
             .filter_map(|(group_id, channel)| {
                 channel
-                    .read_messages()
+                    .read_messages(current_tick)
                     .map(|messages| (*group_id, messages))
             })
             .collect()
@@ -122,6 +136,17 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
         self.channel_by_local(confirmed_entity)
             .map(|channel| channel.latest_tick)
+    }
+
+    /// Get the replication group id associated with a given local entity
+    pub(crate) fn get_replication_group_id(
+        &self,
+        confirmed_entity: Entity,
+    ) -> Option<ReplicationGroupId> {
+        self.remote_entity_map
+            .get_remote(confirmed_entity)
+            .and_then(|remote_entity| self.remote_entity_to_group.get(remote_entity))
+            .copied()
     }
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
@@ -157,6 +182,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn apply_world(
         &mut self,
         world: &mut World,
+        tick: Tick,
         replication: ReplicationMessageData<P::Components, P::ComponentKinds>,
         group_id: ReplicationGroupId,
         events: &mut ConnectionEvents<P>,
@@ -164,7 +190,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                debug!(?m, "Received replication actions");
+                trace!(?tick, ?m, "Received replication actions");
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
@@ -199,6 +225,9 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         debug!(remote_entity = ?entity, "Received entity despawn");
                         if let Some(local_entity) = self.remote_entity_map.remove_by_remote(entity)
                         {
+                            if let Some(group) = self.group_channels.get_mut(&group_id) {
+                                group.remote_entities.remove(&entity);
+                            }
                             world.despawn(local_entity);
                             self.remote_entity_to_group.remove(&entity);
                             events.push_despawn(local_entity);
@@ -235,14 +264,17 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         component.insert(&mut local_entity_mut);
 
                         // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
-                        // we should immediately take ownership of it, so we won't receive a despawn for it
-                        // thus, we should remove it from the entity map right after receiving it!
-                        // Actually, we should figure out a way to cleanup every received entity where the sender
-                        // stopped replicating or didn't replicate the Spawn, as this could just cause memory to accumulate
+                        //  we should immediately take ownership of it, so we won't receive a despawn for it
+                        //  thus, we should remove it from the entity map right after receiving it!
+                        //  Actually, we should figure out a way to cleanup every received entity where the sender
+                        //  stopped replicating or didn't replicate the Despawn, as this could just cause memory to accumulate
+
+                        // TODO: maybe if is-server, attach the client-id to the ShouldBePredicted entity
+                        //  to know for which client we should do the pre-prediction
                     }
 
                     // removals
-                    debug!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
+                    trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
                         events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
                         kind.remove(&mut local_entity_mut);
@@ -270,6 +302,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
             }
             ReplicationMessageData::Updates(m) => {
+                trace!(?tick, ?m, "Received replication updates");
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists
@@ -293,12 +326,34 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
             }
         }
+
+        // update the Confirmed tick for all entities in the replication group
+        // // TODO: maybe get the confirmed tick from the apply_world message directly?
+        // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
+        self.group_channels
+            .get(&group_id)
+            .map(|g| g.remote_entities.clone())
+            .iter()
+            .flatten()
+            .for_each(|remote_entity| {
+                if let Ok(mut local_entity_mut) =
+                    self.remote_entity_map.get_by_remote(world, *remote_entity)
+                {
+                    trace!(?tick, "updating confirmed tick for entity");
+                    if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                        confirmed.tick = tick;
+                    }
+                }
+            });
     }
 }
 
 /// Channel to keep track of receiving/sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel<P: Protocol> {
+    // entities
+    // set of remote entities that are part of the same Replication Group
+    remote_entities: HashSet<Entity>,
     // actions
     pub actions_pending_recv_message_id: MessageId,
     pub actions_recv_message_buffer:
@@ -315,6 +370,7 @@ pub struct GroupChannel<P: Protocol> {
 impl<P: Protocol> Default for GroupChannel<P> {
     fn default() -> Self {
         Self {
+            remote_entities: HashSet::default(),
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates: Default::default(),
@@ -332,14 +388,26 @@ impl<P: Protocol> GroupChannel<P> {
     /// If had received updates that were waiting on a given action, we also return them
     fn read_action(
         &mut self,
+        current_tick: Tick,
     ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
-        // Check if we have received the message we are waiting for
+        // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
+
         let Some(message) = self
             .actions_recv_message_buffer
-            .remove(&self.actions_pending_recv_message_id)
+            .get(&self.actions_pending_recv_message_id)
         else {
             return None;
         };
+        // if the message is from the future, keep it there
+        if message.0 > current_tick {
+            return None;
+        }
+
+        // We have received the message we are waiting for
+        let message = self
+            .actions_recv_message_buffer
+            .remove(&self.actions_pending_recv_message_id)
+            .unwrap();
 
         self.actions_pending_recv_message_id += 1;
         // Update the latest server tick that we have processed
@@ -369,6 +437,7 @@ impl<P: Protocol> GroupChannel<P> {
 
     fn read_messages(
         &mut self,
+        current_tick: Tick,
     ) -> Option<
         Vec<(
             Tick,
@@ -378,7 +447,7 @@ impl<P: Protocol> GroupChannel<P> {
         let mut res = Vec::new();
 
         // check for any actions that are ready to be applied
-        while let Some((tick, actions)) = self.read_action() {
+        while let Some((tick, actions)) = self.read_action(current_tick) {
             res.push((tick, ReplicationMessageData::Actions(actions)));
         }
 
@@ -497,7 +566,7 @@ mod tests {
             .is_some());
 
         // read messages: only read the first action and update
-        let read_messages = manager.read_messages();
+        let read_messages = manager.read_messages(Tick(10));
         let replication_data = &read_messages.first().unwrap().1;
         assert_eq!(replication_data.get(0).unwrap().0, Tick(0));
         assert_eq!(replication_data.get(1).unwrap().0, Tick(1));
@@ -513,7 +582,7 @@ mod tests {
             },
             Tick(3),
         );
-        assert!(manager.read_messages().is_empty());
+        assert!(manager.read_messages(Tick(10)).is_empty());
 
         // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
         manager.recv_message(
@@ -526,7 +595,7 @@ mod tests {
             },
             Tick(2),
         );
-        let read_messages = manager.read_messages();
+        let read_messages = manager.read_messages(Tick(10));
         let replication_data = &read_messages.first().unwrap().1;
         assert_eq!(replication_data.len(), 3);
         assert_eq!(replication_data.get(0).unwrap().0, Tick(2));

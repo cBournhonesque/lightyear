@@ -16,8 +16,7 @@ use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::channel::senders::ChannelSender;
-use crate::prelude::ChannelKind;
-use crate::utils::named::TypeNamed;
+use crate::prelude::{ChannelKind, Named};
 
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
 pub struct ChannelContainer {
@@ -28,7 +27,7 @@ pub struct ChannelContainer {
 
 /// A Channel is an abstraction for a way to send messages over the network
 /// You can define the direction, ordering, reliability of the channel
-pub trait Channel: 'static + TypeNamed {
+pub trait Channel: 'static + Named {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
 
     fn kind() -> ChannelKind

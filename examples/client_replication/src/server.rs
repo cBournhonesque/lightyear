@@ -152,7 +152,7 @@ pub(crate) fn replicate_players(
 
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients
-        if let Some(mut e) = commands.get_entity(*entity) {
+        if let Some(mut e) = commands.get_entity(entity) {
             e.insert(Replicate {
                 // we want to replicate back to the original client, since they are using a pre-spawned entity
                 replication_target: NetworkTarget::All,
@@ -179,7 +179,7 @@ pub(crate) fn replicate_cursors(
 
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients
-        if let Some(mut e) = commands.get_entity(*entity) {
+        if let Some(mut e) = commands.get_entity(entity) {
             e.insert(Replicate {
                 // do not replicate back to the owning entity!
                 replication_target: NetworkTarget::AllExcept(vec![*client_id]),

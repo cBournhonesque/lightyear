@@ -13,7 +13,7 @@ pub(crate) fn removed_components<C: SyncComponent>(
     query: Query<&Confirmed>,
 ) {
     for event in events.read() {
-        if let Ok(confirmed) = query.get(*event.entity()) {
+        if let Ok(confirmed) = query.get(event.entity()) {
             if let Some(interpolated) = confirmed.interpolated {
                 if let Some(mut entity) = commands.get_entity(interpolated) {
                     entity.remove::<C>();

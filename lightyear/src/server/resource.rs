@@ -1,10 +1,7 @@
 //! Defines the server bevy resource
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crate::_reexport::FromType;
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
@@ -12,8 +9,8 @@ use bevy::utils::{EntityHashMap, HashSet};
 use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, error, info, trace, trace_span};
 
+use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
-use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
@@ -29,7 +26,7 @@ use crate::transport::io::Io;
 use crate::transport::{PacketSender, Transport};
 
 use super::config::ServerConfig;
-use super::connection::{Connection, ConnectionManager};
+use super::connection::ConnectionManager;
 use super::events::ServerEvents;
 
 #[derive(Resource)]
@@ -100,7 +97,6 @@ impl<P: Protocol> Server<P> {
 
     /// Generate a connect token for a client with id `client_id`
     pub fn token(&mut self, client_id: ClientId) -> ConnectToken {
-        info!("timeout: {:?}", self.config.netcode.client_timeout_secs);
         self.netcode
             .token(client_id, self.local_addr())
             .timeout_seconds(self.config.netcode.client_timeout_secs)
@@ -153,13 +149,6 @@ impl<P: Protocol> Server<P> {
         self.time_manager.base_relative_speed = relative_speed;
     }
 
-    // TICK
-
-    #[doc(hidden)]
-    pub fn tick(&self) -> Tick {
-        self.tick_manager.current_tick()
-    }
-
     // REPLICATION
     /// Find the list of clients that should receive the replication message
     fn apply_replication(&mut self, target: NetworkTarget) -> Box<dyn Iterator<Item = ClientId>> {
@@ -168,6 +157,12 @@ impl<P: Protocol> Server<P> {
                 // TODO: maybe only send stuff when the client is time-synced ?
                 Box::new(self.netcode.connected_client_ids().into_iter())
             }
+            NetworkTarget::AllExceptSingle(client_id) => Box::new(
+                self.netcode
+                    .connected_client_ids()
+                    .into_iter()
+                    .filter(move |id| *id != client_id),
+            ),
             NetworkTarget::AllExcept(client_ids) => {
                 let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
                 Box::new(
@@ -177,7 +172,19 @@ impl<P: Protocol> Server<P> {
                         .filter(move |id| !client_ids.contains(id)),
                 )
             }
-            NetworkTarget::Only(client_ids) => Box::new(client_ids.into_iter()),
+            NetworkTarget::Single(client_id) => {
+                if self.connection_manager.connections.contains_key(&client_id) {
+                    Box::new(std::iter::once(client_id))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            NetworkTarget::Only(client_ids) => Box::new(
+                self.netcode
+                    .connected_client_ids()
+                    .into_iter()
+                    .filter(move |id| client_ids.contains(id)),
+            ),
             NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
@@ -195,7 +202,7 @@ impl<P: Protocol> Server<P> {
         P::Message: From<M>,
     {
         let _span =
-            debug_span!("send_message", channel = ?C::name(), message = ?message.name(), ?target)
+            debug_span!("send_message", channel = ?C::type_name(), message = ?message.name(), ?target)
                 .entered();
         self.connection_manager
             .buffer_message(message.into(), ChannelKind::of::<C>(), target)
@@ -247,7 +254,7 @@ impl<P: Protocol> Server<P> {
     /// Receive messages from each connection, and update the events buffer
     pub fn receive(&mut self, world: &mut World) {
         self.connection_manager
-            .receive(world, &self.time_manager)
+            .receive(world, &self.time_manager, &self.tick_manager)
             .unwrap_or_else(|e| {
                 error!("Error during receive: {}", e);
             });
@@ -268,12 +275,12 @@ impl<P: Protocol> Server<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
+    pub fn recv_packets(&mut self) -> Result<()> {
         while let Some((mut reader, client_id)) = self.netcode.recv() {
             // TODO: use connection to apply on BOTH message manager and replication manager
             self.connection_manager
                 .connection_mut(client_id)?
-                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
+                .recv_packet(&mut reader, &self.tick_manager)?;
         }
         Ok(())
     }
@@ -336,9 +343,7 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 replication_sender.prepare_component_insert(
                     entity,
                     group,
-                    P::Components::from(ShouldBePredicted {
-                        client_entity: None,
-                    }),
+                    P::Components::from(ShouldBePredicted::default()),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
@@ -392,6 +397,8 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+
+        // TODO: think about this. this feels a bit clumsy
 
         // handle ShouldBePredicted separately because of pre-spawning behaviour
         // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
@@ -481,6 +488,12 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
+            trace!(
+                ?kind,
+                change_tick = ?component_change_tick,
+                ?collect_changes_since_this_tick,
+                "prepare entity update changed check"
+            );
 
             if collect_changes_since_this_tick.map_or(true, |tick| {
                 component_change_tick.is_newer_than(tick, system_current_tick)
@@ -504,9 +517,9 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
     }
 
     /// Buffer the replication messages
-    fn buffer_replication_messages(&mut self) -> Result<()> {
+    fn buffer_replication_messages(&mut self, bevy_tick: BevyTick) -> Result<()> {
         self.connection_manager
-            .buffer_replication_messages(self.tick_manager.current_tick())
+            .buffer_replication_messages(self.tick_manager.current_tick(), bevy_tick)
     }
 
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
@@ -515,6 +528,10 @@ impl<P: Protocol> ReplicationSend<P> for Server<P> {
 }
 
 impl<P: Protocol> TickManaged for Server<P> {
+    fn tick(&self) -> Tick {
+        self.tick_manager.current_tick()
+    }
+
     fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
     }

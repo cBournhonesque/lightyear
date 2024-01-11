@@ -1,9 +1,9 @@
 use bevy::prelude::{Component, Query, ResMut};
 use tracing::trace;
 
-use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::_reexport::ComponentProtocol;
+use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::client::interpolation::InterpolatedComponent;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
@@ -19,7 +19,7 @@ const SEND_INTERVAL_TICK_FACTOR: f32 = 1.5;
 //  maybe put the test here?
 // NOTE: there's not a strict need for this, it just makes the logic easier to follow
 #[derive(Component, PartialEq, Debug)]
-pub struct InterpolateStatus<C: SyncComponent> {
+pub struct InterpolateStatus<C: Component> {
     /// start tick to interpolate from, along with value
     pub start: Option<(Tick, C)>,
     /// end tick to interpolate to, along with value
@@ -33,8 +33,10 @@ pub struct InterpolateStatus<C: SyncComponent> {
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     client: ResMut<Client<P>>,
     mut query: Query<(&mut C, &mut InterpolateStatus<C>, &mut ConfirmedHistory<C>)>,
-) {
-    if C::mode() != ComponentSyncMode::Full {
+) where
+    P::Components: SyncMetadata<C>,
+{
+    if P::Components::mode() != ComponentSyncMode::Full {
         return;
     }
     if !client.is_synced() {
@@ -163,9 +165,11 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     }
 }
 
-pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
+pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
-) {
+) where
+    P::Components: SyncMetadata<C>,
+{
     for (mut component, status) in query.iter_mut() {
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
@@ -182,7 +186,8 @@ pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
                 if start_tick != end_tick {
                     let t =
                         (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
-                    *component = C::lerp(start_value.clone(), end_value.clone(), t);
+                    *component = P::Components::lerp(start_value.clone(), end_value.clone(), t);
+                    // *component = C::lerp(start_value.clone(), end_value.clone(), t);
                 } else {
                     *component = start_value.clone();
                 }

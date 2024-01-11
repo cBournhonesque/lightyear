@@ -1,8 +1,6 @@
 //! Wrapper around [`ConnectionEvents`] that adds client-specific functionality
 //!
 use crate::connection::events::ConnectionEvents;
-use crate::protocol::Protocol;
-use bevy::prelude::Entity;
 
 pub type ConnectEvent = crate::shared::events::ConnectEvent<()>;
 pub type DisconnectEvent = crate::shared::events::DisconnectEvent<()>;

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use bitcode::{Decode, Encode};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
+
+use bitcode::{Decode, Encode};
 
 use crate::_reexport::{TimeManager, WrappedTime};
 use crate::packet::packet::PacketId;

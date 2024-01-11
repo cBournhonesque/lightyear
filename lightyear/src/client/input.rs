@@ -3,7 +3,7 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::events::InputEvent;
@@ -14,6 +14,7 @@ use crate::client::sync::client_is_synced;
 use crate::inputs::native::UserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::tick_manager::TickManaged;
 
 #[derive(Debug, Clone)]
 pub struct InputConfig {

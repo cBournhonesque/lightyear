@@ -364,9 +364,9 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
-    use bitcode::encoding::Gamma;
     use bytes::Bytes;
 
+    use bitcode::encoding::Gamma;
     use lightyear_macros::ChannelInternal;
 
     use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};

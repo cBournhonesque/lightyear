@@ -180,18 +180,17 @@ fn spawn_player(
             match input {
                 Inputs::Spawn => {
                     debug!("got spawn input");
-                    let mut entity = commands.spawn(PlayerBundle::new(
-                        plugin.client_id,
-                        Vec2::ZERO,
-                        color_from_id(plugin.client_id),
+                    commands.spawn((
+                        PlayerBundle::new(
+                            plugin.client_id,
+                            Vec2::ZERO,
+                            color_from_id(plugin.client_id),
+                        ),
+                        // IMPORTANT: this lets the server know that the entity is pre-predicted
+                        // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+                        // as the Predicted version
+                        ShouldBePredicted::default(),
                     ));
-                    let entity_id = entity.id();
-                    // IMPORTANT: this lets the server know that the entity is pre-predicted
-                    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-                    // as the Predicted version
-                    entity.insert(ShouldBePredicted {
-                        client_entity: Some(entity_id),
-                    });
                 }
                 _ => {}
             }

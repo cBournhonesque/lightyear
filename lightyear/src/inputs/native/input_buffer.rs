@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use lightyear_macros::MessageInternal;
 
-use super::UserAction;
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
+
+use super::UserAction;
 
 #[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserAction> {

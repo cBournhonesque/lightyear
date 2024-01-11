@@ -7,12 +7,13 @@ use bevy::prelude::{
     apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
+use bevy::transform::TransformSystem;
 
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
-use crate::client::prediction::plugin::{is_in_rollback, PredictionPlugin};
-use crate::client::prediction::{clean_prespawned_entity, Rollback};
+use crate::client::prediction::plugin::{is_connected, is_in_rollback, PredictionPlugin};
+use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
 use crate::prelude::ReplicationSet;
@@ -115,16 +116,21 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                         ReplicationSet::SendComponentUpdates,
                         ReplicationSet::SendDespawnsAndRemovals,
                     )
-                        .in_set(ReplicationSet::All),
+                        .in_set(ReplicationSet::All)
+                        .after(TransformSystem::TransformPropagate),
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
                         MainSet::SendPackets,
                     )
-                        .in_set(MainSet::Send),
+                        .in_set(MainSet::Send)
+                        .after(TransformSystem::TransformPropagate),
                     // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
+                    // only replicate entities once client is connected
+                    // TODO: should it be only when the client is synced? because before that the ticks might be incorrect!
+                    ReplicationSet::All.run_if(is_connected::<P>),
                 ),
             )
             .configure_sets(
@@ -162,7 +168,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    (send::<P>, clean_prespawned_entity::<P>).in_set(MainSet::SendPackets),
+                    send::<P>.in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
             );

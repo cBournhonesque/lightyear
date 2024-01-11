@@ -1,21 +1,19 @@
 //! Specify how a Client sends/receives messages with a Server
 use std::time::Duration;
 
-use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::World;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, info, trace, trace_span};
+use serde::Serialize;
+use tracing::{debug, trace, trace_span};
 
+use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::client::sync::SyncConfig;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::message_receivers::MessageReceiver;
-use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{ChannelKind, MapEntities, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
@@ -51,6 +49,7 @@ impl<P: Protocol> Connection<P> {
         channel_registry: &ChannelRegistry,
         sync_config: SyncConfig,
         ping_config: &PingConfig,
+        input_delay_ticks: u16,
     ) -> Self {
         // create the message manager and the channels
         let mut message_manager = MessageManager::new(channel_registry);
@@ -69,7 +68,7 @@ impl<P: Protocol> Connection<P> {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             input_buffer: InputBuffer::default(),
-            sync_manager: SyncManager::new(sync_config),
+            sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
         }
     }
@@ -112,7 +111,7 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
-    pub fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+    pub fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
         // NOTE: this doesn't work too well because then duplicate actions/updates are accumulated before the connection is synced
         // if !self.sync_manager.is_synced() {
         //
@@ -147,7 +146,7 @@ impl<P: Protocol> Connection<P> {
                 if should_track_ack {
                     self.replication_sender
                         .updates_message_id_to_group_id
-                        .insert(message_id, group_id);
+                        .insert(message_id, (group_id, bevy_tick));
                 }
                 Ok(())
             })
@@ -196,6 +195,7 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         world: &mut World,
         time_manager: &TimeManager,
+        tick_manager: &TickManager,
     ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages::<ServerMessage<P>>() {
@@ -247,17 +247,23 @@ impl<P: Protocol> Connection<P> {
                 }
                 // Check if we have any replication messages we can apply to the World (and emit events)
                 if self.sync_manager.is_synced() {
-                    for (group, replication_list) in self.replication_receiver.read_messages() {
+                    for (group, replication_list) in self
+                        .replication_receiver
+                        .read_messages(tick_manager.current_tick())
+                    {
                         trace!(?group, ?replication_list, "read replication messages");
-                        replication_list.into_iter().for_each(|(_, replication)| {
-                            // TODO: we could include the server tick when this replication_message was sent.
-                            self.replication_receiver.apply_world(
-                                world,
-                                replication,
-                                group,
-                                &mut self.events,
-                            );
-                        });
+                        replication_list
+                            .into_iter()
+                            .for_each(|(tick, replication)| {
+                                // TODO: we could include the server tick when this replication_message was sent.
+                                self.replication_receiver.apply_world(
+                                    world,
+                                    tick,
+                                    replication,
+                                    group,
+                                    &mut self.events,
+                                );
+                            });
                     }
                 }
             }
@@ -273,9 +279,8 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
-        bevy_tick: BevyTick,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks(bevy_tick);
+        self.replication_sender.recv_update_acks();
 
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);

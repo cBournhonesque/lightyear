@@ -1,26 +1,38 @@
 //! Handles client-generated inputs
-use crate::client::prediction::{Rollback, RollbackState};
+use std::ops::DerefMut;
+
+use bevy::prelude::*;
+use leafwing_input_manager::prelude::*;
+
 use crate::connection::events::IterInputMessageEvent;
 use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
-use bevy::prelude::*;
-use leafwing_input_manager::plugin::InputManagerSystem;
-use leafwing_input_manager::prelude::*;
-use std::ops::DerefMut;
-
-use crate::netcode::ClientId;
 use crate::prelude::MainSet;
 use crate::protocol::Protocol;
 use crate::server::events::InputMessageEvent;
 use crate::server::resource::Server;
-use crate::server::systems::receive;
-use crate::shared::events::InputEvent;
 use crate::shared::sets::FixedUpdateSet;
+use crate::shared::tick_manager::TickManaged;
 
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     protocol_marker: std::marker::PhantomData<P>,
     input_marker: std::marker::PhantomData<A>,
 }
+
+// // TODO: also create events on top of this?
+// /// Keeps tracks of the global ActionState<A> of every client on the given tick
+// #[derive(Resource, Debug, Clone)]
+// pub struct GlobalActions<A: LeafwingUserAction> {
+//     inputs: HashMap<ClientId, ActionState<A>>,
+// }
+
+// impl<A: LeafwingUserAction> Default for GlobalActions<A> {
+//     fn default() -> Self {
+//         Self {
+//             inputs: HashMap::default(),
+//         }
+//     }
+// }
 
 impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
@@ -45,6 +57,7 @@ where
         // EVENTS
         app.add_event::<InputMessageEvent<A>>();
         // RESOURCES
+        // app.init_resource::<GlobalActions<A>>();
         // TODO: add a resource tracking the action-state of all clients
         // PLUGINS
         // NOTE: we do note add the leafwing server plugin because it just ticks Action-States
@@ -115,7 +128,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
     for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
-        trace!("received input message");
+        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.per_entity_diffs, "received input message");
         // TODO: handle global diffs for each client! How? create one entity per client?
         //  or have a resource containing the global ActionState for each client?
         // if let Some(ref mut buffer) = global {
@@ -123,8 +136,10 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
         // }
         for (entity, diffs) in std::mem::take(&mut message.per_entity_diffs) {
             if let Ok(mut buffer) = query.get_mut(entity) {
-                trace!("update action diff buffer using input message");
+                trace!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
                 buffer.update_from_message(message.end_tick, diffs);
+            } else {
+                debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
             }
         }
     }
@@ -162,18 +177,19 @@ fn update_action_state<P: Protocol, A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::time::Duration;
+
+    use bevy::input::InputPlugin;
+    use leafwing_input_manager::prelude::ActionState;
+
+    use crate::inputs::leafwing::input_buffer::ActionDiff;
     use crate::prelude::client::{InterpolationConfig, PredictionConfig, SyncConfig};
     use crate::prelude::server::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::input::InputPlugin;
-    use std::time::Duration;
 
-    use crate::inputs::leafwing::input_buffer::ActionDiff;
-    use leafwing_input_manager::prelude::ActionState;
-    use tracing_subscriber::fmt::format::FmtSpan;
+    use super::*;
 
     #[test]
     fn test_leafwing_inputs() {

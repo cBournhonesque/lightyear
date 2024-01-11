@@ -105,8 +105,8 @@ impl<Ctx> EntitySpawnEvent<Ctx> {
         Self { entity, context }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -125,8 +125,8 @@ impl<Ctx> EntityDespawnEvent<Ctx> {
         Self { entity, context }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -151,8 +151,8 @@ impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
         }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -177,8 +177,8 @@ impl<C: Component, Ctx> ComponentInsertEvent<C, Ctx> {
         }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -203,8 +203,8 @@ impl<C: Component, Ctx> ComponentRemoveEvent<C, Ctx> {
         }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {

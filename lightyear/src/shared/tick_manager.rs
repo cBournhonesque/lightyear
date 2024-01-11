@@ -10,6 +10,7 @@ use crate::utils::wrapping_id::wrapping_id;
 wrapping_id!(Tick);
 
 pub trait TickManaged: Resource {
+    fn tick(&self) -> Tick;
     fn increment_tick(&mut self);
 }
 

@@ -2,14 +2,13 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crate::_reexport::ReplicationSend;
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, Resource, Time, Virtual, World};
+use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::EntityHashMap;
-use cfg_if::cfg_if;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
+use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;
 use crate::inputs::native::input_buffer::InputBuffer;
@@ -91,7 +90,12 @@ impl<P: Protocol> Client<P> {
         let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
             .expect("could not create netcode client");
 
-        let connection = Connection::new(protocol.channel_registry(), config.sync, &config.ping);
+        let connection = Connection::new(
+            protocol.channel_registry(),
+            config.sync,
+            &config.ping,
+            config.prediction.input_delay_ticks,
+        );
         Self {
             io,
             config: config_clone,
@@ -112,6 +116,8 @@ impl<P: Protocol> Client<P> {
         self.io.local_addr()
     }
 
+    // NETCODE
+
     /// Start the connection process with the server
     pub fn connect(&mut self) {
         self.netcode.connect();
@@ -124,6 +130,11 @@ impl<P: Protocol> Client<P> {
     /// Returns true if the client is connected and has been time-synced with the server
     pub fn is_synced(&self) -> bool {
         self.connection.sync_manager.is_synced()
+    }
+
+    /// Returns the client id assigned by the server
+    pub fn id(&self) -> ClientId {
+        self.netcode.id()
     }
 
     // IO
@@ -144,26 +155,7 @@ impl<P: Protocol> Client<P> {
         self.time_manager.base_relative_speed = relative_speed;
     }
 
-    pub(crate) fn update_relative_speed(&mut self, time: &mut Time<Virtual>) {
-        // check if we need to set the relative speed to something else
-        if self.connection.sync_manager.is_synced() {
-            self.connection.sync_manager.update_prediction_time(
-                &mut self.time_manager,
-                &mut self.tick_manager,
-                &self.connection.ping_manager,
-            );
-            // update bevy's relative speed
-            self.time_manager.update_relative_speed(time);
-            // let relative_speed = time.relative_speed();
-            // info!( relative_speed = ?time.relative_speed(), "client virtual speed");
-        }
-    }
-
     // TICK
-
-    pub fn tick(&self) -> Tick {
-        self.tick_manager.current_tick()
-    }
 
     pub fn latest_received_server_tick(&self) -> Tick {
         self.connection
@@ -218,6 +210,14 @@ impl<P: Protocol> Client<P> {
                 &self.config.interpolation.delay,
                 self.config.shared.server_send_interval,
             );
+
+            if self.is_synced() {
+                self.connection.sync_manager.update_prediction_time(
+                    &mut self.time_manager,
+                    &mut self.tick_manager,
+                    &self.connection.ping_manager,
+                );
+            }
         }
     }
 
@@ -253,7 +253,8 @@ impl<P: Protocol> Client<P> {
     /// Receive messages from the server
     pub(crate) fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
         trace!("Receive server packets");
-        self.connection.receive(world, &self.time_manager)
+        self.connection
+            .receive(world, &self.time_manager, &self.tick_manager)
     }
 
     /// Send packets that are ready from the message manager through the transport layer
@@ -268,10 +269,10 @@ impl<P: Protocol> Client<P> {
     }
 
     /// Receive packets from the transport layer and buffer them with the message manager
-    pub(crate) fn recv_packets(&mut self, bevy_tick: BevyTick) -> Result<()> {
+    pub(crate) fn recv_packets(&mut self) -> Result<()> {
         while let Some(mut reader) = self.netcode.recv() {
             self.connection
-                .recv_packet(&mut reader, &self.tick_manager, bevy_tick)?;
+                .recv_packet(&mut reader, &self.tick_manager)?;
         }
         Ok(())
     }
@@ -302,6 +303,10 @@ impl<P: Protocol> Client<P> {
 }
 
 impl<P: Protocol> TickManaged for Client<P> {
+    fn tick(&self) -> Tick {
+        self.tick_manager.current_tick()
+    }
+
     fn increment_tick(&mut self) {
         self.tick_manager.increment_tick();
     }
@@ -339,11 +344,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group = replicate.group_id(Some(entity));
-        trace!(
-            ?entity,
-            "Send entity spawn for tick {:?}",
-            self.tick_manager.current_tick()
-        );
+        trace!(?entity, "Send entity spawn for tick {:?}", self.tick());
         let replication_sender = &mut self.connection.replication_sender;
         // update the collect changes tick
         replication_sender
@@ -364,11 +365,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group = replicate.group_id(Some(entity));
-        trace!(
-            ?entity,
-            "Send entity despawn for tick {:?}",
-            self.tick_manager.current_tick()
-        );
+        trace!(?entity, "Send entity despawn for tick {:?}", self.tick());
         let replication_sender = &mut self.connection.replication_sender;
         // update the collect changes tick
         replication_sender
@@ -468,10 +465,10 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
         Ok(())
     }
 
-    fn buffer_replication_messages(&mut self) -> Result<()> {
+    fn buffer_replication_messages(&mut self, bevy_tick: BevyTick) -> Result<()> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.connection
-            .buffer_replication_messages(self.tick_manager.current_tick())
+            .buffer_replication_messages(self.tick_manager.current_tick(), bevy_tick)
     }
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
         &mut self.connection.replication_sender.replicate_component_cache
@@ -480,7 +477,7 @@ impl<P: Protocol> ReplicationSend<P> for Client<P> {
 
 // Functions related to Interpolation (maybe make it a trait)?
 impl<P: Protocol> Client<P> {
-    pub(crate) fn interpolation_tick(&self) -> Tick {
+    pub fn interpolation_tick(&self) -> Tick {
         self.connection
             .sync_manager
             .interpolation_tick(&self.tick_manager)

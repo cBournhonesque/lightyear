@@ -28,6 +28,7 @@ webtransport = [
   "wtransport/dangerous-configuration",
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
+xpbd_2d = ["dep:bevy_xpbd_2d"]
 
 
 [dependencies]
@@ -47,6 +48,11 @@ thiserror = "1.0.50"
 
 # input
 leafwing-input-manager = { version = "0.11.2", optional = true }
+
+# physics
+bevy_xpbd_2d = { git = "https://github.com/Jondolf/bevy_xpbd", features = [
+  "serialize",
+], optional = true }
 
 
 # transport

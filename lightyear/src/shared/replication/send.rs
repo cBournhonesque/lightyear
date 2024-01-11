@@ -37,8 +37,10 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
-    /// Map from message-id to the corresponding group-id that sent this update message
-    pub updates_message_id_to_group_id: HashMap<MessageId, ReplicationGroupId>,
+    /// Map from message-id to the corresponding group-id that sent this update message, as well as the bevy ChangeTick
+    /// when we sent the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
+    /// for that replication group)
+    pub updates_message_id_to_group_id: HashMap<MessageId, (ReplicationGroupId, BevyTick)>,
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<
@@ -72,12 +74,14 @@ impl<P: Protocol> ReplicationSender<P> {
 
     // TODO: call this in a system after receive
     /// We call this after receive stage; to update the bevy_tick at which we received entity updates for each group
-    pub(crate) fn recv_update_acks(&mut self, bevy_tick: BevyTick) {
+    pub(crate) fn recv_update_acks(&mut self) {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.updates_ack_tracker.try_recv() {
-            if let Some(group_id) = self.updates_message_id_to_group_id.get(&message_id) {
+            if let Some((group_id, bevy_tick)) =
+                self.updates_message_id_to_group_id.get(&message_id)
+            {
                 let channel = self.group_channels.entry(*group_id).or_default();
-                channel.update_collect_changes_since_this_tick(bevy_tick);
+                channel.update_collect_changes_since_this_tick(*bevy_tick);
             } else {
                 error!(
                     "Received an update message-id ack but we don't have the corresponding group"
@@ -130,7 +134,8 @@ impl<P: Protocol> ReplicationSender<P> {
         let kind: P::ComponentKinds = (&component).into();
 
         // special case for ShouldBePredicted:
-        // if we have a value with pre-spawned entity, we always override any existing values.
+        // if we have already have a ShouldBePredicted component inserted from `prediction_target`
+        // we overwrite it if we are inserting a ShouldBePredicted component for pre-prediction
         let mut force_insert = false;
         if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
             && component
@@ -138,7 +143,15 @@ impl<P: Protocol> ReplicationSender<P> {
                 .try_into()
                 .is_ok_and(|s| s.client_entity.is_some())
         {
-            debug!("force inserting ShouldBePredicted component for pre-predicted entity");
+            trace!("force inserting ShouldBePredicted component for pre-predicted entity");
+            // removed the existing ShouldBePredicted
+            self.pending_actions
+                .entry(group)
+                .or_default()
+                .entry(entity)
+                .or_default()
+                .insert
+                .retain(|c| P::ComponentKinds::from(c) != kind);
             force_insert = true;
         }
 
@@ -345,6 +358,7 @@ impl GroupChannel {
         // the bevy_tick passed is either at receive or send, and is always more recent
         // than the previous bevy_tick
 
+        trace!(?bevy_tick, "Update acked update tick");
         // if bevy_tick is bigger than current tick, set current_tick to bevy_tick
         // if bevy_tick.is_newer_than(self.collect_changes_since_this_tick, BevyTick::MAX) {
         self.collect_changes_since_this_tick = Some(bevy_tick);

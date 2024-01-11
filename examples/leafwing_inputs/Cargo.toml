@@ -11,12 +11,17 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
+bevy_framepace = "0.14.1"
+bevy-fps-counter = "0.3.0"
 leafwing-input-manager = "0.11.2"
-bevy_xpbd_2d = "0.3.2"
+bevy_xpbd_2d = { git = "https://github.com/Jondolf/bevy_xpbd", features = [
+  "serialize",
+] }
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "render",
   "leafwing",
+  "xpbd_2d",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

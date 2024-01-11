@@ -68,9 +68,9 @@ impl TimeManager {
         self.overstep
     }
 
-    /// Update the relative speed of the simulation by updating bevy's Time resource
-    pub fn update_relative_speed(&self, time: &mut Time<Virtual>) {
-        time.set_relative_speed(self.base_relative_speed * self.sync_relative_speed)
+    /// Get the relative speed at which the simulation should be running
+    pub fn get_relative_speed(&self) -> f32 {
+        self.base_relative_speed * self.sync_relative_speed
     }
 
     /// Update the time by applying the latest delta
@@ -228,7 +228,7 @@ impl SubAssign<ChronoDuration> for WrappedTime {
         if rhs_micros > 0 {
             self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_sub(rhs_micros as u32);
         } else {
-            self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_add(rhs_micros as u32);
+            self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_add(-rhs_micros as u32);
         }
     }
 }
@@ -268,7 +268,7 @@ impl AddAssign<ChronoDuration> for WrappedTime {
         if rhs_micros > 0 {
             self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_add(rhs_micros as u32);
         } else {
-            self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_sub(rhs_micros as u32);
+            self.elapsed_us_wrapped = self.elapsed_us_wrapped.wrapping_sub(-rhs_micros as u32);
         }
     }
 }
@@ -310,5 +310,20 @@ mod tests {
         let a = WrappedTime::new(u32::MAX);
         let b = a * 2.0;
         assert_eq!(b.elapsed_us_wrapped, u32::MAX);
+    }
+
+    #[test]
+    fn test_chrono_duration() {
+        let a = WrappedTime::new(0);
+        let b = WrappedTime::new(1000);
+        let diff = b - a;
+        assert_eq!(diff, chrono::Duration::microseconds(1000));
+        assert_eq!(a - b, chrono::Duration::microseconds(-1000));
+        assert_eq!(b + chrono::Duration::microseconds(-1000), a);
+        assert_eq!(a - chrono::Duration::microseconds(-1000), b);
+
+        assert_eq!(a + diff, b);
+
+        assert_eq!(b - diff, a);
     }
 }

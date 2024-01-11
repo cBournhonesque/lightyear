@@ -24,11 +24,12 @@ macro_rules! wrapping_id {
             use serde::{Deserialize, Serialize};
             use std::ops::{Add, AddAssign, Deref, Sub};
             use std::cmp::Ordering;
+            use bevy::reflect::Reflect;
             use crate::utils::wrapping_id::{wrapping_diff, WrappedId};
 
             // define the struct
             #[derive(
-                Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default,
+                Encode, Decode, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect
             )]
             pub struct $struct_name(pub u16);
 
@@ -121,6 +122,13 @@ macro_rules! wrapping_id {
                     self.0 = self.0.wrapping_add(rhs);
                 }
             }
+            // impl Add<u16> for $struct_name {
+            //     type Output = Self;
+            //
+            //     fn add(self, rhs: u16) -> Self::Output {
+            //         Self(self.0.wrapping_add(rhs))
+            //     }
+            // }
 
             impl Add<i16> for $struct_name {
                 type Output = Self;
