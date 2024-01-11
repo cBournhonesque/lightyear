@@ -497,7 +497,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
                     }),
                 };
                 if should_rollback {
-                    info!(
+                    debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, client.tick()
@@ -550,7 +550,7 @@ pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
             //  for example we only want to run the physics on non-confirmed entities
             world.run_schedule(FixedUpdate)
         }
-        info!("Finished rollback. Current tick: {:?}", current_tick);
+        debug!("Finished rollback. Current tick: {:?}", current_tick);
     }
 
     // revert the state of Rollback for the next frame

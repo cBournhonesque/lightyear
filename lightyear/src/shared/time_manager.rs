@@ -135,27 +135,28 @@ impl WrappedTime {
     /// Returns time b - time a, in microseconds
     /// Can be positive if b is in the future, or negative is b is in the past
     pub fn wrapping_diff(a: &Self, b: &Self) -> i32 {
-        const MAX: i32 = (WRAPPING_TIME_US / 2 - 1) as i32;
-        const MIN: i32 = -MAX;
-        const ADJUST: i32 = WRAPPING_TIME_US as i32;
+        // const MAX: i64 = (WRAPPING_TIME_US / 2) as i64;
+        const MAX: i64 = i32::MAX as i64;
+        const MIN: i64 = i32::MIN as i64;
+        const ADJUST: i64 = WRAPPING_TIME_US as i64 + 1;
 
-        let a: i32 = a.elapsed_us_wrapped as i32;
-        let b: i32 = b.elapsed_us_wrapped as i32;
+        let a: i64 = a.elapsed_us_wrapped as i64;
+        let b: i64 = b.elapsed_us_wrapped as i64;
 
         let mut result = b - a;
         if (MIN..=MAX).contains(&result) {
-            result
+            result as i32
         } else if b > a {
             result = b - (a + ADJUST);
             if (MIN..=MAX).contains(&result) {
-                result
+                result as i32
             } else {
                 panic!("integer overflow, this shouldn't happen")
             }
         } else {
             result = (b + ADJUST) - a;
             if (MIN..=MAX).contains(&result) {
-                result
+                result as i32
             } else {
                 panic!("integer overflow, this shouldn't happen")
             }
@@ -280,6 +281,8 @@ impl AddAssign<Duration> for WrappedTime {
     }
 }
 
+// NOTE: Mul doesn't work if multiplying creates a time that is more than 1 hour
+// This only works for small time differences
 impl Mul<f32> for WrappedTime {
     type Output = Self;
 
@@ -305,12 +308,38 @@ impl From<WrappedTime> for Duration {
 #[cfg(test)]
 mod tests {
     use crate::shared::time_manager::WrappedTime;
+    use std::time::Duration;
 
     #[test]
     fn test_mul() {
         let a = WrappedTime::new(u32::MAX);
         let b = a * 2.0;
         assert_eq!(b.elapsed_us_wrapped, u32::MAX);
+    }
+
+    #[test]
+    fn test_wrapping() {
+        let a = WrappedTime::new(u32::MAX);
+        let b = WrappedTime::new(0);
+        // the mid-way point is u32::MAX / 2
+        let d = WrappedTime::new(u32::MAX / 2);
+        let e = WrappedTime::new(u32::MAX / 2 + 1);
+        let f = WrappedTime::new(u32::MAX / 2 + 10);
+        assert_eq!(b - a, chrono::Duration::microseconds(1));
+        assert_eq!(a - b, chrono::Duration::microseconds(-1));
+        assert_eq!(d - b, chrono::Duration::microseconds((u32::MAX / 2) as i64));
+        assert_eq!(
+            b - d,
+            chrono::Duration::microseconds(-((u32::MAX / 2) as i64))
+        );
+        assert_eq!(
+            e - b,
+            chrono::Duration::microseconds(-((u32::MAX / 2 + 1) as i64))
+        );
+        assert_eq!(
+            f - b,
+            chrono::Duration::microseconds(-((u32::MAX / 2 - 8) as i64))
+        );
     }
 
     #[test]

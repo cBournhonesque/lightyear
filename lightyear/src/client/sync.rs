@@ -414,7 +414,7 @@ impl SyncManager {
         .unwrap();
 
         if error > max_error_margin_time || error < -max_error_margin_time {
-            warn!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
@@ -498,7 +498,7 @@ impl SyncManager {
         let delta_tick = client_ideal_tick - tick_manager.current_tick();
         // Update client ticks
         if rtt != Duration::default() {
-            info!(
+            debug!(
                 buffer_len = ?ping_manager.sync_stats.len(),
                 ?rtt,
                 ?jitter,

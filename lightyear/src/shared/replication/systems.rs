@@ -344,7 +344,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                 } else {
                     // do not send updates for these components, only inserts/removes
                     if replicate.is_replicate_once::<C>() {
-                        warn!(?entity,
+                        trace!(?entity,
                             "not replicating updates for {:?} because it is marked as replicate_once",
                             kind
                         );
