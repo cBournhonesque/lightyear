@@ -4,18 +4,15 @@ use std::str::FromStr;
 
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
-use tracing_subscriber::fmt::format::FmtSpan;
+use bevy::{DefaultPlugins, MinimalPlugins};
 
 use crate::netcode::generate_key;
 use crate::prelude::client::{
-    Authentication, Client, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig,
-    SyncConfig,
+    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use crate::prelude::server::{NetcodeConfig, ServerConfig};
 use crate::prelude::*;
-
-use crate::tests::protocol::{protocol, MyProtocol};
+use crate::tests::protocol::*;
 
 /// Helpers to setup a bevy app where I can just step the world easily
 
@@ -53,18 +50,21 @@ impl BevyStepper {
 
         // Use local channels instead of UDP for testing
         let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
-        let io_1 = IoConfig::from_transport(TransportConfig::LocalChannel)
-            .with_conditioner(conditioner.clone())
-            .get_io();
-        let (receiver_1, sender_1) = io_1.to_parts();
+        // channels to receive a message from/to server
+        let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
+        let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
+        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+            send: to_server_send,
+            recv: from_server_recv,
+        })
+        .with_conditioner(conditioner.clone())
+        .get_io();
 
-        let io_2 = IoConfig::from_transport(TransportConfig::LocalChannel)
-            .with_conditioner(conditioner.clone())
-            .get_io();
-        let (receiver_2, sender_2) = io_2.to_parts();
-
-        let io_1 = Io::new(addr, sender_2, receiver_1);
-        let io_2 = Io::new(addr, sender_1, receiver_2);
+        let server_io = IoConfig::from_transport(TransportConfig::Channels {
+            channels: vec![(addr, to_server_recv, from_server_send)],
+        })
+        .with_conditioner(conditioner.clone())
+        .get_io();
 
         // Shared config
         let protocol_id = 0;
@@ -82,7 +82,7 @@ impl BevyStepper {
             netcode: netcode_config,
             ping: PingConfig::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, io_1, protocol());
+        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
@@ -104,7 +104,7 @@ impl BevyStepper {
             prediction: prediction_config,
             interpolation: interpolation_config,
         };
-        let plugin_config = client::PluginConfig::new(config, io_2, protocol(), auth);
+        let plugin_config = client::PluginConfig::new(config, client_io, protocol(), auth);
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
@@ -130,19 +130,31 @@ impl BevyStepper {
         }
     }
 
-    pub(crate) fn client(&self) -> &Client<MyProtocol> {
-        self.client_app.world.resource::<Client<MyProtocol>>()
+    pub(crate) fn client(&self) -> &Client {
+        self.client_app.world.resource::<Client>()
     }
 
-    pub(crate) fn client_mut(&mut self) -> Mut<Client<MyProtocol>> {
-        self.client_app.world.resource_mut::<Client<MyProtocol>>()
+    pub(crate) fn client_mut(&mut self) -> Mut<Client> {
+        self.client_app.world.resource_mut::<Client>()
     }
 
-    pub(crate) fn server(&self) -> &Server<MyProtocol> {
-        self.server_app.world.resource::<Server<MyProtocol>>()
+    pub(crate) fn server(&self) -> &Server {
+        self.server_app.world.resource::<Server>()
     }
-    pub(crate) fn server_mut(&mut self) -> Mut<Server<MyProtocol>> {
-        self.server_app.world.resource_mut::<Server<MyProtocol>>()
+    pub(crate) fn server_mut(&mut self) -> Mut<Server> {
+        self.server_app.world.resource_mut::<Server>()
+    }
+
+    pub(crate) fn init(&mut self) {
+        self.client_mut().connect();
+
+        // Advance the world to let the connection process complete
+        for _ in 0..100 {
+            if self.client().is_synced() {
+                break;
+            }
+            self.frame_step();
+        }
     }
 }
 

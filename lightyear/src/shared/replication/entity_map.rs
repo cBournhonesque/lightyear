@@ -1,28 +1,69 @@
 //! Map between local and remote entities
 use anyhow::Context;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-
 use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::utils::hashbrown::hash_map::Entry;
+use bevy::utils::{EntityHashMap, EntityHashSet};
+
+pub trait EntityMapper {
+    /// Map an entity
+    fn map(&self, entity: Entity) -> Option<Entity>;
+}
+
+impl<T: EntityMapper> EntityMapper for &T {
+    #[inline]
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        (*self).map(entity)
+    }
+}
 
 #[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
-pub struct EntityMap {
-    remote_to_local: HashMap<Entity, Entity>,
-    local_to_remote: HashMap<Entity, Entity>,
+pub struct RemoteEntityMap {
+    remote_to_local: EntityHashMap<Entity, Entity>,
+    local_to_remote: EntityHashMap<Entity, Entity>,
 }
 
-impl EntityMap {
+#[derive(Default, Debug)]
+pub struct PredictedEntityMap {
+    // map from the confirmed entity to the predicted entity
+    // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
+    pub(crate) confirmed_to_predicted: EntityHashMap<Entity, Entity>,
+}
+
+impl EntityMapper for PredictedEntityMap {
+    #[inline]
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.confirmed_to_predicted.get(&entity).copied()
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct InterpolatedEntityMap {
+    // map from the confirmed entity to the interpolated entity
+    // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
+    pub(crate) confirmed_to_interpolated: EntityHashMap<Entity, Entity>,
+}
+
+impl EntityMapper for InterpolatedEntityMap {
+    #[inline]
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.confirmed_to_interpolated.get(&entity).copied()
+    }
+}
+
+impl RemoteEntityMap {
     #[inline]
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
         self.remote_to_local.insert(remote_entity, local_entity);
         self.local_to_remote.insert(local_entity, remote_entity);
     }
 
+    #[inline]
     pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
         self.remote_to_local.get(&remote_entity)
     }
 
+    #[inline]
     pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<&Entity> {
         self.local_to_remote.get(&local_entity)
     }
@@ -65,13 +106,17 @@ impl EntityMap {
     }
 
     #[inline]
-    pub fn to_local(&self) -> &HashMap<Entity, Entity> {
+    pub fn to_local(&self) -> &EntityHashMap<Entity, Entity> {
         &self.remote_to_local
     }
 
     #[inline]
-    pub fn to_remote(&self) -> &HashMap<Entity, Entity> {
+    pub fn to_remote(&self) -> &EntityHashMap<Entity, Entity> {
         &self.local_to_remote
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.remote_to_local.is_empty() && self.local_to_remote.is_empty()
     }
 
     fn clear(&mut self) {
@@ -80,27 +125,45 @@ impl EntityMap {
     }
 }
 
-/// Trait that Messages or Components must implement to be able to map entities
-pub trait MapEntities {
-    /// Map the entities inside the message or component from the remote World to the local World
-    fn map_entities(&mut self, entity_map: &EntityMap);
+impl EntityMapper for RemoteEntityMap {
+    #[inline]
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.get_local(entity).copied()
+    }
 }
 
-impl MapEntities for Entity {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        // TODO: if the entity is inside a component, then we don't want to just use the remote entity in the component
-        //  instead we should say:
-        //  - there is a remote entity that we haven't mapped yet
-        //  - wait for it to appear
-        //  - if it appears, we finish the mapping and spawn the entity
-        if let Some(local) = entity_map.get_local(*self) {
-            *self = *local;
+/// Trait that Messages or Components must implement to be able to map entities
+pub trait MapEntities<'a> {
+    /// Map the entities inside the message or component from the remote World to the local World
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>);
+
+    /// Get all the entities that are present in that message or component
+    fn entities(&self) -> EntityHashSet<Entity>;
+}
+
+impl<'a> MapEntities<'a> for Entity {
+    #[inline]
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        if let Some(local) = entity_mapper.map(*self) {
+            *self = local;
+        } else {
+            panic!(
+                "cannot map entity {:?} because it doesn't exist in the entity map!",
+                self
+            );
         }
+    }
+
+    #[inline]
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![*self])
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
@@ -135,13 +198,7 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_mut().connect();
-        stepper.client_mut().set_synced();
-
-        // Advance the world to let the connection process complete
-        for _ in 0..20 {
-            stepper.frame_step();
-        }
+        stepper.init();
 
         // Create an entity on server
         let server_entity = stepper
@@ -157,9 +214,8 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
-            .entity_map
+            .replication_receiver
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
         assert_eq!(
@@ -185,9 +241,8 @@ mod tests {
         let client_entity_2 = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
-            .entity_map
+            .replication_receiver
+            .remote_entity_map
             .get_local(server_entity_2)
             .unwrap();
         // the 'server entity' inside the Component4 component got mapped to the corresponding entity on the client

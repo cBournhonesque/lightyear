@@ -179,6 +179,9 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     if keypress.pressed(KeyCode::D) || keypress.pressed(KeyCode::Right) {
         input.right = true;
     }
+    if !direction.is_none() {
+        return client.add_input(Inputs::Direction(direction));
+    }
     if keypress.pressed(KeyCode::Delete) {
         // currently, inputs is an enum and we can only add one input per tick
         return client.add_input(Inputs::Delete);
@@ -186,11 +189,8 @@ pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res
     if keypress.pressed(KeyCode::Space) {
         return client.add_input(Inputs::Spawn);
     }
-    // TODO: should we only send an input if it's not all NIL?
-    // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
-    if !input.is_none() {
-        client.add_input(Inputs::Direction(input));
-    }
+    // always remember to send an input message
+    return client.add_input(Inputs::None);
 }
 app.add_systems(
     FixedUpdate,
@@ -209,7 +209,7 @@ Once we correctly `add_inputs` on the client, we can start reading them on the s
 
 We define a function that specifies how a given input updates a given player entity:
 ```rust,noplayground 
-pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &Inputs) {
+pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
         Inputs::Direction(direction) => {
@@ -247,8 +247,8 @@ pub(crate) fn movement(
         let client_id = input.context();
         if let Some(input) = input.input() {
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(mut position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(&mut position, input);
+                if let Ok(position) = position_query.get_mut(*player_entity) {
+                    shared_movement_behaviour(position, input);
                 }
             }
         }

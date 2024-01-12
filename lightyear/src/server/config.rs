@@ -4,7 +4,6 @@ use bevy::utils::Duration;
 use crate::netcode::Key;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
-use crate::transport::io::IoConfig;
 
 #[derive(Clone)]
 pub struct NetcodeConfig {
@@ -67,7 +66,7 @@ impl PacketConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,

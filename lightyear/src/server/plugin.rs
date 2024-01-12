@@ -17,7 +17,6 @@ use crate::server::resource::Server;
 use crate::server::room::RoomPlugin;
 use crate::server::systems::{clear_events, is_ready_to_send};
 use crate::shared::plugin::SharedPlugin;
-use crate::shared::replication::resources::ReplicationData;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::ReplicationSet;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
@@ -65,7 +64,6 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
 
         // TODO: maybe put those 2 in a ReplicationPlugin?
         add_replication_send_systems::<P, Server<P>>(app);
-        // P::add_per_component_replication_send_systems::<Server<P>>(app);
         P::Components::add_per_component_replication_send_systems::<Server<P>>(app);
         P::Components::add_events::<ClientId>(app);
 
@@ -82,7 +80,16 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             // RESOURCES //
             .insert_resource(server)
             // SYSTEM SETS //
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PreUpdate,
+                (
+                    MainSet::Receive,
+                    MainSet::ReceiveFlush,
+                    MainSet::ClientReplication,
+                    MainSet::ClientReplicationFlush,
+                )
+                    .chain(),
+            )
             // NOTE: it's ok to run the replication systems less frequently than every frame
             //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
             .configure_sets(
@@ -91,7 +98,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
-                        ReplicationSet::ReplicationSystems,
+                        ReplicationSet::SendDespawnsAndRemovals,
                     )
                         .in_set(ReplicationSet::All),
                     (
@@ -99,11 +106,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                         ReplicationSet::SendComponentUpdates,
                         MainSet::SendPackets,
                     )
-                        .chain()
                         .in_set(MainSet::Send),
                     // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
-                    (ReplicationSet::ReplicationSystems, MainSet::SendPackets).chain(),
+                    (ReplicationSet::All, MainSet::SendPackets).chain(),
                 ),
             )
             .configure_sets(PostUpdate, MainSet::ClearEvents)

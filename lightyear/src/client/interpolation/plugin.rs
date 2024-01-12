@@ -2,20 +2,19 @@ use bevy::utils::Duration;
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PreUpdate, SystemSet,
+    apply_deferred, App, Component, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, SystemSet,
+    Update,
 };
 
-use crate::client::components::SyncComponent;
-use crate::client::interpolation::despawn::{
-    despawn_interpolated, removed_components, InterpolationMapping,
-};
+use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
-use crate::shared::sets::MainSet;
 
 use super::interpolation_history::{add_component_history, apply_confirmed_update};
-use super::{spawn_interpolated_entity, InterpolatedComponent};
+use super::spawn_interpolated_entity;
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
 #[derive(Clone)]
@@ -64,7 +63,10 @@ impl InterpolationDelay {
 /// This should be
 #[derive(Clone)]
 pub struct InterpolationConfig {
-    pub(crate) delay: InterpolationDelay,
+    pub delay: InterpolationDelay,
+    /// If true, disable the interpolation logic (but still keep the internal component history buffers)
+    /// The user will have to manually implement
+    pub custom_interpolation_logic: bool,
     // How long are we keeping the history of the confirmed entities so we can interpolate between them?
     // pub(crate) interpolation_buffer_size: Duration,
 }
@@ -74,7 +76,7 @@ impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
             delay: InterpolationDelay::default(),
-            // TODO: change
+            custom_interpolation_logic: false,
             // interpolation_buffer_size: Duration::from_millis(100),
         }
     }
@@ -126,7 +128,10 @@ pub enum InterpolationSet {
     /// Set to handle interpolated/confirmed entities/components getting despawned
     Despawn,
     DespawnFlush,
-    /// Update component history, interpolation status, and interpolate between last 2 server states
+    /// Update component history, interpolation status
+    PrepareInterpolation,
+    /// Interpolate between last 2 server states. Has to be overriden if
+    /// `InterpolationConfig.custom_interpolation_logic` is set to true
     Interpolate,
 }
 
@@ -138,10 +143,13 @@ pub enum InterpolationSet {
 //   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
 //  the tick we rollback to would not be the current client tick ?
 
-pub fn add_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
+pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
+where
+    P::Components: SyncMetadata<C>,
+{
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
-        PreUpdate,
+        Update,
         (
             (add_component_history::<C, P>).in_set(InterpolationSet::SpawnHistory),
             (removed_components::<C>).in_set(InterpolationSet::Despawn),
@@ -150,48 +158,50 @@ pub fn add_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App) {
                 update_interpolate_status::<C, P>,
             )
                 .chain()
-                .in_set(InterpolationSet::Interpolate),
+                .in_set(InterpolationSet::PrepareInterpolation),
         ),
     );
 }
 
 // We add the interpolate system in different function because we don't want the non
-// ComponentSyncMode::Full components to need the InterpolatedComponent bounds (in particular Add/Mul)
-pub fn add_lerp_systems<C: InterpolatedComponent, P: Protocol>(app: &mut App) {
+// ComponentSyncMode::Full components to need the InterpolatedComponent bounds
+pub fn add_interpolation_systems<C: Component + Clone, P: Protocol>(app: &mut App)
+where
+    P::Components: SyncMetadata<C>,
+{
     app.add_systems(
-        PreUpdate,
-        (interpolate::<C>
-            .after(update_interpolate_status::<C, P>)
-            .in_set(InterpolationSet::Interpolate),),
+        Update,
+        interpolate::<C, P>.in_set(InterpolationSet::Interpolate),
     );
 }
 
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
-        P::Components::add_interpolation_systems(app);
+        P::Components::add_prepare_interpolation_systems(app);
+        if !self.config.custom_interpolation_logic {
+            P::Components::add_interpolation_systems(app);
+        }
 
         // RESOURCES
-        app.init_resource::<InterpolationMapping>();
+        app.init_resource::<InterpolationManager>();
         // SETS
         app.configure_sets(
-            PreUpdate,
+            Update,
             (
-                MainSet::Receive,
                 InterpolationSet::SpawnInterpolation,
                 InterpolationSet::SpawnInterpolationFlush,
                 InterpolationSet::SpawnHistory,
                 InterpolationSet::SpawnHistoryFlush,
                 InterpolationSet::Despawn,
                 InterpolationSet::DespawnFlush,
-                // TODO: maybe run in a schedule in-between FixedUpdate and Update?
-                //  or maybe run during PostUpdate?
+                InterpolationSet::PrepareInterpolation,
                 InterpolationSet::Interpolate,
             )
                 .chain(),
         );
         // SYSTEMS
         app.add_systems(
-            PreUpdate,
+            Update,
             (
                 // TODO: we want to run these flushes only if something actually happened in the previous set!
                 //  because running the flush-system is expensive (needs exclusive world access)
@@ -202,9 +212,9 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             ),
         );
         app.add_systems(
-            PreUpdate,
+            Update,
             (
-                spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
+                spawn_interpolated_entity::<P>.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
             ),
         );

@@ -1,30 +1,26 @@
 //! Module to handle replicating entities and components from server to client
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use std::hash::Hash;
+
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
-use bevy::utils::{EntityHashMap, HashMap};
+use bevy::utils::{EntityHashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-use crate::channel::builder::{Channel, EntityActionsChannel, EntityUpdatesChannel};
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use crate::channel::builder::Channel;
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMap, MapEntities, NetworkTarget, Tick};
-use crate::protocol::channel::ChannelKind;
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, Tick};
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{Replicate, ReplicationGroup, ReplicationGroupId};
+use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 pub mod components;
 
 pub mod entity_map;
-
-pub mod manager;
-
-pub mod resources;
-
+pub(crate) mod receive;
+pub(crate) mod send;
 pub mod systems;
 
 // // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
@@ -46,24 +42,23 @@ pub mod systems;
 // }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityActions<C, K> {
-    // TODO: do we even need spawn?
+pub struct EntityActions<C, K: Hash + Eq> {
     pub(crate) spawn: bool,
     pub(crate) despawn: bool,
-    // TODO: do we want HashSets to avoid double-inserts, double-removes?
+    // Cannot use HashSet because we would need ComponentProtocol to implement Hash + Eq
     pub(crate) insert: Vec<C>,
-    pub(crate) remove: Vec<K>,
+    pub(crate) remove: HashSet<K>,
     // We also include the updates for the current tick in the actions, if there are any
     pub(crate) updates: Vec<C>,
 }
 
-impl<C, K> Default for EntityActions<C, K> {
+impl<C, K: Hash + Eq> Default for EntityActions<C, K> {
     fn default() -> Self {
         Self {
             spawn: false,
             despawn: false,
             insert: Vec::new(),
-            remove: Vec::new(),
+            remove: HashSet::new(),
             updates: Vec::new(),
         }
     }
@@ -72,25 +67,21 @@ impl<C, K> Default for EntityActions<C, K> {
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct EntityActionMessage<C, K> {
+pub struct EntityActionMessage<C, K: Hash + Eq> {
     sequence_id: MessageId,
-    // TODO: maybe we want a sorted hash map here?
-    //  because if we want to send a group of entities together, presumably it's because there's a hierarchy
-    //  between the elements of the group
-    //  E1: head, E2: arm, parent=head. So we need to read E1 first.
-    pub(crate) actions: BTreeMap<Entity, EntityActions<C, K>>,
+    // we use vec but the order of entities should not matter
+    pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     last_action_tick: Tick,
-    /// TODO: consider EntityHashMap or Vec if order doesn't matter
-    pub(crate) updates: BTreeMap<Entity, Vec<C>>,
+    pub(crate) updates: Vec<(Entity, Vec<C>)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub enum ReplicationMessageData<C, K> {
+pub enum ReplicationMessageData<C, K: Hash + Eq> {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
     Actions(EntityActionMessage<C, K>),
     /// All the entity updates for a given group
@@ -98,37 +89,9 @@ pub enum ReplicationMessageData<C, K> {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct ReplicationMessage<C, K> {
+pub struct ReplicationMessage<C, K: Hash + Eq> {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) data: ReplicationMessageData<C, K>,
-}
-
-impl<C: MapEntities, K: MapEntities> MapEntities for ReplicationMessage<C, K> {
-    // NOTE: we do NOT map the entities for these messages (apart from those contained in the components)
-    // because the replication logic (`apply_world`) expects the entities to be the remote entities
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        match &mut self.data {
-            ReplicationMessageData::Actions(m) => {
-                m.actions.values_mut().for_each(|entity_actions| {
-                    entity_actions
-                        .insert
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                    entity_actions
-                        .updates
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                })
-            }
-            ReplicationMessageData::Updates(m) => {
-                m.updates.values_mut().for_each(|entity_updates| {
-                    entity_updates
-                        .iter_mut()
-                        .for_each(|c| c.map_entities(entity_map));
-                })
-            }
-        }
-    }
 }
 
 pub trait ReplicationSend<P: Protocol>: Resource {
@@ -136,12 +99,12 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
-    fn new_connected_clients(&self) -> &Vec<ClientId>;
+    fn new_connected_clients(&self) -> Vec<ClientId>;
 
     fn prepare_entity_spawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -149,7 +112,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_entity_despawn(
         &mut self,
         entity: Entity,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -158,7 +121,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
         //  last update ack OR last action sent)
@@ -169,7 +132,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         &mut self,
         entity: Entity,
         component_kind: P::ComponentKinds,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()>;
@@ -178,7 +141,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         &mut self,
         entity: Entity,
         component: P::Components,
-        replicate: &Replicate,
+        replicate: &Replicate<P>,
         target: NetworkTarget,
         // bevy_tick when the component changes
         component_change_tick: BevyTick,
@@ -194,11 +157,15 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
     ///
     /// But the receiving systems might expect both components to be present at the same time.
-    fn buffer_replication_messages(&mut self) -> Result<()>;
+    fn buffer_replication_messages(&mut self, bevy_tick: BevyTick) -> Result<()>;
+
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>>;
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
@@ -233,13 +200,7 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_mut().connect();
-        stepper.client_mut().set_synced();
-
-        // Advance the world to let the connection process complete
-        for _ in 0..20 {
-            stepper.frame_step();
-        }
+        stepper.init();
 
         // Create an entity on server
         let server_entity = stepper
@@ -255,9 +216,8 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
-            .entity_map
+            .replication_receiver
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
         assert_eq!(

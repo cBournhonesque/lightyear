@@ -1,9 +1,7 @@
 //! Defines the actual ping/pong messages
-use crate::prelude::MapEntities;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::ping::store::PingId;
-use crate::shared::tick_manager::Tick;
 use crate::shared::time_manager::WrappedTime;
 
 /// Ping message; the remote should response immediately with a pong
@@ -27,8 +25,4 @@ pub struct Pong {
 pub enum SyncMessage {
     Ping(Ping),
     Pong(Pong),
-}
-
-impl MapEntities for SyncMessage {
-    fn map_entities(&mut self, _entity_map: &crate::prelude::EntityMap) {}
 }

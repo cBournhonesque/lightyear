@@ -36,8 +36,8 @@ mod tests {
         let server_addr = "127.0.0.1:7000".parse().unwrap();
         let client_addr = "127.0.0.1:8000".parse().unwrap();
 
-        let mut client_socket = WebTransportClientSocket::new(client_addr, server_addr);
-        let mut server_socket = WebTransportServerSocket::new(server_addr, certificate);
+        let client_socket = WebTransportClientSocket::new(client_addr, server_addr);
+        let server_socket = WebTransportServerSocket::new(server_addr, certificate);
 
         let (mut server_send, mut server_recv) = server_socket.listen();
         let (mut client_send, mut client_recv) = client_socket.listen();

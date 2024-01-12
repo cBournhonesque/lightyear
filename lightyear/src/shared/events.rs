@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 
 use bevy::prelude::{Component, Entity, Event};
 
-use crate::inputs::UserInput;
+#[cfg(feature = "leafwing")]
+use crate::inputs::leafwing::InputMessage;
 use crate::packet::message::Message;
 
 #[derive(Event)]
@@ -30,6 +31,26 @@ impl<Ctx> DisconnectEvent<Ctx> {
     }
 }
 
+#[cfg(feature = "leafwing")]
+#[derive(Event)]
+pub(crate) struct InputMessageEvent<A: crate::inputs::leafwing::LeafwingUserAction, Ctx = ()> {
+    pub(crate) message: InputMessage<A>,
+    pub(crate) context: Ctx,
+}
+
+#[cfg(feature = "leafwing")]
+impl<A: crate::inputs::leafwing::LeafwingUserAction, Ctx> InputMessageEvent<A, Ctx> {
+    pub fn new(message: InputMessage<A>, context: Ctx) -> Self {
+        Self { message, context }
+    }
+    pub fn message(&self) -> &InputMessage<A> {
+        &self.message
+    }
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
+}
+
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
     message: M,
@@ -52,12 +73,12 @@ impl<M: Message, Ctx> MessageEvent<M, Ctx> {
 
 #[derive(Event)]
 /// Event emitted on server every time we receive an event
-pub struct InputEvent<I: UserInput, Ctx = ()> {
+pub struct InputEvent<I: crate::inputs::native::UserAction, Ctx = ()> {
     input: Option<I>,
     context: Ctx,
 }
 
-impl<I: UserInput, Ctx> InputEvent<I, Ctx> {
+impl<I: crate::inputs::native::UserAction, Ctx> InputEvent<I, Ctx> {
     pub fn new(input: Option<I>, context: Ctx) -> Self {
         Self { input, context }
     }
@@ -84,8 +105,8 @@ impl<Ctx> EntitySpawnEvent<Ctx> {
         Self { entity, context }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -104,8 +125,8 @@ impl<Ctx> EntityDespawnEvent<Ctx> {
         Self { entity, context }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -130,8 +151,8 @@ impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
         }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -139,7 +160,7 @@ impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct ComponentInsertEvent<C: Component, Ctx = ()> {
     entity: Entity,
     context: Ctx,
@@ -156,8 +177,8 @@ impl<C: Component, Ctx> ComponentInsertEvent<C, Ctx> {
         }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {
@@ -182,8 +203,8 @@ impl<C: Component, Ctx> ComponentRemoveEvent<C, Ctx> {
         }
     }
 
-    pub fn entity(&self) -> &Entity {
-        &self.entity
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 
     pub fn context(&self) -> &Ctx {

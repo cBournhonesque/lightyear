@@ -6,8 +6,6 @@ use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
 use crate::shared::config::SharedConfig;
-use crate::transport::io::IoConfig;
-
 use crate::shared::ping::manager::PingConfig;
 
 #[derive(Clone)]

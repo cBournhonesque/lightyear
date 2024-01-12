@@ -7,7 +7,7 @@ we want to send only the data that is relevant to each client.
 
 In this example, we are going to replicate entities that are within a certain distance of the client.
 
-
+https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-8974-1d208b4ef798
 
 ## Running the example
 
@@ -15,14 +15,14 @@ To start the server, run `cargo run --example interest_management -- server`
 
 Then you can launch multiple clients with the commands:
 
-- `cargo run --example interest_management -- client -c 1`
+- `cargo run  -- client -c 1`
 
-- `cargo run --example interest_management -- client -c 2 --client-port 2000`
+- `cargo run  -- client -c 2 --client-port 2000`
 
 ### Testing webtransport
 
-- `cargo run --example interest_management -- server --transport web-transport`
-- `cargo run --example interest_management -- client -c 1 --transport web-transport`
+- `cargo run  -- server --transport web-transport`
+- `cargo run  -- client -c 1 --transport web-transport`
 
 
 ### Testing in wasm
@@ -37,4 +37,4 @@ let certificate_digest =
 String::from("09945594ec0978bb76891fb5de82106d7928191152777c9fc81bec0406055159");
 ```
 - then start the client wasm test with
-  `RUSTFLAGS=--cfg=web_sys_unstable_apis wasm-pack test --chrome --example interest_management --features webtransport --target wasm32-unknown-unknown`
+  `RUSTFLAGS=--cfg=web_sys_unstable_apis wasm-pack test --chrome --features webtransport --target wasm32-unknown-unknown`

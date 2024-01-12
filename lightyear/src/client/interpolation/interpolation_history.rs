@@ -1,14 +1,14 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, EventReader, Query, Ref, Res, ResMut, With, Without,
+    Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
-use crate::client::components::Confirmed;
 use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::events::ComponentUpdateEvent;
+use crate::client::components::{Confirmed, SyncMetadata};
 use crate::client::interpolation::interpolate::InterpolateStatus;
+use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
@@ -65,7 +65,6 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
     /// Get the value of the component at the specified tick.
     /// Clears the history buffer of all ticks older or equal than the specified tick.
     /// NOTE: doesn't pop the last value!
-    /// Returns None
     /// CAREFUL:
     /// the component history will only contain the ticks where the component got updated, and otherwise
     /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
@@ -76,12 +75,15 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
 }
 
 // TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
-pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
+pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
+    manager: Res<InterpolationManager>,
     mut commands: Commands,
     client: ResMut<Client<P>>,
-    interpolated_entities: Query<Entity, (Without<ConfirmedHistory<T>>, With<Interpolated>)>,
-    confirmed_entities: Query<(&Confirmed, Ref<T>)>,
-) {
+    interpolated_entities: Query<Entity, (Without<ConfirmedHistory<C>>, With<Interpolated>)>,
+    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
+) where
+    P::Components: SyncMetadata<C>,
+{
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.interpolated {
             if let Ok(interpolated_entity) = interpolated_entities.get(p) {
@@ -90,24 +92,28 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
                     let mut interpolated_entity_mut =
                         commands.get_entity(interpolated_entity).unwrap();
                     // insert history
-                    let history = ConfirmedHistory::<T>::new();
-                    match T::mode() {
+                    let history = ConfirmedHistory::<C>::new();
+                    // map any entities from confirmed to interpolated
+                    let mut new_component = confirmed_component.deref().clone();
+                    new_component.map_entities(Box::new(&manager.interpolated_entity_map));
+                    match P::Components::mode() {
                         ComponentSyncMode::Full => {
                             debug!("spawn interpolation history");
                             interpolated_entity_mut.insert((
-                                confirmed_component.deref().clone(),
+                                new_component,
                                 history,
-                                InterpolateStatus::<T> {
+                                InterpolateStatus::<C> {
                                     start: None,
                                     end: None,
                                     current: client.interpolation_tick(),
                                 },
                             ));
                         }
-                        _ => {
+                        ComponentSyncMode::Once | ComponentSyncMode::Simple => {
                             debug!("copy interpolation component");
-                            interpolated_entity_mut.insert(confirmed_component.deref().clone());
+                            interpolated_entity_mut.insert(new_component);
                         }
+                        ComponentSyncMode::None => {}
                     }
                 }
             }
@@ -117,22 +123,25 @@ pub(crate) fn add_component_history<T: SyncComponent, P: Protocol>(
 
 /// When we receive a server update, we need to store it in the confirmed history,
 /// or update the interpolated component directly if InterpolatedComponentMode::Sync
-pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
+pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
+    manager: ResMut<InterpolationManager>,
     client: Res<Client<P>>,
     mut interpolated_entities: Query<
         // TODO: handle missing T?
-        (&mut T, Option<&mut ConfirmedHistory<T>>),
+        (&mut C, Option<&mut ConfirmedHistory<C>>),
         (With<Interpolated>, Without<Confirmed>),
     >,
-    confirmed_entities: Query<(Entity, &Confirmed, Ref<T>)>,
-) {
+    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
+) where
+    P::Components: SyncMetadata<C>,
+{
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
-            if confirmed_component.is_changed() {
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok((mut interpolated_component, history_option)) =
                     interpolated_entities.get_mut(p)
                 {
-                    match T::mode() {
+                    match P::Components::mode() {
                         ComponentSyncMode::Full => {
                             let Some(mut history) = history_option else {
                                 error!(
@@ -141,9 +150,9 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            let Some(channel) = client
-                                .replication_manager()
-                                .channel_by_local(confirmed_entity)
+                            let Some(tick) = client
+                                .replication_receiver()
+                                .get_confirmed_tick(confirmed_entity)
                             else {
                                 error!(
                                     "Could not find replication channel for entity {:?}",
@@ -151,17 +160,21 @@ pub(crate) fn apply_confirmed_update<T: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            trace!(tick = ?channel.latest_tick, "adding confirmed update to history");
+                            // map any entities from confirmed to predicted
+                            let mut component = confirmed_component.deref().clone();
+                            component.map_entities(Box::new(&manager.interpolated_entity_map));
+                            trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
                             // assign the history at the value that the entity currently is
-                            history
-                                .buffer
-                                .add_item(channel.latest_tick, confirmed_component.deref().clone());
+                            history.buffer.add_item(tick, component);
                         }
                         // for sync-components, we just match the confirmed component
                         ComponentSyncMode::Simple => {
-                            *interpolated_component = confirmed_component.deref().clone();
+                            // map any entities from confirmed to predicted
+                            let mut component = confirmed_component.deref().clone();
+                            component.map_entities(Box::new(&manager.interpolated_entity_map));
+                            *interpolated_component = component;
                         }
-                        ComponentSyncMode::Once => {}
+                        _ => {}
                     }
                 }
             }

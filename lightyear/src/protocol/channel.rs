@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use std::any::TypeId;
 use std::collections::HashMap;
 
@@ -61,7 +62,7 @@ impl ChannelRegistry {
     pub fn add<T: Channel>(&mut self, settings: ChannelSettings) {
         let kind = self.kind_map.add::<T>();
         self.builder_map.insert(kind, T::get_builder(settings));
-        let name = T::name();
+        let name = T::type_name();
         self.name_map.insert(kind, name.to_string());
     }
 

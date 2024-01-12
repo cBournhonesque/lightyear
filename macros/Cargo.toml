@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_macros"
-version = "0.2.0"
+version = "0.5.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -15,6 +15,9 @@ exclude = ["/tests"]
 [lib]
 proc-macro = true
 
+[features]
+leafwing = []
+
 
 [dependencies]
 proc-macro2 = "1.0"
@@ -28,6 +31,7 @@ uuid = { version = "1.6.1", features = ["v4"] }
 
 [dev-dependencies]
 lightyear = { path = "../lightyear" }
+leafwing-input-manager = { version = "0.11.2" }
 enum-as-inner = "0.6.0"
 bevy = { version = "0.12", default-features = false }
 enum_delegate = "0.2"

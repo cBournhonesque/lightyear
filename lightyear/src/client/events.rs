@@ -1,16 +1,6 @@
 //! Wrapper around [`ConnectionEvents`] that adds client-specific functionality
 //!
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::Tick;
-use crate::protocol::Protocol;
-
-pub struct ClientEvents<P: Protocol> {
-    // cannot include connection/disconnection directly into ConnectionEvents, because we remove
-    // the connection event upon disconnection
-    connection: bool,
-    disconnection: bool,
-    events: ConnectionEvents<P>,
-}
 
 pub type ConnectEvent = crate::shared::events::ConnectEvent<()>;
 pub type DisconnectEvent = crate::shared::events::DisconnectEvent<()>;

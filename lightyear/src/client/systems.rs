@@ -1,8 +1,11 @@
 //! Defines the client bevy systems and run conditions
-use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
-use tracing::{debug, info, trace};
+use bevy::prelude::{Events, Fixed, Mut, Res, Time, Virtual, World};
+#[cfg(feature = "xpbd_2d")]
+use bevy_xpbd_2d::prelude::PhysicsTime;
+use tracing::{error, info, trace};
 
-use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::_reexport::ReplicationSend;
+use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::Client;
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::protocol::component::ComponentProtocol;
@@ -78,10 +81,21 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     });
 }
 
-pub(crate) fn send<P: Protocol>(mut client: ResMut<Client<P>>) {
-    trace!("Send packets to server");
-    // send buffered packets to io
-    client.send_packets().unwrap();
+pub(crate) fn send<P: Protocol>(world: &mut World) {
+    world.resource_scope(|world, mut client: Mut<Client<P>>| {
+        trace!("Send packets to server");
+        // finalize any packets that are needed for replication
+        client
+            .buffer_replication_messages(world.change_tick())
+            .unwrap_or_else(|e| {
+                error!("Error preparing replicate send: {}", e);
+            });
+        // send buffered packets to io
+        client.send_packets().unwrap();
+
+        // no need to clear the connection, because we already std::mem::take it
+        // client.connection.clear();
+    });
 }
 
 pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {
@@ -91,10 +105,25 @@ pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {
 pub(crate) fn sync_update<P: Protocol>(world: &mut World) {
     world.resource_scope(|world, mut client: Mut<Client<P>>| {
         world.resource_scope(|world, mut time: Mut<Time<Virtual>>| {
-            // Handle pongs, update RTT estimates, update client's speed
+            // Handle pongs, update RTT estimates, update client prediction time
             client.sync_update();
+
             // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-            client.update_relative_speed(&mut time);
+            if client.is_synced() {
+                let relative_speed = client.time_manager.get_relative_speed();
+                time.set_relative_speed(relative_speed);
+
+                // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
+                // //  client and server. Enabling this will cause the simulations to diverge
+                // cfg_if! {
+                //     if #[cfg(feature = "xpbd_2d")] {
+                //         use bevy_xpbd_2d::prelude::Physics;
+                //         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
+                //             physics_time.set_relative_speed(relative_speed);
+                //         }
+                //     }
+                // }
+            };
         })
     })
 }

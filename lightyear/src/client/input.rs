@@ -1,5 +1,4 @@
 //! Handles client-generated inputs
-use anyhow::Context;
 use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
@@ -12,17 +11,18 @@ use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
-use crate::inputs::UserInput;
+use crate::inputs::native::UserAction;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::tick_manager::TickManaged;
 
 #[derive(Debug, Clone)]
 pub struct InputConfig {
-    /// How many consecutive packets lossed do we want to handle?
+    /// How many consecutive packets losses do we want to handle?
     /// This is used to compute the redundancy of the input messages.
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
-    packet_redundancy: u16,
+    pub(crate) packet_redundancy: u16,
 }
 
 impl Default for InputConfig {
@@ -57,7 +57,7 @@ impl<P: Protocol> Default for InputPlugin<P> {
 }
 
 /// Input of the user for the current tick
-pub struct CurrentInput<T: UserInput> {
+pub struct CurrentInput<T: UserAction> {
     // TODO: should we allow a Vec of inputs? for example if a user presses multiple buttons?
     //  or would that be encoded as a combination?
     input: T,
@@ -99,6 +99,9 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             FixedUpdate,
             clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvent),
         );
+        // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
+        // TODO: should we also write the events at PreUpdate?
+        // app.add_systems(PostUpdate, clear_input_events::<P>);
         app.add_systems(
             PostUpdate,
             prepare_input_message::<P>
@@ -183,15 +186,22 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
         client
-            .buffer_send::<InputChannel, _>(message)
+            .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             })
     }
+    // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
+    // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
+    //  maybe at interpolation_tick(), since it's before any latest server update we receive?
+
     // delete old input values
-    client
-        .get_mut_input_buffer()
-        .pop(current_tick - (message_len + 1));
+    let interpolation_tick = client
+        .connection
+        .sync_manager
+        .interpolation_tick(&client.tick_manager);
+    client.get_mut_input_buffer().pop(interpolation_tick);
+    // .pop(current_tick - (message_len + 1));
 }
 
 // on the client:

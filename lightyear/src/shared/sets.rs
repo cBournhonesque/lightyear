@@ -4,8 +4,10 @@ use bevy::prelude::SystemSet;
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSet {
-    /// ReplicationSystems that run once per frame
-    ReplicationSystems,
+    /// Gathers entity despawns and component removals
+    /// Needs to run once per frame instead of once per send_interval
+    /// because they rely on bevy events that are cleared every frame
+    SendDespawnsAndRemovals,
 
     // TODO: is it useful to separate these two system sets?
     /// System Set to gather all the replication updates to send
@@ -27,6 +29,11 @@ pub enum MainSet {
     Receive,
     ReceiveFlush,
 
+    /// SystemSet that handles client-replication
+    /// On server: You can use this SystemSet to add Replicate components to entities received from clients (to rebroadcast them to other clients)
+    ClientReplication,
+    ClientReplicationFlush,
+
     /// Runs once per frame, update sync (client only)
     Sync,
     /// Runs once per frame, clears events (server only)
@@ -36,7 +43,7 @@ pub enum MainSet {
     ///
     /// Runs in `PostUpdate`.
     SendPackets,
-    /// System to encompass all send-related systems
+    /// System to encompass all send-related systems. Runs only every send_interval
     Send,
 }
 

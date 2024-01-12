@@ -17,4 +17,6 @@ pub mod resource;
 
 pub mod room;
 
+#[cfg(feature = "leafwing")]
+pub mod input_leafwing;
 mod systems;

@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 
-use bitcode::encoding::{Fixed, Gamma};
 use bytes::Bytes;
+
+use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::EventContext;
@@ -10,7 +11,6 @@ use crate::serialize::writer::WriteBuffer;
 use crate::shared::replication::entity_map::MapEntities;
 use crate::shared::tick_manager::Tick;
 use crate::utils::named::Named;
-use crate::utils::wrapping_id;
 use crate::utils::wrapping_id::wrapping_id;
 
 // strategies to avoid copying:
@@ -345,7 +345,8 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + Named + MapEntities {}
+pub trait Message: EventContext + Named + for<'a> MapEntities<'a> {}
+impl<T: EventContext + Named + for<'a> MapEntities<'a>> Message for T {}
 
 #[cfg(test)]
 mod tests {

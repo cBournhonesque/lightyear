@@ -1,10 +1,8 @@
 //! WebTransport client implementation.
-use crate::transport::webtransport::MTU;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-use bevy::tasks::{IoTaskPool, TaskPool};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -13,8 +11,11 @@ use wtransport;
 use wtransport::datagram::Datagram;
 use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Certificate;
-use wtransport::{ClientConfig, ServerConfig};
+use wtransport::ServerConfig;
 use wtransport::{Connection, Endpoint};
+
+use crate::transport::webtransport::MTU;
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 /// WebTransport client socket
 pub struct WebTransportServerSocket {
@@ -100,7 +101,7 @@ impl Transport for WebTransportServerSocket {
     fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
         // TODO: should i create my own task pool?
         let server_addr = self.server_addr;
-        let certificate = std::mem::take(&mut self.certificate).unwrap();
+        let certificate = self.certificate.unwrap();
         let (to_client_sender, to_client_receiver) =
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();

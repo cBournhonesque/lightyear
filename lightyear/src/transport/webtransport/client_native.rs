@@ -31,7 +31,7 @@ impl Transport for WebTransportClientSocket {
         self.client_addr
     }
 
-    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
+    fn listen(self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();

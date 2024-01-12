@@ -3,7 +3,6 @@ use bevy::prelude::{App, Fixed, Plugin, Time};
 
 use crate::shared::config::SharedConfig;
 use crate::shared::log;
-use crate::shared::replication::resources::ReplicationData;
 
 pub struct SharedPlugin {
     pub config: SharedConfig,
@@ -16,7 +15,6 @@ impl Plugin for SharedPlugin {
         app.insert_resource(Time::<Fixed>::from_seconds(
             self.config.tick.tick_duration.as_secs_f64(),
         ));
-        app.init_resource::<ReplicationData>();
 
         // SYSTEMS
         // TODO: increment_tick should be shared

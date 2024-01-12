@@ -2,7 +2,6 @@
 use bevy::utils::Duration;
 
 use crate::shared::log::LogConfig;
-
 use crate::shared::tick_manager::TickConfig;
 
 #[derive(Clone)]

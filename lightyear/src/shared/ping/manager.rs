@@ -1,12 +1,9 @@
 //! Manages sending/receiving pings and computing network statistics
 use bevy::utils::Duration;
 
-use bevy::prelude::Res;
 use bevy::time::Stopwatch;
-use tracing::{debug, error, info, trace};
+use tracing::{error, trace};
 
-use crate::client::resource::Client;
-use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::ping::store::{PingId, PingStore};
@@ -26,7 +23,7 @@ pub struct PingConfig {
 impl Default for PingConfig {
     fn default() -> Self {
         PingConfig {
-            ping_interval: Duration::from_millis(100),
+            ping_interval: Duration::from_millis(50),
             stats_buffer_duration: Duration::from_secs(4),
         }
     }
@@ -175,18 +172,37 @@ impl PingManager {
                 let item = &stat.item;
                 (acc.0 + item.round_trip_delay.as_secs_f64(), acc.1 + 1.0)
             });
+
         let final_rtt_mean = if pruned_sample_count > 0.0 {
             pruned_rtt_mean / pruned_sample_count
         } else {
             rtt_mean
         };
+
         // TODO: recompute rtt_stdv from pruned ?
+        // Find the Mean
+        let rtt_mean = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
+            let item = &stat.item;
+            acc + item.round_trip_delay.as_secs_f64() / sample_count
+        });
+
+        // TODO: should I use biased or unbiased estimator?
+        // Find the Variance
+        let rtt_diff_mean: f64 = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
+            let item = &stat.item;
+            acc + (item.round_trip_delay.as_secs_f64() - rtt_mean).powi(2) / (sample_count)
+        });
+        let final_rtt_stdv = if pruned_sample_count > 0.0 {
+            rtt_diff_mean.sqrt()
+        } else {
+            0.0
+        };
 
         self.final_stats = FinalStats {
             // rtt: Duration::from_secs_f64(rtt_mean),
             rtt: Duration::from_secs_f64(final_rtt_mean),
             // jitter is based on one-way delay, so we divide by 2
-            jitter: Duration::from_secs_f64(rtt_stdv / 2.0),
+            jitter: Duration::from_secs_f64(final_rtt_stdv / 2.0),
         };
         trace!(
             rtt = ?self.final_stats.rtt,
@@ -214,7 +230,8 @@ impl PingManager {
             // round-trip-delay
             let rtt = received_time - ping_sent_time;
             let server_process_time = pong.pong_sent_time - pong.ping_received_time;
-            let round_trip_delay = (rtt - server_process_time).to_std().unwrap();
+            trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.pong_sent_time, ?pong.ping_received_time, "process pong");
+            let round_trip_delay = (rtt - server_process_time).to_std().unwrap_or_default();
 
             // update stats buffer
             self.sync_stats
@@ -269,7 +286,10 @@ mod tests {
 
     #[test]
     fn test_send_pings() {
-        let config = PingConfig::default();
+        let config = PingConfig {
+            ping_interval: Duration::from_millis(100),
+            stats_buffer_duration: Duration::from_secs(4),
+        };
         let mut ping_manager = PingManager::new(&config);
         let mut time_manager = TimeManager::new(Duration::default());
 

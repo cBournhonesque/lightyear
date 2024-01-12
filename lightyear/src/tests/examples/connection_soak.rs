@@ -10,8 +10,8 @@ use rand::Rng;
 use tracing::debug;
 
 use crate::connection::events::IterMessageEvent;
-use crate::prelude::client::{Authentication, Client, ClientConfig, SyncConfig};
-use crate::prelude::server::{NetcodeConfig, Server, ServerConfig};
+use crate::prelude::client::{Authentication, ClientConfig, SyncConfig};
+use crate::prelude::server::{NetcodeConfig, ServerConfig};
 use crate::prelude::*;
 use crate::tests::protocol::*;
 
@@ -32,7 +32,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         .with_protocol_id(protocol_id)
         .with_key(private_key);
     let io_server = Io::from_config(
-        &IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
+        IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
             LinkConditionerConfig {
                 incoming_latency: Duration::from_millis(20),
                 incoming_jitter: Duration::from_millis(10),
@@ -64,7 +64,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         client_id,
     };
     let io_client = Io::from_config(
-        &IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
+        IoConfig::from_transport(TransportConfig::UdpSocket(addr)).with_conditioner(
             LinkConditionerConfig {
                 incoming_latency: Duration::from_millis(20),
                 incoming_jitter: Duration::from_millis(10),
@@ -95,7 +95,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
         let mut rng = rand::thread_rng();
         loop {
             server.update(start.elapsed())?;
-            server.recv_packets(BevyTick::new(0))?;
+            server.recv_packets()?;
             server.send_packets()?;
             server.receive(&mut world);
 
@@ -113,7 +113,7 @@ fn test_connection_soak() -> anyhow::Result<()> {
                     .collect();
                 let message = Message1(s);
                 debug!("Sending message {message:?}");
-                server.send_to_target::<Channel1, Message1>(message, NetworkTarget::All)?;
+                server.send_message_to_target::<Channel1, Message1>(message, NetworkTarget::All)?;
             }
             std::thread::sleep(tick_rate_secs);
         }

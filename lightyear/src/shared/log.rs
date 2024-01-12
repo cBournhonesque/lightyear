@@ -6,11 +6,8 @@ use bevy::prelude::{App, Plugin};
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 #[cfg(feature = "metrics")]
 use metrics_util::layers::Layer;
-
-use tracing::{warn, Level};
+use tracing::Level;
 use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
-
-use tracing_log::LogTracer;
 
 /// Adds logging to Apps.
 ///
@@ -51,7 +48,7 @@ impl Plugin for LogPlugin {
         let filter_layer = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(&default_filter))
             .unwrap();
-        println!("Log filter: {:?}", default_filter);
+        // println!("Log filter: {:?}", default_filter);
         let subscriber = Registry::default().with(filter_layer);
 
         let fmt_layer = tracing_subscriber::fmt::Layer::default()

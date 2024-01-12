@@ -1,11 +1,8 @@
-use bevy::utils::HashMap;
-
 use anyhow::Result;
-use bytes::Bytes;
+use bevy::utils::HashMap;
 use tracing::{error, trace};
 
-use crate::packet::message::{FragmentData, FragmentIndex, MessageAck, MessageId, SingleData};
-use crate::packet::packet::FRAGMENT_SIZE;
+use crate::packet::message::{FragmentIndex, MessageId};
 use crate::shared::time_manager::WrappedTime;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
@@ -103,8 +100,6 @@ impl FragmentAckTracker {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::senders::fragment_sender::FragmentSender;
-
     use super::*;
 
     #[test]

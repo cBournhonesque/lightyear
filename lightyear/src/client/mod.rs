@@ -21,4 +21,8 @@ pub mod resource;
 
 pub mod sync;
 
+mod diagnostics;
+mod easings;
+#[cfg(feature = "leafwing")]
+pub mod input_leafwing;
 pub mod systems;

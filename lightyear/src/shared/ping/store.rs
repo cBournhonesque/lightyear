@@ -1,12 +1,11 @@
 //! Store the latest pings sent to remote
 use crate::shared::time_manager::WrappedTime;
 use crate::utils::sequence_buffer::SequenceBuffer;
-use crate::utils::wrapping_id;
 use crate::utils::wrapping_id::wrapping_id;
 
 wrapping_id!(PingId);
 
-const PING_BUFFER_SIZE: usize = 32;
+const PING_BUFFER_SIZE: usize = 128;
 
 /// Data structure to store the latest pings sent to remote
 pub struct PingStore {

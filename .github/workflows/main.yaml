@@ -97,11 +97,11 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Test
-        run: cargo tarpaulin --engine llvm --out lcov --workspace -p lightyear_macros -p lightyear -e wtransport_lightyear_patch -e wtransport-proto_lightyear_patch -e bitcode_lightyear_patch --exclude-files vendor/**/*.rs --exclude-files macros/**/*.rs
+        run: cargo tarpaulin --engine llvm --out lcov
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: code-coverage-report
           path: lcov.info
@@ -116,7 +116,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download code coverage results
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: code-coverage-report
 

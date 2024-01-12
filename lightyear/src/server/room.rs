@@ -1,17 +1,17 @@
-use crate::netcode::ClientId;
-use crate::prelude::{MainSet, Replicate, ReplicationSet};
-use crate::protocol::Protocol;
-use crate::server::resource::Server;
-use crate::server::systems::is_ready_to_send;
-use crate::shared::replication::components::DespawnTracker;
-use crate::utils::wrapping_id::wrapping_id;
 use bevy::app::App;
 use bevy::prelude::{
     Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, RemovedComponents,
     Res, ResMut, Resource, SystemSet,
 };
 use bevy::utils::{HashMap, HashSet};
-use tracing::info;
+
+use crate::netcode::ClientId;
+use crate::prelude::ReplicationSet;
+use crate::protocol::Protocol;
+use crate::server::resource::Server;
+use crate::server::systems::is_ready_to_send;
+use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::utils::wrapping_id::wrapping_id;
 
 // Id for a room, used to perform interest management
 // An entity will be replicated to a client only if they are in the same room
@@ -103,7 +103,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                 update_entity_replication_cache::<P>
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
                 (
-                    clear_entity_replication_cache,
+                    clear_entity_replication_cache::<P>,
                     clean_entity_despawns::<P>,
                     clear_room_events::<P>,
                 )
@@ -350,7 +350,7 @@ pub enum ClientVisibility {
 /// Note that the rooms' entities/clients have already been updated at this point
 fn update_entity_replication_cache<P: Protocol>(
     server: Res<Server<P>>,
-    mut query: Query<&mut Replicate>,
+    mut query: Query<&mut Replicate<P>>,
 ) {
     // entity joined room
     for (entity, rooms) in server.room_manager.events.iter_entity_enter_room() {
@@ -416,7 +416,7 @@ fn update_entity_replication_cache<P: Protocol>(
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache(mut query: Query<&mut Replicate>) {
+fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate<P>>) {
     for mut replicate in query.iter_mut() {
         replicate
             .replication_clients_cache
@@ -448,14 +448,17 @@ fn clean_entity_despawns<P: Protocol>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::time::Duration;
+
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::Events;
+
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
+    use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::{EventReader, Events};
     use bevy::utils::Duration;
 
     fn setup() -> BevyStepper {
@@ -482,14 +485,7 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_mut().connect();
-        stepper.client_mut().set_synced();
-
-        // Advance the world to let the connection process complete
-        for _ in 0..20 {
-            stepper.frame_step();
-        }
-
+        stepper.init();
         stepper
     }
 
@@ -593,9 +589,8 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
-            .entity_map
+            .replication_receiver
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
 
@@ -750,9 +745,8 @@ mod tests {
         let client_entity = *stepper
             .client()
             .connection()
-            .base()
-            .replication_manager
-            .entity_map
+            .replication_receiver
+            .remote_entity_map
             .get_local(server_entity)
             .unwrap();
 

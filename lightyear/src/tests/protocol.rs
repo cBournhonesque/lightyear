@@ -1,5 +1,8 @@
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, Reflect};
+use bevy::utils::EntityHashSet;
+use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
+
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::*;
@@ -12,7 +15,7 @@ pub struct Message1(pub String);
 #[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
-#[message_protocol_internal(protocol = "MyProtocol", derive(Debug))]
+#[message_protocol_internal(protocol = "MyProtocol")]
 pub enum MyMessageProtocol {
     Message1(Message1),
     Message2(Message2),
@@ -32,13 +35,16 @@ pub struct Component3(pub f32);
 #[message(custom_map)]
 pub struct Component4(pub Entity);
 
-impl MapEntities for Component4 {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        self.0.map_entities(entity_map);
+impl<'a> MapEntities<'a> for Component4 {
+    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        self.0.map_entities(entity_mapper);
+    }
+
+    fn entities(&self) -> EntityHashSet<Entity> {
+        EntityHashSet::from_iter(vec![self.0])
     }
 }
 
-// #[component_protocol_internal(protocol = "MyProtocol", derive(Debug))]
 #[component_protocol_internal(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
     #[sync(full)]
@@ -56,15 +62,42 @@ pub enum MyComponentsProtocol {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
 
-impl UserInput for MyInput {}
+impl UserAction for MyInput {}
 
 // Protocol
-protocolize! {
-    Self = MyProtocol,
-    Message = MyMessageProtocol,
-    Component = MyComponentsProtocol,
-    Input = MyInput,
-    Crate = crate,
+cfg_if! {
+    if #[cfg(feature = "leafwing")] {
+        use leafwing_input_manager::Actionlike;
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+        pub enum LeafwingInput1 {
+            Jump,
+        }
+        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput1 {}
+
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+        pub enum LeafwingInput2 {
+            Crouch,
+        }
+        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput2 {}
+
+        protocolize! {
+            Self = MyProtocol,
+            Message = MyMessageProtocol,
+            Component = MyComponentsProtocol,
+            Input = MyInput,
+            LeafwingInput1 = LeafwingInput1,
+            LeafwingInput2 = LeafwingInput2,
+            Crate = crate,
+        }
+    } else {
+        protocolize! {
+            Self = MyProtocol,
+            Message = MyMessageProtocol,
+            Component = MyComponentsProtocol,
+            Input = MyInput,
+            Crate = crate,
+        }
+    }
 }
 
 // Channels
