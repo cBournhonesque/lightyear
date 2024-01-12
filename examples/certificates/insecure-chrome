@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+
+COMMANDS_TO_TRY=(
+  chrome
+  "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+)
+
+detect_chrome() {
+  for COMMAND in "${COMMANDS_TO_TRY[@]}"; do
+    if command -v "$COMMAND" &>/dev/null; then
+      printf "%s" "$COMMAND"
+      return
+    fi
+  done
+
+  printf "Error: unable to detect the chrome executable\n" >&2
+  exit 1
+}
+
+cert-fingerprint() {
+  local CERT_FILE="$1"
+  # Based on https://www.rfc-editor.org/rfc/rfc7469#appendix-A
+  openssl x509 -in "$CERT_FILE" -pubkey -noout |
+    openssl pkey -pubin -outform der |
+    openssl dgst -sha256 -binary |
+    openssl enc -base64
+}
+
+CHROME_COMMAND="$(detect_chrome)"
+
+CERT_FINGERPRINT="$(cert-fingerprint "cert.pem")"
+echo "Using certificate fingerprint: $CERT_FINGERPRINT"
+
+USER_DATA="$SCRIPT_DIR/../tmp/chrome-user-data"
+mkdir -p "$USER_DATA"
+
+COMMAND=(
+  "$CHROME_COMMAND"
+  --user-data-dir="$USER_DATA"
+  --webtransport-developer-mode
+  --ignore-certificate-errors-spki-list="$CERT_FINGERPRINT"
+  "$@"
+)
+
+exec "${COMMAND[@]}"

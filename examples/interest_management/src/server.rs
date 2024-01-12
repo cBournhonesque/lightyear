@@ -2,6 +2,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use leafwing_input_manager::action_state::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
@@ -10,8 +11,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 pub struct MyServerPlugin {
-    pub(crate) port: u16,
-    pub(crate) transport: Transports,
+    pub(crate) transport_config: TransportConfig,
 }
 
 const GRID_SIZE: f32 = 200.0;
@@ -21,9 +21,38 @@ const INTEREST_RADIUS: f32 = 200.0;
 // Special room for the player entities (so that all player entities always see each other)
 const PLAYER_ROOM: RoomId = RoomId(6000);
 
+pub(crate) async fn create_plugin(port: u16, transport: Transports) -> MyServerPlugin {
+    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
+    let transport_config = match transport {
+        Transports::Udp => TransportConfig::UdpSocket(server_addr),
+        Transports::WebTransport => {
+            let certificate =
+                Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
+                    .await
+                    .unwrap();
+            // let certificate = Certificate::self_signed(&["localhost", "127.0.0.1:1334"]);
+            let digest = utils::digest_certificate(&certificate);
+            dbg!("hashes: {}", certificate.hashes());
+            println!("hashes: {}", certificate.hashes().first().unwrap());
+            error!(
+                "Generated self-signed certificate with digest: {:?}",
+                digest
+            );
+            dbg!(
+                "Generated self-signed certificate with digest: {:?}",
+                digest
+            );
+            TransportConfig::WebTransportServer {
+                server_addr,
+                certificate,
+            }
+        }
+    };
+    MyServerPlugin { transport_config }
+}
+
 impl Plugin for MyServerPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.port);
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
@@ -32,15 +61,10 @@ impl Plugin for MyServerPlugin {
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::Webtransport => TransportConfig::WebTransportServer {
-                server_addr,
-                certificate: Certificate::self_signed(&["localhost"]),
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let io = Io::from_config(
+            IoConfig::from_transport(self.transport_config.clone())
+                .with_conditioner(link_conditioner),
+        );
         let config = ServerConfig {
             shared: shared_config().clone(),
             netcode: netcode_config,
@@ -55,8 +79,34 @@ impl Plugin for MyServerPlugin {
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
-            (handle_connections, interest_management, log, send_message),
+            (
+                handle_connections,
+                interest_management,
+                log,
+                receive_message,
+            ),
         );
+    }
+}
+
+mod utils {
+    use super::Certificate;
+    use ring::digest::digest;
+    use ring::digest::SHA256;
+
+    // Generate a hex-encoded hash of the certificate
+    pub fn digest_certificate(certificate: &Certificate) -> String {
+        assert_eq!(certificate.certificates().len(), 1);
+        certificate
+            .certificates()
+            .iter()
+            .map(|cert| digest(&SHA256, cert).as_ref().to_vec())
+            .next()
+            .unwrap()
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect::<Vec<_>>()
+            .join("")
     }
 }
 
@@ -140,6 +190,12 @@ pub(crate) fn log(server: Res<Server>, position: Query<&Position, With<PlayerId>
     }
 }
 
+pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>) {
+    for message in messages.read() {
+        info!("recv message");
+    }
+}
+
 /// This is where we perform scope management:
 /// - we will add/remove other entities from the player's room only if they are close
 pub(crate) fn interest_management(
@@ -167,48 +223,34 @@ pub(crate) fn interest_management(
     }
 }
 
-/// Send messages from server to clients
-pub(crate) fn send_message(
-    mut server: ResMut<Server>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-) {
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            if matches!(input, Inputs::Message) {
-                let message = Message1(5);
-                info!("Send message: {:?}", message);
-                server
-                    .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
-                    .unwrap_or_else(|e| {
-                        error!("Failed to send message: {:?}", e);
-                    });
-            }
-        }
-    }
-}
+// /// Send messages from server to clients
+// pub(crate) fn send_message(
+//     mut server: ResMut<Server>,
+//     mut input_reader: EventReader<InputEvent<Inputs>>,
+// ) {
+//     for input in input_reader.read() {
+//         if let Some(input) = input.input() {
+//             if matches!(input, Inputs::Message) {
+//                 let message = Message1(5);
+//                 info!("Send message: {:?}", message);
+//                 server
+//                     .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
+//                     .unwrap_or_else(|e| {
+//                         error!("Failed to send message: {:?}", e);
+//                     });
+//             }
+//         }
+//     }
+// }
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<&mut Position>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    mut position_query: Query<(&mut Position, &ActionState<PlayerActions>)>,
     global: Res<Global>,
     server: Res<Server>,
 ) {
-    for input in input_reader.read() {
-        let client_id = input.context();
-        if let Some(input) = input.input() {
-            debug!(server_tick = ?server.tick(), ?input, "Recv input");
-            debug!(
-                "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                input,
-                client_id,
-                server.tick()
-            );
-            if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(position, input);
-                }
-            }
-        }
+    for (position, action) in position_query.iter_mut() {
+        debug!(server_tick = ?server.tick(), ?action, "Recv input");
+        shared_movement_behaviour(position, action);
     }
 }

@@ -12,39 +12,57 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Clone)]
 pub struct MyClientPlugin {
     pub(crate) client_id: ClientId,
-    pub(crate) client_port: u16,
-    pub(crate) server_addr: Ipv4Addr,
-    pub(crate) server_port: u16,
-    pub(crate) transport: Transports,
+    pub(crate) auth: Authentication,
+    pub(crate) transport_config: TransportConfig,
+}
+
+pub(crate) fn create_plugin(
+    client_id: u16,
+    client_port: u16,
+    server_addr: SocketAddr,
+    transport: Transports,
+) -> MyClientPlugin {
+    let auth = Authentication::Manual {
+        server_addr,
+        client_id: client_id as ClientId,
+        private_key: KEY,
+        protocol_id: PROTOCOL_ID,
+    };
+    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+    let certificate_digest =
+        String::from("c97a3b4c246684c77f694028d7b8eb40e25420b90b4c1165eb11a5423ebe5421");
+    let transport_config = match transport {
+        #[cfg(not(target_family = "wasm"))]
+        Transports::Udp => TransportConfig::UdpSocket(client_addr),
+        Transports::WebTransport => TransportConfig::WebTransportClient {
+            client_addr,
+            server_addr,
+            #[cfg(target_family = "wasm")]
+            certificate_digest,
+        },
+    };
+
+    MyClientPlugin {
+        client_id: client_id as ClientId,
+        auth,
+        transport_config,
+    }
 }
 
 impl Plugin for MyClientPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id: self.client_id,
-            private_key: KEY,
-            protocol_id: PROTOCOL_ID,
-        };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::Webtransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let io = Io::from_config(
+            IoConfig::from_transport(self.transport_config.clone())
+                .with_conditioner(link_conditioner),
+        );
         let config = ClientConfig {
             shared: shared_config().clone(),
             input: InputConfig::default(),
@@ -60,25 +78,20 @@ impl Plugin for MyClientPlugin {
             ),
             // .with_delay(InterpolationDelay::Ratio(2.0)),
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol(), self.auth.clone());
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // input-handling plugin from leafwing
-        app.add_plugins(InputManagerPlugin::<Inputs>::default());
-        app.init_resource::<ActionState<Inputs>>();
-        app.insert_resource(Inputs::get_input_map());
+        app.add_plugins(InputManagerPlugin::<PlayerActions>::default());
+        app.init_resource::<ActionState<PlayerActions>>();
 
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
-        app.add_systems(
-            FixedUpdate,
-            buffer_input.in_set(InputSystemSet::BufferInputs),
-        );
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
             (
-                receive_message1,
+                send_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 log,
@@ -106,49 +119,26 @@ pub(crate) fn init(
     // client.set_base_relative_speed(0.001);
 }
 
-// System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client>, mut inputs: ResMut<ActionState<Inputs>>) {
-    let mut pressed = inputs.get_pressed();
-    if !pressed.is_empty() {
-        let input = pressed.pop().unwrap();
-        // in case the fixed-update systems didn't run in a frame, we still need to handle the Message input
-        if matches!(input, Inputs::Message) {
-            inputs.consume_all();
-        }
-        info!("Send input: {:?}", input);
-        return client.add_input(input);
-    } else {
-        return client.add_input(Inputs::None);
-    }
-}
-
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<&mut Position, With<Predicted>>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    mut position_query: Query<(&mut Position, &ActionState<PlayerActions>), With<Predicted>>,
 ) {
     // if we are not doing prediction, no need to read inputs
     if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
         return;
     }
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            debug!(?input, "read input");
-            for position in position_query.iter_mut() {
-                shared_movement_behaviour(position, input);
-            }
-        }
+    for (position, action) in position_query.iter_mut() {
+        shared_movement_behaviour(position, action);
     }
 }
 
 // System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) {
-    for event in reader.read() {
-        info!("Received message: {:?}", event.message());
-    }
+pub(crate) fn send_message(mut client: ResMut<Client>) {
+    // client.send_message::<DefaultUnorderedUnreliableChannel, _>(Message1(0));
+    // info!("Send message");
 }
 
 // When the predicted copy of the client-owned entity is spawned, do stuff

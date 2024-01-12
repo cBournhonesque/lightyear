@@ -86,7 +86,7 @@ impl TransportConfig {
                 certificate_digest,
             } => {
                 let transport =
-                    WebTransportClientSocket::new(client_addr, server_addr, certificate);
+                    WebTransportClientSocket::new(client_addr, server_addr, certificate_digest);
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
@@ -127,9 +127,19 @@ pub struct IoConfig {
 }
 
 impl Default for IoConfig {
+    #[cfg(not(target_family = "wasm"))]
     fn default() -> Self {
         Self {
             transport: TransportConfig::UdpSocket(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0)),
+            conditioner: None,
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn default() -> Self {
+        let (send, recv) = crossbeam_channel::unbounded();
+        Self {
+            transport: TransportConfig::LocalChannel { recv, send },
             conditioner: None,
         }
     }
