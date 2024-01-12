@@ -229,12 +229,20 @@ pub enum InputSystemSet {
 
 fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
     mut commands: Commands,
-    entities: Query<Entity, (With<ActionState<A>>, Added<InputMap<A>>)>,
+    entities: Query<
+        Entity,
+        (
+            With<ActionState<A>>,
+            Added<InputMap<A>>,
+            Without<InputBuffer<A>>,
+        ),
+    >,
 ) {
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
 
     for entity in entities.iter() {
+        debug!("added action state buffer");
         commands.entity(entity).insert((
             InputBuffer::<A>::default(),
             ActionDiffBuffer::<A>::default(),
@@ -252,7 +260,7 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         (
             Added<ActionState<A>>,
             With<InputMap<A>>,
-            // Or<(With<Predicted>, With<ShouldBePredicted>)>,
+            Without<InputBuffer<A>>, // Or<(With<Predicted>, With<ShouldBePredicted>)>,
         ),
     >,
     // other_entities: Query<
@@ -494,7 +502,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         //   on their end?
 
         if pre_predicted.is_some() {
-            warn!(
+            debug!(
                 "sending inputs for pre-predicted entity! Local client entity: {:?}",
                 entity
             );
@@ -523,7 +531,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
                     .get_remote(confirmed)
                     .copied()
                 {
-                    warn!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                    debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
                     action_diff_buffer.add_to_message(
                         &mut message,
                         tick,
@@ -532,7 +540,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
                     );
                 }
             } else {
-                warn!("not sending inputs because couldnt find server entity");
+                debug!("not sending inputs because couldnt find server entity");
             }
         }
 
@@ -560,7 +568,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        warn!(
+        trace!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
@@ -709,7 +717,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
 
         if !diffs.is_empty() {
-            warn!(?maybe_entity, "writing action diffs: {:?}", diffs);
+            debug!(?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,

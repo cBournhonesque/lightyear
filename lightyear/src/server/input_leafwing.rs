@@ -127,41 +127,22 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
 ) where
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
-    let manager = &mut server.connection_manager;
-    for (mut message, client_id) in manager.events.into_iter_input_messages::<A>() {
+    // let manager = &mut server.connection_manager;
+    for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
         trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
 
         for (target, diffs) in std::mem::take(&mut message.diffs) {
             match target {
-                InputTarget::PrePredictedEntity(entity) => {
-                    warn!("received input for pre-predicted entity: {:?}", entity);
-                    // for pre-predicted entities, we need to find the local entity using the mapping
-                    if let Some(entity) = manager
-                        .connections
-                        .get(&client_id)
-                        .unwrap()
-                        .replication_receiver
-                        .remote_entity_map
-                        .get_local(entity)
-                        .copied()
-                    {
-                        if let Ok(mut buffer) = query.get_mut(entity) {
-                            warn!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
-                            buffer.update_from_message(message.end_tick, diffs);
-                        } else {
-                            // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                            warn!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
-                        }
-                    }
-                }
-                InputTarget::Entity(entity) => {
-                    // for normal entities, the client has already done the mapping
+                // for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                // for non-pre predicted entities, the mapping was already done on client side
+                InputTarget::Entity(entity) | InputTarget::PrePredictedEntity(entity) => {
+                    debug!("received input for entity: {:?}", entity);
                     if let Ok(mut buffer) = query.get_mut(entity) {
-                        warn!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
+                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
                         buffer.update_from_message(message.end_tick, diffs);
                     } else {
                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                        warn!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
                 InputTarget::Global => {
@@ -195,7 +176,7 @@ fn update_action_state<P: Protocol, A: LeafwingUserAction>(
             action_diff_buffer.end_tick(),
         );
         action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
-            trace!(
+            debug!(
                 ?tick,
                 ?entity,
                 "update action state using action diff: {:?}",

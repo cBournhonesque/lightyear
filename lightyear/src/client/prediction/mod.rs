@@ -70,7 +70,7 @@ pub(crate) fn clean_prespawned_entity<P: Protocol>(
                     confirmed_entity: None,
                 },
                 // TODO: add this if we want to send inputs for pre-predicted entities before we receive the confirmed entity
-                // PrePredicted,
+                PrePredicted,
             ));
     }
 }

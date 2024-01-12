@@ -119,13 +119,15 @@ pub(crate) fn movement(
 // System to receive messages on the client
 pub(crate) fn add_input_map(
     mut commands: Commands,
-    // players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
-    players: Query<Entity, Added<PlayerId>>,
+    predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
 ) {
-    for player_entity in players.iter() {
-        commands
-            .entity(player_entity)
-            .insert(PlayerBundle::get_input_map());
+    // we don't want to replicate the ActionState from the server to client, because if we have an ActionState
+    // on the Confirmed player it will keep getting replicated to Predicted and will interfere with our inputs
+    for player_entity in predicted_players.iter() {
+        commands.entity(player_entity).insert((
+            PlayerBundle::get_input_map(),
+            ActionState::<Inputs>::default(),
+        ));
     }
 }
 

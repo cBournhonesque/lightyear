@@ -17,7 +17,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub const INPUT_DELAY_TICKS: u16 = 0;
-pub const CORRECTION_TICKS_FACTOR: f32 = 1.0;
+pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
@@ -148,17 +148,17 @@ pub(crate) fn init(
         ]),
     ));
     // }
-    // commands.spawn(PlayerBundle::new(
-    //     plugin.client_id,
-    //     Vec2::new(50.0, y),
-    //     color_from_id(plugin.client_id),
-    //     InputMap::new([
-    //         (KeyCode::Up, PlayerActions::Up),
-    //         (KeyCode::Down, PlayerActions::Down),
-    //         (KeyCode::Left, PlayerActions::Left),
-    //         (KeyCode::Right, PlayerActions::Right),
-    //     ]),
-    // ));
+    commands.spawn(PlayerBundle::new(
+        plugin.client_id,
+        Vec2::new(50.0, y),
+        color_from_id(plugin.client_id),
+        InputMap::new([
+            (KeyCode::Up, PlayerActions::Up),
+            (KeyCode::Down, PlayerActions::Down),
+            (KeyCode::Left, PlayerActions::Left),
+            (KeyCode::Right, PlayerActions::Right),
+        ]),
+    ));
     client.connect();
 }
 

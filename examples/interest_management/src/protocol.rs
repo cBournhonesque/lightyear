@@ -23,17 +23,25 @@ pub(crate) struct PlayerBundle {
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+        let mut replicate = Replicate {
+            prediction_target: NetworkTarget::Only(vec![id]),
+            interpolation_target: NetworkTarget::AllExcept(vec![id]),
+            // use rooms for replication
+            replication_mode: ReplicationMode::Room,
+            ..default()
+        };
+        // We don't want to replicate the ActionState to the original client, since they are updating it with
+        // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+        // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+        replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
+        // // we don't want to replicate the ActionState from the server to client, because then the action-state
+        // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
+        // replicate.disable_component::<ActionState<Inputs>>();
         Self {
             id: PlayerId(id),
             position: Position(position),
             color: PlayerColor(color),
-            replicate: Replicate {
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                // use rooms for replication
-                replication_mode: ReplicationMode::Room,
-                ..default()
-            },
+            replicate,
             action_state: ActionState::default(),
         }
     }
