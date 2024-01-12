@@ -40,21 +40,18 @@ impl Plugin for SharedPlugin {
 }
 
 // This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(
-    mut position: Mut<Position>,
-    action: &ActionState<PlayerActions>,
-) {
+pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &ActionState<Inputs>) {
     const MOVE_SPEED: f32 = 10.0;
-    if action.pressed(PlayerActions::Up) {
+    if input.pressed(Inputs::Up) {
         position.y += MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Down) {
+    if input.pressed(Inputs::Down) {
         position.y -= MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Left) {
+    if input.pressed(Inputs::Left) {
         position.x -= MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Right) {
+    if input.pressed(Inputs::Right) {
         position.x += MOVE_SPEED;
     }
 }
@@ -64,8 +61,8 @@ pub(crate) fn shared_movement_behaviour(
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor)>,
     // players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&Position, &PlayerColor)>,
 ) {
     for (position, color) in &players {
         gizmos.rect(

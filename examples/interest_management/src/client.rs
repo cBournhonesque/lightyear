@@ -82,17 +82,15 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // input-handling plugin from leafwing
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
-        app.init_resource::<ActionState<PlayerActions>>();
-
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
+        app.init_resource::<ActionState<Inputs>>();
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
             (
-                handle_player_spawn,
-                send_message,
+                add_input_map,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 log,
@@ -125,38 +123,29 @@ pub(crate) fn init(
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<(&mut Position, &ActionState<PlayerActions>), With<Predicted>>,
+    mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
 ) {
     // if we are not doing prediction, no need to read inputs
     if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
         return;
     }
-    for (position, action) in position_query.iter_mut() {
-        shared_movement_behaviour(position, action);
+    for (position, input) in position_query.iter_mut() {
+        shared_movement_behaviour(position, input);
     }
 }
 
 // System to receive messages on the client
-pub(crate) fn send_message(mut client: ResMut<Client>) {
-    // client.send_message::<DefaultUnorderedUnreliableChannel, _>(Message1(0));
-    // info!("Send message");
-}
-
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-pub(crate) fn handle_player_spawn(
+pub(crate) fn add_input_map(
     mut commands: Commands,
-    confirmed: Query<Entity, With<PlayerId>>,
+    predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
 ) {
-    for player_entity in confirmed.iter() {
-        commands.entity(player_entity).insert(InputMap::new([
-            (KeyCode::Right, PlayerActions::Right),
-            (KeyCode::Left, PlayerActions::Left),
-            (KeyCode::Up, PlayerActions::Up),
-            (KeyCode::Down, PlayerActions::Down),
-            (KeyCode::Delete, PlayerActions::Delete),
-            (KeyCode::Space, PlayerActions::Spawn),
-        ]));
+    // we don't want to replicate the ActionState from the server to client, because if we have an ActionState
+    // on the Confirmed player it will keep getting replicated to Predicted and will interfere with our inputs
+    for player_entity in predicted_players.iter() {
+        commands.entity(player_entity).insert((
+            PlayerBundle::get_input_map(),
+            ActionState::<Inputs>::default(),
+        ));
     }
 }
 

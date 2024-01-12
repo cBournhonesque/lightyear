@@ -18,34 +18,47 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: PlayerColor,
     replicate: Replicate,
-    inputs: InputManagerBundle<PlayerActions>,
+    action_state: ActionState<PlayerActions>,
 }
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+        let mut replicate = Replicate {
+            // prediction_target: NetworkTarget::Only(vec![id]),
+            // interpolation_target: NetworkTarget::AllExcept(vec![id]),
+            // use rooms for replication
+            replication_mode: ReplicationMode::Room,
+            ..default()
+        };
+        // We don't want to replicate the ActionState to the original client, since they are updating it with
+        // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+        // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+        replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
+        // // we don't want to replicate the ActionState from the server to client, because then the action-state
+        // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
+        // replicate.disable_component::<ActionState<PlayerActions>>();
         Self {
             id: PlayerId(id),
             position: Position(position),
             color: PlayerColor(color),
-            replicate: Replicate {
-                // prediction_target: NetworkTarget::Only(vec![id]),
-                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                // use rooms for replication
-                replication_mode: ReplicationMode::Room,
-                ..default()
-            },
-            inputs: InputManagerBundle::<PlayerActions> {
-                action_state: ActionState::default(),
-                input_map: InputMap::new([
-                    (KeyCode::Right, PlayerActions::Right),
-                    (KeyCode::Left, PlayerActions::Left),
-                    (KeyCode::Up, PlayerActions::Up),
-                    (KeyCode::Down, PlayerActions::Down),
-                    (KeyCode::Delete, PlayerActions::Delete),
-                    (KeyCode::Space, PlayerActions::Spawn),
-                ]),
-            },
+            replicate,
+            action_state: ActionState::default(),
         }
+    }
+    pub(crate) fn get_input_map() -> InputMap<Inputs> {
+        InputMap::new([
+            (KeyCode::Right, PlayerActions::Right),
+            (KeyCode::D, Inputs::Right),
+            (KeyCode::Left, PlayerActions::Left),
+            (KeyCode::A, Inputs::Left),
+            (KeyCode::Up, Inputs::Up),
+            (KeyCode::W, PlayerActions::Up),
+            (KeyCode::Down, PlayerActions::Down),
+            (KeyCode::S, Inputs::Down),
+            (KeyCode::Delete, PlayerActions::Delete),
+            (KeyCode::Space, PlayerActions::Spawn),
+            (KeyCode::M, Inputs::Message),
+        ])
     }
 }
 
@@ -116,8 +129,10 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
-pub enum PlayerActions {
+#[derive(
+    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
+)]
+pub enum Inputs {
     Up,
     Down,
     Left,
@@ -134,7 +149,7 @@ protocolize! {
     Self = MyProtocol,
     Message = Messages,
     Component = Components,
-    LeafwingInput1 = PlayerActions,
+    LeafwingInput1 = Inputs,
 }
 
 pub(crate) fn protocol() -> MyProtocol {

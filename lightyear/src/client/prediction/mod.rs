@@ -13,7 +13,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::{Replicate, ShouldBePredicted};
+use crate::shared::replication::components::{PrePredicted, Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
 
 pub(crate) mod correction;
@@ -63,10 +63,15 @@ pub(crate) fn clean_prespawned_entity<P: Protocol>(
         commands
             .entity(entity)
             .remove::<Replicate<P>>()
+            // don't remove should-be-predicted, so that we can know which entities were pre-predicted
             .remove::<ShouldBePredicted>()
-            .insert(Predicted {
-                confirmed_entity: None,
-            });
+            .insert((
+                Predicted {
+                    confirmed_entity: None,
+                },
+                // TODO: add this if we want to send inputs for pre-predicted entities before we receive the confirmed entity
+                PrePredicted,
+            ));
     }
 }
 
@@ -179,6 +184,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
     }
 }
 
+// TODO: should we run this only when Added<ShouldBePredicted>?
 /// If a client adds `ShouldBePredicted` to an entity to perform pre-Prediction.
 /// We automatically add the extra needed information to the component.
 /// - client_entity: is needed to know which entity to use as the predicted entity

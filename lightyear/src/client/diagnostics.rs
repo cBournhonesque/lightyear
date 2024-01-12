@@ -26,7 +26,7 @@ fn io_diagnostics_system<P: Protocol>(
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(IoDiagnosticsPlugin::default());
+        app.add_plugins(IoDiagnosticsPlugin);
         app.add_systems(PostUpdate, io_diagnostics_system::<P>);
     }
 }

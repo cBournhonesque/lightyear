@@ -15,10 +15,12 @@ use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::leafwing::input_buffer::{
-    ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage,
+    ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
+use crate::prelude::MapEntities;
 use crate::protocol::Protocol;
+use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::tick_manager::TickManaged;
 
@@ -210,7 +212,7 @@ where
                 prepare_input_message::<P, A>
                     .in_set(InputSystemSet::SendInputMessage)
                     .run_if(client_is_synced::<P>),
-                add_action_state_buffer_for_new_input_map::<A>,
+                add_action_state_buffer_added_input_map::<A>,
             ),
         );
     }
@@ -226,14 +228,22 @@ pub enum InputSystemSet {
     SendInputMessage,
 }
 
-fn add_action_state_buffer_for_new_input_map<A: LeafwingUserAction>(
+fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
     mut commands: Commands,
-    input_map_query: Query<Entity, (Added<InputMap<A>>, With<ActionState<A>>)>,
+    entities: Query<
+        Entity,
+        (
+            With<ActionState<A>>,
+            Added<InputMap<A>>,
+            Without<InputBuffer<A>>,
+        ),
+    >,
 ) {
-    for entity in input_map_query.iter() {
-        trace!(?entity, "adding actions state buffer");
-        // TODO: THIS SHOULD ONLY BE FOR THE ENTITIES CONTROLLED BY THE CLIENT, SO MAYBE ADD THEM MANUALLY?
-        //   BECAUSE WHEN PREDICTING OTHER PLAYERS, WE DO NOT WANT TO ADD THE ACTION STATE BUFFER
+    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
+    //  maybe provide the "controlled" component? or just use With<InputMap>?
+
+    for entity in entities.iter() {
+        debug!("added action state buffer");
         commands.entity(entity).insert((
             InputBuffer::<A>::default(),
             ActionDiffBuffer::<A>::default(),
@@ -251,17 +261,17 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         (
             Added<ActionState<A>>,
             With<InputMap<A>>,
-            // Or<(With<Predicted>, With<ShouldBePredicted>)>,
+            Without<InputBuffer<A>>, // Or<(With<Predicted>, With<ShouldBePredicted>)>,
         ),
     >,
-    other_entities: Query<
-        Entity,
-        (
-            Added<ActionState<A>>,
-            Without<Predicted>,
-            Without<ShouldBePredicted>,
-        ),
-    >,
+    // other_entities: Query<
+    //     Entity,
+    //     (
+    //         Added<ActionState<A>>,
+    //         Without<Predicted>,
+    //         Without<ShouldBePredicted>,
+    //     ),
+    // >,
 ) {
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
@@ -439,7 +449,12 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     mut client: ResMut<Client<P>>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     global_input_buffer: Option<ResMut<InputBuffer<A>>>,
-    mut action_diff_buffer_query: Query<(Entity, Option<&Predicted>, &mut ActionDiffBuffer<A>)>,
+    mut action_diff_buffer_query: Query<(
+        Entity,
+        Option<&Predicted>,
+        &mut ActionDiffBuffer<A>,
+        Option<&PrePredicted>,
+    )>,
     mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
 ) where
     P::Message: From<InputMessage<A>>,
@@ -471,27 +486,64 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         interpolation_tick
     );
 
-    for (entity, predicted, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
+    for (entity, predicted, mut action_diff_buffer, pre_predicted) in
+        action_diff_buffer_query.iter_mut()
+    {
         trace!(
             ?tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
             action_diff_buffer.as_ref()
         );
-        action_diff_buffer.add_to_message(&mut message, tick, message_len, Some(entity));
 
-        // TODO: make this better, this is a bit awkward.
-        //  also does that mean that inputs before we receive the confirmation on client are not mapped?
-        // TODO: actually we don't need this, because the remote_entity_map on server contains the Predicted entity!
-        // Convert the entity in the message from the Predicted tot he Confirmed, so that the server
-        // can map to their own local entity
-        // if let Some(predicted) = predicted {
-        //     info!("has predicted!!");
-        //     if let Some(confirmed) = predicted.confirmed_entity {
-        //         info!("mapping the entity in the input message from Predicted to Confirmed");
-        //         message.per_entity_diffs.last_mut().unwrap().0 = confirmed
-        //     }
-        // }
+        // Make sure that server can read the inputs correctly
+        // TODO: currently we are not sending inputs for pre-predicted entities until we receive the confirmation from the server
+        //  could we find a way to do it?
+        //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
+        //   on their end?
+
+        if pre_predicted.is_some() {
+            debug!(
+                "sending inputs for pre-predicted entity! Local client entity: {:?}",
+                entity
+            );
+            // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
+            //  to receive the inputs until it receives the pre-predicted spawn message.
+            //  so all the inputs sent between pre-predicted spawn and server-receives-pre-predicted will be lost
+
+            // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
+            // for which client the inputs were!
+
+            // 0. the entity is pre-predicted
+            action_diff_buffer.add_to_message(
+                &mut message,
+                tick,
+                message_len,
+                InputTarget::PrePredictedEntity(entity),
+            );
+        } else {
+            // 1.if the entity is confirmed, we need to convert the entity to the server's entity
+            // 2. the entity is predicted.
+            // We need to first convert the entity to confirmed, and then from confirmed to remote
+            if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
+                if let Some(server_entity) = client
+                    .replication_receiver()
+                    .remote_entity_map
+                    .get_remote(confirmed)
+                    .copied()
+                {
+                    debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                    action_diff_buffer.add_to_message(
+                        &mut message,
+                        tick,
+                        message_len,
+                        InputTarget::Entity(server_entity),
+                    );
+                }
+            } else {
+                debug!("not sending inputs because couldnt find server entity");
+            }
+        }
 
         action_diff_buffer.pop(interpolation_tick);
     }
@@ -506,7 +558,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         trace!("input buffer len: {:?}", input_buffer.buffer.len());
     }
     if let Some(mut action_diff_buffer) = global_action_diff_buffer {
-        action_diff_buffer.add_to_message(&mut message, tick, message_len, None);
+        action_diff_buffer.add_to_message(&mut message, tick, message_len, InputTarget::Global);
         action_diff_buffer.pop(interpolation_tick);
     }
     if let Some(mut input_buffer) = global_input_buffer {
@@ -517,11 +569,11 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        info!(
+        trace!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
-            message.per_entity_diffs
+            message.diffs
         );
         client
             .send_message::<InputChannel, InputMessage<A>>(message)
