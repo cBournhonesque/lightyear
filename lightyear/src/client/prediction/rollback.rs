@@ -367,7 +367,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                         if correction_ticks != 0 && P::Components::has_correction() {
                             let final_correction_tick = client.tick() + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
-                                debug!("updating existing correction");
+                                info!("updating existing correction");
                                 // if there is a correction, start the correction again from the previous
                                 // visual state to avoid glitches
                                 correction.original_prediction =
@@ -497,7 +497,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
                     }),
                 };
                 if should_rollback {
-                    debug!(
+                    info!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, client.tick()

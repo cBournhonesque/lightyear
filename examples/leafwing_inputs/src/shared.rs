@@ -1,6 +1,8 @@
 use crate::protocol::*;
+use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
@@ -8,6 +10,7 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear::transport::io::IoDiagnosticsPlugin;
 use std::time::Duration;
 use tracing::Level;
 
@@ -56,6 +59,15 @@ impl Plugin for SharedPlugin {
                     .after(InterpolationSet::Interpolate)
                     .after(PredictionSet::VisualCorrection),
             );
+            app.add_plugins(LogDiagnosticsPlugin {
+                filter: Some(vec![
+                    IoDiagnosticsPlugin::BYTES_IN,
+                    IoDiagnosticsPlugin::BYTES_OUT,
+                ]),
+                ..default()
+            });
+            app.add_systems(Startup, setup_diagnostic);
+            app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
         // bundles
         app.add_systems(Startup, init);
@@ -95,6 +107,17 @@ impl Plugin for SharedPlugin {
         // registry types for reflection
         app.register_type::<PlayerId>();
     }
+}
+
+fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
+    onscreen
+        .add("bytes_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+        .aggregate(Aggregate::Average)
+        .format(|v| format!("{v:.0}"));
+    onscreen
+        .add("bytes_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+        .aggregate(Aggregate::Average)
+        .format(|v| format!("{v:.0}"));
 }
 
 // Generate pseudo-random color from id

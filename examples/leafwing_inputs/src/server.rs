@@ -28,7 +28,7 @@ impl Plugin for MyServerPlugin {
             .with_protocol_id(PROTOCOL_ID)
             .with_key(KEY);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(75),
+            incoming_latency: Duration::from_millis(0),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
@@ -88,12 +88,12 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     );
 
     // the ball is server-authoritative
-    commands.spawn(BallBundle::new(
-        Vec2::new(0.0, 0.0),
-        Color::AZURE,
-        // if true, we predict the ball on clients
-        plugin.predict_all,
-    ));
+    // commands.spawn(BallBundle::new(
+    //     Vec2::new(0.0, 0.0),
+    //     Color::AZURE,
+    //     // if true, we predict the ball on clients
+    //     plugin.predict_all,
+    // ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection

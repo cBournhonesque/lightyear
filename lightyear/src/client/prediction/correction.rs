@@ -11,6 +11,7 @@ use tracing::{debug, info};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
+use crate::client::easings::{ease_out_quad, ease_out_quart};
 use crate::client::resource::Client;
 use crate::prelude::{Tick, TickManaged};
 use crate::protocol::Protocol;
@@ -94,9 +95,9 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
         let mut t = (current_tick - correction.original_tick) as f32
             / (correction.final_correction_tick - correction.original_tick) as f32;
         t = t.clamp(0.0, 1.0);
-        // if t == 1.0 || &correction.original_prediction == component.as_ref() {
-        if t == 1.0 {
-            debug!(
+        let t = ease_out_quad(t);
+        if t == 1.0 || &correction.original_prediction == component.as_ref() {
+            info!(
                 ?t,
                 "Correction is over. Removing Correction for: {:?}",
                 component.name()
@@ -104,7 +105,7 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
             // correction is over
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
+            info!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
