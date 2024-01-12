@@ -2,6 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use bevy::prelude::IntoSystemSetConfigs;
 use bevy::prelude::{
     apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
@@ -91,6 +92,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),
             ))
+            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(client)
             // SYSTEM SETS //

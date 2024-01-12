@@ -33,7 +33,7 @@ use super::connection::Connection;
 #[derive(Resource)]
 pub struct Client<P: Protocol> {
     // Io
-    io: Io,
+    pub(crate) io: Io,
     //config
     config: ClientConfig,
     // netcode

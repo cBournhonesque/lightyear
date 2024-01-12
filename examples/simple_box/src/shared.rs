@@ -1,8 +1,10 @@
 use crate::protocol::*;
+use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::*;
+use lightyear::transport::io::IoDiagnosticsPlugin;
 use std::time::Duration;
 use tracing::Level;
 
@@ -29,6 +31,13 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Update, draw_boxes);
+            app.add_plugins(LogDiagnosticsPlugin {
+                filter: Some(vec![
+                    IoDiagnosticsPlugin::BYTES_IN,
+                    IoDiagnosticsPlugin::BYTES_OUT,
+                ]),
+                ..default()
+            });
         }
     }
 }
