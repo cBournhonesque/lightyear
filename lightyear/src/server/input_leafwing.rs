@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::connection::events::IterInputMessageEvent;
-use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer};
+use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::MainSet;
 use crate::protocol::Protocol;
@@ -127,19 +127,31 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
 ) where
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
+    // let manager = &mut server.connection_manager;
     for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
-        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.per_entity_diffs, "received input message");
-        // TODO: handle global diffs for each client! How? create one entity per client?
-        //  or have a resource containing the global ActionState for each client?
-        // if let Some(ref mut buffer) = global {
-        //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-        // }
-        for (entity, diffs) in std::mem::take(&mut message.per_entity_diffs) {
-            if let Ok(mut buffer) = query.get_mut(entity) {
-                trace!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
-                buffer.update_from_message(message.end_tick, diffs);
-            } else {
-                debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+
+        for (target, diffs) in std::mem::take(&mut message.diffs) {
+            match target {
+                // for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                // for non-pre predicted entities, the mapping was already done on client side
+                InputTarget::Entity(entity) | InputTarget::PrePredictedEntity(entity) => {
+                    debug!("received input for entity: {:?}", entity);
+                    if let Ok(mut buffer) = query.get_mut(entity) {
+                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
+                        buffer.update_from_message(message.end_tick, diffs);
+                    } else {
+                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
+                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                    }
+                }
+                InputTarget::Global => {
+                    // TODO: handle global diffs for each client! How? create one entity per client?
+                    //  or have a resource containing the global ActionState for each client?
+                    // if let Some(ref mut buffer) = global {
+                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
+                    // }
+                }
             }
         }
     }
@@ -164,7 +176,7 @@ fn update_action_state<P: Protocol, A: LeafwingUserAction>(
             action_diff_buffer.end_tick(),
         );
         action_diff_buffer.pop(tick).into_iter().for_each(|diff| {
-            trace!(
+            debug!(
                 ?tick,
                 ?entity,
                 "update action state using action diff: {:?}",

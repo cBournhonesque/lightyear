@@ -18,34 +18,47 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: PlayerColor,
     replicate: Replicate,
-    inputs: InputManagerBundle<Inputs>,
+    action_state: ActionState<Inputs>,
 }
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+        let mut replicate = Replicate {
+            prediction_target: NetworkTarget::Only(vec![id]),
+            interpolation_target: NetworkTarget::AllExcept(vec![id]),
+            // use rooms for replication
+            replication_mode: ReplicationMode::Room,
+            ..default()
+        };
+        // We don't want to replicate the ActionState to the original client, since they are updating it with
+        // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
+        // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
+        replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
+        // // we don't want to replicate the ActionState from the server to client, because then the action-state
+        // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
+        // replicate.disable_component::<ActionState<Inputs>>();
         Self {
             id: PlayerId(id),
             position: Position(position),
             color: PlayerColor(color),
-            replicate: Replicate {
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                // use rooms for replication
-                replication_mode: ReplicationMode::Room,
-                ..default()
-            },
-            inputs: InputManagerBundle::<Inputs> {
-                action_state: ActionState::default(),
-                input_map: InputMap::new([
-                    (KeyCode::Right, Inputs::Right),
-                    (KeyCode::Left, Inputs::Left),
-                    (KeyCode::Up, Inputs::Up),
-                    (KeyCode::Down, Inputs::Down),
-                    (KeyCode::Delete, Inputs::Delete),
-                    (KeyCode::Space, Inputs::Spawn),
-                ]),
-            },
+            replicate,
+            action_state: ActionState::default(),
         }
+    }
+    pub(crate) fn get_input_map() -> InputMap<Inputs> {
+        InputMap::new([
+            (KeyCode::Right, Inputs::Right),
+            (KeyCode::D, Inputs::Right),
+            (KeyCode::Left, Inputs::Left),
+            (KeyCode::A, Inputs::Left),
+            (KeyCode::Up, Inputs::Up),
+            (KeyCode::W, Inputs::Up),
+            (KeyCode::Down, Inputs::Down),
+            (KeyCode::S, Inputs::Down),
+            (KeyCode::Delete, Inputs::Delete),
+            (KeyCode::Space, Inputs::Spawn),
+            (KeyCode::M, Inputs::Message),
+        ])
     }
 }
 
@@ -117,7 +130,7 @@ pub enum Messages {
 // Inputs
 
 #[derive(
-    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Actionlike,
+    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
 )]
 pub enum Inputs {
     Up,
@@ -131,27 +144,7 @@ pub enum Inputs {
     None,
 }
 
-impl Inputs {
-    /// Get the mapping from keycodes to inputs
-    pub(crate) fn get_input_map() -> InputMap<Inputs> {
-        use KeyCode::*;
-        InputMap::new([
-            (Right, Inputs::Right),
-            (D, Inputs::Right),
-            (Left, Inputs::Left),
-            (A, Inputs::Left),
-            (Up, Inputs::Up),
-            (W, Inputs::Up),
-            (Down, Inputs::Down),
-            (S, Inputs::Down),
-            (Delete, Inputs::Delete),
-            (Space, Inputs::Spawn),
-            (M, Inputs::Message),
-        ])
-    }
-}
-
-impl UserAction for Inputs {}
+impl LeafwingUserAction for Inputs {}
 
 // Protocol
 
@@ -159,7 +152,7 @@ protocolize! {
     Self = MyProtocol,
     Message = Messages,
     Component = Components,
-    Input = Inputs,
+    LeafwingInput1 = Inputs,
 }
 
 pub(crate) fn protocol() -> MyProtocol {

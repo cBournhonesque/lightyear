@@ -225,7 +225,6 @@ impl PacketSender for Io {
     }
 }
 
-#[derive(Default)]
 pub struct IoDiagnosticsPlugin;
 
 impl IoDiagnosticsPlugin {

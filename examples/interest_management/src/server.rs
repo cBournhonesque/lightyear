@@ -2,6 +2,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use leafwing_input_manager::prelude::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
@@ -52,11 +53,9 @@ impl Plugin for MyServerPlugin {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
-        app.add_systems(
-            Update,
-            (handle_connections, interest_management, log, send_message),
-        );
+        app.add_systems(Update, (handle_connections, interest_management, log));
     }
 }
 
@@ -167,48 +166,9 @@ pub(crate) fn interest_management(
     }
 }
 
-/// Send messages from server to clients
-pub(crate) fn send_message(
-    mut server: ResMut<Server>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-) {
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            if matches!(input, Inputs::Message) {
-                let message = Message1(5);
-                info!("Send message: {:?}", message);
-                server
-                    .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
-                    .unwrap_or_else(|e| {
-                        error!("Failed to send message: {:?}", e);
-                    });
-            }
-        }
-    }
-}
-
 /// Read client inputs and move players
-pub(crate) fn movement(
-    mut position_query: Query<&mut Position>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-    global: Res<Global>,
-    server: Res<Server>,
-) {
-    for input in input_reader.read() {
-        let client_id = input.context();
-        if let Some(input) = input.input() {
-            debug!(server_tick = ?server.tick(), ?input, "Recv input");
-            debug!(
-                "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                input,
-                client_id,
-                server.tick()
-            );
-            if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(position, input);
-                }
-            }
-        }
+pub(crate) fn movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
+    for (position, input) in position_query.iter_mut() {
+        shared_movement_behaviour(position, input);
     }
 }
