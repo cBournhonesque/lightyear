@@ -216,8 +216,17 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 pub struct InputMessage<A: LeafwingUserAction> {
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
-    pub(crate) global_diffs: Vec<Vec<ActionDiff<A>>>,
-    pub(crate) per_entity_diffs: Vec<(Entity, Vec<Vec<ActionDiff<A>>>)>,
+    pub(crate) diffs: Vec<(InputTarget, Vec<Vec<ActionDiff<A>>>)>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
+pub enum InputTarget {
+    /// the input is for a global resource
+    Global,
+    /// the input is for a predicted or confirmed entity: on the client, the server's local entity is mapped to the client's confirmed entity
+    Entity(Entity),
+    /// the input is for a pre-predicted entity: on the server, the server's local entity is mapped to the client's pre-predicted entity
+    PrePredictedEntity(Entity),
 }
 
 impl<A: LeafwingUserAction> Named for InputMessage<A> {
@@ -227,18 +236,38 @@ impl<A: LeafwingUserAction> Named for InputMessage<A> {
 }
 
 impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
+    // NOTE: we do NOT map the entities for input-message because when already convert
+    //  the entities on the message to the corresponding client entities when we write them
+    //  in the input message
+
+    // NOTE: we only map the inputs for the pre-predicted entities
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        self.per_entity_diffs.iter_mut().for_each(|(entity, _)| {
-            if let Some(new_entity) = entity_mapper.map(*entity) {
-                *entity = new_entity;
-            }
-        });
+        self.diffs
+            .iter_mut()
+            .filter_map(|(entity, _)| {
+                if let InputTarget::PrePredictedEntity(e) = entity {
+                    return Some(e);
+                } else {
+                    return None;
+                }
+            })
+            .for_each(|entity| {
+                if let Some(new_entity) = entity_mapper.map(*entity) {
+                    *entity = new_entity;
+                }
+            });
     }
 
     fn entities(&self) -> EntityHashSet<Entity> {
-        self.per_entity_diffs
+        self.diffs
             .iter()
-            .map(|(entity, _)| *entity)
+            .filter_map(|(entity, _)| {
+                if let InputTarget::PrePredictedEntity(e) = entity {
+                    Some(*e)
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 }
@@ -247,20 +276,15 @@ impl<T: LeafwingUserAction> InputMessage<T> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
             end_tick,
-            global_diffs: vec![],
-            per_entity_diffs: Default::default(),
+            diffs: vec![],
         }
     }
 
     // we will always include
     pub fn is_empty(&self) -> bool {
-        self.global_diffs
+        self.diffs
             .iter()
-            .all(|diffs_per_tick| diffs_per_tick.is_empty())
-            && self
-                .per_entity_diffs
-                .iter()
-                .all(|(_, diffs)| diffs.iter().all(|diffs_per_tick| diffs_per_tick.is_empty()))
+            .all(|(_, diffs)| diffs.iter().all(|diffs_per_tick| diffs_per_tick.is_empty()))
     }
 }
 
@@ -515,7 +539,7 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
         message: &mut InputMessage<A>,
         end_tick: Tick,
         num_ticks: u16,
-        entity: Option<Entity>,
+        input_target: InputTarget,
     ) {
         let mut inputs = Vec::new();
         // start with the first value
@@ -525,12 +549,7 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
             let diffs = self.get(tick);
             inputs.push(diffs);
         }
-        match entity {
-            None => message.global_diffs = inputs,
-            Some(e) => {
-                message.per_entity_diffs.push((e, inputs));
-            }
-        }
+        message.diffs.push((input_target, inputs));
     }
 }
 

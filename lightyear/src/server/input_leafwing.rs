@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::connection::events::IterInputMessageEvent;
-use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer};
+use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::MainSet;
 use crate::protocol::Protocol;
@@ -127,19 +127,50 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
 ) where
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
-    for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
-        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.per_entity_diffs, "received input message");
-        // TODO: handle global diffs for each client! How? create one entity per client?
-        //  or have a resource containing the global ActionState for each client?
-        // if let Some(ref mut buffer) = global {
-        //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-        // }
-        for (entity, diffs) in std::mem::take(&mut message.per_entity_diffs) {
-            if let Ok(mut buffer) = query.get_mut(entity) {
-                trace!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
-                buffer.update_from_message(message.end_tick, diffs);
-            } else {
-                debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+    let manager = &mut server.connection_manager;
+    for (mut message, client_id) in manager.events.into_iter_input_messages::<A>() {
+        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+
+        for (target, diffs) in std::mem::take(&mut message.diffs) {
+            match target {
+                InputTarget::PrePredictedEntity(entity) => {
+                    warn!("received input for pre-predicted entity: {:?}", entity);
+                    // for pre-predicted entities, we need to find the local entity using the mapping
+                    if let Some(entity) = manager
+                        .connections
+                        .get(&client_id)
+                        .unwrap()
+                        .replication_receiver
+                        .remote_entity_map
+                        .get_local(entity)
+                        .copied()
+                    {
+                        if let Ok(mut buffer) = query.get_mut(entity) {
+                            warn!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
+                            buffer.update_from_message(message.end_tick, diffs);
+                        } else {
+                            // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
+                            warn!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                        }
+                    }
+                }
+                InputTarget::Entity(entity) => {
+                    // for normal entities, the client has already done the mapping
+                    if let Ok(mut buffer) = query.get_mut(entity) {
+                        warn!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
+                        buffer.update_from_message(message.end_tick, diffs);
+                    } else {
+                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
+                        warn!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                    }
+                }
+                InputTarget::Global => {
+                    // TODO: handle global diffs for each client! How? create one entity per client?
+                    //  or have a resource containing the global ActionState for each client?
+                    // if let Some(ref mut buffer) = global {
+                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
+                    // }
+                }
             }
         }
     }

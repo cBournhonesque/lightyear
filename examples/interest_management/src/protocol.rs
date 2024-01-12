@@ -18,7 +18,7 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: PlayerColor,
     replicate: Replicate,
-    inputs: InputManagerBundle<Inputs>,
+    action_state: ActionState<Inputs>,
 }
 
 impl PlayerBundle {
@@ -34,18 +34,23 @@ impl PlayerBundle {
                 replication_mode: ReplicationMode::Room,
                 ..default()
             },
-            inputs: InputManagerBundle::<Inputs> {
-                action_state: ActionState::default(),
-                input_map: InputMap::new([
-                    (KeyCode::Right, Inputs::Right),
-                    (KeyCode::Left, Inputs::Left),
-                    (KeyCode::Up, Inputs::Up),
-                    (KeyCode::Down, Inputs::Down),
-                    (KeyCode::Delete, Inputs::Delete),
-                    (KeyCode::Space, Inputs::Spawn),
-                ]),
-            },
+            action_state: ActionState::default(),
         }
+    }
+    pub(crate) fn get_input_map() -> InputMap<Inputs> {
+        InputMap::new([
+            (KeyCode::Right, Inputs::Right),
+            (KeyCode::D, Inputs::Right),
+            (KeyCode::Left, Inputs::Left),
+            (KeyCode::A, Inputs::Left),
+            (KeyCode::Up, Inputs::Up),
+            (KeyCode::W, Inputs::Up),
+            (KeyCode::Down, Inputs::Down),
+            (KeyCode::S, Inputs::Down),
+            (KeyCode::Delete, Inputs::Delete),
+            (KeyCode::Space, Inputs::Spawn),
+            (KeyCode::M, Inputs::Message),
+        ])
     }
 }
 
@@ -117,7 +122,7 @@ pub enum Messages {
 // Inputs
 
 #[derive(
-    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Actionlike,
+    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
 )]
 pub enum Inputs {
     Up,
@@ -131,27 +136,7 @@ pub enum Inputs {
     None,
 }
 
-impl Inputs {
-    /// Get the mapping from keycodes to inputs
-    pub(crate) fn get_input_map() -> InputMap<Inputs> {
-        use KeyCode::*;
-        InputMap::new([
-            (Right, Inputs::Right),
-            (D, Inputs::Right),
-            (Left, Inputs::Left),
-            (A, Inputs::Left),
-            (Up, Inputs::Up),
-            (W, Inputs::Up),
-            (Down, Inputs::Down),
-            (S, Inputs::Down),
-            (Delete, Inputs::Delete),
-            (Space, Inputs::Spawn),
-            (M, Inputs::Message),
-        ])
-    }
-}
-
-impl UserAction for Inputs {}
+impl LeafwingUserAction for Inputs {}
 
 // Protocol
 
@@ -159,7 +144,7 @@ protocolize! {
     Self = MyProtocol,
     Message = Messages,
     Component = Components,
-    Input = Inputs,
+    LeafwingInput1 = Inputs,
 }
 
 pub(crate) fn protocol() -> MyProtocol {

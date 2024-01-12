@@ -64,21 +64,15 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // input-handling plugin from leafwing
-        app.add_plugins(InputManagerPlugin::<Inputs>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<ActionState<Inputs>>();
-        app.insert_resource(Inputs::get_input_map());
-
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
-        app.add_systems(
-            FixedUpdate,
-            buffer_input.in_set(InputSystemSet::BufferInputs),
-        );
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
             (
-                receive_message1,
+                add_input_map,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 log,
@@ -106,48 +100,32 @@ pub(crate) fn init(
     // client.set_base_relative_speed(0.001);
 }
 
-// System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client>, mut inputs: ResMut<ActionState<Inputs>>) {
-    let mut pressed = inputs.get_pressed();
-    if !pressed.is_empty() {
-        let input = pressed.pop().unwrap();
-        // in case the fixed-update systems didn't run in a frame, we still need to handle the Message input
-        if matches!(input, Inputs::Message) {
-            inputs.consume_all();
-        }
-        info!("Send input: {:?}", input);
-        return client.add_input(input);
-    } else {
-        return client.add_input(Inputs::None);
-    }
-}
-
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<&mut Position, With<Predicted>>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
 ) {
     // if we are not doing prediction, no need to read inputs
     if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
         return;
     }
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            debug!(?input, "read input");
-            for position in position_query.iter_mut() {
-                shared_movement_behaviour(position, input);
-            }
-        }
+    for (position, input) in position_query.iter_mut() {
+        shared_movement_behaviour(position, input);
     }
 }
 
 // System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) {
-    for event in reader.read() {
-        info!("Received message: {:?}", event.message());
+pub(crate) fn add_input_map(
+    mut commands: Commands,
+    // players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
+    players: Query<Entity, Added<PlayerId>>,
+) {
+    for player_entity in players.iter() {
+        commands
+            .entity(player_entity)
+            .insert(PlayerBundle::get_input_map());
     }
 }
 

@@ -135,19 +135,19 @@ pub(crate) fn init(
     );
     let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-    if plugin.client_id == 2 {
-        commands.spawn(PlayerBundle::new(
-            plugin.client_id,
-            Vec2::new(-50.0, y),
-            color_from_id(plugin.client_id),
-            InputMap::new([
-                (KeyCode::W, PlayerActions::Up),
-                (KeyCode::S, PlayerActions::Down),
-                (KeyCode::A, PlayerActions::Left),
-                (KeyCode::D, PlayerActions::Right),
-            ]),
-        ));
-    }
+    // if plugin.client_id == 2 {
+    commands.spawn(PlayerBundle::new(
+        plugin.client_id,
+        Vec2::new(-50.0, y),
+        color_from_id(plugin.client_id),
+        InputMap::new([
+            (KeyCode::W, PlayerActions::Up),
+            (KeyCode::S, PlayerActions::Down),
+            (KeyCode::A, PlayerActions::Left),
+            (KeyCode::D, PlayerActions::Right),
+        ]),
+    ));
+    // }
     // commands.spawn(PlayerBundle::new(
     //     plugin.client_id,
     //     Vec2::new(50.0, y),

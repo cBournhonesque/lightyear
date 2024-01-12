@@ -408,6 +408,10 @@ pub struct ShouldBeInterpolated;
 //  that's pretty dangerous because it's now hard for the user to derive new traits.
 //  let's think of another approach later.
 // NOTE: we do not map entities for this component, we want to receive the entities as is
+
+/// Indicates that an entity was pre-predicted
+#[derive(Component)]
+pub struct PrePredicted;
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ShouldBePredicted {
     // TODO: rename this?

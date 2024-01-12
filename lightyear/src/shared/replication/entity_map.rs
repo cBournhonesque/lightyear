@@ -16,6 +16,13 @@ impl<T: EntityMapper> EntityMapper for &T {
     }
 }
 
+impl EntityMapper for EntityHashMap<Entity, Entity> {
+    #[inline]
+    fn map(&self, entity: Entity) -> Option<Entity> {
+        self.get(&entity).copied()
+    }
+}
+
 #[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
@@ -56,6 +63,15 @@ impl RemoteEntityMap {
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
         self.remote_to_local.insert(remote_entity, local_entity);
         self.local_to_remote.insert(local_entity, remote_entity);
+    }
+
+    pub(crate) fn get_to_remote_mapper(&self) -> Box<dyn EntityMapper + '_> {
+        Box::new(&self.local_to_remote)
+    }
+
+    // TODO: makke sure all calls to remote entity map use this to get the exact mapper
+    pub(crate) fn get_to_local_mapper(&self) -> Box<dyn EntityMapper + '_> {
+        Box::new(&self.remote_to_local)
     }
 
     #[inline]

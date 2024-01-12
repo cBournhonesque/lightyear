@@ -2,6 +2,7 @@ use crate::protocol::*;
 use bevy::prelude::*;
 
 use bevy::render::RenderPlugin;
+use leafwing_input_manager::action_state::ActionState;
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 use std::ops::Deref;
@@ -38,22 +39,19 @@ impl Plugin for SharedPlugin {
 }
 
 // This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Inputs) {
+pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &ActionState<Inputs>) {
     const MOVE_SPEED: f32 = 10.0;
-    match input {
-        Inputs::Up => {
-            position.y += MOVE_SPEED;
-        }
-        Inputs::Down => {
-            position.y -= MOVE_SPEED;
-        }
-        Inputs::Left => {
-            position.x -= MOVE_SPEED;
-        }
-        Inputs::Right => {
-            position.x += MOVE_SPEED;
-        }
-        _ => {}
+    if input.pressed(Inputs::Up) {
+        position.y += MOVE_SPEED;
+    }
+    if input.pressed(Inputs::Down) {
+        position.y -= MOVE_SPEED;
+    }
+    if input.pressed(Inputs::Left) {
+        position.x -= MOVE_SPEED;
+    }
+    if input.pressed(Inputs::Right) {
+        position.x += MOVE_SPEED;
     }
 }
 
@@ -62,7 +60,8 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Inp
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
+    // players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&Position, &PlayerColor)>,
 ) {
     for (position, color) in &players {
         gizmos.rect(
