@@ -64,7 +64,8 @@ pub(crate) fn shared_movement_behaviour(
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&Position, &PlayerColor)>,
+    // players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {
         gizmos.rect(

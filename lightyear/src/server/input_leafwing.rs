@@ -128,7 +128,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
     for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
-        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.per_entity_diffs, "received input message");
+        info!(action = ?A::short_type_path(), ?message.end_tick, ?message.per_entity_diffs, "received input message");
         // TODO: handle global diffs for each client! How? create one entity per client?
         //  or have a resource containing the global ActionState for each client?
         // if let Some(ref mut buffer) = global {
@@ -139,7 +139,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
                 trace!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer using input message");
                 buffer.update_from_message(message.end_tick, diffs);
             } else {
-                debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                info!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
             }
         }
     }

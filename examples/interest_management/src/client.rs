@@ -82,7 +82,7 @@ impl Plugin for MyClientPlugin {
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // input-handling plugin from leafwing
-        app.add_plugins(InputManagerPlugin::<PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
         app.init_resource::<ActionState<PlayerActions>>();
 
         app.insert_resource(self.clone());
@@ -91,6 +91,7 @@ impl Plugin for MyClientPlugin {
         app.add_systems(
             Update,
             (
+                handle_player_spawn,
                 send_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
@@ -139,6 +140,24 @@ pub(crate) fn movement(
 pub(crate) fn send_message(mut client: ResMut<Client>) {
     // client.send_message::<DefaultUnorderedUnreliableChannel, _>(Message1(0));
     // info!("Send message");
+}
+
+// When the predicted copy of the client-owned entity is spawned, do stuff
+// - assign it a different saturation
+pub(crate) fn handle_player_spawn(
+    mut commands: Commands,
+    confirmed: Query<Entity, With<PlayerId>>,
+) {
+    for player_entity in confirmed.iter() {
+        commands.entity(player_entity).insert(InputMap::new([
+            (KeyCode::Right, PlayerActions::Right),
+            (KeyCode::Left, PlayerActions::Left),
+            (KeyCode::Up, PlayerActions::Up),
+            (KeyCode::Down, PlayerActions::Down),
+            (KeyCode::Delete, PlayerActions::Delete),
+            (KeyCode::Space, PlayerActions::Spawn),
+        ]));
+    }
 }
 
 // When the predicted copy of the client-owned entity is spawned, do stuff

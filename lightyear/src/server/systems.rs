@@ -16,7 +16,9 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
         let time = world.get_resource::<Time>().unwrap();
 
         // update client state, send keep-alives, receive packets from io
-        server.update(time.delta()).unwrap();
+        let _ = server.update(time.delta()).map_err(|e| {
+            error!("Error updating server: {}", e);
+        });
         // buffer packets into message managers
         server.recv_packets().unwrap();
 
@@ -90,7 +92,9 @@ pub(crate) fn send<P: Protocol>(world: &mut World) {
                 error!("Error preparing replicate send: {}", e);
             });
         // send buffered packets to io
-        server.send_packets().unwrap();
+        let _ = server.send_packets().map_err(|e| {
+            error!("Error sending packets: {}", e);
+        });
 
         // clear the list of newly connected clients
         // (cannot just use the ConnectionEvent because it is cleared after each frame)

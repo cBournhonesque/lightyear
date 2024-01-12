@@ -76,8 +76,8 @@ impl WebTransportServerSocket {
                         }
                         Err(e) => {
                             error!("receive_datagram connection error: {:?}", e);
-                            to_client_channels.lock().unwrap().remove(&client_addr);
-                            break;
+                            // to_client_channels.lock().unwrap().remove(&client_addr);
+                            // break;
                         }
                     }
                 }

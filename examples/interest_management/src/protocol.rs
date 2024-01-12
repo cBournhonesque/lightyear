@@ -28,8 +28,8 @@ impl PlayerBundle {
             position: Position(position),
             color: PlayerColor(color),
             replicate: Replicate {
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                // prediction_target: NetworkTarget::Only(vec![id]),
+                // interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // use rooms for replication
                 replication_mode: ReplicationMode::Room,
                 ..default()

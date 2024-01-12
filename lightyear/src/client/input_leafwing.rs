@@ -1,4 +1,5 @@
 //! Handles client-generated inputs
+use bevy::input::common_conditions::input_just_released;
 use std::fmt::Debug;
 
 use bevy::prelude::*;
@@ -205,9 +206,12 @@ where
         //   'set' will apply SameAsPrecedent for TB.
         app.add_systems(
             PostUpdate,
-            prepare_input_message::<P, A>
-                .in_set(InputSystemSet::SendInputMessage)
-                .run_if(client_is_synced::<P>),
+            (
+                prepare_input_message::<P, A>
+                    .in_set(InputSystemSet::SendInputMessage)
+                    .run_if(client_is_synced::<P>),
+                add_action_state_buffer_for_new_input_map::<A>,
+            ),
         );
     }
 }
@@ -222,6 +226,21 @@ pub enum InputSystemSet {
     SendInputMessage,
 }
 
+fn add_action_state_buffer_for_new_input_map<A: LeafwingUserAction>(
+    mut commands: Commands,
+    input_map_query: Query<Entity, (Added<InputMap<A>>, With<ActionState<A>>)>,
+) {
+    for entity in input_map_query.iter() {
+        trace!(?entity, "adding actions state buffer");
+        // TODO: THIS SHOULD ONLY BE FOR THE ENTITIES CONTROLLED BY THE CLIENT, SO MAYBE ADD THEM MANUALLY?
+        //   BECAUSE WHEN PREDICTING OTHER PLAYERS, WE DO NOT WANT TO ADD THE ACTION STATE BUFFER
+        commands.entity(entity).insert((
+            InputBuffer::<A>::default(),
+            ActionDiffBuffer::<A>::default(),
+        ));
+    }
+}
+
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
 fn add_action_state_buffer<A: LeafwingUserAction>(
@@ -232,7 +251,7 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
         (
             Added<ActionState<A>>,
             With<InputMap<A>>,
-            Or<(With<Predicted>, With<ShouldBePredicted>)>,
+            // Or<(With<Predicted>, With<ShouldBePredicted>)>,
         ),
     >,
     other_entities: Query<
@@ -498,7 +517,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        debug!(
+        info!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
