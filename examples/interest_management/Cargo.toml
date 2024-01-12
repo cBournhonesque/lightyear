@@ -18,7 +18,7 @@ webtransport = ["lightyear/webtransport", "dep:tokio"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-lightyear = { path = "../lightyear", features = ["webtransport"] }
+lightyear = { path = "../../lightyear", features = ["webtransport"] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"

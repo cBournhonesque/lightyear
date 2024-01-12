@@ -24,13 +24,13 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn listen(self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         let sender = LocalChannelSender { send: self.send };
         let receiver = LocalChannelReceiver {
             buffer: vec![],
             recv: self.recv,
         };
-        Ok((Box::new(sender), Box::new(receiver)))
+        (Box::new(sender), Box::new(receiver))
     }
 }
 

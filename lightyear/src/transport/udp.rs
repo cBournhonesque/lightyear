@@ -45,8 +45,8 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)> {
-        Ok((Box::new(self.clone()), Box::new(self.clone())))
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+        (Box::new(self.clone()), Box::new(self.clone()))
     }
 }
 

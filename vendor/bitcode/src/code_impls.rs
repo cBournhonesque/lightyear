@@ -5,13 +5,13 @@ use crate::nightly::{max, min};
 use crate::read::Read;
 use crate::write::Write;
 use crate::{Result, E};
-use bevy::utils::Duration;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::{CStr, CString};
 use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::num::*;
+use std::time::Duration;
 
 macro_rules! impl_enc_const {
     ($v:expr) => {

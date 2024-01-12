@@ -35,7 +35,7 @@ pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
 pub trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
-    fn listen(&mut self) -> anyhow::Result<(Box<dyn PacketSender>, Box<dyn PacketReceiver>)>;
+    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
 
     // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>);
 }

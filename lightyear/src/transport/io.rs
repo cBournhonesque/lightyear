@@ -12,9 +12,10 @@ use std::net::{IpAddr, SocketAddr};
 use metrics;
 use tracing::info;
 
+use super::LOCAL_SOCKET;
 use crate::transport::channels::Channels;
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
-use crate::transport::local::{LocalChannel, LOCAL_SOCKET};
+use crate::transport::local::LocalChannel;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 #[cfg(not(target_family = "wasm"))]
@@ -63,12 +64,12 @@ impl TransportConfig {
         match self {
             #[cfg(not(target_family = "wasm"))]
             TransportConfig::UdpSocket(addr) => {
-                let mut transport = UdpSocket::new(addr).unwrap();
+                let transport = UdpSocket::new(addr).unwrap();
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
-            #[cfg(feature = "webtransport")]
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
@@ -84,7 +85,8 @@ impl TransportConfig {
                 server_addr,
                 certificate_digest,
             } => {
-                let transport = WebTransportServerSocket::new(server_addr, certificate);
+                let transport =
+                    WebTransportClientSocket::new(client_addr, server_addr, certificate);
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
@@ -94,7 +96,7 @@ impl TransportConfig {
                 server_addr,
                 certificate,
             } => {
-                let transport = WebTransportClientSocket::new(client_addr, server_addr);
+                let transport = WebTransportServerSocket::new(server_addr, certificate);
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
