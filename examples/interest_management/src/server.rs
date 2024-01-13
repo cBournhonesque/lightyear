@@ -79,7 +79,6 @@ impl Plugin for MyServerPlugin {
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         // input system
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
         app.add_systems(
             Update,
             (

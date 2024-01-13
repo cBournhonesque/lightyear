@@ -18,14 +18,14 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: PlayerColor,
     replicate: Replicate,
-    action_state: ActionState<PlayerActions>,
+    action_state: ActionState<Inputs>,
 }
 
 impl PlayerBundle {
     pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
         let mut replicate = Replicate {
-            // prediction_target: NetworkTarget::Only(vec![id]),
-            // interpolation_target: NetworkTarget::AllExcept(vec![id]),
+            prediction_target: NetworkTarget::Only(vec![id]),
+            interpolation_target: NetworkTarget::AllExcept(vec![id]),
             // use rooms for replication
             replication_mode: ReplicationMode::Room,
             ..default()
@@ -36,7 +36,7 @@ impl PlayerBundle {
         replicate.add_target::<ActionState<Inputs>>(NetworkTarget::AllExceptSingle(id));
         // // we don't want to replicate the ActionState from the server to client, because then the action-state
         // // will keep getting replicated from confirmed to predicted and will interfere with our inputs
-        // replicate.disable_component::<ActionState<PlayerActions>>();
+        // replicate.disable_component::<ActionState<Inputs>>();
         Self {
             id: PlayerId(id),
             position: Position(position),
@@ -47,17 +47,16 @@ impl PlayerBundle {
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
         InputMap::new([
-            (KeyCode::Right, PlayerActions::Right),
+            (KeyCode::Right, Inputs::Right),
             (KeyCode::D, Inputs::Right),
-            (KeyCode::Left, PlayerActions::Left),
+            (KeyCode::Left, Inputs::Left),
             (KeyCode::A, Inputs::Left),
             (KeyCode::Up, Inputs::Up),
-            (KeyCode::W, PlayerActions::Up),
-            (KeyCode::Down, PlayerActions::Down),
+            (KeyCode::W, Inputs::Up),
+            (KeyCode::Down, Inputs::Down),
             (KeyCode::S, Inputs::Down),
-            (KeyCode::Delete, PlayerActions::Delete),
-            (KeyCode::Space, PlayerActions::Spawn),
-            (KeyCode::M, Inputs::Message),
+            (KeyCode::Delete, Inputs::Delete),
+            (KeyCode::Space, Inputs::Spawn),
         ])
     }
 }
@@ -129,9 +128,7 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(
-    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
-)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike)]
 pub enum Inputs {
     Up,
     Down,
@@ -141,7 +138,7 @@ pub enum Inputs {
     Spawn,
 }
 
-impl LeafwingUserAction for PlayerActions {}
+impl LeafwingUserAction for Inputs {}
 
 // Protocol
 
