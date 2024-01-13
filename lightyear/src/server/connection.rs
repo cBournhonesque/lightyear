@@ -61,7 +61,7 @@ impl<P: Protocol> ConnectionManager<P> {
     pub(crate) fn apply_replication(
         &mut self,
         target: NetworkTarget,
-    ) -> Box<dyn Iterator<Item = ClientId>> {
+    ) -> Box<dyn Iterator<Item = ClientId> + '_> {
         let connected_clients = self.connections.keys().copied();
         match target {
             NetworkTarget::All => {

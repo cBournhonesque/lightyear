@@ -1,6 +1,7 @@
 //! Defines the client bevy systems and run conditions
-use bevy::ecs::system::SystemChangeTick;
-use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
+use bevy::ecs::system::{SystemChangeTick, SystemState};
+use bevy::prelude::ResMut;
+use bevy::prelude::*;
 #[cfg(feature = "xpbd_2d")]
 use bevy_xpbd_2d::prelude::PhysicsTime;
 use std::ops::DerefMut;
@@ -19,74 +20,109 @@ use crate::protocol::Protocol;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
-    world.resource_scope(|world: &mut World, mut client: ClientMut<P>| {
-        world.resource_scope(|world: &mut World, time: Mut<Time<Virtual>>| {
-            let fixed_time = world.get_resource::<Time<Fixed>>().unwrap();
+    // TODO: here we can control time elapsed from the client's perspective?
 
-            // TODO: here we can control time elapsed from the client's perspective?
+    // TODO: THE CLIENT COULD DO PHYSICS UPDATES INSIDE FIXED-UPDATE SYSTEMS
+    //  WE SHOULD BE CALLING UPDATE INSIDE THOSE AS WELL SO THAT WE CAN SEND UPDATES
+    //  IN THE MIDDLE OF THE FIXED UPDATE LOOPS
+    //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
+    //  FIXED-UPDATE.expend() updates the clock by the fixed update interval
+    //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
+    world.resource_scope(|world: &mut World, mut connection: Mut<Connection<P>>| {
+        world.resource_scope(
+            |world: &mut World, mut netcode: Mut<crate::netcode::Client>| {
+                world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
+                    world.resource_scope(
+                        |world: &mut World, mut time_manager: Mut<TimeManager>| {
+                            world.resource_scope(
+                                |world: &mut World, tick_manager: Mut<TickManager>| {
+                                    let delta = world.resource::<Time<Virtual>>().delta();
+                                    let overstep = world.resource::<Time<Fixed>>().overstep();
 
-            // TODO: THE CLIENT COULD DO PHYSICS UPDATES INSIDE FIXED-UPDATE SYSTEMS
-            //  WE SHOULD BE CALLING UPDATE INSIDE THOSE AS WELL SO THAT WE CAN SEND UPDATES
-            //  IN THE MIDDLE OF THE FIXED UPDATE LOOPS
-            //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
-            //  FIXED-UPDATE.expend() updates the clock by the fixed update interval
-            //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
+                                    // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
+                                    time_manager.update(delta, overstep);
+                                    netcode
+                                        .try_update(delta.as_secs_f64(), io.deref_mut())
+                                        .unwrap();
 
-            // update client state, send keep-alives, receive packets from io
-            // update connection sync state
-            client.update(time.delta(), fixed_time.overstep()).unwrap();
+                                    // only start the connection (sending messages, sending pings, starting sync, etc.)
+                                    // once we are connected
+                                    if netcode.is_connected() {
+                                        connection
+                                            .update(time_manager.as_ref(), tick_manager.as_ref());
+                                    }
 
-            // buffer packets into message managers
-            client.recv_packets().unwrap();
-            // receive packets from message managers
-            let mut events = client.receive(world);
-            if !events.is_empty() {
-                // NOTE: maybe no need to send those events, because the client knows when it's connected/disconnected?
-                // if events.has_connection() {
-                //     let mut connect_event_writer =
-                //         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                //     debug!("Client connected event");
-                //     connect_event_writer.send(ConnectEvent::new(()));
-                // }
-                //
-                // if events.has_disconnection() {
-                //     let mut disconnect_event_writer =
-                //         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                //     debug!("Client disconnected event");
-                //     disconnect_event_writer.send(DisconnectEvent::new(()));
-                // }
+                                    // RECV PACKETS: buffer packets into message managers
+                                    while let Some(mut reader) = netcode.recv() {
+                                        connection
+                                            .recv_packet(&mut reader, tick_manager.as_ref())
+                                            .unwrap();
+                                    }
 
-                // Message Events
-                P::Message::push_message_events(world, &mut events);
+                                    // RECEIVE: receive packets from message managers
+                                    let mut events = connection.receive(
+                                        world,
+                                        time_manager.as_ref(),
+                                        tick_manager.as_ref(),
+                                    );
 
-                // SpawnEntity event
-                if events.has_entity_spawn() {
-                    let mut entity_spawn_event_writer = world
-                        .get_resource_mut::<Events<EntitySpawnEvent>>()
-                        .unwrap();
-                    for (entity, _) in events.into_iter_entity_spawn() {
-                        entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, ()));
-                    }
-                }
-                // DespawnEntity event
-                if events.has_entity_despawn() {
-                    let mut entity_despawn_event_writer = world
-                        .get_resource_mut::<Events<EntityDespawnEvent>>()
-                        .unwrap();
-                    for (entity, _) in events.into_iter_entity_despawn() {
-                        entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, ()));
-                    }
-                }
+                                    // HANDLE EVENTS
+                                    if !events.is_empty() {
+                                        // NOTE: maybe no need to send those events, because the client knows when it's connected/disconnected?
+                                        // if events.has_connection() {
+                                        //     let mut connect_event_writer =
+                                        //         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
+                                        //     debug!("Client connected event");
+                                        //     connect_event_writer.send(ConnectEvent::new(()));
+                                        // }
+                                        //
+                                        // if events.has_disconnection() {
+                                        //     let mut disconnect_event_writer =
+                                        //         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
+                                        //     debug!("Client disconnected event");
+                                        //     disconnect_event_writer.send(DisconnectEvent::new(()));
+                                        // }
 
-                // Update component events (updates, inserts, removes)
-                P::Components::push_component_events(world, &mut events);
-            }
-            trace!("finished recv");
-        });
+                                        // Message Events
+                                        P::Message::push_message_events(world, &mut events);
+
+                                        // SpawnEntity event
+                                        if events.has_entity_spawn() {
+                                            let mut entity_spawn_event_writer = world
+                                                .get_resource_mut::<Events<EntitySpawnEvent>>()
+                                                .unwrap();
+                                            for (entity, _) in events.into_iter_entity_spawn() {
+                                                entity_spawn_event_writer
+                                                    .send(EntitySpawnEvent::new(entity, ()));
+                                            }
+                                        }
+                                        // DespawnEntity event
+                                        if events.has_entity_despawn() {
+                                            let mut entity_despawn_event_writer = world
+                                                .get_resource_mut::<Events<EntityDespawnEvent>>()
+                                                .unwrap();
+                                            for (entity, _) in events.into_iter_entity_despawn() {
+                                                entity_despawn_event_writer
+                                                    .send(EntityDespawnEvent::new(entity, ()));
+                                            }
+                                        }
+
+                                        // Update component events (updates, inserts, removes)
+                                        P::Components::push_component_events(world, &mut events);
+                                    }
+                                    trace!("finished recv");
+                                },
+                            )
+                        },
+                    );
+                });
+            },
+        );
+        trace!("finished recv");
     });
 }
 
-pub(crate) fn send<P: Protocol>(
+pub fn send<P: Protocol>(
     mut io: ResMut<Io>,
     mut netcode: ResMut<crate::netcode::Client>,
     system_change_tick: SystemChangeTick,
@@ -101,7 +137,7 @@ pub(crate) fn send<P: Protocol>(
         .unwrap_or_else(|e| {
             error!("Error preparing replicate send: {}", e);
         });
-    // send buffered packets to io
+    // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())
         .unwrap();
@@ -124,12 +160,14 @@ pub(crate) fn send<P: Protocol>(
 pub(crate) fn sync_update<P: Protocol>(
     config: Res<ClientConfig>,
     netclient: Res<crate::netcode::Client>,
-    connection: Res<Connection<P>>,
+    mut connection: ResMut<Connection<P>>,
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,
     mut virtual_time: ResMut<Time<Virtual>>,
 ) {
+    let connection = connection.into_inner();
     if netclient.is_connected() {
+        // NOTE: this triggers change detection
         // Handle pongs, update RTT estimates, update client prediction time
         connection.sync_manager.update(
             time_manager.deref_mut(),

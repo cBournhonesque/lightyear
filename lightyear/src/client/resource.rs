@@ -102,6 +102,52 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
         }
         Ok(())
     }
+
+    // NETCODE
+
+    /// Start the connection process with the server
+    pub fn connect(&mut self) {
+        self.netcode.connect();
+    }
+
+    // MESSAGES
+
+    // TODO: i'm not event sure that is something we want.
+    //  it could open the door to the client flooding other players with messages
+    //  maybe we should let users re-broadcast messages from the server themselves instead of using this
+    //  Also it would make the code much simpler by having a single `ProtocolMessage` enum
+    //  instead of `ClientMessage` and `ServerMessage`
+    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.connection
+            .buffer_message(message.into(), channel, target)
+    }
+
+    /// Send a message to the server
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.connection
+            .buffer_message(message.into(), channel, NetworkTarget::None)
+    }
+
+    // INPUTS
+
+    // TODO: maybe put the input_buffer directly in Client ?
+    //  layer of indirection feelds annoying
+    pub fn add_input(&mut self, input: P::Input) {
+        self.connection.add_input(input, self.tick_manager.tick());
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -173,11 +219,6 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
 
     // NETCODE
 
-    /// Start the connection process with the server
-    pub fn connect(&mut self) {
-        self.netcode.connect();
-    }
-
     pub fn is_connected(&self) -> bool {
         self.netcode.is_connected()
     }
@@ -198,12 +239,6 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
         &self.io
     }
 
-    // INPUT
-
-    pub fn set_base_relative_speed(&mut self, relative_speed: f32) {
-        self.time_manager.base_relative_speed = relative_speed;
-    }
-
     // REPLICATION
     pub(crate) fn replication_sender(&self) -> &ReplicationSender<P> {
         &self.connection.replication_sender
@@ -212,88 +247,32 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
     pub(crate) fn replication_receiver(&self) -> &ReplicationReceiver<P> {
         &self.connection.replication_receiver
     }
-
-    // TODO: i'm not event sure that is something we want.
-    //  it could open the door to the client flooding other players with messages
-    //  maybe we should let users re-broadcast messages from the server themselves instead of using this
-    //  Also it would make the code much simpler by having a single `ProtocolMessage` enum
-    //  instead of `ClientMessage` and `ServerMessage`
-    /// Send a message to the server, the message should be re-broadcasted according to the `target`
-    pub fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: M,
-        target: NetworkTarget,
-    ) -> Result<()>
-    where
-        P::Message: From<M>,
-    {
-        let channel = ChannelKind::of::<C>();
-        self.connection
-            .buffer_message(message.into(), channel, target)
-    }
-
-    /// Send a message to the server
-    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
-    where
-        P::Message: From<M>,
-    {
-        let channel = ChannelKind::of::<C>();
-        self.connection
-            .buffer_message(message.into(), channel, NetworkTarget::None)
-    }
-
-    /// Send packets that are ready from the message manager through the transport layer
-    pub(crate) fn send_packets(&mut self) -> Result<()> {
-        let packet_bytes = self
-            .connection
-            .send_packets(&self.time_manager, &self.tick_manager)?;
-        for packet_byte in packet_bytes {
-            self.netcode.send(packet_byte.as_slice(), &mut self.io)?;
-        }
-        Ok(())
-    }
 }
 
 // INPUT
 impl<'w, 's, P: Protocol> Client<'w, 's, P> {
-    // TODO: maybe put the input_buffer directly in Client ?
-    //  layer of indirection feelds annoying
-    pub fn add_input(&mut self, input: P::Input) {
-        self.connection.add_input(input, self.tick_manager.tick());
-    }
-
     pub fn get_input_buffer(&self) -> &InputBuffer<P::Input> {
         &self.connection.input_buffer
-    }
-
-    pub fn get_mut_input_buffer(&mut self) -> &mut InputBuffer<P::Input> {
-        &mut self.connection.input_buffer
-    }
-
-    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
-    /// to keep it for rollback)
-    pub fn get_input(&mut self, tick: Tick) -> Option<P::Input> {
-        self.connection.input_buffer.get(tick).cloned()
     }
 }
 
 // Access some internals for tests
 #[cfg(test)]
 impl<P: Protocol> Client<P> {
-    pub fn set_latest_received_server_tick(&mut self, tick: Tick) {
-        self.connection.sync_manager.latest_received_server_tick = Some(tick);
-        self.connection
-            .sync_manager
-            .duration_since_latest_received_server_tick = Duration::default();
-    }
+    // pub fn set_latest_received_server_tick(&mut self, tick: Tick) {
+    //     self.connection.sync_manager.latest_received_server_tick = Some(tick);
+    //     self.connection
+    //         .sync_manager
+    //         .duration_since_latest_received_server_tick = Duration::default();
+    // }
 
     pub fn connection(&self) -> &Connection<P> {
         &self.connection
     }
 
-    pub fn set_synced(&mut self) {
-        self.connection.sync_manager.synced = true;
-    }
+    // pub fn set_synced(&mut self) {
+    //     self.connection.sync_manager.synced = true;
+    // }
 }
 
 impl<P: Protocol> ReplicationSend<P> for Connection<P> {

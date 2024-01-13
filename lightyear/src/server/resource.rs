@@ -126,6 +126,53 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
                 error!("Error during receive: {}", e);
             });
     }
+
+    // MESSAGES
+
+    /// Queues up a message to be sent to all clients
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        let _span =
+            debug_span!("send_message", channel = ?C::type_name(), message = ?message.name(), ?target)
+                .entered();
+        self.connection_manager
+            .buffer_message(message.into(), ChannelKind::of::<C>(), target)
+    }
+
+    /// Queues up a message to be sent to a client
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        client_id: ClientId,
+        message: M,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
+    }
+
+    // ROOM
+    pub fn room_mut(&mut self, id: RoomId) -> RoomMut {
+        RoomMut {
+            id,
+            manager: &mut self.room_manager,
+        }
+    }
+
+    pub fn room(&self, id: RoomId) -> RoomRef {
+        RoomRef {
+            id,
+            manager: &self.room_manager,
+        }
+    }
 }
 
 impl<'w, 's, P: Protocol> Server<'w, 's, P> {
@@ -187,16 +234,6 @@ impl<'w, 's, P: Protocol> Server<'w, 's, P> {
         &self.io
     }
 
-    // EVENTS
-
-    pub fn events(&mut self) -> &mut ServerEvents<P> {
-        &mut self.connection_manager.events
-    }
-
-    pub fn clear_events(&mut self) {
-        self.events().clear();
-    }
-
     // INPUTS
 
     // // TODO: exposed only for debugging
@@ -207,38 +244,6 @@ impl<'w, 's, P: Protocol> Server<'w, 's, P> {
     // }
 
     // REPLICATION
-
-    // MESSAGES
-
-    /// Queues up a message to be sent to all clients
-    pub fn send_message_to_target<C: Channel, M: Message>(
-        &mut self,
-        message: M,
-        target: NetworkTarget,
-    ) -> Result<()>
-    where
-        M: Clone,
-        P::Message: From<M>,
-    {
-        let _span =
-            debug_span!("send_message", channel = ?C::type_name(), message = ?message.name(), ?target)
-                .entered();
-        self.connection_manager
-            .buffer_message(message.into(), ChannelKind::of::<C>(), target)
-    }
-
-    /// Queues up a message to be sent to a client
-    pub fn send_message<C: Channel, M: Message>(
-        &mut self,
-        client_id: ClientId,
-        message: M,
-    ) -> Result<()>
-    where
-        M: Clone,
-        P::Message: From<M>,
-    {
-        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
-    }
 
     /// Send packets that are ready from the message manager through the transport layer
     pub fn send_packets(&mut self) -> Result<()> {
@@ -252,20 +257,6 @@ impl<'w, 's, P: Protocol> Server<'w, 's, P> {
             }
         }
         Ok(())
-    }
-
-    pub fn room_mut(&mut self, id: RoomId) -> RoomMut {
-        RoomMut {
-            id,
-            manager: &mut self.room_manager,
-        }
-    }
-
-    pub fn room(&self, id: RoomId) -> RoomRef {
-        RoomRef {
-            id,
-            manager: &self.room_manager,
-        }
     }
 }
 
