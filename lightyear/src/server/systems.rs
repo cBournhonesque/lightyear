@@ -1,18 +1,22 @@
 //! Defines the server bevy systems and run conditions
-use bevy::prelude::{Events, Mut, Res, ResMut, Time, World};
-use tracing::{debug, error, trace};
+use bevy::ecs::system::SystemChangeTick;
+use bevy::prelude::{Events, Mut, ParamSet, Res, ResMut, Time, World};
+use std::ops::DerefMut;
+use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, TickManager, TimeManager};
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::prelude::Io;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
-use crate::server::resource::Server;
+use crate::server::resource::{Server, ServerMut};
 use crate::shared::replication::ReplicationSend;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");
-    world.resource_scope(|world, mut server: Mut<Server<P>>| {
+    world.resource_scope(|world: &mut World, mut server: ServerMut<P>| {
         let time = world.get_resource::<Time>().unwrap();
 
         // update client state, send keep-alives, receive packets from io
@@ -80,33 +84,47 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 }
 
 // or do additional send stuff here
-pub(crate) fn send<P: Protocol>(world: &mut World) {
+pub(crate) fn send<P: Protocol>(
+    change_tick: SystemChangeTick,
+    mut netserver: ResMut<crate::netcode::Server>,
+    mut io: ResMut<Io>,
+    mut connection_manager: ResMut<ConnectionManager<P>>,
+    tick_manager: Res<TickManager>,
+    time_manager: Res<TimeManager>,
+) {
     trace!("Send packets to clients");
-    world.resource_scope(|world, mut server: Mut<Server<P>>| {
-        // finalize any packets that are needed for replication
-        server
-            .buffer_replication_messages(world.change_tick())
-            .unwrap_or_else(|e| {
-                error!("Error preparing replicate send: {}", e);
-            });
-        // send buffered packets to io
-        server.send_packets().unwrap();
+    // finalize any packets that are needed for replication
+    connection_manager
+        .buffer_replication_messages(tick_manager.tick(), change_tick.this_run())
+        .unwrap_or_else(|e| {
+            error!("Error preparing replicate send: {}", e);
+        });
 
-        // clear the list of newly connected clients
-        // (cannot just use the ConnectionEvent because it is cleared after each frame)
-        server.connection_manager.new_clients.clear();
+    // send buffered packets to io
+    let span = trace_span!("send_packets").entered();
+    connection_manager
+        .connections
+        .iter_mut()
+        .try_for_each(|(client_id, connection)| {
+            let client_span =
+                trace_span!("send_packets_to_client", client_id = ?client_id).entered();
+            for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
+                netserver.send(packet_byte.as_slice(), *client_id, io.deref_mut())?;
+            }
+            Ok(())
+        })
+        .unwrap_or_else(|e: anyhow::Error| {
+            error!("Error sending packets: {}", e);
+        });
 
-        // TODO: clear the dependency graph for replication groups send
-    });
+    // clear the list of newly connected clients
+    // (cannot just use the ConnectionEvent because it is cleared after each frame)
+    connection_manager.new_clients.clear();
 }
 
 /// Clear the received events
 /// We put this in a separate as send because we want to run this every frame, and
 /// Send only runs every send_interval
-pub(crate) fn clear_events<P: Protocol>(mut server: ResMut<Server<P>>) {
-    server.clear_events();
-}
-
-pub(crate) fn is_ready_to_send<P: Protocol>(server: Res<Server<P>>) -> bool {
-    server.is_ready_to_send()
+pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<ConnectionManager<P>>) {
+    connection_manager.events.clear();
 }

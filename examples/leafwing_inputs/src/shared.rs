@@ -7,6 +7,7 @@ use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::_reexport::TickManager;
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -172,8 +173,8 @@ pub(crate) fn shared_movement_behaviour(
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
 }
 
-pub(crate) fn after_physics_log<T: TickManaged>(
-    ticker: Res<T>,
+pub(crate) fn after_physics_log(
+    tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     players: Query<
         (Entity, &Position, &Rotation),
@@ -181,7 +182,7 @@ pub(crate) fn after_physics_log<T: TickManaged>(
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
-    let mut tick = ticker.tick();
+    let mut tick = tick_manager.tick();
     if let Some(rollback) = rollback {
         if let RollbackState::ShouldRollback { current_tick } = rollback.state {
             tick = current_tick;
@@ -201,8 +202,8 @@ pub(crate) fn after_physics_log<T: TickManaged>(
     }
 }
 
-pub(crate) fn last_log<T: TickManaged>(
-    ticker: Res<T>,
+pub(crate) fn last_log(
+    tick_manager: Res<TickManager>,
     players: Query<
         (
             Entity,
@@ -215,7 +216,7 @@ pub(crate) fn last_log<T: TickManaged>(
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
-    let tick = ticker.tick();
+    let tick = tick_manager.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
         info!(?tick, ?entity, ?position, ?correction, "Player LAST update");
         info!(

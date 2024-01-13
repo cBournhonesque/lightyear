@@ -1,11 +1,13 @@
 //! Handles client-generated inputs
+use crate::_reexport::TickManager;
 use bevy::prelude::{
     App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    ResMut, SystemSet,
+    Res, ResMut, SystemSet,
 };
 
 use crate::netcode::ClientId;
 use crate::protocol::Protocol;
+use crate::server::connection::ConnectionManager;
 use crate::server::resource::Server;
 use crate::shared::events::InputEvent;
 use crate::shared::sets::FixedUpdateSet;
@@ -80,11 +82,12 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 // The only tricky part is that events are cleared every frame, but we want to clear every tick instead
 // Do it in this system because we want an input for every tick
 fn write_input_event<P: Protocol>(
-    mut server: ResMut<Server<P>>,
+    tick_manager: Res<TickManager>,
+    mut connection_manager: ResMut<ConnectionManager<P>>,
     mut input_events: EventWriter<InputEvent<P::Input, ClientId>>,
 ) {
-    let tick = server.tick_manager.current_tick();
-    for (input, client_id) in server.connection_manager.pop_inputs(tick) {
+    let tick = tick_manager.tick();
+    for (input, client_id) in connection_manager.pop_inputs(tick) {
         input_events.send(InputEvent::new(input, client_id));
     }
 }

@@ -1,21 +1,26 @@
 //! Defines the client bevy systems and run conditions
-use bevy::prelude::{Events, Fixed, Mut, Res, Time, Virtual, World};
+use bevy::ecs::system::SystemChangeTick;
+use bevy::prelude::{Events, Fixed, Mut, Res, ResMut, Time, Virtual, World};
 #[cfg(feature = "xpbd_2d")]
 use bevy_xpbd_2d::prelude::PhysicsTime;
+use std::ops::DerefMut;
 use tracing::{error, info, trace};
 
-use crate::_reexport::ReplicationSend;
+use crate::_reexport::{ReplicationSend, TickManager, TimeManager};
+use crate::client::config::ClientConfig;
+use crate::client::connection::Connection;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
-use crate::client::resource::Client;
+use crate::client::resource::{Client, ClientMut};
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::prelude::Io;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
-    world.resource_scope(|world, mut client: Mut<Client<P>>| {
-        world.resource_scope(|world, time: Mut<Time<Virtual>>| {
+    world.resource_scope(|world: &mut World, mut client: ClientMut<P>| {
+        world.resource_scope(|world: &mut World, time: Mut<Time<Virtual>>| {
             let fixed_time = world.get_resource::<Time<Fixed>>().unwrap();
 
             // TODO: here we can control time elapsed from the client's perspective?
@@ -81,49 +86,82 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     });
 }
 
-pub(crate) fn send<P: Protocol>(world: &mut World) {
-    world.resource_scope(|world, mut client: Mut<Client<P>>| {
-        trace!("Send packets to server");
-        // finalize any packets that are needed for replication
-        client
-            .buffer_replication_messages(world.change_tick())
-            .unwrap_or_else(|e| {
-                error!("Error preparing replicate send: {}", e);
-            });
-        // send buffered packets to io
-        client.send_packets().unwrap();
+pub(crate) fn send<P: Protocol>(
+    mut io: ResMut<Io>,
+    mut netcode: ResMut<crate::netcode::Client>,
+    system_change_tick: SystemChangeTick,
+    tick_manager: Res<TickManager>,
+    time_manager: Res<TimeManager>,
+    mut connection: ResMut<Connection<P>>,
+) {
+    trace!("Send packets to server");
+    // finalize any packets that are needed for replication
+    connection
+        .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
+        .unwrap_or_else(|e| {
+            error!("Error preparing replicate send: {}", e);
+        });
+    // send buffered packets to io
+    let packet_bytes = connection
+        .send_packets(time_manager.as_ref(), tick_manager.as_ref())
+        .unwrap();
+    for packet_byte in packet_bytes {
+        netcode
+            .send(packet_byte.as_slice(), io.deref_mut())
+            .unwrap();
+    }
 
-        // no need to clear the connection, because we already std::mem::take it
-        // client.connection.clear();
-    });
+    // no need to clear the connection, because we already std::mem::take it
+    // client.connection.clear();
 }
 
-pub(crate) fn is_ready_to_send<P: Protocol>(client: Res<Client<P>>) -> bool {
-    client.is_ready_to_send()
-}
+/// Update the sync manager.
+/// We run this at PostUpdate because:
+/// - client prediction time is computed from ticks, which haven't been updated yet at PreUpdate
+/// - server prediction time is computed from time, which has been updated via delta
+/// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
+/// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
+pub(crate) fn sync_update<P: Protocol>(
+    config: Res<ClientConfig>,
+    netclient: Res<crate::netcode::Client>,
+    connection: Res<Connection<P>>,
+    mut time_manager: ResMut<TimeManager>,
+    mut tick_manager: ResMut<TickManager>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+) {
+    if netclient.is_connected() {
+        // Handle pongs, update RTT estimates, update client prediction time
+        connection.sync_manager.update(
+            time_manager.deref_mut(),
+            tick_manager.deref_mut(),
+            &connection.ping_manager,
+            &config.interpolation.delay,
+            config.shared.server_send_interval,
+        );
 
-pub(crate) fn sync_update<P: Protocol>(world: &mut World) {
-    world.resource_scope(|world, mut client: Mut<Client<P>>| {
-        world.resource_scope(|world, mut time: Mut<Time<Virtual>>| {
-            // Handle pongs, update RTT estimates, update client prediction time
-            client.sync_update();
+        if connection.sync_manager.is_synced() {
+            connection.sync_manager.update_prediction_time(
+                time_manager.deref_mut(),
+                tick_manager.deref_mut(),
+                &connection.ping_manager,
+            );
+        }
+    }
 
-            // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-            if client.is_synced() {
-                let relative_speed = client.time_manager.get_relative_speed();
-                time.set_relative_speed(relative_speed);
+    // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
+    if connection.sync_manager.is_synced() {
+        let relative_speed = time_manager.get_relative_speed();
+        virtual_time.set_relative_speed(relative_speed);
 
-                // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
-                // //  client and server. Enabling this will cause the simulations to diverge
-                // cfg_if! {
-                //     if #[cfg(feature = "xpbd_2d")] {
-                //         use bevy_xpbd_2d::prelude::Physics;
-                //         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-                //             physics_time.set_relative_speed(relative_speed);
-                //         }
-                //     }
-                // }
-            };
-        })
-    })
+        // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
+        // //  client and server. Enabling this will cause the simulations to diverge
+        // cfg_if! {
+        //     if #[cfg(feature = "xpbd_2d")] {
+        //         use bevy_xpbd_2d::prelude::Physics;
+        //         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
+        //             physics_time.set_relative_speed(relative_speed);
+        //         }
+        //     }
+        // }
+    };
 }

@@ -1,5 +1,5 @@
 use crate::client::resource::Client;
-use crate::prelude::Protocol;
+use crate::prelude::{Io, Protocol};
 use crate::transport::io::{IoDiagnosticsPlugin, IoStats};
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::diagnostic::{Diagnostic, Diagnostics, RegisterDiagnostic};
@@ -18,11 +18,11 @@ impl<P> Default for ClientDiagnosticsPlugin<P> {
 }
 
 fn io_diagnostics_system<P: Protocol>(
-    mut client: ResMut<Client<P>>,
+    mut io: ResMut<Io>,
     time: Res<Time<Real>>,
     mut diagnostics: Diagnostics,
 ) {
-    IoDiagnosticsPlugin::update_diagnostics(&mut client.io.stats, &time, &mut diagnostics);
+    IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
     fn build(&self, app: &mut App) {

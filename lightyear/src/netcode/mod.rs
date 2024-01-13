@@ -126,7 +126,7 @@ loop {
 pub use client::{Client, ClientConfig, ClientState};
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
-pub use server::{Callback, ClientId, Server, ServerConfig};
+pub use server::{Callback, ClientId, NetServer as Server, ServerConfig};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 mod bytes;

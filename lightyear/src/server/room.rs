@@ -9,8 +9,8 @@ use crate::netcode::ClientId;
 use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
 use crate::server::resource::Server;
-use crate::server::systems::is_ready_to_send;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::time_manager::is_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
 
 // Id for a room, used to perform interest management
@@ -46,7 +46,7 @@ pub struct Room {
     entities: HashSet<Entity>,
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct RoomManager {
     events: RoomEvents,
     data: RoomData,
@@ -77,6 +77,8 @@ pub enum RoomSystemSets {
 
 impl<P: Protocol> Plugin for RoomPlugin<P> {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<RoomManager>();
         // SETS
         app.configure_sets(
             PostUpdate,
@@ -93,7 +95,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                     RoomSystemSets::UpdateReplicationCaches,
                     RoomSystemSets::RoomBookkeeping,
                 )
-                    .run_if(is_ready_to_send::<P>),
+                    .run_if(is_ready_to_send),
             ),
         );
         // SYSTEMS
@@ -104,8 +106,8 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
                 (
                     clear_entity_replication_cache::<P>,
-                    clean_entity_despawns::<P>,
-                    clear_room_events::<P>,
+                    clean_entity_despawns,
+                    clear_room_events,
                 )
                     .in_set(RoomSystemSets::RoomBookkeeping),
             ),
@@ -349,14 +351,14 @@ pub enum ClientVisibility {
 /// Update each entities' replication-client-list based on the room events
 /// Note that the rooms' entities/clients have already been updated at this point
 fn update_entity_replication_cache<P: Protocol>(
-    server: Res<Server<P>>,
+    room_manager: Res<RoomManager>,
     mut query: Query<&mut Replicate<P>>,
 ) {
     // entity joined room
-    for (entity, rooms) in server.room_manager.events.iter_entity_enter_room() {
+    for (entity, rooms) in room_manager.events.iter_entity_enter_room() {
         // for each room joined, update the entity's client visibility list
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     // only set it to gained if it wasn't present before
@@ -369,10 +371,10 @@ fn update_entity_replication_cache<P: Protocol>(
         });
     }
     // entity left room
-    for (entity, rooms) in server.room_manager.events.iter_entity_leave_room() {
+    for (entity, rooms) in room_manager.events.iter_entity_leave_room() {
         // for each room left, update the entity's client visibility list if the client was in the room
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
@@ -384,9 +386,9 @@ fn update_entity_replication_cache<P: Protocol>(
         });
     }
     // client joined room: update all the entities that are in that room
-    for (client_id, rooms) in server.room_manager.events.iter_client_enter_room() {
+    for (client_id, rooms) in room_manager.events.iter_client_enter_room() {
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     replicate
@@ -398,9 +400,9 @@ fn update_entity_replication_cache<P: Protocol>(
         });
     }
     // client left room: update all the entities that are in that room
-    for (client_id, rooms) in server.room_manager.events.iter_client_leave_room() {
+    for (client_id, rooms) in room_manager.events.iter_client_leave_room() {
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
@@ -432,17 +434,17 @@ fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate<P
 }
 
 /// Clear every room event that happened
-fn clear_room_events<P: Protocol>(mut server: ResMut<Server<P>>) {
-    server.room_manager.events.clear();
+fn clear_room_events(mut room_manager: ResMut<RoomManager>) {
+    room_manager.events.clear();
 }
 
 /// Clear out the room metadata for any entity that was ever replicated
-fn clean_entity_despawns<P: Protocol>(
-    mut server: ResMut<Server<P>>,
+fn clean_entity_despawns(
+    mut room_manager: ResMut<RoomManager>,
     mut despawned: RemovedComponents<DespawnTracker>,
 ) {
     for entity in despawned.read() {
-        server.room_manager.entity_despawn(entity);
+        room_manager.entity_despawn(entity);
     }
 }
 

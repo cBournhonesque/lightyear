@@ -1,4 +1,5 @@
 //! Defines server-specific configuration options
+use bevy::prelude::Resource;
 use std::time::Duration;
 
 use crate::netcode::Key;
@@ -66,7 +67,7 @@ impl PacketConfig {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,

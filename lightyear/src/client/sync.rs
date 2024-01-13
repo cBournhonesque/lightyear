@@ -2,6 +2,7 @@
 */
 use std::time::Duration;
 
+use crate::client::connection::Connection;
 use bevy::prelude::Res;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, info, trace, warn};
@@ -17,8 +18,8 @@ use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
-pub fn client_is_synced<P: Protocol>(client: Res<Client<P>>) -> bool {
-    client.is_synced()
+pub fn client_is_synced<P: Protocol>(connection: Res<Connection<P>>) -> bool {
+    connection.sync_manager.is_synced()
 }
 
 #[derive(Clone, Debug)]
@@ -112,7 +113,7 @@ pub struct SyncManager {
 impl SyncManager {
     pub fn new(config: SyncConfig, input_delay_ticks: u16) -> Self {
         Self {
-            config: config.clone(),
+            config,
             input_delay_ticks,
             synced: false,
             // time
@@ -179,7 +180,7 @@ impl SyncManager {
         //  let's assume that this is the case after we did tick syncing
         //  so if we are behind, that means that the client tick wrapped around.
         //  for the purposes of the sync computations, the client tick should be ahead
-        let mut client_tick_raw = tick_manager.current_tick().0 as i32;
+        let mut client_tick_raw = tick_manager.tick().0 as i32;
         trace!(?client_tick_raw);
         // TODO: fix this
         // client can only be this behind server if it wrapped around...
@@ -421,7 +422,7 @@ impl SyncManager {
                 ?client_ideal_time,
                 // stats = ?ping_manager.sync_stats,
                 latest_received_server_tick = ?self.latest_received_server_tick,
-                client_tick = ?tick_manager.current_tick(),
+                client_tick = ?tick_manager.tick(),
                 error_ms = ?error.num_milliseconds(),
                 error_margin_time_ms = ?error_margin_time.num_milliseconds(),
                 "Error too big, snapping prediction time/tick to objective",
@@ -438,7 +439,7 @@ impl SyncManager {
                 ?current_prediction_time,
                 ?client_ideal_time,
                 latest_received_server_tick = ?self.latest_received_server_tick,
-                client_tick = ?tick_manager.current_tick(),
+                client_tick = ?tick_manager.tick(),
                 error_ms = ?error.num_milliseconds(),
                 error_margin_time_ms = ?error_margin_time.num_milliseconds(),
                 "Too far ahead of server! Slow down!",
@@ -452,7 +453,7 @@ impl SyncManager {
                 ?current_prediction_time,
                 ?client_ideal_time,
                 latest_received_server_tick = ?self.latest_received_server_tick,
-                client_tick = ?tick_manager.current_tick(),
+                client_tick = ?tick_manager.tick(),
                 error_ms = ?error.num_milliseconds(),
                 error_margin_time_ms = ?error_margin_time.num_milliseconds(),
                 "Too far behind of server! Speed up!",
@@ -495,7 +496,7 @@ impl SyncManager {
         let client_ideal_tick =
             Tick((client_ideal_time.elapsed_us_wrapped / tick_duration.as_micros() as u32) as u16);
 
-        let delta_tick = client_ideal_tick - tick_manager.current_tick();
+        let delta_tick = client_ideal_tick - tick_manager.tick();
         // Update client ticks
         if rtt != Duration::default() {
             debug!(
@@ -508,7 +509,7 @@ impl SyncManager {
                 ?client_ideal_time,
                 ?client_ideal_tick,
                 server_tick = ?self.latest_received_server_tick,
-                client_current_tick = ?tick_manager.current_tick(),
+                client_current_tick = ?tick_manager.tick(),
                 "Finished syncing!"
             );
         }

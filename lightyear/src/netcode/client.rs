@@ -1,3 +1,4 @@
+use bevy::prelude::Resource;
 use std::{
     collections::VecDeque,
     net::SocketAddr,
@@ -176,6 +177,8 @@ pub enum ClientState {
 /// let mut client = Client::new(&token_bytes).unwrap();
 /// client.connect();
 /// ```
+
+#[derive(Resource)]
 pub struct Client<Ctx = ()> {
     id: ClientId,
     state: ClientState,

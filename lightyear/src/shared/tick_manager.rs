@@ -9,11 +9,6 @@ use crate::utils::wrapping_id::wrapping_id;
 // Internal id that tracks the Tick value for the server and the client
 wrapping_id!(Tick);
 
-pub trait TickManaged: Resource {
-    fn tick(&self) -> Tick;
-    fn increment_tick(&mut self);
-}
-
 #[derive(Clone)]
 pub struct TickConfig {
     pub tick_duration: Duration,
@@ -53,7 +48,7 @@ impl TickManager {
         self.tick = tick;
     }
 
-    pub fn current_tick(&self) -> Tick {
+    pub fn tick(&self) -> Tick {
         self.tick
     }
 }

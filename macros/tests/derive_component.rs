@@ -3,7 +3,7 @@ pub mod some_component {
     use derive_more::{Add, Mul};
     use serde::{Deserialize, Serialize};
 
-    use lightyear::prelude::client::InterpFn;
+    use lightyear::prelude::client::{InterpFn, LerpFn};
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 
@@ -37,7 +37,7 @@ pub mod some_component {
 
     // custom interpolation logic
     pub struct MyCustomInterpolator;
-    impl<C> InterpFn<C> for MyCustomInterpolator {
+    impl<C> LerpFn<C> for MyCustomInterpolator {
         fn lerp(start: C, _other: C, _t: f32) -> C {
             start
         }

@@ -5,14 +5,15 @@ use bevy::prelude::{
 };
 use tracing::{debug, info, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, FromType};
+use crate::_reexport::{ComponentProtocol, FromType, TickManager};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::config::ClientConfig;
+use crate::client::connection::Connection;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::resource::Client;
 use crate::prelude::client::SyncMetadata;
 use crate::protocol::Protocol;
-use crate::shared::tick_manager::TickManaged;
 
 use super::predicted_history::PredictionHistory;
 use super::{Predicted, Rollback, RollbackState};
@@ -275,8 +276,8 @@ use super::{Predicted, Rollback, RollbackState};
 pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
-    client: Res<Client<P>>,
-
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
@@ -302,6 +303,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
     }
     let _span = trace_span!("client rollback prepare");
 
+    let current_tick = tick_manager.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let tick = confirmed.tick;
         //
@@ -359,13 +361,13 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                         // }
 
                         // insert the Correction information only if the component exists on both confirmed and predicted
-                        let correction_ticks = ((client.tick() - tick) as f32
-                            * client.config().prediction.correction_ticks_factor)
+                        let correction_ticks = ((current_tick - tick) as f32
+                            * config.prediction.correction_ticks_factor)
                             .round() as i16;
 
                         // no need to add the Correction if the correction is instant
                         if correction_ticks != 0 && P::Components::has_correction() {
-                            let final_correction_tick = client.tick() + correction_ticks;
+                            let final_correction_tick = current_tick + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
                                 info!("updating existing correction");
                                 // if there is a correction, start the correction again from the previous
@@ -373,7 +375,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                                 correction.original_prediction =
                                     std::mem::take(&mut correction.current_visual)
                                         .unwrap_or_else(|| predicted_component.clone());
-                                correction.original_tick = client.tick();
+                                correction.original_tick = current_tick;
                                 correction.final_correction_tick = final_correction_tick;
                                 // TODO: can set this to None, shouldnt make any diff
                                 correction.current_correction = Some(c.clone());
@@ -381,7 +383,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                                 debug!("inserting new correction");
                                 entity_mut.insert(Correction {
                                     original_prediction: predicted_component.clone(),
-                                    original_tick: client.tick(),
+                                    original_tick: current_tick,
                                     final_correction_tick,
                                     current_visual: None,
                                     current_correction: None,
@@ -402,7 +404,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
-    client: Res<Client<P>>,
+    tick_manager: Res<TickManager>,
+    connection: Res<Connection<P>>,
 
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
@@ -420,9 +423,11 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
     }
 
     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
-    if !client.is_synced() || !client.received_new_server_tick() {
+    if !connection.is_synced() || !connection.received_new_server_tick() {
         return;
     }
+
+    let current_tick = tick_manager.tick();
     // TODO: can just enable bevy spans?
     let _span = trace_span!("client rollback check");
 
@@ -450,12 +455,12 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
         // - History contains the history of what we predicted at the tick
         // get the tick that the confirmed entity is at
         let tick = confirmed.tick;
-        if tick > client.tick() {
+        if tick > current_tick {
             debug!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
                 confirmed_entity,
                 tick,
-                client.tick()
+                current_tick
             );
             continue;
         }
@@ -500,7 +505,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
                     info!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
-                   confirmed_entity, tick, kind, client.tick()
+                   confirmed_entity, tick, kind, current_tick
                    );
                     // TODO: try atomic enum update
                     rollback.state = RollbackState::ShouldRollback {
@@ -514,7 +519,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
             RollbackState::ShouldRollback { .. } => {
                 trace!(
                    "Rollback check: should roll back for component between predicted and confirmed on tick {:?} for component {:?}. Current tick: {:?}",
-                   tick, kind, client.tick()
+                   tick, kind, current_tick
                    );
             }
         };
@@ -522,10 +527,10 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
 }
 
 pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
-    let client = world.get_resource::<Client<P>>().unwrap();
+    let tick_manager = world.get_resource::<TickManager>().unwrap();
     let rollback = world.get_resource::<Rollback>().unwrap();
 
-    let current_tick = client.tick();
+    let current_tick = tick_manager.tick();
 
     // NOTE: all predicted entities should be on the same tick!
     // TODO: might not need to check the state, because we only run this system if we are in rollback

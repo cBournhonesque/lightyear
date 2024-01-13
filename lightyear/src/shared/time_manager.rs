@@ -13,7 +13,7 @@ use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use std::time::Duration;
 
-use bevy::prelude::{Time, Timer, TimerMode};
+use bevy::prelude::{Res, Resource, Time, Timer, TimerMode};
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,12 @@ use bitcode::{Decode, Encode};
 /// Time wraps after u32::MAX in microseconds (a bit over an hour)
 pub const WRAPPING_TIME_US: u32 = u32::MAX;
 
+/// Run Condition to check if we are ready to send packets
+pub(crate) fn is_ready_to_send(time_manager: Res<TimeManager>) -> bool {
+    time_manager.is_ready_to_send()
+}
+
+#[derive(Resource)]
 pub struct TimeManager {
     /// The current time
     wrapped_time: WrappedTime,

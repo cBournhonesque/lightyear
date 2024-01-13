@@ -2,6 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use crate::_reexport::TimeManager;
 use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
@@ -11,16 +12,18 @@ use crate::netcode::ClientId;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::input::InputPlugin;
 use crate::server::resource::Server;
 use crate::server::room::RoomPlugin;
-use crate::server::systems::{clear_events, is_ready_to_send};
+use crate::server::systems::clear_events;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::ReplicationSet;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::systems::tick::increment_tick;
+use crate::shared::time_manager::is_ready_to_send;
 use crate::transport::io::Io;
 
 use super::config::ServerConfig;
@@ -60,11 +63,11 @@ impl<P: Protocol> ServerPlugin<P> {
 impl<P: Protocol> PluginType for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let server = Server::new(config.server_config.clone(), config.io, config.protocol);
+        let netserver = crate::netcode::Server::new(config.server_config.netcode.clone());
 
         // TODO: maybe put those 2 in a ReplicationPlugin?
-        add_replication_send_systems::<P, Server<P>>(app);
-        P::Components::add_per_component_replication_send_systems::<Server<P>>(app);
+        add_replication_send_systems::<P, ConnectionManager<P>>(app);
+        P::Components::add_per_component_replication_send_systems::<ConnectionManager<P>>(app);
         P::Components::add_events::<ClientId>(app);
 
         P::Message::add_events::<ClientId>(app);
@@ -78,7 +81,17 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             // RESOURCES //
-            .insert_resource(server)
+            .insert_resource(TimeManager::new(
+                config.server_config.shared.server_send_interval,
+            ))
+            .insert_resource(config.server_config)
+            .insert_resource(config.io)
+            .insert_resource(netserver)
+            .insert_resource(ConnectionManager::<P>::new(
+                config.protocol.channel_registry().clone(),
+            ))
+            .insert_resource(config.protocol)
+            // .insert_resource(server)
             // SYSTEM SETS //
             .configure_sets(
                 PreUpdate,
@@ -113,7 +126,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 ),
             )
             .configure_sets(PostUpdate, MainSet::ClearEvents)
-            .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send::<P>))
+            .configure_sets(PostUpdate, MainSet::Send.run_if(is_ready_to_send))
             // EVENTS //
             .add_event::<ConnectEvent>()
             .add_event::<DisconnectEvent>()
@@ -126,12 +139,6 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                     receive::<P>.in_set(MainSet::Receive),
                     apply_deferred.in_set(MainSet::ReceiveFlush),
                 ),
-            )
-            // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
-            //  maybe TickManager should be a separate resource not contained in Client/Server?
-            .add_systems(
-                FixedUpdate,
-                increment_tick::<Server<P>>.in_set(FixedUpdateSet::TickUpdate),
             )
             .add_systems(
                 PostUpdate,

@@ -1,8 +1,8 @@
 //! Specify how a Server sends/receives messages with a Client
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, World};
-use bevy::utils::{EntityHashMap, Entry, HashMap};
+use bevy::prelude::{Entity, Resource, World};
+use bevy::utils::{EntityHashMap, Entry, HashMap, HashSet};
 use serde::Serialize;
 use tracing::{debug, info, trace, trace_span};
 
@@ -30,6 +30,7 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
+#[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
     pub(crate) connections: HashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
@@ -53,6 +54,46 @@ impl<P: Protocol> ConnectionManager<P> {
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
+        }
+    }
+
+    /// Find the list of clients that should receive the replication message
+    pub(crate) fn apply_replication(
+        &mut self,
+        target: NetworkTarget,
+    ) -> Box<dyn Iterator<Item = ClientId>> {
+        let connected_clients = self.connections.keys().copied();
+        match target {
+            NetworkTarget::All => {
+                // TODO: maybe only send stuff when the client is time-synced ?
+                Box::new(connected_clients.into_iter())
+            }
+            NetworkTarget::AllExceptSingle(client_id) => Box::new(
+                connected_clients
+                    .into_iter()
+                    .filter(move |id| *id != client_id),
+            ),
+            NetworkTarget::AllExcept(client_ids) => {
+                let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| !client_ids.contains(id)),
+                )
+            }
+            NetworkTarget::Single(client_id) => {
+                if self.connections.contains_key(&client_id) {
+                    Box::new(std::iter::once(client_id))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            NetworkTarget::Only(client_ids) => Box::new(
+                connected_clients
+                    .into_iter()
+                    .filter(move |id| client_ids.contains(id)),
+            ),
+            NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
 
@@ -332,8 +373,7 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager
-            .send_packets(tick_manager.current_tick())
+        self.message_manager.send_packets(tick_manager.tick())
     }
 
     pub fn receive(
@@ -412,9 +452,8 @@ impl<P: Protocol> Connection<P> {
             }
             // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
             // Check if we have any replication messages we can apply to the World (and emit events)
-            for (group, replication_list) in self
-                .replication_receiver
-                .read_messages(tick_manager.current_tick())
+            for (group, replication_list) in
+                self.replication_receiver.read_messages(tick_manager.tick())
             {
                 trace!(?group, ?replication_list, "read replication messages");
                 replication_list

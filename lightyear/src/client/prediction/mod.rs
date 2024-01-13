@@ -9,6 +9,7 @@ pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
+use crate::client::connection::Connection;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
@@ -54,7 +55,6 @@ pub enum RollbackState {
 /// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
 /// server
 pub(crate) fn clean_prespawned_entity<P: Protocol>(
-    client: Res<Client<P>>,
     mut commands: Commands,
     pre_predicted_entities: Query<Entity, With<ShouldBePredicted>>,
 ) {
@@ -80,7 +80,8 @@ pub(crate) fn clean_prespawned_entity<P: Protocol>(
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity<P: Protocol>(
-    client: Res<Client<P>>,
+    connection: Res<Connection<P>>,
+    netclient: Res<crate::netcode::Client>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
@@ -108,10 +109,10 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     continue;
                 }
                 let client_id = should_be_predicted.client_id.unwrap();
-                if client_id != client.id() {
+                if client_id != netclient.id() {
                     debug!(
                         local_client = ?client_id,
-                        should_be_predicted_client = ?client.id(),
+                        should_be_predicted_client = ?netclient.id(),
                         "Received ShouldBePredicted component from server for an entity that is pre-predicted by another client: {:?}!", entity);
                 } else {
                     // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
@@ -166,8 +167,8 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
             } else {
                 // get the confirmed tick for the entity
                 // if we don't have it, something has gone very wrong
-                let confirmed_tick = client
-                    .replication_receiver()
+                let confirmed_tick = connection
+                    .replication_receiver
                     .get_confirmed_tick(confirmed_entity)
                     .unwrap();
                 confirmed_entity_mut.insert(Confirmed {
@@ -190,18 +191,18 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
 /// - client_entity: is needed to know which entity to use as the predicted entity
 /// - client_id: is needed in case the pre-predicted entity is predicted by other players upon replication
 pub(crate) fn handle_pre_prediction<P: Protocol>(
-    client: Res<Client<P>>,
+    netcode: Res<crate::netcode::Client>,
     mut query: Query<(Entity, &mut ShouldBePredicted), Without<Confirmed>>,
 ) {
     for (entity, mut should_be_predicted) in query.iter_mut() {
-        assert!(client.is_connected());
+        assert!(netcode.is_connected());
         debug!(
-            client_id = ?client.id(),
+            client_id = ?netcode.id(),
             entity = ?entity,
             "adding pre-prediction info!");
         // TODO: actually we don't need to add the client_entity to the message.
         //  on the server, for pre-predictions, we can just use the entity that was sent in the message to set the value of ClientEntity.
         should_be_predicted.client_entity = Some(entity);
-        should_be_predicted.client_id = Some(client.id());
+        should_be_predicted.client_id = Some(netcode.id());
     }
 }

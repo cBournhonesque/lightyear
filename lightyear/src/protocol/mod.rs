@@ -7,7 +7,7 @@
 
 use std::fmt::Debug;
 
-use bevy::prelude::App;
+use bevy::prelude::{App, Resource};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -66,7 +66,7 @@ pub(crate) mod registry;
 ///
 ///# fn main() {}
 /// ```
-pub trait Protocol: Send + Sync + Clone + Debug + 'static {
+pub trait Protocol: Send + Sync + Clone + Debug + Resource + 'static {
     type Input: crate::inputs::native::UserAction;
     #[cfg(feature = "leafwing")]
     type LeafwingInput1: crate::inputs::leafwing::LeafwingUserAction;

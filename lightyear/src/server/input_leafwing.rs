@@ -1,6 +1,7 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use crate::_reexport::TickManager;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
@@ -9,10 +10,10 @@ use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, Input
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::MainSet;
 use crate::protocol::Protocol;
+use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
 use crate::server::resource::Server;
 use crate::shared::sets::FixedUpdateSet;
-use crate::shared::tick_manager::TickManaged;
 
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     protocol_marker: std::marker::PhantomData<P>,
@@ -86,7 +87,7 @@ where
         );
         app.add_systems(
             FixedUpdate,
-            update_action_state::<P, A>.in_set(InputSystemSet::Update),
+            update_action_state::<A>.in_set(InputSystemSet::Update),
         );
     }
 }
@@ -121,14 +122,14 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
 
 fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
     // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
-    mut server: ResMut<Server<P>>,
+    mut connection_manager: ResMut<ConnectionManager<P>>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<&mut ActionDiffBuffer<A>>,
 ) where
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
     // let manager = &mut server.connection_manager;
-    for (mut message, client_id) in server.events().into_iter_input_messages::<A>() {
+    for (mut message, client_id) in connection_manager.events.into_iter_input_messages::<A>() {
         trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
 
         for (target, diffs) in std::mem::take(&mut message.diffs) {
@@ -158,13 +159,13 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
 }
 
 // Read the ActionDiff for the current tick from the buffer, and use them to update the ActionState
-fn update_action_state<P: Protocol, A: LeafwingUserAction>(
-    server: Res<Server<P>>,
+fn update_action_state<A: LeafwingUserAction>(
+    tick_manager: Res<TickManager>,
     // global_input_buffer: Res<InputBuffer<A>>,
     // global_action_state: Option<ResMut<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut ActionDiffBuffer<A>)>,
 ) {
-    let tick = server.tick();
+    let tick = tick_manager.tick();
 
     for (entity, mut action_state, mut action_diff_buffer) in action_state_query.iter_mut() {
         // the state on the server is only updated from client inputs!
