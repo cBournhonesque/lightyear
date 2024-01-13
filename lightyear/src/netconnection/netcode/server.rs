@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::netconnection::ClientId;
 use tracing::{debug, error, info, trace};
 
 use crate::serialize::reader::ReadBuffer;
@@ -97,11 +98,6 @@ impl Connection {
         self.connected
     }
 }
-
-/// The client id from a connect token, must be unique for each client.
-///
-/// Note that this is not the same as the [`ClientId`], which is used by the server to identify clients.
-pub type ClientId = u64;
 
 struct ConnectionCache {
     // this somewhat mimics the original C implementation,

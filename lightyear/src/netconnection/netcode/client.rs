@@ -1,9 +1,11 @@
+use anyhow::anyhow;
 use std::{
     collections::VecDeque,
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::netconnection::client::NetClient;
 use tracing::{debug, error, info, trace};
 
 use crate::serialize::reader::ReadBuffer;
@@ -610,5 +612,27 @@ impl<Ctx> Client<Ctx> {
     /// Returns true if the client is disconnected from the server.
     pub fn is_disconnected(&self) -> bool {
         self.state == ClientState::Disconnected
+    }
+}
+
+impl<Ctx> NetClient for Client<Ctx> {
+    fn connect(&mut self) {
+        self.connect()
+    }
+
+    fn is_connected(&self) -> bool {
+        self.is_connected()
+    }
+
+    fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> anyhow::Result<()> {
+        self.try_update(delta_ms, io).map_err(|e| anyhow!(e))
+    }
+
+    fn recv(&mut self) -> Option<ReadWordBuffer> {
+        self.recv()
+    }
+
+    fn send(&mut self, buf: &[u8], io: &mut Io) -> anyhow::Result<()> {
+        self.send(buf, io).map_err(|e| anyhow!(e))
     }
 }

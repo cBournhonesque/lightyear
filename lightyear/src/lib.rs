@@ -150,5 +150,6 @@ pub(crate) mod tests;
 /// Provides an abstraction over an unreliable transport
 pub mod transport;
 
+mod netconnection;
 /// Extra utilities
 pub mod utils;

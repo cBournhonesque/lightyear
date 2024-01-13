@@ -14,7 +14,9 @@ use tracing::{debug, debug_span, error, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::inputs::input_buffer::InputBuffer;
-use crate::netcode::{generate_key, ClientId, ConnectToken};
+use crate::netconnection::netcode::{generate_key, ConnectToken};
+use crate::netconnection::server::NetServer;
+use crate::netconnection::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
@@ -39,7 +41,8 @@ pub struct Server<P: Protocol> {
     // Io
     io: Io,
     // Netcode
-    netcode: crate::netcode::Server<NetcodeServerContext>,
+    netcode: Box<dyn NetServer>,
+    // netcode: crate::netcode::Server<NetcodeServerContext>,
     context: ServerContext,
     // Connections
     pub(crate) connection_manager: ConnectionManager<P>,
@@ -67,7 +70,7 @@ impl<P: Protocol> Server<P> {
             connections: connections_tx,
             disconnections: disconnections_tx,
         };
-        let mut cfg = crate::netcode::ServerConfig::with_context(server_context)
+        let mut cfg = crate::netconnection::netcode::ServerConfig::with_context(server_context)
             .on_connect(|id, ctx| {
                 ctx.connections.send(id).unwrap();
             })
@@ -77,9 +80,12 @@ impl<P: Protocol> Server<P> {
         cfg = cfg.keep_alive_send_rate(config.netcode.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.netcode.num_disconnect_packets);
 
-        let netcode =
-            crate::netcode::Server::with_config(config.netcode.protocol_id, private_key, cfg)
-                .expect("Could not create server netcode");
+        let netcode = crate::netconnection::netcode::Server::with_config(
+            config.netcode.protocol_id,
+            private_key,
+            cfg,
+        )
+        .expect("Could not create server netcode");
         let context = ServerContext {
             connections: connections_rx,
             disconnections: disconnections_rx,
@@ -87,7 +93,7 @@ impl<P: Protocol> Server<P> {
         Self {
             config: config.clone(),
             io,
-            netcode,
+            netcode: Box::new(netcode),
             context,
             // TODO: avoid clone
             connection_manager: ConnectionManager::new(protocol.channel_registry().clone()),
@@ -221,7 +227,8 @@ impl<P: Protocol> Server<P> {
         self.time_manager.update(delta, Duration::default());
 
         // update netcode server
-        self.netcode
+        let connection_events = self
+            .netcode
             .try_update(delta.as_secs_f64(), &mut self.io)
             .context("Error updating netcode server")?;
 
@@ -230,14 +237,14 @@ impl<P: Protocol> Server<P> {
             .update(&self.time_manager, &self.tick_manager);
 
         // handle connections
-        for client_id in self.context.connections.try_iter() {
-            let client_addr = self.netcode.client_addr(client_id).unwrap();
-            info!("New connection from {} (id: {})", client_addr, client_id);
+        for client_id in connection_events.connected {
+            // let client_addr = self.netcode.client_addr(client_id).unwrap();
+            // info!("New connection from {} (id: {})", client_addr, client_id);
             self.connection_manager.add(client_id, &self.config.ping);
         }
 
         // handle disconnections
-        for client_id in self.context.disconnections.try_iter() {
+        for client_id in self.context.disconnections {
             self.connection_manager.remove(client_id);
             self.room_manager.client_disconnect(client_id);
         }

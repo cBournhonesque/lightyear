@@ -5,15 +5,18 @@ use std::time::Duration;
 use crate::_reexport::ReplicationSend;
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, Resource, Time, Virtual, World};
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{Entity, ResMut, Resource, Time, Virtual, World};
 use bevy::utils::EntityHashMap;
 use tracing::{debug, info, trace, trace_span};
 
 use crate::channel::builder::Channel;
 use crate::connection::events::ConnectionEvents;
 use crate::inputs::input_buffer::InputBuffer;
-use crate::netcode::{Client as NetcodeClient, ClientId};
-use crate::netcode::{ConnectToken, Key};
+use crate::netconnection::client::NetClient;
+use crate::netconnection::netcode::Client as NetcodeClient;
+use crate::netconnection::netcode::{ConnectToken, Key};
+use crate::netconnection::ClientId;
 use crate::packet::message::Message;
 use crate::prelude::NetworkTarget;
 use crate::protocol::channel::ChannelKind;
@@ -30,6 +33,25 @@ use crate::transport::{PacketReceiver, PacketSender, Transport};
 use super::config::ClientConfig;
 use super::connection::Connection;
 
+// #[derive(SystemParam)]
+// pub struct Client<'w, 's, P: Protocol> {
+//     // Io
+//     io: ResMut<'w, Io>,
+//     //config
+//     config: ClientConfig,
+//     // netcode
+//     netcode: crate::netcode::Client,
+//     // connection
+//     pub(crate) connection: Connection<P>,
+//     // protocol
+//     protocol: P,
+//     // events
+//     events: ConnectionEvents<P>,
+//     // syncing
+//     pub(crate) time_manager: TimeManager,
+//     pub(crate) tick_manager: TickManager,
+// }
+
 #[derive(Resource)]
 pub struct Client<P: Protocol> {
     // Io
@@ -37,7 +59,7 @@ pub struct Client<P: Protocol> {
     //config
     config: ClientConfig,
     // netcode
-    netcode: crate::netcode::Client,
+    netcode: Box<dyn NetClient>,
     // connection
     pub(crate) connection: Connection<P>,
     // protocol
@@ -64,7 +86,7 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+    pub(crate) fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
         match self {
             Authentication::Token(token) => Some(token),
             Authentication::Manual {
@@ -95,7 +117,7 @@ impl<P: Protocol> Client<P> {
             io,
             config: config_clone,
             protocol,
-            netcode,
+            netcode: Box::new(netcode),
             connection,
             events: ConnectionEvents::new(),
             time_manager: TimeManager::new(config.shared.client_send_interval),
