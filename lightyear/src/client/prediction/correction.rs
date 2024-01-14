@@ -9,11 +9,11 @@
 use bevy::prelude::{Commands, Component, Entity, Query, Res};
 use tracing::{debug, info};
 
-use crate::_reexport::{ComponentProtocol, TickManager};
+use crate::_reexport::ComponentProtocol;
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
 use crate::client::easings::{ease_out_quad, ease_out_quart};
 use crate::client::resource::Client;
-use crate::prelude::Tick;
+use crate::prelude::{Tick, TickManager};
 use crate::protocol::Protocol;
 
 // TODO: instead of requiring the component to implement the correction, we could have a separate

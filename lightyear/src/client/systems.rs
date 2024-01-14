@@ -7,13 +7,13 @@ use bevy_xpbd_2d::prelude::PhysicsTime;
 use std::ops::DerefMut;
 use tracing::{error, info, trace};
 
-use crate::_reexport::{ReplicationSend, TickManager, TimeManager};
+use crate::_reexport::ReplicationSend;
 use crate::client::config::ClientConfig;
 use crate::client::connection::Connection;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::{Client, ClientMut};
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
-use crate::prelude::Io;
+use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -160,7 +160,7 @@ pub fn send<P: Protocol>(
 pub(crate) fn sync_update<P: Protocol>(
     config: Res<ClientConfig>,
     netclient: Res<crate::netcode::Client>,
-    mut connection: ResMut<Connection<P>>,
+    connection: ResMut<Connection<P>>,
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,
     mut virtual_time: ResMut<Time<Virtual>>,

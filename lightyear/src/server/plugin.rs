@@ -2,13 +2,13 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use crate::_reexport::TimeManager;
 use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
 
 use crate::netcode::ClientId;
+use crate::prelude::TimeManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;

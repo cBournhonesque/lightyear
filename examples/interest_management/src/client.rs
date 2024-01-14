@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
-use lightyear::_reexport::{ShouldBeInterpolated, ShouldBePredicted};
+use lightyear::_reexport::ShouldBeInterpolated;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -82,11 +82,7 @@ impl Plugin for MyClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(
-    mut commands: Commands,
-    mut client: ResMut<Client>,
-    plugin: Res<MyClientPlugin>,
-) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         format!("Client {}", plugin.client_id),
@@ -150,17 +146,18 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn log(
-    client: Res<Client>,
+    tick_manager: Res<TickManager>,
+    connection: Res<Connection>,
     confirmed: Query<&Position, With<Confirmed>>,
     predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
     mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,
     mut predict_event: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
 ) {
-    let server_tick = client.latest_received_server_tick();
+    let server_tick = connection.latest_received_server_tick();
     for confirmed_pos in confirmed.iter() {
         debug!(?server_tick, "Confirmed position: {:?}", confirmed_pos);
     }
-    let client_tick = client.tick();
+    let client_tick = tick_manager.tick();
     for predicted_pos in predicted.iter() {
         debug!(?client_tick, "Predicted position: {:?}", predicted_pos);
     }

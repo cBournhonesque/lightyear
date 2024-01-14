@@ -242,22 +242,6 @@ impl<'w, 's, P: Protocol> Server<'w, 's, P> {
     //         .get(&client_id)
     //         .map(|connection| &connection.input_buffer)
     // }
-
-    // REPLICATION
-
-    /// Send packets that are ready from the message manager through the transport layer
-    pub fn send_packets(&mut self) -> Result<()> {
-        let span = trace_span!("send_packets").entered();
-        for (client_idx, connection) in &mut self.connection_manager.connections.iter_mut() {
-            let client_span =
-                trace_span!("send_packets_to_client", client_id = ?client_idx).entered();
-            for packet_byte in connection.send_packets(&self.time_manager, &self.tick_manager)? {
-                self.netcode
-                    .send(packet_byte.as_slice(), *client_idx, &mut self.io)?;
-            }
-        }
-        Ok(())
-    }
 }
 
 pub struct ServerContext {

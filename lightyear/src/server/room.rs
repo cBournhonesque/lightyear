@@ -52,6 +52,17 @@ pub struct RoomManager {
     data: RoomData,
 }
 
+impl RoomManager {
+    // ROOM
+    pub fn room_mut(&mut self, id: RoomId) -> RoomMut {
+        RoomMut { id, manager: self }
+    }
+
+    pub fn room(&self, id: RoomId) -> RoomRef {
+        RoomRef { id, manager: self }
+    }
+}
+
 pub struct RoomPlugin<P: Protocol> {
     _marker: std::marker::PhantomData<P>,
 }
@@ -501,7 +512,12 @@ mod tests {
         // Client joins room
         let client_id = 111;
         let room_id = RoomId(0);
-        stepper.server_mut().room_mut(room_id).add_client(client_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .room_mut(room_id)
+            .add_client(client_id);
 
         // Spawn an entity on server
         let server_entity = stepper
@@ -518,8 +534,9 @@ mod tests {
 
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -529,7 +546,9 @@ mod tests {
 
         // Add the entity in the same room
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_entity(server_entity);
         // Run update replication cache once
@@ -538,8 +557,9 @@ mod tests {
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .entity_enter_room
             .get(&server_entity)
@@ -560,8 +580,9 @@ mod tests {
         // Bookkeeping should get applied
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -590,8 +611,9 @@ mod tests {
             1
         );
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -599,7 +621,9 @@ mod tests {
 
         // Remove the entity from the room
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .remove_entity(server_entity);
         stepper
@@ -607,8 +631,9 @@ mod tests {
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .entity_leave_room
             .get(&server_entity)
@@ -668,7 +693,9 @@ mod tests {
             })
             .id();
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_entity(server_entity);
 
@@ -677,8 +704,9 @@ mod tests {
 
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -687,15 +715,21 @@ mod tests {
             .contains(&server_entity));
 
         // Add the client in the same room
-        stepper.server_mut().room_mut(room_id).add_client(client_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .room_mut(room_id)
+            .add_client(client_id);
         // Run update replication cache once
         stepper
             .server_app
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .client_enter_room
             .get(&client_id)
@@ -716,8 +750,9 @@ mod tests {
         // Bookkeeping should get applied
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -746,8 +781,9 @@ mod tests {
             1
         );
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -755,7 +791,9 @@ mod tests {
 
         // Remove the client from the room
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .remove_client(client_id);
         stepper
@@ -763,8 +801,9 @@ mod tests {
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .client_leave_room
             .get(&client_id)

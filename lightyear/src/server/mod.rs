@@ -5,7 +5,7 @@
 
 pub mod config;
 
-mod connection;
+pub mod connection;
 
 pub mod events;
 

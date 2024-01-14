@@ -1,12 +1,13 @@
 use bevy::prelude::{Component, Query, Res, ResMut};
 use tracing::trace;
 
-use crate::_reexport::{ComponentProtocol, TickManager};
+use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::Connection;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::resource::Client;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 

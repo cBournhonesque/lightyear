@@ -11,9 +11,9 @@ use tracing::{debug, error, trace, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType, ShouldBePredicted};
+use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;
-use crate::prelude::{MapEntities, Tick};
+use crate::prelude::{MapEntities, ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};

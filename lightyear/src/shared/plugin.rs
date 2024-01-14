@@ -1,8 +1,7 @@
 //! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
-use crate::_reexport::{TickManager, TimeManager};
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::Rollback;
-use crate::prelude::FixedUpdateSet;
+use crate::prelude::{FixedUpdateSet, TickManager};
 use bevy::app::FixedUpdate;
 use bevy::prelude::*;
 

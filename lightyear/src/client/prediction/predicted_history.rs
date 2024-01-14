@@ -6,12 +6,11 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info};
 
-use crate::_reexport::{ShouldBePredicted, TickManager};
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::connection::Connection;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
-use crate::prelude::Named;
+use crate::prelude::{Named, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;

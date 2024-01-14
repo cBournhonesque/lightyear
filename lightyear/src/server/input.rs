@@ -1,11 +1,11 @@
 //! Handles client-generated inputs
-use crate::_reexport::TickManager;
 use bevy::prelude::{
     App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
     Res, ResMut, SystemSet,
 };
 
 use crate::netcode::ClientId;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::resource::Server;

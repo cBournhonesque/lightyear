@@ -258,7 +258,7 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
 
 // Access some internals for tests
 #[cfg(test)]
-impl<P: Protocol> Client<P> {
+impl<'w, 's, P: Protocol> Client<'w, 's, P> {
     // pub fn set_latest_received_server_tick(&mut self, tick: Tick) {
     //     self.connection.sync_manager.latest_received_server_tick = Some(tick);
     //     self.connection

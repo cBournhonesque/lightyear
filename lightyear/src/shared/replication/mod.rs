@@ -213,8 +213,9 @@ mod tests {
 
         // Check that the entity is replicated to client
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)

@@ -61,8 +61,9 @@ impl<P: Protocol> ConnectionManager<P> {
     pub(crate) fn apply_replication(
         &mut self,
         target: NetworkTarget,
-    ) -> Box<dyn Iterator<Item = ClientId> + '_> {
-        let connected_clients = self.connections.keys().copied();
+    ) -> Box<dyn Iterator<Item = ClientId>> {
+        // TODO: avoid this vec allocation
+        let connected_clients: Vec<ClientId> = self.connections.keys().copied().collect();
         match target {
             NetworkTarget::All => {
                 // TODO: maybe only send stuff when the client is time-synced ?

@@ -2,7 +2,6 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use crate::_reexport::TimeManager;
 use crate::client::connection::Connection;
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use bevy::prelude::IntoSystemSetConfigs;
@@ -20,7 +19,7 @@ use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{receive, send, sync_update};
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::ReplicationSet;
+use crate::prelude::{ReplicationSet, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;

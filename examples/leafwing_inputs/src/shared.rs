@@ -7,7 +7,7 @@ use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::_reexport::TickManager;
+use lightyear::prelude::TickManager
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;

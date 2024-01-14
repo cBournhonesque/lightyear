@@ -1,14 +1,13 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
-use crate::_reexport::TickManager;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::connection::events::IterInputMessageEvent;
 use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
-use crate::prelude::MainSet;
+use crate::prelude::{MainSet, TickManager};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
@@ -270,8 +269,9 @@ mod tests {
 
         // check that the entity is replicated, including the ActionState component
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -298,7 +298,7 @@ mod tests {
             .press(KeyCode::A);
         stepper.frame_step();
         // client tick when we send the Jump action
-        let client_tick = stepper.client().tick();
+        let client_tick = stepper.client_tick();
         stepper
             .client_app
             .world

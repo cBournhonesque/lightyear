@@ -82,7 +82,7 @@ impl<P: Protocol> Connection<P> {
         self.sync_manager.duration_since_latest_received_server_tick == Duration::default()
     }
 
-    pub(crate) fn latest_received_server_tick(&self) -> Tick {
+    pub fn latest_received_server_tick(&self) -> Tick {
         self.sync_manager
             .latest_received_server_tick
             .unwrap_or(Tick(0))

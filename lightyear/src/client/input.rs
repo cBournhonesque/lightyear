@@ -1,5 +1,4 @@
 //! Handles client-generated inputs
-use crate::_reexport::TickManager;
 use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
@@ -15,6 +14,7 @@ use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::native::UserAction;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 

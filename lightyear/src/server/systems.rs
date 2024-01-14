@@ -5,11 +5,11 @@ use std::ops::DerefMut;
 use std::time::Duration;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, TickManager, TimeManager};
+use crate::_reexport::ComponentProtocol;
 use crate::client::connection::Connection;
 use crate::client::resource::ClientMut;
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
-use crate::prelude::Io;
+use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
@@ -157,7 +157,7 @@ pub(crate) fn send<P: Protocol>(
             error!("Error preparing replicate send: {}", e);
         });
 
-    // send buffered packets to io
+    // SEND_PACKETS: send buffered packets to io
     let span = trace_span!("send_packets").entered();
     connection_manager
         .connections

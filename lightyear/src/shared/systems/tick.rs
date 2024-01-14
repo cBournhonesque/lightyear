@@ -1,4 +1,4 @@
-use crate::_reexport::TickManager;
+use crate::prelude::TickManager;
 use bevy::prelude::ResMut;
 use tracing::trace;
 

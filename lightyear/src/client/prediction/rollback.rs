@@ -5,7 +5,7 @@ use bevy::prelude::{
 };
 use tracing::{debug, info, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, FromType, TickManager};
+use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::Connection;
@@ -13,6 +13,7 @@ use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::resource::Client;
 use crate::prelude::client::SyncMetadata;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 
 use super::predicted_history::PredictionHistory;

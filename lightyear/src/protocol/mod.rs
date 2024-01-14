@@ -108,7 +108,7 @@ macro_rules! protocolize {
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
 
-            #[derive(Debug, Clone)]
+            #[derive(Debug, Clone, Resource)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -172,8 +172,12 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type Client = $shared_crate_name::client::resource::Client<$protocol>;
-        pub type Server = $shared_crate_name::server::resource::Server<$protocol>;
+        pub type Client<'w, 's> = $shared_crate_name::client::resource::Client<'w, 's, $protocol>;
+        pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
+        pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
+        pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
+        pub type Connection = $shared_crate_name::client::connection::Connection<$protocol>;
+        pub type ConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
     };
 
@@ -195,7 +199,7 @@ macro_rules! protocolize {
             use $shared_crate_name::_reexport::*;
             use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
-            #[derive(Debug, Clone)]
+            #[derive(Debug, Clone, Resource)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -257,8 +261,12 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type Client = $shared_crate_name::client::resource::Client<$protocol>;
-        pub type Server = $shared_crate_name::server::resource::Server<$protocol>;
+        pub type Client<'w, 's> = $shared_crate_name::client::resource::Client<'w, 's, $protocol>;
+        pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
+        pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
+        pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
+        pub type Connection = $shared_crate_name::client::connection::Connection<$protocol>;
+        pub type ConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
     };
 
