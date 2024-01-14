@@ -22,7 +22,7 @@ fn io_diagnostics_system(mut io: ResMut<Io>, time: Res<Time<Real>>, mut diagnost
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(IoDiagnosticsPlugin);
-        app.add_systems(PostUpdate, io_diagnostics_system);
+        // app.add_plugins(IoDiagnosticsPlugin);
+        // app.add_systems(PostUpdate, io_diagnostics_system);
     }
 }

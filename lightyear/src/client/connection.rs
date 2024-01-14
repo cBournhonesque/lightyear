@@ -222,6 +222,8 @@ impl<P: Protocol> ConnectionManager<P> {
                 .into_iter()
                 .try_for_each(|mut pong| {
                     trace!("Sending pong {:?}", pong);
+                    // TODO: should we send real time or virtual time here?
+                    //  probably real time if we just want to estimate RTT?
                     // update the send time of the pong
                     pong.pong_sent_time = time_manager.current_time();
                     let message = ClientMessage::<P>::Sync(SyncMessage::Pong(pong));
@@ -282,6 +284,11 @@ impl<P: Protocol> ConnectionManager<P> {
                                 SyncMessage::Pong(pong) => {
                                     // process the pong
                                     self.ping_manager.process_pong(pong, time_manager);
+                                    // update the tick generation from the time + tick information
+                                    self.sync_manager.server_generation_tick = tick;
+                                    self.sync_manager.server_tick_generation = pong
+                                        .pong_sent_time
+                                        .tick_generation(tick_manager.config.tick_duration, tick);
                                 }
                             }
                         }

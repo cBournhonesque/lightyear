@@ -8,7 +8,7 @@ use bevy::prelude::{
 };
 
 use crate::netcode::ClientId;
-use crate::prelude::TimeManager;
+use crate::prelude::{TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -72,6 +72,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
 
         P::Message::add_events::<ClientId>(app);
 
+        let mut tick_manager = TickManager::from_config(config.server_config.shared.tick.clone());
+        // on the server, we initialize the generation
+        // tick_manager.generation = Some(0);
+
         app
             // PLUGINS
             .add_plugins(SharedPlugin {
@@ -81,6 +85,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             // RESOURCES //
+            .insert_resource(tick_manager)
             .insert_resource(TimeManager::new(
                 config.server_config.shared.server_send_interval,
             ))

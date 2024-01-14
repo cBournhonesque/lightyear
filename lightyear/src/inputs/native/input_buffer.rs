@@ -3,6 +3,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use lightyear_macros::MessageInternal;
 
@@ -14,7 +15,7 @@ use super::UserAction;
 #[derive(Resource, Debug)]
 pub struct InputBuffer<T: UserAction> {
     pub buffer: VecDeque<Option<T>>,
-    pub start_tick: Tick,
+    pub start_tick: Option<Tick>,
 }
 
 // TODO: add encode directive to encode even more efficiently
@@ -54,7 +55,7 @@ impl<T: UserAction> Default for InputBuffer<T> {
         Self {
             // buffer: SequenceBuffer::new(),
             buffer: VecDeque::new(),
-            start_tick: Tick(0),
+            start_tick: None,
             // end_tick: Tick(0),
         }
     }
@@ -71,42 +72,54 @@ impl<T: UserAction> InputBuffer<T> {
     /// Remove all the inputs that are older than the given tick, then return the input
     /// for the given tick
     pub(crate) fn pop(&mut self, tick: Tick) -> Option<T> {
-        if tick < self.start_tick {
+        let Some(start_tick) = self.start_tick else {
+            return None;
+        };
+        if tick < start_tick {
             return None;
         }
-        if tick > self.start_tick + (self.buffer.len() as i16 - 1) {
+        if tick > start_tick + (self.buffer.len() as i16 - 1) {
             // pop everything
             self.buffer = VecDeque::new();
-            self.start_tick = tick + 1;
+            self.start_tick = Some(tick + 1);
             return None;
         }
         // info!(
         //     "buffer: {:?}. start_tick: {:?}, tick: {:?}",
         //     self.buffer, self.start_tick, tick
         // );
-        for _ in 0..(tick - self.start_tick) {
+        for _ in 0..(tick - start_tick) {
             self.buffer.pop_front();
         }
-        self.start_tick = tick + 1;
+        self.start_tick = Some(tick + 1);
         self.buffer.pop_front().unwrap()
     }
 
     pub(crate) fn get(&self, tick: Tick) -> Option<&T> {
-        if tick < self.start_tick || tick > self.start_tick + (self.buffer.len() as i16 - 1) {
+        let Some(start_tick) = self.start_tick else {
+            return None;
+        };
+        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
         }
         self.buffer
-            .get((tick.0 - self.start_tick.0) as usize)
+            .get((tick - start_tick) as usize)
             .unwrap()
             .as_ref()
     }
 
     pub(crate) fn set(&mut self, tick: Tick, value: Option<T>) {
+        let Some(start_tick) = self.start_tick else {
+            // initialize the buffer
+            self.start_tick = Some(tick);
+            self.buffer.push_back(value);
+            return;
+        };
         // cannot set lower values than start_tick
-        if tick < self.start_tick {
+        if tick < start_tick {
             return;
         }
-        let end_tick = self.start_tick + (self.buffer.len() as i16 - 1);
+        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
         if tick > end_tick {
             for _ in 0..(tick - end_tick - 1) {
                 self.buffer.push_back(None);
@@ -115,10 +128,8 @@ impl<T: UserAction> InputBuffer<T> {
             return;
         }
         // safety: we are guaranteed that the tick is in the buffer
-        *self
-            .buffer
-            .get_mut((tick - self.start_tick) as usize)
-            .unwrap() = value;
+        *self.buffer.get_mut((tick - start_tick) as usize).unwrap() = value;
+        info!("buffer: {:?}", self.buffer)
     }
 
     /// We received a new input message from the user, and use it to update the input buffer
@@ -200,9 +211,9 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(8)), None);
 
         assert_eq!(input_buffer.pop(Tick(5)), None);
-        assert_eq!(input_buffer.start_tick, Tick(6));
+        assert_eq!(input_buffer.start_tick, Some(Tick(6)));
         assert_eq!(input_buffer.pop(Tick(7)), Some(1));
-        assert_eq!(input_buffer.start_tick, Tick(8));
+        assert_eq!(input_buffer.start_tick, Some(Tick(8)));
         assert_eq!(input_buffer.buffer.len(), 0);
     }
 

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use crate::shared::ping::store::PingId;
 use crate::shared::time_manager::WrappedTime;
 
-/// Ping message; the remote should response immediately with a pong
+// TODO: do we need the ping ids? we could just re-use the message id ?
+/// Ping message; the remote should respond immediately with a pong
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Ping {
     pub id: PingId,

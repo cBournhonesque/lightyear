@@ -1,8 +1,9 @@
 //! Module to handle the [`Tick`], a sequence number incremented at each [`bevy::prelude::FixedUpdate`] schedule run
 use std::time::Duration;
 
+use crate::_reexport::WrappedTime;
 use bevy::prelude::Resource;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -28,13 +29,18 @@ pub struct TickManager {
     pub config: TickConfig,
     /// Current tick (sequence number of the FixedUpdate schedule)
     tick: Tick,
+    // /// Current generation of tick (used to detect wraparound, but not networked)
+    // /// This is set at the start on the server.
+    // /// On the client, we will copy the generation from the server
+    // pub(crate) generation: Option<u32>,
 }
 
 impl TickManager {
-    pub fn from_config(config: TickConfig) -> Self {
+    pub(crate) fn from_config(config: TickConfig) -> Self {
         Self {
             config,
-            tick: Tick(0),
+            tick: Tick(65300),
+            // generation: None,
         }
     }
 
@@ -42,7 +48,11 @@ impl TickManager {
     #[doc(hidden)]
     pub fn increment_tick(&mut self) {
         self.tick += 1;
-        trace!(new_tick = ?self.tick, "incremented client tick")
+        // if self.tick.0 == 0 {
+        //     info!("increment tick generation");
+        //     self.generation += 1;
+        // }
+        info!(new_tick = ?self.tick, "incremented client tick")
     }
     pub(crate) fn set_tick_to(&mut self, tick: Tick) {
         self.tick = tick;
@@ -51,4 +61,8 @@ impl TickManager {
     pub fn tick(&self) -> Tick {
         self.tick
     }
+
+    // pub(crate) fn generation(&self) -> u32 {
+    //     self.generation
+    // }
 }

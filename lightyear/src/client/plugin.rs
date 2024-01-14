@@ -19,7 +19,7 @@ use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{receive, send, sync_update};
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::{ReplicationSet, TimeManager};
+use crate::prelude::{ReplicationSet, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -100,6 +100,9 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             ))
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // RESOURCES //
+            .insert_resource(TickManager::from_config(
+                config.client_config.shared.tick.clone(),
+            ))
             .insert_resource(config.client_config.clone())
             .insert_resource(config.io)
             .insert_resource(netcode)

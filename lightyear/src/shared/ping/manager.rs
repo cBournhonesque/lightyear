@@ -1,6 +1,7 @@
 //! Manages sending/receiving pings and computing network statistics
 use std::time::Duration;
 
+use crate::prelude::Tick;
 use bevy::time::Stopwatch;
 use tracing::{error, trace};
 
@@ -49,6 +50,8 @@ pub struct PingManager {
     pub(crate) sync_stats: SyncStatsBuffer,
     /// Current best estimates of various networking statistics
     final_stats: FinalStats,
+    /// Generation of the tick
+    remote_tick_generation: u16,
 }
 
 /// Connection stats aggregated over several [`SyncStats`]
@@ -88,6 +91,7 @@ impl PingManager {
             sync_stats: SyncStatsBuffer::new(),
             // TODO: should we start with a bigger RTT estimate?
             final_stats: FinalStats::default(),
+            remote_tick_generation: 0,
         }
     }
 
@@ -236,6 +240,7 @@ impl PingManager {
             // update stats buffer
             self.sync_stats
                 .add_item(received_time, SyncStats { round_trip_delay });
+
             // recompute stats whenever we get a new pong
             self.compute_stats();
         }
@@ -266,6 +271,7 @@ impl PingManager {
     pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, time_manager: &TimeManager) {
         self.pongs_to_send.push(Pong {
             ping_id: ping.id,
+            // TODO: we want to use real time no?
             ping_received_time: time_manager.current_time(),
             // TODO: can we get a more precise time? (based on real)?
             // TODO: otherwise we can consider that there's an entire tick duration between receive and sent

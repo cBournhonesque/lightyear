@@ -20,7 +20,6 @@ impl Plugin for SharedPlugin {
         app.insert_resource(Time::<Fixed>::from_seconds(
             self.config.tick.tick_duration.as_secs_f64(),
         ));
-        app.insert_resource(TickManager::from_config(self.config.tick.clone()));
 
         // PLUGINS
         // TODO: increment_tick should be shared
