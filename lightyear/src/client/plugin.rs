@@ -2,7 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use bevy::prelude::IntoSystemSetConfigs;
 use bevy::prelude::{
@@ -78,8 +78,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                 .expect("could not create netcode client");
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
 
-        add_replication_send_systems::<P, Connection<P>>(app);
-        P::Components::add_per_component_replication_send_systems::<Connection<P>>(app);
+        add_replication_send_systems::<P, ConnectionManager<P>>(app);
+        P::Components::add_per_component_replication_send_systems::<ConnectionManager<P>>(app);
         P::Components::add_events::<()>(app);
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that
@@ -103,7 +103,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .insert_resource(config.client_config.clone())
             .insert_resource(config.io)
             .insert_resource(netcode)
-            .insert_resource(Connection::<P>::new(
+            .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),
                 config.client_config.sync,
                 &config.client_config.ping,

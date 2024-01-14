@@ -6,7 +6,6 @@ use std::time::Duration;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
-use crate::client::connection::Connection;
 use crate::client::resource::ClientMut;
 use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::prelude::{Io, TickManager, TimeManager};

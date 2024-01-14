@@ -268,7 +268,10 @@ pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
 }
 
 /// Send messages from server to clients
-pub(crate) fn send_message(mut client: ResMut<Connection>, input: Res<Input<KeyCode>>) {
+pub(crate) fn send_message(
+    mut client: ResMut<ClientConnectionManager>,
+    input: Res<Input<KeyCode>>,
+) {
     if input.pressed(KeyCode::M) {
         let message = Message1(5);
         info!("Send message: {:?}", message);

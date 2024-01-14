@@ -33,7 +33,7 @@ use super::sync::SyncManager;
 
 /// Wrapper that handles the connection with the server
 #[derive(Resource)]
-pub struct Connection<P: Protocol> {
+pub struct ConnectionManager<P: Protocol> {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
     pub(crate) replication_receiver: ReplicationReceiver<P>,
@@ -45,7 +45,7 @@ pub struct Connection<P: Protocol> {
     // TODO: maybe don't do any replication until connection is synced?
 }
 
-impl<P: Protocol> Connection<P> {
+impl<P: Protocol> ConnectionManager<P> {
     pub fn new(
         channel_registry: &ChannelRegistry,
         sync_config: SyncConfig,

@@ -8,7 +8,7 @@ use tracing::{debug, info, trace, trace_span};
 use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::resource::Client;
@@ -406,7 +406,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
 pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
     tick_manager: Res<TickManager>,
-    connection: Res<Connection<P>>,
+    connection: Res<ConnectionManager<P>>,
 
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed

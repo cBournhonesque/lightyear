@@ -7,7 +7,7 @@ use bevy::prelude::{
 use tracing::{debug, error, info};
 
 use crate::client::components::{SyncComponent, SyncMetadata};
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::prelude::{Named, ShouldBePredicted, TickManager};

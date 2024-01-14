@@ -7,7 +7,7 @@ use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::{Rollback, RollbackState};
@@ -147,7 +147,7 @@ fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::I
 // Do it in this system because we want an input for every tick
 fn write_input_event<P: Protocol>(
     tick_manager: Res<TickManager>,
-    connection: Res<Connection<P>>,
+    connection: Res<ConnectionManager<P>>,
     mut input_events: EventWriter<InputEvent<P::Input>>,
     rollback: Option<Res<Rollback>>,
 ) {
@@ -162,7 +162,7 @@ fn write_input_event<P: Protocol>(
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol>(
-    mut connection: ResMut<Connection<P>>,
+    mut connection: ResMut<ConnectionManager<P>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
 ) {

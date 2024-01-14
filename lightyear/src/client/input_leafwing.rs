@@ -10,7 +10,7 @@ use tracing::{error, info, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::client::resource::Client;
@@ -447,7 +447,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
-    mut connection: ResMut<Connection<P>>,
+    mut connection: ResMut<ConnectionManager<P>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,

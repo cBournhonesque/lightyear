@@ -9,7 +9,7 @@ pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 
 use crate::client::components::{Confirmed, LerpFn, SyncComponent};
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
@@ -52,7 +52,7 @@ pub struct Interpolated {
 }
 
 pub fn spawn_interpolated_entity<P: Protocol>(
-    connection: Res<Connection<P>>,
+    connection: Res<ConnectionManager<P>>,
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,

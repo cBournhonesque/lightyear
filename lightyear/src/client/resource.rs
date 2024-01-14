@@ -29,7 +29,7 @@ use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::config::ClientConfig;
-use super::connection::Connection;
+use super::connection::ConnectionManager;
 
 #[derive(SystemParam)]
 pub struct Client<'w, 's, P: Protocol> {
@@ -40,7 +40,7 @@ pub struct Client<'w, 's, P: Protocol> {
     // netcode
     netcode: Res<'w, crate::netcode::Client>,
     // connection
-    pub(crate) connection: Res<'w, Connection<P>>,
+    pub(crate) connection: Res<'w, ConnectionManager<P>>,
     // protocol
     protocol: Res<'w, P>,
     // events
@@ -60,7 +60,7 @@ pub struct ClientMut<'w, 's, P: Protocol> {
     // netcode
     netcode: ResMut<'w, crate::netcode::Client>,
     // connection
-    pub(crate) connection: ResMut<'w, Connection<P>>,
+    pub(crate) connection: ResMut<'w, ConnectionManager<P>>,
     // protocol
     protocol: ResMut<'w, P>,
     // events
@@ -266,7 +266,7 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
     //         .duration_since_latest_received_server_tick = Duration::default();
     // }
 
-    pub fn connection(&self) -> &Connection<P> {
+    pub fn connection(&self) -> &ConnectionManager<P> {
         &self.connection
     }
 
@@ -275,7 +275,7 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
     // }
 }
 
-impl<P: Protocol> ReplicationSend<P> for Connection<P> {
+impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     fn new_connected_clients(&self) -> Vec<ClientId> {
         vec![]
     }
