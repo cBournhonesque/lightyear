@@ -9,8 +9,8 @@ use crate::netcode::ClientId;
 use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
 use crate::server::resource::Server;
-use crate::server::systems::is_ready_to_send;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::time_manager::is_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
 
 // Id for a room, used to perform interest management
@@ -46,10 +46,21 @@ pub struct Room {
     entities: HashSet<Entity>,
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct RoomManager {
     events: RoomEvents,
     data: RoomData,
+}
+
+impl RoomManager {
+    // ROOM
+    pub fn room_mut(&mut self, id: RoomId) -> RoomMut {
+        RoomMut { id, manager: self }
+    }
+
+    pub fn room(&self, id: RoomId) -> RoomRef {
+        RoomRef { id, manager: self }
+    }
 }
 
 pub struct RoomPlugin<P: Protocol> {
@@ -77,6 +88,8 @@ pub enum RoomSystemSets {
 
 impl<P: Protocol> Plugin for RoomPlugin<P> {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<RoomManager>();
         // SETS
         app.configure_sets(
             PostUpdate,
@@ -93,7 +106,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                     RoomSystemSets::UpdateReplicationCaches,
                     RoomSystemSets::RoomBookkeeping,
                 )
-                    .run_if(is_ready_to_send::<P>),
+                    .run_if(is_ready_to_send),
             ),
         );
         // SYSTEMS
@@ -104,8 +117,8 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                     .in_set(RoomSystemSets::UpdateReplicationCaches),
                 (
                     clear_entity_replication_cache::<P>,
-                    clean_entity_despawns::<P>,
-                    clear_room_events::<P>,
+                    clean_entity_despawns,
+                    clear_room_events,
                 )
                     .in_set(RoomSystemSets::RoomBookkeeping),
             ),
@@ -349,14 +362,14 @@ pub enum ClientVisibility {
 /// Update each entities' replication-client-list based on the room events
 /// Note that the rooms' entities/clients have already been updated at this point
 fn update_entity_replication_cache<P: Protocol>(
-    server: Res<Server<P>>,
+    room_manager: Res<RoomManager>,
     mut query: Query<&mut Replicate<P>>,
 ) {
     // entity joined room
-    for (entity, rooms) in server.room_manager.events.iter_entity_enter_room() {
+    for (entity, rooms) in room_manager.events.iter_entity_enter_room() {
         // for each room joined, update the entity's client visibility list
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     // only set it to gained if it wasn't present before
@@ -369,10 +382,10 @@ fn update_entity_replication_cache<P: Protocol>(
         });
     }
     // entity left room
-    for (entity, rooms) in server.room_manager.events.iter_entity_leave_room() {
+    for (entity, rooms) in room_manager.events.iter_entity_leave_room() {
         // for each room left, update the entity's client visibility list if the client was in the room
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
@@ -384,9 +397,9 @@ fn update_entity_replication_cache<P: Protocol>(
         });
     }
     // client joined room: update all the entities that are in that room
-    for (client_id, rooms) in server.room_manager.events.iter_client_enter_room() {
+    for (client_id, rooms) in room_manager.events.iter_client_enter_room() {
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     replicate
@@ -398,9 +411,9 @@ fn update_entity_replication_cache<P: Protocol>(
         });
     }
     // client left room: update all the entities that are in that room
-    for (client_id, rooms) in server.room_manager.events.iter_client_leave_room() {
+    for (client_id, rooms) in room_manager.events.iter_client_leave_room() {
         rooms.iter().for_each(|room_id| {
-            let room = server.room_manager.data.rooms.get(room_id).unwrap();
+            let room = room_manager.data.rooms.get(room_id).unwrap();
             room.entities.iter().for_each(|entity| {
                 if let Ok(mut replicate) = query.get_mut(*entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
@@ -432,17 +445,17 @@ fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate<P
 }
 
 /// Clear every room event that happened
-fn clear_room_events<P: Protocol>(mut server: ResMut<Server<P>>) {
-    server.room_manager.events.clear();
+fn clear_room_events(mut room_manager: ResMut<RoomManager>) {
+    room_manager.events.clear();
 }
 
 /// Clear out the room metadata for any entity that was ever replicated
-fn clean_entity_despawns<P: Protocol>(
-    mut server: ResMut<Server<P>>,
+fn clean_entity_despawns(
+    mut room_manager: ResMut<RoomManager>,
     mut despawned: RemovedComponents<DespawnTracker>,
 ) {
     for entity in despawned.read() {
-        server.room_manager.entity_despawn(entity);
+        room_manager.entity_despawn(entity);
     }
 }
 
@@ -499,7 +512,12 @@ mod tests {
         // Client joins room
         let client_id = 111;
         let room_id = RoomId(0);
-        stepper.server_mut().room_mut(room_id).add_client(client_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .room_mut(room_id)
+            .add_client(client_id);
 
         // Spawn an entity on server
         let server_entity = stepper
@@ -516,8 +534,9 @@ mod tests {
 
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -527,7 +546,9 @@ mod tests {
 
         // Add the entity in the same room
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_entity(server_entity);
         // Run update replication cache once
@@ -536,8 +557,9 @@ mod tests {
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .entity_enter_room
             .get(&server_entity)
@@ -558,8 +580,9 @@ mod tests {
         // Bookkeeping should get applied
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -588,8 +611,9 @@ mod tests {
             1
         );
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -597,7 +621,9 @@ mod tests {
 
         // Remove the entity from the room
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .remove_entity(server_entity);
         stepper
@@ -605,8 +631,9 @@ mod tests {
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .entity_leave_room
             .get(&server_entity)
@@ -666,7 +693,9 @@ mod tests {
             })
             .id();
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_entity(server_entity);
 
@@ -675,8 +704,9 @@ mod tests {
 
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -685,15 +715,21 @@ mod tests {
             .contains(&server_entity));
 
         // Add the client in the same room
-        stepper.server_mut().room_mut(room_id).add_client(client_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .room_mut(room_id)
+            .add_client(client_id);
         // Run update replication cache once
         stepper
             .server_app
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .client_enter_room
             .get(&client_id)
@@ -714,8 +750,9 @@ mod tests {
         // Bookkeeping should get applied
         // Check room states
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .data
             .rooms
             .get(&room_id)
@@ -744,8 +781,9 @@ mod tests {
             1
         );
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -753,7 +791,9 @@ mod tests {
 
         // Remove the client from the room
         stepper
-            .server_mut()
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .remove_client(client_id);
         stepper
@@ -761,8 +801,9 @@ mod tests {
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
-            .server()
-            .room_manager
+            .server_app
+            .world
+            .resource::<RoomManager>()
             .events
             .client_leave_room
             .get(&client_id)

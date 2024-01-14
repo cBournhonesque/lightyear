@@ -303,7 +303,7 @@ impl Bytes for ChallengeToken {
 /// assert_eq!(token_bytes.len(), CONNECT_TOKEN_BYTES);
 /// ```
 ///
-/// Alternatively, you can use [`Server::token`](crate::netcode::server::Server::token) to generate a connect token from an already existing [`Server`](crate::netcode::server::Server).
+/// Alternatively, you can use [`Server::token`](crate::netcode::server::NetcodeServer::token) to generate a connect token from an already existing [`Server`](crate::netcode::server::NetcodeServer).
 #[derive(Clone)]
 pub struct ConnectToken {
     pub(crate) version_info: [u8; NETCODE_VERSION.len()],

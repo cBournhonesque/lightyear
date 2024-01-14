@@ -13,7 +13,7 @@ use crate::_reexport::ComponentProtocol;
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
 use crate::client::easings::{ease_out_quad, ease_out_quart};
 use crate::client::resource::Client;
-use crate::prelude::{Tick, TickManaged};
+use crate::prelude::{Tick, TickManager};
 use crate::protocol::Protocol;
 
 // TODO: instead of requiring the component to implement the correction, we could have a separate
@@ -84,14 +84,14 @@ pub struct Correction<C: Component> {
 /// Visually update the component to the a value that is interpolated between the original prediction
 /// and the Corrected state
 pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
-    client: Res<Client<P>>,
+    tick_manager: Res<TickManager>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
 {
     for (entity, mut component, mut correction) in query.iter_mut() {
-        let current_tick = client.tick();
+        let current_tick = tick_manager.tick();
         let mut t = (current_tick - correction.original_tick) as f32
             / (correction.final_correction_tick - correction.original_tick) as f32;
         t = t.clamp(0.0, 1.0);

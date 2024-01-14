@@ -1,10 +1,10 @@
 //! Specify how a Server sends/receives messages with a Client
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, World};
-use bevy::utils::{EntityHashMap, Entry, HashMap};
+use bevy::prelude::{Entity, Resource, World};
+use bevy::utils::{EntityHashMap, Entry, HashMap, HashSet};
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -14,7 +14,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, MapEntities};
+use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -30,6 +30,7 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
+#[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
     pub(crate) connections: HashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
@@ -53,6 +54,47 @@ impl<P: Protocol> ConnectionManager<P> {
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
+        }
+    }
+
+    /// Find the list of clients that should receive the replication message
+    pub(crate) fn apply_replication(
+        &mut self,
+        target: NetworkTarget,
+    ) -> Box<dyn Iterator<Item = ClientId>> {
+        // TODO: avoid this vec allocation
+        let connected_clients: Vec<ClientId> = self.connections.keys().copied().collect();
+        match target {
+            NetworkTarget::All => {
+                // TODO: maybe only send stuff when the client is time-synced ?
+                Box::new(connected_clients.into_iter())
+            }
+            NetworkTarget::AllExceptSingle(client_id) => Box::new(
+                connected_clients
+                    .into_iter()
+                    .filter(move |id| *id != client_id),
+            ),
+            NetworkTarget::AllExcept(client_ids) => {
+                let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| !client_ids.contains(id)),
+                )
+            }
+            NetworkTarget::Single(client_id) => {
+                if self.connections.contains_key(&client_id) {
+                    Box::new(std::iter::once(client_id))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            NetworkTarget::Only(client_ids) => Box::new(
+                connected_clients
+                    .into_iter()
+                    .filter(move |id| client_ids.contains(id)),
+            ),
+            NetworkTarget::None => Box::new(std::iter::empty()),
         }
     }
 
@@ -149,6 +191,32 @@ impl<P: Protocol> ConnectionManager<P> {
             //  need to update the ServerMessage enum to use Rc<P::Message>!
             //  or serialize first, so we can use Bytes? where would the buffer be?
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
+    }
+
+    /// Queues up a message to be sent to all clients
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.buffer_message(message.into(), ChannelKind::of::<C>(), target)
+    }
+
+    /// Queues up a message to be sent to a client
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        client_id: ClientId,
+        message: M,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
     /// Buffer all the replication messages to send.
@@ -332,8 +400,7 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager
-            .send_packets(tick_manager.current_tick())
+        self.message_manager.send_packets(tick_manager.tick())
     }
 
     pub fn receive(
@@ -412,9 +479,8 @@ impl<P: Protocol> Connection<P> {
             }
             // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
             // Check if we have any replication messages we can apply to the World (and emit events)
-            for (group, replication_list) in self
-                .replication_receiver
-                .read_messages(tick_manager.current_tick())
+            for (group, replication_list) in
+                self.replication_receiver.read_messages(tick_manager.tick())
             {
                 trace!(?group, ?replication_list, "read replication messages");
                 replication_list

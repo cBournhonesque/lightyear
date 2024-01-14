@@ -7,10 +7,12 @@ use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::components::{Confirmed, SyncMetadata};
+use crate::client::connection::Connection;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
 use crate::client::resource::Client;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -77,8 +79,9 @@ impl<T: SyncComponent> ConfirmedHistory<T> {
 // TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
 pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     manager: Res<InterpolationManager>,
+    tick_manager: Res<TickManager>,
     mut commands: Commands,
-    client: ResMut<Client<P>>,
+    connection: Res<Connection<P>>,
     interpolated_entities: Query<Entity, (Without<ConfirmedHistory<C>>, With<Interpolated>)>,
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) where
@@ -105,7 +108,9 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                                 InterpolateStatus::<C> {
                                     start: None,
                                     end: None,
-                                    current: client.interpolation_tick(),
+                                    current: connection
+                                        .sync_manager
+                                        .interpolation_tick(tick_manager.as_ref()),
                                 },
                             ));
                         }
@@ -125,7 +130,6 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
 /// or update the interpolated component directly if InterpolatedComponentMode::Sync
 pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
     manager: ResMut<InterpolationManager>,
-    client: Res<Client<P>>,
     mut interpolated_entities: Query<
         // TODO: handle missing T?
         (&mut C, Option<&mut ConfirmedHistory<C>>),
@@ -150,16 +154,17 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
                                 );
                                 continue;
                             };
-                            let Some(tick) = client
-                                .replication_receiver()
-                                .get_confirmed_tick(confirmed_entity)
-                            else {
-                                error!(
-                                    "Could not find replication channel for entity {:?}",
-                                    confirmed_entity
-                                );
-                                continue;
-                            };
+                            let tick = confirmed.tick;
+                            // let Some(tick) = client
+                            //     .replication_receiver()
+                            //     .get_confirmed_tick(confirmed_entity)
+                            // else {
+                            //     error!(
+                            //         "Could not find replication channel for entity {:?}",
+                            //         confirmed_entity
+                            //     );
+                            //     continue;
+                            // };
                             // map any entities from confirmed to predicted
                             let mut component = confirmed_component.deref().clone();
                             component.map_entities(Box::new(&manager.interpolated_entity_map));

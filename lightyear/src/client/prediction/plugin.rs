@@ -143,8 +143,8 @@ pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
 }
 
 /// Returns true if the client is connected
-pub fn is_connected<P: Protocol>(client: Res<Client<P>>) -> bool {
-    client.is_connected()
+pub fn is_connected(netclient: Res<crate::netcode::Client>) -> bool {
+    netclient.is_connected()
 }
 
 pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App)
@@ -179,7 +179,7 @@ where
             app.add_systems(
                 FixedUpdate,
                 // we need to run this during fixed update to know accurately the history for each tick
-                update_prediction_history::<C, P>.in_set(PredictionSet::UpdateHistory),
+                update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
             );
             app.add_systems(
                 PostUpdate,
@@ -274,19 +274,16 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PostUpdate,
             (
                 // fill in the client_entity and client_id for pre-predicted entities
-                handle_pre_prediction::<P>.before(ReplicationSet::All),
+                handle_pre_prediction,
                 // clean-up the ShouldBePredicted components after we've sent them
                 clean_prespawned_entity::<P>.after(ReplicationSet::All),
             )
-                .run_if(is_connected::<P>),
+                .run_if(is_connected),
         );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback
-        app.add_systems(
-            PreUpdate,
-            (run_rollback::<P>).in_set(PredictionSet::Rollback),
-        );
+        app.add_systems(PreUpdate, run_rollback.in_set(PredictionSet::Rollback));
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)

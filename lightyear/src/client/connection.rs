@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::World;
+use bevy::prelude::{Resource, World};
 use serde::Serialize;
 use tracing::{debug, trace, trace_span};
 
@@ -15,7 +15,7 @@ use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, MapEntities, NetworkTarget};
+use crate::prelude::{Channel, ChannelKind, MapEntities, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -32,6 +32,7 @@ use crate::shared::time_manager::TimeManager;
 use super::sync::SyncManager;
 
 /// Wrapper that handles the connection with the server
+#[derive(Resource)]
 pub struct Connection<P: Protocol> {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
@@ -73,6 +74,26 @@ impl<P: Protocol> Connection<P> {
         }
     }
 
+    pub(crate) fn is_synced(&self) -> bool {
+        self.sync_manager.is_synced()
+    }
+
+    pub(crate) fn received_new_server_tick(&self) -> bool {
+        self.sync_manager.duration_since_latest_received_server_tick == Duration::default()
+    }
+
+    pub fn latest_received_server_tick(&self) -> Tick {
+        self.sync_manager
+            .latest_received_server_tick
+            .unwrap_or(Tick(0))
+    }
+
+    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
+    /// to keep it for rollback)
+    pub(crate) fn get_input(&self, tick: Tick) -> Option<P::Input> {
+        self.input_buffer.get(tick).cloned()
+    }
+
     pub(crate) fn clear(&mut self) {
         self.events.clear();
     }
@@ -89,6 +110,28 @@ impl<P: Protocol> Connection<P> {
 
         // we update the sync manager in POST_UPDATE
         // self.sync_manager.update(time_manager);
+    }
+
+    /// Send a message to the server
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.buffer_message(message.into(), channel, NetworkTarget::None)
+    }
+
+    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.buffer_message(message.into(), channel, target)
     }
 
     pub(crate) fn buffer_message(
@@ -187,8 +230,7 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager
-            .send_packets(tick_manager.current_tick())
+        self.message_manager.send_packets(tick_manager.tick())
     }
 
     pub fn receive(
@@ -247,9 +289,8 @@ impl<P: Protocol> Connection<P> {
                 }
                 // Check if we have any replication messages we can apply to the World (and emit events)
                 if self.sync_manager.is_synced() {
-                    for (group, replication_list) in self
-                        .replication_receiver
-                        .read_messages(tick_manager.current_tick())
+                    for (group, replication_list) in
+                        self.replication_receiver.read_messages(tick_manager.tick())
                     {
                         trace!(?group, ?replication_list, "read replication messages");
                         replication_list

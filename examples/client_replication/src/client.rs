@@ -3,7 +3,6 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
-use lightyear::_reexport::ShouldBePredicted;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -83,11 +82,7 @@ impl Plugin for MyClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(
-    mut commands: Commands,
-    mut client: ResMut<Client>,
-    plugin: Res<MyClientPlugin>,
-) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         format!("Client {}", plugin.client_id),
@@ -108,7 +103,7 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client>, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<Input<KeyCode>>) {
     let mut direction = Direction {
         up: false,
         down: false,
@@ -273,7 +268,7 @@ pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
 }
 
 /// Send messages from server to clients
-pub(crate) fn send_message(mut client: ResMut<Client>, input: Res<Input<KeyCode>>) {
+pub(crate) fn send_message(mut client: ResMut<Connection>, input: Res<Input<KeyCode>>) {
     if input.pressed(KeyCode::M) {
         let message = Message1(5);
         info!("Send message: {:?}", message);

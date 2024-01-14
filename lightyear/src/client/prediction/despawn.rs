@@ -6,14 +6,13 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, trace};
 
-use crate::_reexport::ShouldBePredicted;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::resource::Client;
+use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
-use crate::shared::tick_manager::TickManaged;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
@@ -39,8 +38,8 @@ pub struct PredictionDespawnMarker {
 
 impl<P: Protocol> Command for PredictionDespawnCommand<P> {
     fn apply(self, world: &mut World) {
-        let client = world.get_resource::<Client<P>>().unwrap();
-        let current_tick = client.tick();
+        let tick_manager = world.get_resource::<TickManager>().unwrap();
+        let current_tick = tick_manager.tick();
 
         let mut predicted_entity_to_despawn: Option<Entity> = None;
 

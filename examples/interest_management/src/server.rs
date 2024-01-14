@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationMode;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -94,7 +93,7 @@ pub(crate) fn init(mut commands: Commands) {
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    mut server: ResMut<Server>,
+    mut room_manager: ResMut<RoomManager>,
     mut connections: EventReader<ConnectEvent>,
     mut disconnections: EventReader<DisconnectEvent>,
     mut global: ResMut<Global>,
@@ -118,11 +117,11 @@ pub(crate) fn handle_connections(
             .insert(*client_id, entity.id());
         // we will create a room for each client. To keep things simple, the room id will be the client id
         let room_id = RoomId((*client_id) as u16);
-        server.room_mut(room_id).add_client(*client_id);
-        server.room_mut(PLAYER_ROOM).add_client(*client_id);
+        room_manager.room_mut(room_id).add_client(*client_id);
+        room_manager.room_mut(PLAYER_ROOM).add_client(*client_id);
         // also add the player entity to that room (so that the client can always see their own player)
-        server.room_mut(room_id).add_entity(entity.id());
-        server.room_mut(PLAYER_ROOM).add_entity(entity.id());
+        room_manager.room_mut(room_id).add_entity(entity.id());
+        room_manager.room_mut(PLAYER_ROOM).add_entity(entity.id());
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
@@ -132,8 +131,8 @@ pub(crate) fn handle_connections(
     }
 }
 
-pub(crate) fn log(server: Res<Server>, position: Query<&Position, With<PlayerId>>) {
-    let server_tick = server.tick();
+pub(crate) fn log(tick_manager: Res<TickManager>, position: Query<&Position, With<PlayerId>>) {
+    let server_tick = tick_manager.tick();
     for pos in position.iter() {
         debug!(?server_tick, "Confirmed position: {:?}", pos);
     }
@@ -142,7 +141,7 @@ pub(crate) fn log(server: Res<Server>, position: Query<&Position, With<PlayerId>
 /// This is where we perform scope management:
 /// - we will add/remove other entities from the player's room only if they are close
 pub(crate) fn interest_management(
-    mut server: ResMut<Server>,
+    mut room_manager: ResMut<RoomManager>,
     player_query: Query<(&PlayerId, Ref<Position>), Without<Circle>>,
     circle_query: Query<(Entity, &Position), With<Circle>>,
 ) {
@@ -150,7 +149,7 @@ pub(crate) fn interest_management(
         if position.is_changed() {
             let room_id = RoomId((client_id.0) as u16);
             // let circles_in_room = server.room(room_id).entities();
-            let mut room = server.room_mut(room_id);
+            let mut room = room_manager.room_mut(room_id);
             for (circle_entity, circle_position) in circle_query.iter() {
                 let distance = position.distance(**circle_position);
                 if distance < INTEREST_RADIUS {

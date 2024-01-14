@@ -1,10 +1,13 @@
-use bevy::prelude::{Component, Query, ResMut};
+use bevy::prelude::{Component, Query, Res, ResMut};
 use tracing::trace;
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
+use crate::client::connection::Connection;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::resource::Client;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 
@@ -31,7 +34,9 @@ pub struct InterpolateStatus<C: Component> {
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
 /// Invariant: start_tick <= current_interpolate_tick <= end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
-    client: ResMut<Client<P>>,
+    config: Res<ClientConfig>,
+    connection: Res<Connection<P>>,
+    tick_manager: Res<TickManager>,
     mut query: Query<(&mut C, &mut InterpolateStatus<C>, &mut ConfirmedHistory<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
@@ -39,17 +44,19 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     if P::Components::mode() != ComponentSyncMode::Full {
         return;
     }
-    if !client.is_synced() {
+    if !connection.is_synced() {
         return;
     }
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
-    let send_interval_delta_tick =
-        (SEND_INTERVAL_TICK_FACTOR * client.config().shared.server_send_interval.as_secs_f32()
-            / client.config().shared.tick.tick_duration.as_secs_f32()) as i16
-            + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+        * config.shared.server_send_interval.as_secs_f32()
+        / config.shared.tick.tick_duration.as_secs_f32()) as i16
+        + 1;
 
-    let current_interpolate_tick = client.interpolation_tick();
+    let current_interpolate_tick = connection
+        .sync_manager
+        .interpolation_tick(tick_manager.as_ref());
     for (mut component, mut status, mut history) in query.iter_mut() {
         let mut start = status.start.take();
         let mut end = status.end.take();
@@ -149,7 +156,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         trace!(
             component = ?component.name(),
             ?current_interpolate_tick,
-            last_received_server_tick = ?client.latest_received_server_tick(),
+            last_received_server_tick = ?connection.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
             "update_interpolate_status");

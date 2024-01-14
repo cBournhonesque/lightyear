@@ -2,7 +2,7 @@
 //! bandwidth monitoring or compression
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticId, Diagnostics, RegisterDiagnostic};
-use bevy::prelude::{Real, Res, Time};
+use bevy::prelude::{Real, Res, Resource, Time};
 use crossbeam_channel::{Receiver, Sender};
 use std::fmt::{Debug, Formatter};
 use std::io::Result;
@@ -136,6 +136,7 @@ impl IoConfig {
     }
 }
 
+#[derive(Resource)]
 pub struct Io {
     local_addr: SocketAddr,
     sender: Box<dyn PacketSender>,

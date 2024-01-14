@@ -6,14 +6,13 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info};
 
-use crate::_reexport::ShouldBePredicted;
 use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::client::connection::Connection;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
-use crate::prelude::Named;
+use crate::prelude::{Named, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
-use crate::shared::tick_manager::TickManaged;
 use crate::utils::ready_buffer::ReadyBuffer;
 
 use super::{ComponentSyncMode, Confirmed, Predicted, Rollback, RollbackState};
@@ -122,7 +121,7 @@ impl<T: SyncComponent> PredictionHistory<T> {
 pub fn add_component_history<C: SyncComponent, P: Protocol>(
     manager: Res<PredictionManager>,
     mut commands: Commands,
-    client: Res<Client<P>>,
+    tick_manager: Res<TickManager>,
     predicted_entities: Query<
         (Entity, Option<Ref<C>>),
         (
@@ -145,7 +144,7 @@ pub fn add_component_history<C: SyncComponent, P: Protocol>(
                     // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
                     let mut history = PredictionHistory::<C>::default();
                     history.buffer.add_item(
-                        client.tick(),
+                        tick_manager.tick(),
                         ComponentState::Updated(predicted_component.deref().clone()),
                     );
                     commands.entity(predicted_entity).insert(history);
@@ -182,7 +181,7 @@ pub fn add_component_history<C: SyncComponent, P: Protocol>(
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
                                 let mut history = PredictionHistory::<C>::default();
                                 history.buffer.add_item(
-                                    client.tick(),
+                                    tick_manager.tick(),
                                     ComponentState::Updated(confirmed_component.deref().clone()),
                                 );
                                 predicted_entity_mut.insert((new_component, history));
@@ -246,17 +245,17 @@ pub fn add_component_history<C: SyncComponent, P: Protocol>(
 //    - we remove the component from predicted.
 
 /// After one fixed-update tick, we record the predicted component history for the current tick
-pub fn update_prediction_history<T: SyncComponent, P: Protocol>(
+pub fn update_prediction_history<T: SyncComponent>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
     mut removed_component: RemovedComponents<T>,
     mut removed_entities: Query<&mut PredictionHistory<T>, Without<T>>,
-    client: Res<Client<P>>,
+    tick_manager: Res<TickManager>,
     rollback: Res<Rollback>,
 ) {
     // tick for which we will record the history
     let tick = match rollback.state {
         // if not in rollback, we are recording the history for the current client tick
-        RollbackState::Default => client.tick(),
+        RollbackState::Default => tick_manager.tick(),
         // if in rollback, we are recording the history for the current rollback tick
         RollbackState::ShouldRollback { current_tick } => current_tick,
     };
@@ -285,7 +284,6 @@ pub fn update_prediction_history<T: SyncComponent, P: Protocol>(
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
     manager: Res<PredictionManager>,
-    client: Res<Client<P>>,
     mut predicted_entities: Query<
         &mut C,
         (
@@ -298,7 +296,6 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
 ) where
     P::Components: SyncMetadata<C>,
 {
-    let latest_server_tick = client.latest_received_server_tick();
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.predicted {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {

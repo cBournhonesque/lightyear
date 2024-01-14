@@ -7,7 +7,6 @@ use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::action_state::ActionDiff;
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ShouldBePredicted;
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;
 use lightyear::prelude::client::*;
@@ -113,11 +112,7 @@ impl Plugin for MyClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(
-    mut commands: Commands,
-    mut client: ResMut<Client>,
-    plugin: Res<MyClientPlugin>,
-) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(
         TextBundle::from_section(
@@ -217,7 +212,7 @@ fn add_player_physics(
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
     plugin: Res<MyClientPlugin>,
-    client: Res<Client>,
+    tick_manager: Res<TickManager>,
     mut velocity_query: Query<
         (
             Entity,
@@ -233,7 +228,7 @@ fn player_movement(
         // note that we also apply the input to the other predicted clients!
         // TODO: add input decay?
         shared_movement_behaviour(velocity, action_state);
-        info!(?entity, tick = ?client.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+        info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
     }
 }
 
