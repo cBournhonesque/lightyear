@@ -172,18 +172,37 @@ impl PingManager {
                 let item = &stat.item;
                 (acc.0 + item.round_trip_delay.as_secs_f64(), acc.1 + 1.0)
             });
+
         let final_rtt_mean = if pruned_sample_count > 0.0 {
             pruned_rtt_mean / pruned_sample_count
         } else {
             rtt_mean
         };
+
         // TODO: recompute rtt_stdv from pruned ?
+        // Find the Mean
+        let rtt_mean = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
+            let item = &stat.item;
+            acc + item.round_trip_delay.as_secs_f64() / sample_count
+        });
+
+        // TODO: should I use biased or unbiased estimator?
+        // Find the Variance
+        let rtt_diff_mean: f64 = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
+            let item = &stat.item;
+            acc + (item.round_trip_delay.as_secs_f64() - rtt_mean).powi(2) / (sample_count)
+        });
+        let final_rtt_stdv = if pruned_sample_count > 0.0 {
+            rtt_diff_mean.sqrt()
+        } else {
+            0.0
+        };
 
         self.final_stats = FinalStats {
             // rtt: Duration::from_secs_f64(rtt_mean),
             rtt: Duration::from_secs_f64(final_rtt_mean),
             // jitter is based on one-way delay, so we divide by 2
-            jitter: Duration::from_secs_f64(rtt_stdv / 2.0),
+            jitter: Duration::from_secs_f64(final_rtt_stdv / 2.0),
         };
         trace!(
             rtt = ?self.final_stats.rtt,
@@ -212,7 +231,7 @@ impl PingManager {
             let rtt = received_time - ping_sent_time;
             let server_process_time = pong.pong_sent_time - pong.ping_received_time;
             trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.pong_sent_time, ?pong.ping_received_time, "process pong");
-            let round_trip_delay = (rtt - server_process_time).to_std().unwrap();
+            let round_trip_delay = (rtt - server_process_time).to_std().unwrap_or_default();
 
             // update stats buffer
             self.sync_stats

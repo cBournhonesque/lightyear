@@ -1,5 +1,6 @@
-use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+
+use bitcode::{Decode, Encode};
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum PacketType {

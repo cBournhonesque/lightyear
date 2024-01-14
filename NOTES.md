@@ -4,6 +4,200 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+- PHYSICS:
+  - A: if I run FixedUpdate::MAIN AFTER PhysicsSets, I have a smooth physics simulation on client
+    if I run FixedUpdate::MAIN BEFORE PhysicsSets, it's very jittery. Why? It should be the opposite!
+    - SOLVED: same as C
+  - B: the interpolation of the ball is weirdly jittery
+    - is it because we run the physics simulation on the interpolated entity?
+    - SOLVED: it was because we were running Interpolation at PostUpdate, but drawing at Update.
+  - C: collisions cause weird artifacts when we do rollback. Investigate why.
+    - check tick 1935. On server, we have some values.
+      On client, we have completely different values! After rollback, we get the server values, but only at tick 1936.
+      Is there a off-by-one issue?
+      Also the client value was completely different than the server value before the rollback, why?
+    - SOLVED: I think I found the issue, it's because we need to run the physics after applying the Actions, but before 
+      we record the ComponentHistory for prediction. This also explains A.
+  - D: the client prediction with the ball seems very slighly jittery. Could it be because we apply `relative_time_updates` to FixedUpdate on client, 
+      so we might run a different number of FixedUpdate ticks than on server? Shouln't matter because we still apply inputs on the same ticks?
+    - HYPOTHESIS:
+      1) try interpolating/smoothing the client rollback towards the confirmed output
+      2) predict everything!
+  - E: client prediction for collisions between two predicted entities (player controlled entities) is also jittery. Why?
+     Is it because rotation is not replicated?
+    - SOLVED: that was it, I needed to replicate angular velocity and rotation as well.
+  - F: client is always slightly jittery compared to server.
+    - SOLVED: it's because we are predicting 2 entities so we need to make sure that they are in the same replication group,
+      otherwise the `confirmed_tick` for 1 entity might not be the same as for another entity!
+  - G: why does the simulation go completely bananas if there are a lot of mis-predictions? Is it spiral of death?
+  - H: having a faster send_interval on the server side makes the simulation less good, paradoxically! Why?
+    - do i have an off-by-one error somewhere?
+  - I: how to make good client prediction for other clients?
+    - maybe we replicate the ActionState of other clients, and then we can do some kind of decay on the inputs; or consider
+      that they will still be pressed?
+   
+STATUS:
+- it looks like there's 0 rollback if we only have 1 client and predict the ball. Smooth
+- goes crazy if I predict the other player
+  - for some reason there was a crazy tick diff. Rollback at tick 934, but client1 was at tick 988!!
+  - then the rollback goes crazy because we predict that the entity is moving at their low velocity for the next 50 ticks.
+- I think for proper prediction of other clients we need to know what their latest input was, and then consider that they
+  pressed the same input during the prediction time. We can also decay the inputs over prediction time?
+  - TODO: if we rollback, we ALSO need to restore the other clients inputs to what they were at the rollback tick!!!!
+- Status: 
+  - when I press buttons for client 2, the FPS starts dropping. Death spiral?
+  - again, huge tick diff for the rollback (50 ticks) -> WHY???? (only at the start though)
+  - client 1 has some mispredictions but overall seems ok?
+  - sometimes the rotation is completely different?
+  - Not synced during rollback!!!
+- STATUS:
+  - perfect sync if input_delay > RTT, but with initial sync issues
+  - jarring mispredictions if input_delay < RTT
+  - sometimes the state is stuck in a misprediction spiral WHY?
+  - looks like the input wasn't taken into account???? sometimes the release is not handled correctly.
+
+- STATUS: best-settings. Input-delay = 10, Correction = 8.
+
+- Problem 1: if one of the inputs has a correction, all of them should get have it!
+  (after rollback check, iterate through every predicted element in the replication group, and add corrections to those who don't have it.
+   if they don't have it that means their predicted component is already equal to the confirmed component
+
+  Actually I don't think it's an issue maybe? Because if one of the components doesn't have a correction it's because their predicted value was equal to the confirmed value at the time?
+
+- Problem 2: if I set a very high correction-tick number, the movement becomes very saccade for some reason, understand that.
+
+- TODO:
+  - maybe add an option to disable correction for the player-controlled entities (not entities controlled by other players)?
+  - why do i need to not sync the ActionState from server to client for it to work? I guess the problem is that the 
+    ActionState on the Confirmed is ticking and being replicated to Predicted all the time...
+  - enable having multiple different rollbacks (with different ticks) for different replication groups
+  - i still get stuck inputs even when sending full diffs!!! why?
+
+
+
+- TODO: lockstep. All player just see what's happening on the server. that means inputs are not applied on the client (no prediction).
+  the client just uses the confirmed state from server. (with maybe interpolation) 
+ 
+  CONS: delay.
+  PROS: no visual desyncs.
+
+- TODO:
+  - DELAYED INPUTS: on local, our render tick (prediction timeline) is 10. But when we press a button, we will add the button press to the buffer
+    at tick 16, and we immediately send to the server all the actions up to tick 16. The input timeline is in the future compared to the render timeline.
+    That means that on client, we don't use directly the ActionState (which gets updated immediately), but instead we must get the correct ActionState from 
+    the buffer of ActionStates. i.e. when we reach tick 16, we get the ActionState from the buffer.
+  - flow is: press input (at client tick 10), update-action-state, store it in buffer for tick 16, then read from buffer at tick 10 to set action set.
+    - if the total RTT is smaller than 6 ticks, then we will never get a rollback because server and client will have run the same sequence of actions!
+  - STATUS: 
+    - implemented the delayed inputs. The inputs are actually delayed, but it causes some amount of mispredictions, even 
+      with only one client. (which was the opposite of what we wanted lol)
+    - implemented quickening the client-time based on delayed inputs, so that there's a lot less prediction to do!
+    - with sufficient input delay, I get 0 predictions, past an initial period that doesn't work well.
+      For some reason I have some frames where I run a lot of FixedUpdate, and then the client is very desynced.
+      It looks like I have 1 frame that took 0.7 seconds ??
+  - DEBUG: 
+    - i'm sending a lot more diffs than necessary. It's because when we fetch the older data from the buffer.
+    - i see a case where an action (release Left) has not been received on the server
+      - why? maybe just send full diffs then, so that we can recover for this case.
+      - absolutely 0 rollbacks with no input delay, so it is related
+      - SOLVED: it's because we need to use the delayed action-state at the start of PreUpdate!
+    - after that, constant rollbacks, even though the later actions are correct
+      - SOLVED: off by 1 error!!!!!!!!!!!!
+  - REMAINING ISSUES:
+    - in general, at the beginning I do a lot of sync adjustements, and after a while not anymore... why?
+    - sometimes at the beginning of sync, I get: "Error too big, snapping prediction time/tick to objective"
+      the current-prediction time was way behind the estimated server time
+      - TODO: understand this!!!
+    - I got a case where immediately after sync, we rollback because the current-tick is further than the latest-received-server-tick.
+      - SOLVED: don't rollback if the server-tick is ahead of client-tick
+    - I got cases where the server-tick on client is ahead of when we should get the input.
+      - that's weird because we should have even more margin because we take care of having the client tick ahead of server tick...
+      - it happens a lot actually!
+      - SOLVED: it's because we don't send an input message with no diffs, and we keep popping from the action diff buffer, so this log is not reliable.
+    - The diffs that the server receives have some duplicate consecutive Pressed. It shouldn't be possible because the diffs should only contain
+      pure changes
+    - with higher tick rate, the frame rate drops to 20.. spiral of death?
+
+
+- TODO: leafwing inputs should be doing something similar as what I do for replication
+  - regularly send full action-state via a reliable channel
+  - the rest of the time send unreliable diffs?
+
+- TODO: if something interacts only with the client entity but not on server. The server does not send an update so
+  we have no rollback! maybe we should check for rollback everytime the confirmed_tick of the group is updated.
+ 
+- TODO: also the rollback for a replication group is not done correctly. If ANY component of ANY entity the group is rolled back,
+  then we should reset ALL components for ALL ENTITIES the group to the rollback state before doing rollback.
+  Maybe add a component ConfirmedTick to each replicated entity that has prediction, and do rollback if ConfirmedTick is changed.
+  - SOLVED: now we reset all components of ALL entities in the group if we need to do rollback.
+
+- TODO: think about handling alt-tabbing on client, which might slow down frames a lot and fuck some stuff?
+  Could it be ok for the client to run behind the server, if it just buffers the server's updates? 
+  i.e. in Receiver we only read the replication messages if the local tick is >= to the remote tick.
+
+- TODO: prediction smoothing. 2 options.
+  - we do rollback, compute the new predicted entity now. And then we interpolate by 'smooth' amount to it instead of just teleporting to it
+    that means that we might do a lot of rollbacks in a row.
+  - we do rollback, compute the new predicted entity in X ticks from now. then we enter RollbackStage::Smooth where we interpolate
+    between now and X+5. We disable checking for rollbacks during that time. Client inputs should affect both the entity now and 
+    the entity we are aiming for (X+5)
+
+
+- TODO: also remove ShouldBePredicted or ShouldBeInterpolated on server after we have sent it once
+- TODO: why do I get duplicate ComponentInsertEvent ShouldBePredicted?
+  - SOLVED!
+- TODO: when rollback is initiated, only rollback together the entities that have the same replication_group!!!
+  - this allows the possibility of having separate replication groups for entities that are predicted but don't need to be rolled back together.
+- TODO: should the server send other client' inputs to a client so that they can run client-prediction more accurately on other clients?
+- TODO: physics states might be expensive to network (full f32). What we can do is:
+  - compress the physics on the server before running physics step
+  - then run physics step
+  - and network the compressed physics
+  - then the client/server are working with the same numbers, so fewer desyncs
+- TODO: input decay: https://www.snapnet.dev/blog/netcode-architectures-part-2-rollback/#input-decay
+- TODO: use a sequenced-unreliable channel per actionlike, instead of a global unrealible unordered channel for all inputs
+
+
+- TODO: how to do entity mapping for inputs?
+  - A) inputs on pre-predicted entity. Ok because server maintains mapping between server-local and client-predicted!
+  - B) inputs on confirmed. Ok because server maintains mapping between server-local and client-confirmed!
+  - C) inputs on predicted. How do we do it? Maybe distinguish between Pre-Predicted entities and normal predicted entities?
+       For normal predicted entities, we map the entity to the confirmed one before sending?
+
+
+QUESTIONS:
+- is there a way to make an object purely a 'collider'? It has velocity/position, but the position isn't recomputed by the physics engine
+- when does the syncing between transform and rotation/position happen?
+     
+   
+
+- INPUTS:
+  - on client side, we have a ActionStateBuffer for rollback, and a ActionDiffBuffer to generate the message we will send to server
+  - sometimes frames have no fixed-update, so we have a system that runs on PreUpdate after leafwing that generates inputs as events
+    which are only cleared when read
+  - then we keep the diffs in a buffer and we send the last 10 or so to the server
+  - on the server we reconstruct the action-state from the diff.
+  - ISSUES:
+    - if we miss one of the diffs (Pressed/Released) because it arrived too late on the client, our action-state on server is on a bad state.
+      - I do see cases on server where the current-tick is bigger than the latest action-diff-tick we received.
+      - Maybe we should we just send the full action-state every time? (but that's a lot of data)
+      - Maybe we could generate a diff even when the action did not change (i.e. Pressed -> Pressed), so that we still have a smaller msesage
+        but with no timing information
+
+- Since we have multiple Actionlike, how can we send them?
+  - either we add Input1, Input2, etc. in the Protocol
+  - either we make the API work like naia with a non-static protocol
+    - we maintain a map with NetId of each Channel,Message,Input,Component in the protocol
+    - on serialize:
+      - we find the netid of the input
+      - we'll need to pass the ComponentKinds to the serialize function to get the netid
+    - on deserialize:
+      - we pass the ComponentKinds to the deserialize function
+      - we read the netid and get a `dyn ComponentBuilder`
+      - we use the builder to build a `dyn Component`?
+
+ 
+
 
 - CHANGE DETECTION BUG:
   - What are the consequences of this?
@@ -206,9 +400,13 @@ TODO:
 - Channels:
   - TODO: add channel priority with accumulation. Some channels need infinite priority though (such as pings)
     with bandwidth limiting. Should be possible, just take the last 1 second to compute the bandwidth used/left.
+  - TODO: actually add a priority per ReplicationGroup. The PRIORITY DEPENDS ON THE CLIENT. (for example distance to client!)
+    - priority
+    - update_period: send_interval for this packet. if 0, then we use the server's send_interval.
 
 - UI:
   - TODO: UI that lets us see which packets are sent at every system update?
+  - TODO: UI (afte rpriotitization that shows the bandwidth used/priority of each object)
 
 - Metrics/Logs:
   - add more metrics

@@ -157,7 +157,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
     ///
     /// But the receiving systems might expect both components to be present at the same time.
-    fn buffer_replication_messages(&mut self) -> Result<()>;
+    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>>;
 }
@@ -213,8 +213,9 @@ mod tests {
 
         // Check that the entity is replicated to client
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<Connection>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)

@@ -29,7 +29,14 @@
       <sourceFolder url="file://$MODULE_DIR$/vendor/wtransport/wtransport-proto/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/vendor/wtransport/wtransport/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/benches/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/client_replication/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/interest_management/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/leafwing_inputs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/replication_groups/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/simple_box/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/stepper/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/vendor/wtransport/wtransport/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/leafwing_inputs/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

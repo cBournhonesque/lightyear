@@ -6,14 +6,8 @@ members = [
 
   # internal
   "benches",
-  "examples",
+  "examples/*",
   "vendor/bitcode",
 ]
-default-members = [
-  "lightyear",
-  "macros",
-
-  # internal
-  "benches",
-  "examples",
-]
+default-members = ["lightyear"]
+exclude = ["examples/certificates"]

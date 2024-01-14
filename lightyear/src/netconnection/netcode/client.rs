@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use bevy::prelude::Resource;
 use std::{
     collections::VecDeque,
     net::SocketAddr,
@@ -21,7 +21,7 @@ use super::{
     },
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
-    MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
 };
 
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
@@ -35,10 +35,10 @@ type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + 
 /// # Example
 /// ```
 /// # struct MyContext;
-/// # use crate::lightyear::netcode::{generate_key, Server};
+/// # use crate::lightyear::netcode::{generate_key, NetcodeServer};
 /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 40007));
 /// # let private_key = generate_key();
-/// # let token = Server::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
+/// # let token = NetcodeServer::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
 /// # let token_bytes = token.try_into_bytes().unwrap();
 /// use crate::lightyear::netcode::{Client, ClientConfig, ClientState};
 ///
@@ -164,7 +164,7 @@ pub enum ClientState {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
+/// use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, NetcodeServer};
 /// # use std::net::{Ipv4Addr, SocketAddr};
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
@@ -173,12 +173,15 @@ pub enum ClientState {
 /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
 /// #    addr))
 /// # );
-/// # let mut server = Server::new(0, [0; 32]).unwrap();
+/// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = Client::new(&token_bytes).unwrap();
 /// client.connect();
 /// ```
+
+#[derive(Resource)]
 pub struct Client<Ctx = ()> {
+    id: ClientId,
     state: ClientState,
     time: f64,
     start_time: f64,
@@ -212,6 +215,7 @@ impl<Ctx> Client<Ctx> {
             }
         };
         Ok(Self {
+            id: 0,
             state: ClientState::Disconnected,
             time: 0.0,
             start_time: 0.0,
@@ -387,9 +391,10 @@ impl<Ctx> Client<Ctx> {
             (Packet::KeepAlive(_), ClientState::Connected) => {
                 trace!("client received connection keep-alive packet from server");
             }
-            (Packet::KeepAlive(_), ClientState::SendingChallengeResponse) => {
+            (Packet::KeepAlive(pkt), ClientState::SendingChallengeResponse) => {
                 debug!("client received connection keep-alive packet from server");
                 self.set_state(ClientState::Connected);
+                self.id = pkt.client_id;
                 info!("client connected to server");
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
@@ -486,6 +491,11 @@ impl<Ctx> Client<Ctx> {
         Ok(())
     }
 
+    /// Returns the global client id of the client once it is connected, or returns 0 if not connected.
+    pub fn id(&self) -> ClientId {
+        self.id
+    }
+
     /// Prepares the client to connect to the server.
     ///
     /// This function does not perform any IO, it only readies the client to send/receive packets on the next call to [`update`](Client::update). <br>
@@ -536,13 +546,13 @@ impl<Ctx> Client<Ctx> {
     /// # Example
     /// ```
     /// # use std::net::SocketAddr;
-    /// # use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
+    /// # use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, NetcodeServer};
     /// # use std::time::{Instant, Duration};
     /// # use std::thread;
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
-    /// # let mut server = Server::new(0, [0; 32]).unwrap();
+    /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
     /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
     /// let mut client = Client::new(&token_bytes).unwrap();

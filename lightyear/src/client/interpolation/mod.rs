@@ -1,15 +1,18 @@
 //! Handles interpolation of entities between server updates
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{Added, Commands, Component, Entity, Query, ResMut};
-use tracing::{debug, info};
+use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
+use tracing::debug;
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 
-use crate::client::components::{Confirmed, SyncComponent};
+use crate::client::components::{Confirmed, LerpFn, SyncComponent};
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::resource::Client;
+use crate::protocol::Protocol;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
 mod despawn;
@@ -18,12 +21,8 @@ pub mod interpolation_history;
 pub mod plugin;
 mod resource;
 
-pub trait InterpFn<C> {
-    fn lerp(start: C, other: C, t: f32) -> C;
-}
-
-pub struct LinearInterpolation;
-impl<C> InterpFn<C> for LinearInterpolation
+pub struct LinearInterpolator;
+impl<C> LerpFn<C> for LinearInterpolator
 where
     C: Mul<f32, Output = C> + Add<C, Output = C>,
 {
@@ -34,18 +33,10 @@ where
 
 /// Use this if you don't want to use an interpolation function for this component.
 /// (For example if you are running your own interpolation logic)
-pub struct NoInterpolation;
-impl<C> InterpFn<C> for NoInterpolation {
+pub struct NullInterpolator;
+impl<C> LerpFn<C> for NullInterpolator {
     fn lerp(start: C, _other: C, _t: f32) -> C {
         start
-    }
-}
-
-pub trait InterpolatedComponent<C>: SyncComponent {
-    type Fn: InterpFn<C>;
-
-    fn lerp(start: C, other: C, t: f32) -> C {
-        Self::Fn::lerp(start, other, t)
     }
 }
 
@@ -60,7 +51,8 @@ pub struct Interpolated {
     //    - or do this only for certain components (audio, animation, particles..) -> mode on PredictedComponent
 }
 
-pub fn spawn_interpolated_entity(
+pub fn spawn_interpolated_entity<P: Protocol>(
+    connection: Res<ConnectionManager<P>>,
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
@@ -82,9 +74,16 @@ pub fn spawn_interpolated_entity(
         if let Some(mut confirmed) = confirmed {
             confirmed.interpolated = Some(interpolated);
         } else {
+            // get the confirmed tick for the entity
+            // if we don't have it, something has gone very wrong
+            let confirmed_tick = connection
+                .replication_receiver
+                .get_confirmed_tick(confirmed_entity)
+                .unwrap();
             confirmed_entity_mut.insert(Confirmed {
                 interpolated: Some(interpolated),
                 predicted: None,
+                tick: confirmed_tick,
             });
         }
         debug!(

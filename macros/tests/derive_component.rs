@@ -3,7 +3,7 @@ pub mod some_component {
     use derive_more::{Add, Mul};
     use serde::{Deserialize, Serialize};
 
-    use lightyear::prelude::client::InterpFn;
+    use lightyear::prelude::client::{InterpFn, LerpFn};
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 
@@ -31,13 +31,13 @@ pub mod some_component {
         #[sync(once)]
         Component3(Component3),
         Component4(Component4),
-        #[sync(full, lerp = "MyCustom")]
+        #[sync(full, lerp = "MyCustomInterpolator")]
         Component5(Component5),
     }
 
     // custom interpolation logic
-    pub struct MyCustom;
-    impl<C> InterpFn<C> for MyCustom {
+    pub struct MyCustomInterpolator;
+    impl<C> LerpFn<C> for MyCustomInterpolator {
         fn lerp(start: C, _other: C, _t: f32) -> C {
             start
         }
@@ -60,7 +60,7 @@ pub mod some_component {
 
 #[cfg(test)]
 mod tests {
-    use lightyear::client::interpolation::InterpolatedComponent;
+    use lightyear::_reexport::ComponentProtocol;
     use lightyear::protocol::BitSerializable;
     use lightyear::serialize::reader::ReadBuffer;
     use lightyear::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -84,13 +84,13 @@ mod tests {
         let component5 = Component5(0.1);
         assert_eq!(
             component5.clone(),
-            Component5::lerp(component5, Component5(0.0), 0.5)
+            MyComponentProtocol::lerp(component5, Component5(0.0), 0.5)
         );
 
         let component1 = Component1(0.0);
         assert_eq!(
             Component1(0.5),
-            Component1::lerp(component1, Component1(1.0), 0.5)
+            MyComponentProtocol::lerp(component1, Component1(1.0), 0.5)
         );
 
         Ok(())

@@ -1,5 +1,8 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
+use bevy::app::{App, Plugin};
+use bevy::diagnostic::{Diagnostic, DiagnosticId, Diagnostics, RegisterDiagnostic};
+use bevy::prelude::{Real, Res, Resource, Time};
 use crossbeam_channel::{Receiver, Sender};
 use std::fmt::{Debug, Formatter};
 use std::io::Result;
@@ -7,6 +10,7 @@ use std::net::{IpAddr, SocketAddr};
 
 #[cfg(feature = "metrics")]
 use metrics;
+use tracing::info;
 #[cfg(feature = "webtransport")]
 use wtransport::tls::Certificate;
 
@@ -132,17 +136,20 @@ impl IoConfig {
     }
 }
 
+#[derive(Resource)]
 pub struct Io {
     local_addr: SocketAddr,
     sender: Box<dyn PacketSender>,
     receiver: Box<dyn PacketReceiver>,
-    stats: IoStats,
+    pub(crate) stats: IoStats,
 }
 
 #[derive(Default, Debug)]
 pub struct IoStats {
     pub bytes_sent: usize,
     pub bytes_received: usize,
+    pub packets_sent: usize,
+    pub packets_received: usize,
 }
 
 impl Io {
@@ -198,6 +205,7 @@ impl PacketReceiver for Io {
                     metrics::increment_gauge!("transport.bytes_received", buffer.len() as f64);
                 }
                 self.stats.bytes_received += buffer.len();
+                self.stats.packets_received += 1;
             }
             x
         })
@@ -213,7 +221,76 @@ impl PacketSender for Io {
             metrics::increment_gauge!("transport.bytes_sent", payload.len() as f64);
         }
         self.stats.bytes_sent += payload.len();
+        self.stats.packets_sent += 1;
         self.sender.send(payload, address)
+    }
+}
+
+pub struct IoDiagnosticsPlugin;
+
+impl IoDiagnosticsPlugin {
+    /// How many bytes do we receive per second
+    pub const BYTES_IN: DiagnosticId =
+        DiagnosticId::from_u128(272724337309910272967747412065116587937);
+    /// How many bytes do we send per second
+    pub const BYTES_OUT: DiagnosticId =
+        DiagnosticId::from_u128(55304262539591435450305383702521958293);
+
+    /// How many bytes do we receive per second
+    pub const PACKETS_IN: DiagnosticId =
+        DiagnosticId::from_u128(183580771279032958450263611989577449811);
+    /// How many bytes do we send per second
+    pub const PACKETS_OUT: DiagnosticId =
+        DiagnosticId::from_u128(314668465487051049643062180884137694217);
+
+    /// Max diagnostic history length.
+    pub const DIAGNOSTIC_HISTORY_LEN: usize = 60;
+
+    pub(crate) fn update_diagnostics(
+        stats: &mut IoStats,
+        time: &Res<Time<Real>>,
+        diagnostics: &mut Diagnostics,
+    ) {
+        let delta_seconds = time.delta_seconds_f64();
+        if delta_seconds == 0.0 {
+            return;
+        }
+        diagnostics.add_measurement(Self::BYTES_IN, || {
+            stats.bytes_received as f64 / delta_seconds
+        });
+        diagnostics.add_measurement(Self::BYTES_OUT, || stats.bytes_sent as f64 / delta_seconds);
+        diagnostics.add_measurement(Self::PACKETS_IN, || {
+            stats.packets_received as f64 / delta_seconds
+        });
+        diagnostics.add_measurement(Self::PACKETS_OUT, || {
+            stats.packets_sent as f64 / delta_seconds
+        });
+        *stats = IoStats::default()
+    }
+}
+
+impl Plugin for IoDiagnosticsPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_diagnostic(Diagnostic::new(
+            IoDiagnosticsPlugin::BYTES_IN,
+            "bytes received per second",
+            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
+        ));
+        app.register_diagnostic(Diagnostic::new(
+            IoDiagnosticsPlugin::BYTES_OUT,
+            "bytes sent per second",
+            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
+        ));
+        app.register_diagnostic(Diagnostic::new(
+            IoDiagnosticsPlugin::PACKETS_IN,
+            "packets received per second",
+            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
+        ));
+        app.register_diagnostic(Diagnostic::new(
+            IoDiagnosticsPlugin::PACKETS_OUT,
+            "packets sent per second",
+            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
+        ));
     }
 }
 

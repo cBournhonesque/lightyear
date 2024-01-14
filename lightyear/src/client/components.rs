@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::prelude::{MapEntities, Named};
+use crate::prelude::{MapEntities, Named, Tick};
 
 /// Marks an entity that contains the server-updates that are received from the Server
 /// (this entity is a copy of Predicted that is RTT ticks behind)
@@ -13,10 +13,27 @@ use crate::prelude::{MapEntities, Named};
 pub struct Confirmed {
     pub predicted: Option<Entity>,
     pub interpolated: Option<Entity>,
+    /// The tick that the confirmed entity is at.
+    /// (this is latest server tick for which we applied updates to the entity)
+    pub tick: Tick,
 }
 
 // TODO: add TypeNamed as well
-pub trait SyncComponent: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {
+pub trait SyncComponent: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {}
+impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {}
+
+// NOTE: we use these traits that the Protocol will implement so that we don't implement
+// external traits on external types and break the orphan rule
+
+pub trait LerpFn<C> {
+    fn lerp(start: C, other: C, t: f32) -> C;
+}
+
+/// Defines how to do interpolation/correction for the component
+pub trait SyncMetadata<C> {
+    type Interpolator: LerpFn<C> + 'static;
+    type Corrector: LerpFn<C> + 'static;
+
     fn mode() -> ComponentSyncMode;
 }
 

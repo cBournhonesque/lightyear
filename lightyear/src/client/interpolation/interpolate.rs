@@ -1,10 +1,13 @@
-use bevy::prelude::{Component, Query, ResMut};
+use bevy::prelude::{Component, Query, Res, ResMut};
 use tracing::trace;
 
-use crate::client::components::{ComponentSyncMode, SyncComponent};
+use crate::_reexport::ComponentProtocol;
+use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::client::interpolation::InterpolatedComponent;
 use crate::client::resource::Client;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 
@@ -19,7 +22,7 @@ const SEND_INTERVAL_TICK_FACTOR: f32 = 1.5;
 //  maybe put the test here?
 // NOTE: there's not a strict need for this, it just makes the logic easier to follow
 #[derive(Component, PartialEq, Debug)]
-pub struct InterpolateStatus<C: SyncComponent> {
+pub struct InterpolateStatus<C: Component> {
     /// start tick to interpolate from, along with value
     pub start: Option<(Tick, C)>,
     /// end tick to interpolate to, along with value
@@ -31,23 +34,29 @@ pub struct InterpolateStatus<C: SyncComponent> {
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
 /// Invariant: start_tick <= current_interpolate_tick <= end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
-    client: ResMut<Client<P>>,
+    config: Res<ClientConfig>,
+    connection: Res<ConnectionManager<P>>,
+    tick_manager: Res<TickManager>,
     mut query: Query<(&mut C, &mut InterpolateStatus<C>, &mut ConfirmedHistory<C>)>,
-) {
-    if C::mode() != ComponentSyncMode::Full {
+) where
+    P::Components: SyncMetadata<C>,
+{
+    if P::Components::mode() != ComponentSyncMode::Full {
         return;
     }
-    if !client.is_synced() {
+    if !connection.is_synced() {
         return;
     }
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
-    let send_interval_delta_tick =
-        (SEND_INTERVAL_TICK_FACTOR * client.config().shared.server_send_interval.as_secs_f32()
-            / client.config().shared.tick.tick_duration.as_secs_f32()) as i16
-            + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+        * config.shared.server_send_interval.as_secs_f32()
+        / config.shared.tick.tick_duration.as_secs_f32()) as i16
+        + 1;
 
-    let current_interpolate_tick = client.interpolation_tick();
+    let current_interpolate_tick = connection
+        .sync_manager
+        .interpolation_tick(tick_manager.as_ref());
     for (mut component, mut status, mut history) in query.iter_mut() {
         let mut start = status.start.take();
         let mut end = status.end.take();
@@ -147,7 +156,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         trace!(
             component = ?component.name(),
             ?current_interpolate_tick,
-            last_received_server_tick = ?client.latest_received_server_tick(),
+            last_received_server_tick = ?connection.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
             "update_interpolate_status");
@@ -163,9 +172,11 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     }
 }
 
-pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
+pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
-) {
+) where
+    P::Components: SyncMetadata<C>,
+{
     for (mut component, status) in query.iter_mut() {
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
@@ -182,7 +193,8 @@ pub(crate) fn interpolate<C: InterpolatedComponent<C>>(
                 if start_tick != end_tick {
                     let t =
                         (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
-                    *component = C::lerp(start_value.clone(), end_value.clone(), t);
+                    *component = P::Components::lerp(start_value.clone(), end_value.clone(), t);
+                    // *component = C::lerp(start_value.clone(), end_value.clone(), t);
                 } else {
                     *component = start_value.clone();
                 }

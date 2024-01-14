@@ -1,10 +1,10 @@
 use bevy::prelude::{Component, Events, World};
 
+use crate::_reexport::FromType;
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, IterMessageEvent,
 };
 use crate::packet::message::Message;
-use crate::protocol::component::IntoKind;
 use crate::protocol::{EventContext, Protocol};
 use crate::shared::events::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
@@ -45,7 +45,8 @@ pub fn push_component_insert_events<
     world: &mut World,
     events: &mut E,
 ) where
-    C: IntoKind<P::ComponentKinds>,
+    P::ComponentKinds: FromType<C>,
+    P::ComponentKinds: FromType<C>,
 {
     if events.has_component_insert::<C>() {
         let mut event_writer = world
@@ -67,7 +68,7 @@ pub fn push_component_remove_events<
     world: &mut World,
     events: &mut E,
 ) where
-    C: IntoKind<P::ComponentKinds>,
+    P::ComponentKinds: FromType<C>,
 {
     if events.has_component_remove::<C>() {
         let mut event_writer = world
@@ -89,7 +90,7 @@ pub fn push_component_update_events<
     world: &mut World,
     events: &mut E,
 ) where
-    C: IntoKind<P::ComponentKinds>,
+    P::ComponentKinds: FromType<C>,
 {
     if events.has_component_update::<C>() {
         let mut event_writer = world

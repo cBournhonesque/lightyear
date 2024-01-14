@@ -45,7 +45,7 @@
 
  ```
  use std::{thread, time::{Instant, Duration}, net::SocketAddr};
- use crate::lightyear::netcode::{generate_key, Server, MAX_PACKET_SIZE};
+ use crate::lightyear::netcode::{generate_key, NetcodeServer, MAX_PACKET_SIZE};
 
  use lightyear::prelude::{IoConfig, TransportConfig};
  use crate::lightyear::transport::io::Io;
@@ -57,7 +57,7 @@
  // Create a server
  let protocol_id = 0x11223344;
  let private_key = generate_key(); // you can also provide your own key
- let mut server = Server::new(protocol_id, private_key).unwrap();
+ let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
 
  // Run the server at 60Hz
  let start = Instant::now();
@@ -126,7 +126,7 @@ loop {
 pub use client::{Client, ClientConfig, ClientState};
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
-pub use server::{Callback, ClientId, Server, ServerConfig};
+pub use server::{Callback, ClientId, NetcodeServer, Server, ServerConfig};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 mod bytes;

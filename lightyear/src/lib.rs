@@ -26,19 +26,20 @@ pub mod _reexport {
         EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
     };
     pub use crate::client::interpolation::{
-        add_interpolation_systems, add_prepare_interpolation_systems, InterpolatedComponent,
+        add_interpolation_systems, add_prepare_interpolation_systems,
     };
-    pub use crate::client::interpolation::{LinearInterpolation, NoInterpolation};
+    pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
     pub use crate::client::prediction::add_prediction_systems;
+    pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
     pub use crate::connection::events::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
-    pub use crate::inputs::input_buffer::InputMessage;
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
-        FromType, IntoKind,
+        FromType,
     };
-    pub use crate::protocol::message::{MessageBehaviour, MessageKind, MessageProtocol};
+    pub use crate::protocol::message::InputMessageKind;
+    pub use crate::protocol::message::{MessageKind, MessageProtocol};
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -47,14 +48,13 @@ pub mod _reexport {
     pub use crate::shared::events::{
         ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
     };
-    pub use crate::shared::replication::components::{ShouldBeInterpolated, ShouldBePredicted};
+    pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
     pub use crate::shared::systems::events::{
         push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
-    pub use crate::shared::tick_manager::TickManager;
-    pub use crate::shared::time_manager::{TimeManager, WrappedTime};
+    pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::ReadyBuffer;
     pub use crate::utils::sequence_buffer::SequenceBuffer;
 }
@@ -68,7 +68,9 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
-    pub use crate::inputs::UserInput;
+    #[cfg(feature = "leafwing")]
+    pub use crate::inputs::leafwing::LeafwingUserAction;
+    pub use crate::inputs::native::UserAction;
     pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
@@ -79,17 +81,21 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::components::{
-        NetworkTarget, ReplicationGroup, ReplicationMode,
+        NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{EntityMapper, MapEntities, RemoteEntityMap};
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
+    pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
+    pub use crate::shared::time_manager::TimeManager;
     pub use crate::transport::conditioner::LinkConditionerConfig;
     pub use crate::transport::io::{Io, IoConfig, TransportConfig};
-    pub use crate::utils::named::{Named, TypeNamed};
+    pub use crate::utils::named::Named;
 
     pub mod client {
-        pub use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+        pub use crate::client::components::{
+            ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
+        };
         pub use crate::client::config::ClientConfig;
         pub use crate::client::config::NetcodeConfig;
         pub use crate::client::events::{
@@ -98,16 +104,21 @@ pub mod prelude {
         };
         pub use crate::client::input::{InputConfig, InputSystemSet};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-        pub use crate::client::interpolation::plugin::{InterpolationConfig, InterpolationDelay};
-        pub use crate::client::interpolation::{
-            InterpFn, InterpolateStatus, Interpolated, InterpolatedComponent,
+        pub use crate::client::interpolation::plugin::{
+            InterpolationConfig, InterpolationDelay, InterpolationSet,
         };
+        pub use crate::client::interpolation::{InterpolateStatus, Interpolated};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
-        pub use crate::client::prediction::plugin::PredictionConfig;
+        pub use crate::client::prediction::correction::Correction;
+        pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
+        pub use crate::netcode::Client as NetClient;
+
+        #[cfg(feature = "leafwing")]
+        pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
     }
     pub mod server {
         #[cfg(feature = "webtransport")]
@@ -120,7 +131,12 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
-        pub use crate::server::room::{RoomId, RoomMut, RoomRef};
+        pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
+
+        #[cfg(feature = "leafwing")]
+        pub use crate::server::input_leafwing::LeafwingInputPlugin;
+
+        pub use crate::netcode::Server as NetServer;
     }
 }
 

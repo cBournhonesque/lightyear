@@ -34,7 +34,7 @@ pub fn channel_impl(
     let gen = quote! {
         #[doc(hidden)]
         mod #module_name {
-            pub use #shared_crate_name::prelude::{Channel, ChannelKind, ChannelBuilder, ChannelContainer, ChannelSettings, TypeNamed};
+            pub use #shared_crate_name::prelude::{Channel, ChannelKind, ChannelBuilder, ChannelContainer, ChannelSettings, Named};
             use super::*;
 
             impl Channel for #struct_name {
@@ -50,10 +50,8 @@ pub fn channel_impl(
                     Self
                 }
             }
-            impl TypeNamed for #struct_name {
-                fn name() -> String {
-                    return #struct_name_str.to_string();
-                }
+            impl Named for #struct_name {
+                const NAME: &'static str = #struct_name_str;
             }
         }
     };

@@ -1,27 +1,20 @@
 //! Specify how a Server sends/receives messages with a Client
-use bevy::utils::{Duration, EntityHashMap, Entry, HashMap};
-use std::rc::Rc;
-
-use crate::_reexport::{
-    EntityUpdatesChannel, InputMessage, MessageBehaviour, MessageKind, PingChannel,
-};
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Entity, World};
-use serde::{Deserialize, Serialize};
+use bevy::prelude::{Entity, Resource, World};
+use bevy::utils::{EntityHashMap, Entry, HashMap, HashSet};
+use serde::Serialize;
 use tracing::{debug, debug_span, info, trace, trace_span};
 
+use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
-use crate::client::sync::SyncConfig;
-use crate::connection::events::{ConnectionEvents, IterMessageEvent};
+use crate::connection::events::ConnectionEvents;
 use crate::connection::message::{ClientMessage, ServerMessage};
-use crate::inputs::input_buffer::InputBuffer;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
-use crate::packet::message_receivers::MessageReceiver;
-use crate::packet::message_sender::MessageSender;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, DefaultUnorderedUnreliableChannel, MapEntities};
+use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -37,6 +30,7 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
+#[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
     pub(crate) connections: HashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
@@ -63,6 +57,47 @@ impl<P: Protocol> ConnectionManager<P> {
         }
     }
 
+    /// Find the list of clients that should receive the replication message
+    pub(crate) fn apply_replication(
+        &mut self,
+        target: NetworkTarget,
+    ) -> Box<dyn Iterator<Item = ClientId>> {
+        // TODO: avoid this vec allocation
+        let connected_clients: Vec<ClientId> = self.connections.keys().copied().collect();
+        match target {
+            NetworkTarget::All => {
+                // TODO: maybe only send stuff when the client is time-synced ?
+                Box::new(connected_clients.into_iter())
+            }
+            NetworkTarget::AllExceptSingle(client_id) => Box::new(
+                connected_clients
+                    .into_iter()
+                    .filter(move |id| *id != client_id),
+            ),
+            NetworkTarget::AllExcept(client_ids) => {
+                let client_ids: HashSet<ClientId> = HashSet::from_iter(client_ids);
+                Box::new(
+                    connected_clients
+                        .into_iter()
+                        .filter(move |id| !client_ids.contains(id)),
+                )
+            }
+            NetworkTarget::Single(client_id) => {
+                if self.connections.contains_key(&client_id) {
+                    Box::new(std::iter::once(client_id))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            }
+            NetworkTarget::Only(client_ids) => Box::new(
+                connected_clients
+                    .into_iter()
+                    .filter(move |id| client_ids.contains(id)),
+            ),
+            NetworkTarget::None => Box::new(std::iter::empty()),
+        }
+    }
+
     pub(crate) fn connection(&self, client_id: ClientId) -> Result<&Connection<P>> {
         self.connections
             .get(&client_id)
@@ -86,7 +121,7 @@ impl<P: Protocol> ConnectionManager<P> {
             #[cfg(feature = "metrics")]
             metrics::increment_gauge!("connected_clients", 1.0);
 
-            debug!("New connection from id: {}", client_id);
+            info!("New connection from id: {}", client_id);
             let mut connection = Connection::new(&self.channel_registry, ping_config);
             connection.events.push_connection();
             self.new_clients.push(client_id);
@@ -158,21 +193,60 @@ impl<P: Protocol> ConnectionManager<P> {
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
-    pub(crate) fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+    /// Queues up a message to be sent to all clients
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.buffer_message(message.into(), ChannelKind::of::<C>(), target)
+    }
+
+    /// Queues up a message to be sent to a client
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        client_id: ClientId,
+        message: M,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
+    }
+
+    /// Buffer all the replication messages to send.
+    /// Keep track of the bevy Change Tick: when a message is acked, we know that we only have to send
+    /// the updates since that Change Tick
+    pub(crate) fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<()> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.connections
             .values_mut()
-            .try_for_each(move |c| c.buffer_replication_messages(tick))
+            .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
     }
 
-    pub fn receive(&mut self, world: &mut World, time_manager: &TimeManager) -> Result<()> {
+    pub fn receive(
+        &mut self,
+        world: &mut World,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+    ) -> Result<()> {
         let mut messages_to_rebroadcast = vec![];
+        // TODO: do this in parallel
         self.connections
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
                 // receive
-                let events = connection.receive(world, time_manager);
+                let events = connection.receive(world, time_manager, tick_manager);
                 self.events.push_events(*client_id, events);
 
                 // rebroadcast messages
@@ -255,7 +329,11 @@ impl<P: Protocol> Connection<P> {
         Ok(())
     }
 
-    pub(crate) fn buffer_replication_messages(&mut self, tick: Tick) -> Result<()> {
+    pub(crate) fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<()> {
         self.replication_sender
             .finalize(tick)
             .into_iter()
@@ -281,7 +359,7 @@ impl<P: Protocol> Connection<P> {
                 if should_track_ack {
                     self.replication_sender
                         .updates_message_id_to_group_id
-                        .insert(message_id, group_id);
+                        .insert(message_id, (group_id, bevy_tick));
                 }
                 Ok(())
             })
@@ -322,14 +400,14 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager
-            .send_packets(tick_manager.current_tick())
+        self.message_manager.send_packets(tick_manager.tick())
     }
 
     pub fn receive(
         &mut self,
         world: &mut World,
         time_manager: &TimeManager,
+        tick_manager: &TickManager,
     ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages::<ClientMessage<P>>() {
@@ -341,10 +419,14 @@ impl<P: Protocol> Connection<P> {
             let _span_channel = trace_span!("channel", channel = channel_name).entered();
 
             if !messages.is_empty() {
-                trace!(?channel_name, "Received messages");
+                trace!(?channel_name, ?messages, "Received messages");
                 for (tick, message) in messages.into_iter() {
                     match message {
                         ClientMessage::Message(mut message, target) => {
+                            trace!(
+                                "remote entity map: {:?}",
+                                self.replication_receiver.remote_entity_map
+                            );
                             // map any entities inside the message
                             message.map_entities(Box::new(
                                 &self.replication_receiver.remote_entity_map,
@@ -357,14 +439,22 @@ impl<P: Protocol> Connection<P> {
                                 ));
                             }
                             // don't put InputMessage into events else the events won't be classified as empty
-                            if message.kind() == MessageKind::of::<InputMessage<P::Input>>() {
-                                trace!("update input buffer");
-                                let input_message = message.try_into().unwrap();
-                                // info!("Received input message: {:?}", input_message);
-                                self.input_buffer.update_from_message(input_message);
-                            } else {
-                                // buffer the message
-                                self.events.push_message(channel_kind, message);
+                            match message.input_message_kind() {
+                                #[cfg(feature = "leafwing")]
+                                InputMessageKind::Leafwing => {
+                                    trace!("received input message, pushing it to events");
+                                    self.events.push_input_message(message);
+                                }
+                                InputMessageKind::Native => {
+                                    trace!("update input buffer");
+                                    let input_message = message.try_into().unwrap();
+                                    // info!("Received input message: {:?}", input_message);
+                                    self.input_buffer.update_from_message(input_message);
+                                }
+                                InputMessageKind::None => {
+                                    // buffer the message
+                                    self.events.push_message(channel_kind, message);
+                                }
                             }
                         }
                         ClientMessage::Replication(replication) => {
@@ -386,19 +476,25 @@ impl<P: Protocol> Connection<P> {
                         }
                     }
                 }
-                // Check if we have any replication messages we can apply to the World (and emit events)
-                for (group, replication_list) in self.replication_receiver.read_messages() {
-                    trace!(?group, ?replication_list, "read replication messages");
-                    replication_list.into_iter().for_each(|(_, replication)| {
+            }
+            // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
+            // Check if we have any replication messages we can apply to the World (and emit events)
+            for (group, replication_list) in
+                self.replication_receiver.read_messages(tick_manager.tick())
+            {
+                trace!(?group, ?replication_list, "read replication messages");
+                replication_list
+                    .into_iter()
+                    .for_each(|(tick, replication)| {
                         // TODO: we could include the server tick when this replication_message was sent.
                         self.replication_receiver.apply_world(
                             world,
+                            tick,
                             replication,
                             group,
                             &mut self.events,
                         );
                     });
-                }
             }
         }
 
@@ -412,9 +508,8 @@ impl<P: Protocol> Connection<P> {
         &mut self,
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
-        bevy_tick: BevyTick,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks(bevy_tick);
+        self.replication_sender.recv_update_acks();
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())

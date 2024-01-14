@@ -1,17 +1,16 @@
 use std::marker::PhantomData;
 
-use crate::_reexport::ShouldBePredicted;
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
-    Commands, Component, Entity, EventReader, Query, RemovedComponents, ResMut, With, Without,
-    World,
+    Commands, Component, Entity, Query, RemovedComponents, ResMut, With, Without, World,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::resource::Client;
+use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 
@@ -39,8 +38,8 @@ pub struct PredictionDespawnMarker {
 
 impl<P: Protocol> Command for PredictionDespawnCommand<P> {
     fn apply(self, world: &mut World) {
-        let client = world.get_resource::<Client<P>>().unwrap();
-        let current_tick = client.tick();
+        let tick_manager = world.get_resource::<TickManager>().unwrap();
+        let current_tick = tick_manager.tick();
 
         let mut predicted_entity_to_despawn: Option<Entity> = None;
 
@@ -111,12 +110,14 @@ pub struct RemovedCache<C: Component>(pub Option<C>);
 
 #[allow(clippy::type_complexity)]
 /// Instead of despawning the entity, we remove all components except the history and the predicted marker
-pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
+pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent, P: Protocol>(
     mut commands: Commands,
     full_query: Query<Entity, (With<C>, With<PredictionDespawnMarker>)>,
     simple_query: Query<(Entity, &C), With<PredictionDespawnMarker>>,
-) {
-    match C::mode() {
+) where
+    P::Components: SyncMetadata<C>,
+{
+    match P::Components::mode() {
         // for full components, we can delete the component
         // it will get re-instated during rollback if the confirmed entity doesn't get despawned
         ComponentSyncMode::Full => {

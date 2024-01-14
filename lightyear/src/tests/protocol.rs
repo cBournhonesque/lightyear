@@ -1,6 +1,8 @@
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, Reflect};
 use bevy::utils::EntityHashSet;
+use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
+
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::*;
@@ -60,15 +62,42 @@ pub enum MyComponentsProtocol {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
 
-impl UserInput for MyInput {}
+impl UserAction for MyInput {}
 
 // Protocol
-protocolize! {
-    Self = MyProtocol,
-    Message = MyMessageProtocol,
-    Component = MyComponentsProtocol,
-    Input = MyInput,
-    Crate = crate,
+cfg_if! {
+    if #[cfg(feature = "leafwing")] {
+        use leafwing_input_manager::Actionlike;
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+        pub enum LeafwingInput1 {
+            Jump,
+        }
+        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput1 {}
+
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+        pub enum LeafwingInput2 {
+            Crouch,
+        }
+        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput2 {}
+
+        protocolize! {
+            Self = MyProtocol,
+            Message = MyMessageProtocol,
+            Component = MyComponentsProtocol,
+            Input = MyInput,
+            LeafwingInput1 = LeafwingInput1,
+            LeafwingInput2 = LeafwingInput2,
+            Crate = crate,
+        }
+    } else {
+        protocolize! {
+            Self = MyProtocol,
+            Message = MyMessageProtocol,
+            Component = MyComponentsProtocol,
+            Input = MyInput,
+            Crate = crate,
+        }
+    }
 }
 
 // Channels

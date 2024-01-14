@@ -2,9 +2,10 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+use bevy::ecs::system::SystemState;
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
+use bevy::{DefaultPlugins, MinimalPlugins};
 
 use crate::netcode::generate_key;
 use crate::prelude::client::{
@@ -130,27 +131,21 @@ impl BevyStepper {
         }
     }
 
-    pub(crate) fn client(&self) -> &Client {
-        self.client_app.world.resource::<Client>()
+    pub(crate) fn client_tick(&self) -> Tick {
+        self.client_app.world.resource::<TickManager>().tick()
     }
-
-    pub(crate) fn client_mut(&mut self) -> Mut<Client> {
-        self.client_app.world.resource_mut::<Client>()
+    pub(crate) fn server_tick(&self) -> Tick {
+        self.server_app.world.resource::<TickManager>().tick()
     }
-
-    pub(crate) fn server(&self) -> &Server {
-        self.server_app.world.resource::<Server>()
-    }
-    pub(crate) fn server_mut(&mut self) -> Mut<Server> {
-        self.server_app.world.resource_mut::<Server>()
-    }
-
     pub(crate) fn init(&mut self) {
-        self.client_mut().connect();
+        self.client_app
+            .world
+            .resource_mut::<crate::netcode::Client>()
+            .connect();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
-            if self.client().is_synced() {
+            if self.client_app.world.resource::<Connection>().is_synced() {
                 break;
             }
             self.frame_step();
