@@ -4,7 +4,7 @@ use tracing::trace;
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::resource::Client;
 use crate::prelude::TickManager;
@@ -35,7 +35,7 @@ pub struct InterpolateStatus<C: Component> {
 /// Invariant: start_tick <= current_interpolate_tick <= end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     config: Res<ClientConfig>,
-    connection: Res<Connection<P>>,
+    connection: Res<ConnectionManager<P>>,
     tick_manager: Res<TickManager>,
     mut query: Query<(&mut C, &mut InterpolateStatus<C>, &mut ConfirmedHistory<C>)>,
 ) where

@@ -2,7 +2,7 @@
 */
 use std::time::Duration;
 
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use bevy::prelude::Res;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, info, trace, warn};
@@ -18,7 +18,7 @@ use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
-pub fn client_is_synced<P: Protocol>(connection: Res<Connection<P>>) -> bool {
+pub fn client_is_synced<P: Protocol>(connection: Res<ConnectionManager<P>>) -> bool {
     connection.sync_manager.is_synced()
 }
 

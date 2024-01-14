@@ -147,7 +147,7 @@ pub(crate) fn handle_interpolated_spawn(
 
 pub(crate) fn log(
     tick_manager: Res<TickManager>,
-    connection: Res<Connection>,
+    ClientConnectionManager: Res<ClientConnectionManager>,
     confirmed: Query<&Position, With<Confirmed>>,
     predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
     mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,

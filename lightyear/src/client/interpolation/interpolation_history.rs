@@ -7,7 +7,7 @@ use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::components::{Confirmed, SyncMetadata};
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
@@ -81,7 +81,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     manager: Res<InterpolationManager>,
     tick_manager: Res<TickManager>,
     mut commands: Commands,
-    connection: Res<Connection<P>>,
+    connection: Res<ConnectionManager<P>>,
     interpolated_entities: Query<Entity, (Without<ConfirmedHistory<C>>, With<Interpolated>)>,
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) where

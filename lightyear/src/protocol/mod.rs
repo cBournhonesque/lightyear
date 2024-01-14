@@ -176,8 +176,8 @@ macro_rules! protocolize {
         pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
         pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
         pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
-        pub type Connection = $shared_crate_name::client::connection::Connection<$protocol>;
-        pub type ConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
+        pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
+        pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
     };
 
@@ -265,8 +265,8 @@ macro_rules! protocolize {
         pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
         pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
         pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
-        pub type Connection = $shared_crate_name::client::connection::Connection<$protocol>;
-        pub type ConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
+        pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
+        pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
     };
 

@@ -132,7 +132,10 @@ pub(crate) fn movement(
 //   because it enables more parallelism
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)
-pub(crate) fn send_message(mut server: ResMut<ConnectionManager>, input: Res<Input<KeyCode>>) {
+pub(crate) fn send_message(
+    mut server: ResMut<ServerConnectionManager>,
+    input: Res<Input<KeyCode>>,
+) {
     if input.pressed(KeyCode::M) {
         // TODO: add way to send message to all
         let message = Message1(5);

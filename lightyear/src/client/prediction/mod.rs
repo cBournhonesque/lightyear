@@ -9,7 +9,7 @@ pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
-use crate::client::connection::Connection;
+use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
@@ -80,7 +80,7 @@ pub(crate) fn clean_prespawned_entity<P: Protocol>(
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity<P: Protocol>(
-    connection: Res<Connection<P>>,
+    connection: Res<ConnectionManager<P>>,
     netclient: Res<crate::netcode::Client>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
