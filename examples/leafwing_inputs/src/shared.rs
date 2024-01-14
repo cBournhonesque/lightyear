@@ -7,9 +7,9 @@ use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::prelude::TickManager
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
+use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 use std::time::Duration;
@@ -91,19 +91,8 @@ impl Plugin for SharedPlugin {
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
-        if app.world.contains_resource::<Client>() {
-            app.add_systems(
-                FixedUpdate,
-                after_physics_log::<Client>.after(FixedUpdateSet::Main),
-            );
-            app.add_systems(Last, last_log::<Client>);
-        }
-        if app.world.contains_resource::<Server>() {
-            app.add_systems(
-                FixedUpdate,
-                after_physics_log::<Server>.after(FixedUpdateSet::Main),
-            );
-        }
+        app.add_systems(FixedUpdate, after_physics_log.after(FixedUpdateSet::Main));
+        app.add_systems(Last, last_log);
 
         // registry types for reflection
         app.register_type::<PlayerId>();

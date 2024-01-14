@@ -119,7 +119,7 @@ pub(crate) fn movement(
     mut position_query: Query<&mut PlayerPosition>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
     global: Res<Global>,
-    server: Res<Server>,
+    tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
         let client_id = input.context();
@@ -128,7 +128,7 @@ pub(crate) fn movement(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
                 client_id,
-                server.tick()
+                tick_manager.tick()
             );
             if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(mut position) = position_query.get_mut(*player_entity) {

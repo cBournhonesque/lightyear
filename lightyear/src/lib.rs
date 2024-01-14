@@ -115,6 +115,7 @@ pub mod prelude {
         pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
+        pub use crate::netcode::Client as NetClient;
 
         #[cfg(feature = "leafwing")]
         pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
@@ -134,6 +135,8 @@ pub mod prelude {
 
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
+
+        pub use crate::netcode::Server as NetServer;
     }
 }
 

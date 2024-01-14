@@ -4,7 +4,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::{EntityHashMap, Entry, HashMap, HashSet};
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -14,7 +14,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, MapEntities};
+use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -191,6 +191,32 @@ impl<P: Protocol> ConnectionManager<P> {
             //  need to update the ServerMessage enum to use Rc<P::Message>!
             //  or serialize first, so we can use Bytes? where would the buffer be?
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
+    }
+
+    /// Queues up a message to be sent to all clients
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.buffer_message(message.into(), ChannelKind::of::<C>(), target)
+    }
+
+    /// Queues up a message to be sent to a client
+    pub fn send_message<C: Channel, M: Message>(
+        &mut self,
+        client_id: ClientId,
+        message: M,
+    ) -> Result<()>
+    where
+        M: Clone,
+        P::Message: From<M>,
+    {
+        self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
 
     /// Buffer all the replication messages to send.

@@ -121,6 +121,19 @@ impl<P: Protocol> Connection<P> {
         self.buffer_message(message.into(), channel, NetworkTarget::None)
     }
 
+    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.buffer_message(message.into(), channel, target)
+    }
+
     pub(crate) fn buffer_message(
         &mut self,
         message: P::Message,
