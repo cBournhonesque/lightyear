@@ -17,16 +17,12 @@ impl<P> Default for ClientDiagnosticsPlugin<P> {
     }
 }
 
-fn io_diagnostics_system<P: Protocol>(
-    mut io: ResMut<Io>,
-    time: Res<Time<Real>>,
-    mut diagnostics: Diagnostics,
-) {
+fn io_diagnostics_system(mut io: ResMut<Io>, time: Res<Time<Real>>, mut diagnostics: Diagnostics) {
     IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
     fn build(&self, app: &mut App) {
         app.add_plugins(IoDiagnosticsPlugin);
-        app.add_systems(PostUpdate, io_diagnostics_system::<P>);
+        app.add_systems(PostUpdate, io_diagnostics_system);
     }
 }

@@ -190,7 +190,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
 /// We automatically add the extra needed information to the component.
 /// - client_entity: is needed to know which entity to use as the predicted entity
 /// - client_id: is needed in case the pre-predicted entity is predicted by other players upon replication
-pub(crate) fn handle_pre_prediction<P: Protocol>(
+pub(crate) fn handle_pre_prediction(
     netcode: Res<crate::netcode::Client>,
     mut query: Query<(Entity, &mut ShouldBePredicted), Without<Confirmed>>,
 ) {

@@ -527,7 +527,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
     }
 }
 
-pub(crate) fn run_rollback<P: Protocol>(world: &mut World) {
+pub(crate) fn run_rollback(world: &mut World) {
     let tick_manager = world.get_resource::<TickManager>().unwrap();
     let rollback = world.get_resource::<Rollback>().unwrap();
 

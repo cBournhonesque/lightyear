@@ -274,7 +274,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PostUpdate,
             (
                 // fill in the client_entity and client_id for pre-predicted entities
-                handle_pre_prediction::<P>.before(ReplicationSet::All),
+                handle_pre_prediction,
                 // clean-up the ShouldBePredicted components after we've sent them
                 clean_prespawned_entity::<P>.after(ReplicationSet::All),
             )
@@ -283,10 +283,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback
-        app.add_systems(
-            PreUpdate,
-            (run_rollback::<P>).in_set(PredictionSet::Rollback),
-        );
+        app.add_systems(PreUpdate, run_rollback.in_set(PredictionSet::Rollback));
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
