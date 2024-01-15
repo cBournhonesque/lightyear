@@ -395,7 +395,7 @@ impl<P: Protocol> GroupChannel<P> {
         };
         // if the message is from the future, keep it there
         if message.0 > current_tick {
-            info!("message tick is from the future compared to our tick");
+            debug!("message tick is from the future compared to our tick");
             return None;
         }
 

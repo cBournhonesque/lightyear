@@ -31,13 +31,13 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Update, draw_boxes);
-            app.add_plugins(LogDiagnosticsPlugin {
-                filter: Some(vec![
-                    IoDiagnosticsPlugin::BYTES_IN,
-                    IoDiagnosticsPlugin::BYTES_OUT,
-                ]),
-                ..default()
-            });
+            // app.add_plugins(LogDiagnosticsPlugin {
+            //     filter: Some(vec![
+            //         IoDiagnosticsPlugin::BYTES_IN,
+            //         IoDiagnosticsPlugin::BYTES_OUT,
+            //     ]),
+            //     ..default()
+            // });
         }
     }
 }

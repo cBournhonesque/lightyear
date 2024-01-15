@@ -174,9 +174,11 @@ fn prepare_input_message<P: Protocol>(
     //  this system what the latest acked input tick is?
 
     // we send redundant inputs, so that if a packet is lost, we can still recover
-    let num_tick = ((config.shared.client_send_interval.as_millis()
-        / config.shared.tick.tick_duration.as_millis())
-        + 1) as u16;
+    let num_tick: u16 = ((config.shared.client_send_interval.as_nanos()
+        / config.shared.tick.tick_duration.as_nanos())
+        + 1)
+    .try_into()
+    .unwrap();
     let redundancy = config.input.packet_redundancy;
     // let redundancy = 3;
     let message_len = redundancy * num_tick;

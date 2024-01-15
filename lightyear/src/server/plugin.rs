@@ -8,7 +8,7 @@ use bevy::prelude::{
 };
 
 use crate::netcode::ClientId;
-use crate::prelude::{TickManager, TimeManager};
+use crate::prelude::TimeManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;

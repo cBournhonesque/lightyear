@@ -132,20 +132,6 @@ impl SyncManager {
         }
     }
 
-    /// Convert the tick information into a [`WrappedTime`]
-    /// Takes into account the generation of the tick
-    fn time_from_tick(tick: Tick, generation: u32, tick_duration: Duration) -> WrappedTime {
-        let raw_time = Duration::from_secs_f32(
-            (tick.0 as f32 + u16::MAX as f32 * generation as f32) * tick_duration.as_secs_f32(),
-        );
-        WrappedTime::from_duration(raw_time)
-    }
-
-    // fn tick_from_time(time: WrappedTime, generation: u32, tick_duration: Duration) -> Tick {
-    //     td * (x + Ag) = Bg' + time
-    //     x = Bg' + time - Ag
-    // }
-
     /// We want to run this update at PostUpdate, after both ticks/time have been updated
     /// (because we need to compare the client tick with the server tick when the server sends packets,
     /// i.e. after both ticks/time have been updated)
@@ -245,25 +231,11 @@ impl SyncManager {
     /// latest received server tick, and our estimate of the RTT
     pub(crate) fn update_server_time_estimate(&mut self, tick_duration: Duration, rtt: Duration) {
         // SAFETY: by that point we have received at least one server packet, so the latest_received_server_tick is not None
-        // let new_server_time_estimate = Self::time_from_tick(
-        //     self.latest_received_server_tick.unwrap(),
-        //     // TODO: get estimate of server generation
-        //     0,
-        //     tick_duration,
-        // ) + self.duration_since_latest_received_server_tick;
-
         let new_server_time_estimate = WrappedTime::from_tick(
             self.latest_received_server_tick.unwrap(),
             self.server_latest_tick_generation(),
             tick_duration,
         ) + self.duration_since_latest_received_server_tick;
-        // let new_server_time_estimate = WrappedTime::from_duration(
-        //     self.latest_received_server_tick.unwrap().0 as u32 * tick_duration
-        //         + self.duration_since_latest_received_server_tick,
-        //     // TODO: the server_time_estimate uses rtt / 2, but we remove it for now so we can
-        //     //  use this estimate for both prediction and interpolation
-        //     // + rtt / 2,
-        // );
 
         // instead of just using the latest_received_server_tick, we apply some smoothing
         // (in case the latest server tick is wildly off-base)
