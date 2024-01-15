@@ -5,7 +5,7 @@ use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Resource, World};
 use serde::Serialize;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -222,6 +222,8 @@ impl<P: Protocol> ConnectionManager<P> {
                 .into_iter()
                 .try_for_each(|mut pong| {
                     trace!("Sending pong {:?}", pong);
+                    // TODO: should we send real time or virtual time here?
+                    //  probably real time if we just want to estimate RTT?
                     // update the send time of the pong
                     pong.pong_sent_time = time_manager.current_time();
                     let message = ClientMessage::<P>::Sync(SyncMessage::Pong(pong));
@@ -282,6 +284,16 @@ impl<P: Protocol> ConnectionManager<P> {
                                 SyncMessage::Pong(pong) => {
                                     // process the pong
                                     self.ping_manager.process_pong(pong, time_manager);
+                                    // update the tick generation from the time + tick information
+                                    self.sync_manager.server_pong_tick = tick;
+                                    self.sync_manager.server_pong_generation = pong
+                                        .pong_sent_time
+                                        .tick_generation(tick_manager.config.tick_duration, tick);
+                                    trace!(
+                                        ?tick,
+                                        generation = ?self.sync_manager.server_pong_generation,
+                                        time = ?pong.pong_sent_time,
+                                        "Updated server pong generation")
                                 }
                             }
                         }

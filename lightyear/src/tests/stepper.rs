@@ -145,7 +145,12 @@ impl BevyStepper {
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
-            if self.client_app.world.resource::<Connection>().is_synced() {
+            if self
+                .client_app
+                .world
+                .resource::<ClientConnectionManager>()
+                .is_synced()
+            {
                 break;
             }
             self.frame_step();

@@ -6,7 +6,7 @@ use anyhow::Context;
 use bevy::prelude::{Entity, World};
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashSet};
-use tracing::{debug, error, trace, trace_span, warn};
+use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
@@ -395,6 +395,7 @@ impl<P: Protocol> GroupChannel<P> {
         };
         // if the message is from the future, keep it there
         if message.0 > current_tick {
+            debug!("message tick is from the future compared to our tick");
             return None;
         }
 

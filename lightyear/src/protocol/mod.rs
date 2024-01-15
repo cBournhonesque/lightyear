@@ -5,9 +5,12 @@
 //! Inputs, Messages and Components are all data structures that can be serialized and sent over the network.
 //! Channels are an abstraction over how the data will be sent over the network (reliability, ordering, etc.)
 
+use anyhow::Context;
 use std::fmt::Debug;
 
 use bevy::prelude::{App, Resource};
+use bitcode::encoding::Fixed;
+use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -395,6 +398,22 @@ where
         reader.deserialize::<Self>()
     }
 }
+
+// impl<T> BitSerializable for T
+// where
+//     T: Encode + Decode + Clone,
+// {
+//     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+//         self.encode(Fixed, writer).context("could not encode")
+//     }
+//
+//     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         <Self as Decode>::decode(Fixed, reader).context("could not decode")
+//     }
+// }
 
 /// Data that can be used in an Event
 /// Same as `Event`, but we implement it automatically for all compatible types

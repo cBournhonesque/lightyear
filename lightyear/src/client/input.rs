@@ -3,7 +3,7 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
@@ -174,9 +174,11 @@ fn prepare_input_message<P: Protocol>(
     //  this system what the latest acked input tick is?
 
     // we send redundant inputs, so that if a packet is lost, we can still recover
-    let num_tick = ((config.shared.client_send_interval.as_micros()
-        / config.shared.tick.tick_duration.as_micros())
-        + 1) as u16;
+    let num_tick: u16 = ((config.shared.client_send_interval.as_nanos()
+        / config.shared.tick.tick_duration.as_nanos())
+        + 1)
+    .try_into()
+    .unwrap();
     let redundancy = config.input.packet_redundancy;
     // let redundancy = 3;
     let message_len = redundancy * num_tick;
@@ -192,6 +194,7 @@ fn prepare_input_message<P: Protocol>(
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
+        trace!("sending input message: {:?}", message);
         connection
             .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {

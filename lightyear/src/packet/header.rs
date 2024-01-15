@@ -14,9 +14,9 @@ use crate::prelude::TimeManager;
 use crate::shared::tick_manager::Tick;
 
 /// Header included at the start of all packets
-// TODO: use packet_struct for encoding
 #[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub(crate) struct PacketHeader {
+    // TODO: this seems useless besides Data vs DataFragment
     /// Type of the packet sent
     packet_type: PacketType,
     /// Packet id from the sender's perspective

@@ -613,7 +613,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<Connection>()
+            .resource::<ClientConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -783,7 +783,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<Connection>()
+            .resource::<ClientConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)

@@ -391,7 +391,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
         }
-        let data = self.buffer.get((tick.0 - start_tick.0) as usize).unwrap();
+        let data = self.buffer.get((tick - start_tick) as usize).unwrap();
         match data {
             BufferItem::Absent => None,
             BufferItem::SameAsPrecedent => {

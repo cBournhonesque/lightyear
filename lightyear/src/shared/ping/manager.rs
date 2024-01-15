@@ -1,8 +1,9 @@
 //! Manages sending/receiving pings and computing network statistics
 use std::time::Duration;
 
+use crate::prelude::Tick;
 use bevy::time::Stopwatch;
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
@@ -23,7 +24,7 @@ pub struct PingConfig {
 impl Default for PingConfig {
     fn default() -> Self {
         PingConfig {
-            ping_interval: Duration::from_millis(50),
+            ping_interval: Duration::from_millis(100),
             stats_buffer_duration: Duration::from_secs(4),
         }
     }
@@ -49,6 +50,8 @@ pub struct PingManager {
     pub(crate) sync_stats: SyncStatsBuffer,
     /// Current best estimates of various networking statistics
     final_stats: FinalStats,
+    /// Generation of the tick
+    remote_tick_generation: u16,
 }
 
 /// Connection stats aggregated over several [`SyncStats`]
@@ -88,6 +91,7 @@ impl PingManager {
             sync_stats: SyncStatsBuffer::new(),
             // TODO: should we start with a bigger RTT estimate?
             final_stats: FinalStats::default(),
+            remote_tick_generation: 0,
         }
     }
 
@@ -228,7 +232,9 @@ impl PingManager {
             self.most_recent_received_ping = pong.ping_id;
 
             // round-trip-delay
+            // info!(?received_time, ?ping_sent_time, "rtt");
             let rtt = received_time - ping_sent_time;
+            // info!(pong_sent_time = ?pong.pong_sent_time, ping_received_time = ?pong.ping_received_time, "server process time");
             let server_process_time = pong.pong_sent_time - pong.ping_received_time;
             trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.pong_sent_time, ?pong.ping_received_time, "process pong");
             let round_trip_delay = (rtt - server_process_time).to_std().unwrap_or_default();
@@ -236,6 +242,7 @@ impl PingManager {
             // update stats buffer
             self.sync_stats
                 .add_item(received_time, SyncStats { round_trip_delay });
+
             // recompute stats whenever we get a new pong
             self.compute_stats();
         }
@@ -266,6 +273,7 @@ impl PingManager {
     pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, time_manager: &TimeManager) {
         self.pongs_to_send.push(Pong {
             ping_id: ping.id,
+            // TODO: we want to use real time no?
             ping_received_time: time_manager.current_time(),
             // TODO: can we get a more precise time? (based on real)?
             // TODO: otherwise we can consider that there's an entire tick duration between receive and sent
