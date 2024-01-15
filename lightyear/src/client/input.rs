@@ -194,7 +194,7 @@ fn prepare_input_message<P: Protocol>(
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        trace!("sending input message: {:?}", message);
+        trace!("sending input message: {:?}", message.end_tick);
         connection
             .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {

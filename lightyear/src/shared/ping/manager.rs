@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
 
         let delta = Duration::from_millis(100);
-        time_manager.update(delta, Duration::default());
+        time_manager.update(delta);
         ping_manager.update(&time_manager);
 
         // send pings
@@ -313,12 +313,12 @@ mod tests {
             Some(Ping { id: PingId(0) })
         );
         let delta = Duration::from_millis(60);
-        time_manager.update(delta, Duration::default());
+        time_manager.update(delta);
         ping_manager.update(&time_manager);
 
         // ping timer hasn't gone off yet, send nothing
         assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
-        time_manager.update(delta, Duration::default());
+        time_manager.update(delta);
         ping_manager.update(&time_manager);
         assert_eq!(
             ping_manager.maybe_prepare_ping(&time_manager),
@@ -326,7 +326,7 @@ mod tests {
         );
 
         let delta = Duration::from_millis(100);
-        time_manager.update(delta, Duration::default());
+        time_manager.update(delta);
         ping_manager.update(&time_manager);
         assert_eq!(
             ping_manager.maybe_prepare_ping(&time_manager),

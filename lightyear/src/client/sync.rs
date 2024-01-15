@@ -55,7 +55,7 @@ impl Default for SyncConfig {
             handshake_pings: 3,
             error_margin: 0.5,
             max_error_margin: 5.0,
-            speedup_factor: 1.1,
+            speedup_factor: 1.05,
             // server_time_estimate_smoothing: 0.0,
             server_time_estimate_smoothing: 0.2,
         }
@@ -143,6 +143,8 @@ impl SyncManager {
         interpolation_delay: &InterpolationDelay,
         server_send_interval: Duration,
     ) {
+        // TODO: we are in PostUpdate, so this seems incorrect? this uses the previous-frame's delta,
+        //  but instead we want to add the duration since the start of frame?
         self.duration_since_latest_received_server_tick += time_manager.delta();
         self.server_time_estimate += time_manager.delta();
         self.interpolation_time += time_manager.delta().mul_f32(self.interpolation_speed_ratio);
@@ -193,7 +195,7 @@ impl SyncManager {
         let generation = if (client_tick_raw - self.latest_received_server_tick.unwrap().0 as i32)
             < (i16::MIN as i32)
         {
-            trace!("client tick has changed generation");
+            info!("client tick is one generation ahead of server tick");
             self.server_latest_tick_generation() + 1
         } else {
             self.server_latest_tick_generation()
@@ -203,8 +205,9 @@ impl SyncManager {
             tick_manager.tick(),
             generation,
             tick_manager.config.tick_duration,
-        );
-        trace!(
+        ) + time_manager.overstep();
+        // when getting time from ticks, don't forget the overstep
+        debug!(
             ?generation,
             current_tick = ?tick_manager.tick(),
             "current_prediction_time: {:?}", res);
@@ -219,7 +222,7 @@ impl SyncManager {
     fn server_latest_tick_generation(&self) -> u16 {
         // check if the latest_server_tick has crossed a generation compared to the latest pong tick
         if self.latest_received_server_tick.unwrap().0 < self.server_pong_tick.0 {
-            trace!("server tick crossed a generation");
+            info!("server tick crossed a generation");
             self.server_pong_generation + 1
         } else {
             self.server_pong_generation
@@ -230,6 +233,7 @@ impl SyncManager {
     /// Update the estimated current server time, computed from the time elapsed since the
     /// latest received server tick, and our estimate of the RTT
     pub(crate) fn update_server_time_estimate(&mut self, tick_duration: Duration, rtt: Duration) {
+        // TODO: should we add the time since
         // SAFETY: by that point we have received at least one server packet, so the latest_received_server_tick is not None
         let new_server_time_estimate = WrappedTime::from_tick(
             self.latest_received_server_tick.unwrap(),
@@ -426,7 +430,7 @@ impl SyncManager {
         .unwrap();
 
         if error > max_error_margin_time || error < -max_error_margin_time {
-            debug!(
+            info!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
@@ -511,7 +515,7 @@ impl SyncManager {
         let delta_tick = client_ideal_tick - tick_manager.tick();
         // Update client ticks
         if rtt != Duration::default() {
-            debug!(
+            info!(
                 buffer_len = ?ping_manager.sync_stats.len(),
                 ?rtt,
                 ?jitter,

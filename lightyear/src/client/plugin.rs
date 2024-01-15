@@ -2,14 +2,12 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use crate::client::connection::ConnectionManager;
+use crate::client::connection::{replication_clean, ConnectionManager};
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
-use bevy::prelude::IntoSystemSetConfigs;
-use bevy::prelude::{
-    apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
-    Plugin as PluginType, PostUpdate, PreUpdate,
-};
+use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy::transform::TransformSystem;
+use bevy::utils::Duration;
 
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
@@ -27,7 +25,7 @@ use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::systems::tick::increment_tick;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
 
 use super::config::ClientConfig;
@@ -64,7 +62,7 @@ impl<P: Protocol> ClientPlugin<P> {
     }
 }
 
-impl<P: Protocol> PluginType for ClientPlugin<P> {
+impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
 
@@ -77,6 +75,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             crate::netcode::Client::with_config(&token_bytes, config.client_config.netcode.build())
                 .expect("could not create netcode client");
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
+        let clean_interval = fixed_timestep * (i16::MAX as u32 / 3);
 
         add_replication_send_systems::<P, ConnectionManager<P>>(app);
         P::Components::add_per_component_replication_send_systems::<ConnectionManager<P>>(app);
@@ -98,6 +97,9 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),
             ))
+            .add_plugins(TimePlugin {
+                send_interval: config.client_config.shared.client_send_interval,
+            })
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // RESOURCES //
             .insert_resource(config.client_config.clone())
@@ -108,9 +110,6 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                 config.client_config.sync,
                 &config.client_config.ping,
                 config.client_config.prediction.input_delay_ticks,
-            ))
-            .insert_resource(TimeManager::new(
-                config.client_config.shared.client_send_interval,
             ))
             .insert_resource(ConnectionEvents::<P>::new())
             .insert_resource(config.protocol)
@@ -179,6 +178,10 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     send::<P>.in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
+            )
+            .add_systems(
+                Last,
+                replication_clean::<P>.run_if(on_timer(clean_interval)),
             );
     }
 }

@@ -49,6 +49,7 @@ impl TickManager {
         self.tick = tick;
     }
 
+    /// Get the current tick of the local app
     pub fn tick(&self) -> Tick {
         self.tick
     }

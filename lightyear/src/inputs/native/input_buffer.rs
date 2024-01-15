@@ -21,7 +21,7 @@ pub struct InputBuffer<T: UserAction> {
 // TODO: add encode directive to encode even more efficiently
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-enum InputData<T: UserAction> {
+pub(crate) enum InputData<T: UserAction> {
     Absent,
     SameAsPrecedent,
     Input(T),
@@ -32,9 +32,9 @@ enum InputData<T: UserAction> {
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
 pub struct InputMessage<T: UserAction> {
-    end_tick: Tick,
+    pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
-    inputs: Vec<InputData<T>>,
+    pub(crate) inputs: Vec<InputData<T>>,
 }
 
 impl<T: UserAction> InputMessage<T> {
@@ -132,7 +132,6 @@ impl<T: UserAction> InputBuffer<T> {
         }
         // safety: we are guaranteed that the tick is in the buffer
         *self.buffer.get_mut((tick - start_tick) as usize).unwrap() = value;
-        trace!("buffer: {:?}", self.buffer)
     }
 
     /// We received a new input message from the user, and use it to update the input buffer
