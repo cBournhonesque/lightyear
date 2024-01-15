@@ -3,7 +3,7 @@ use bevy::ecs::system::{SystemChangeTick, SystemState};
 use bevy::prelude::{Events, Fixed, Mut, ParamSet, Res, ResMut, Time, Virtual, World};
 use std::ops::DerefMut;
 use std::time::Duration;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::resource::ClientMut;
@@ -32,7 +32,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         |world: &mut World, mut room_manager: Mut<RoomManager>| {
                                             let delta = world.resource::<Time<Virtual>>().delta();
                                             let overstep = world.resource::<Time<Fixed>>().overstep();
-
                                             // UPDATE: update server state, send keep-alives, receive packets from io
                                             // update time manager
                                             time_manager.update(delta, overstep);
@@ -58,7 +57,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                 connection_manager.remove(client_id);
                                                 room_manager.client_disconnect(client_id);
                                             };
-
 
                                             // RECV_PACKETS: buffer packets into message managers
                                             while let Some((mut reader, client_id)) = netcode.recv() {

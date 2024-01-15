@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::prelude::Tick;
 use bevy::time::Stopwatch;
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
@@ -24,7 +24,7 @@ pub struct PingConfig {
 impl Default for PingConfig {
     fn default() -> Self {
         PingConfig {
-            ping_interval: Duration::from_millis(50),
+            ping_interval: Duration::from_millis(100),
             stats_buffer_duration: Duration::from_secs(4),
         }
     }
@@ -232,7 +232,9 @@ impl PingManager {
             self.most_recent_received_ping = pong.ping_id;
 
             // round-trip-delay
+            // info!(?received_time, ?ping_sent_time, "rtt");
             let rtt = received_time - ping_sent_time;
+            // info!(pong_sent_time = ?pong.pong_sent_time, ping_received_time = ?pong.ping_received_time, "server process time");
             let server_process_time = pong.pong_sent_time - pong.ping_received_time;
             trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.pong_sent_time, ?pong.ping_received_time, "process pong");
             let round_trip_delay = (rtt - server_process_time).to_std().unwrap_or_default();

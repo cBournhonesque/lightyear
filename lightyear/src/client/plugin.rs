@@ -100,9 +100,6 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             ))
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // RESOURCES //
-            .insert_resource(TickManager::from_config(
-                config.client_config.shared.tick.clone(),
-            ))
             .insert_resource(config.client_config.clone())
             .insert_resource(config.io)
             .insert_resource(netcode)

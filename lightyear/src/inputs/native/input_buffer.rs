@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, trace};
 
 use lightyear_macros::MessageInternal;
 
@@ -129,7 +129,7 @@ impl<T: UserAction> InputBuffer<T> {
         }
         // safety: we are guaranteed that the tick is in the buffer
         *self.buffer.get_mut((tick - start_tick) as usize).unwrap() = value;
-        info!("buffer: {:?}", self.buffer)
+        trace!("buffer: {:?}", self.buffer)
     }
 
     /// We received a new input message from the user, and use it to update the input buffer

@@ -470,8 +470,8 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     //  this system what the latest acked input tick is?
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let num_tick = ((config.shared.client_send_interval.as_micros()
-        / config.shared.tick.tick_duration.as_micros())
+    let num_tick = ((config.shared.client_send_interval.as_millis()
+        / config.shared.tick.tick_duration.as_millis())
         + 1) as u16;
     let redundancy = config.input.packet_redundancy;
     let message_len = redundancy * num_tick;

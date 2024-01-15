@@ -29,18 +29,13 @@ pub struct TickManager {
     pub config: TickConfig,
     /// Current tick (sequence number of the FixedUpdate schedule)
     tick: Tick,
-    // /// Current generation of tick (used to detect wraparound, but not networked)
-    // /// This is set at the start on the server.
-    // /// On the client, we will copy the generation from the server
-    // pub(crate) generation: Option<u32>,
 }
 
 impl TickManager {
     pub(crate) fn from_config(config: TickConfig) -> Self {
         Self {
             config,
-            tick: Tick(65300),
-            // generation: None,
+            tick: Tick(0),
         }
     }
 
@@ -48,11 +43,7 @@ impl TickManager {
     #[doc(hidden)]
     pub fn increment_tick(&mut self) {
         self.tick += 1;
-        // if self.tick.0 == 0 {
-        //     info!("increment tick generation");
-        //     self.generation += 1;
-        // }
-        info!(new_tick = ?self.tick, "incremented client tick")
+        trace!(new_tick = ?self.tick, "incremented tick")
     }
     pub(crate) fn set_tick_to(&mut self, tick: Tick) {
         self.tick = tick;
@@ -61,8 +52,4 @@ impl TickManager {
     pub fn tick(&self) -> Tick {
         self.tick
     }
-
-    // pub(crate) fn generation(&self) -> u32 {
-    //     self.generation
-    // }
 }
