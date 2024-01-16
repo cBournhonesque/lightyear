@@ -19,7 +19,8 @@ pub mod position {
 
     impl LerpFn<Position> for PositionLinearInterpolation {
         fn lerp(start: Position, other: Position, t: f32) -> Position {
-            let res = Position::new(start.0 * (1.0 - t) + other.0 * t);
+            //let res = Position::new(start.0 * (1.0 - t) + other.0 * t);
+            let res = Position::new(start.0.lerp(other.0, t));
             trace!(
                 "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
                 start,
@@ -53,25 +54,17 @@ pub mod rotation {
 
     impl LerpFn<Rotation> for RotationLinearInterpolation {
         fn lerp(start: Rotation, other: Rotation, t: f32) -> Rotation {
-            /*let shortest_angle =
-                ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
-            let res = Rotation::from_degrees(start.as_degrees() + shortest_angle * t);
-            // // as_radians() returns a value between -Pi and Pi
-            // // add Pi to get positive values, for interpolation
-            // let res = Rotation::from_radians(
-            //     (start.as_radians() + std::f32::consts::PI) * (1.0 - t)
-            //         + (other.as_radians() + std::f32::consts::PI) * t,
-            // );
-            trace!(
-                "rotation lerp: start: {:?} end: {:?} t: {} res: {:?}",
-                start.as_degrees(),
-                other.as_degrees(),
-                t,
-                res.as_degrees()
-            );*/
             let start_quat: Quat = start.into();
             let other_quat: Quat = other.into();
-            let res = Rotation::from(start_quat.lerp(other_quat, t));
+            // using slerp to get a better interpolation for rotations
+            let res = Rotation::from(start_quat.slerp(other_quat, t));
+            trace!(
+                "rotation slerp: start: {:?} end: {:?} t: {} res: {:?}",
+                start,
+                other,
+                t,
+                res
+            );
             res
         }
     }
