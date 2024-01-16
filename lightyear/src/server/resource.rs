@@ -80,7 +80,7 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
     /// Sends keep-alive packets + any non-payload packet needed for netcode
     pub(crate) fn update(&mut self, delta: Duration) -> Result<()> {
         // update time manager
-        self.time_manager.update(delta, Duration::default());
+        self.time_manager.update(delta);
 
         // update netcode server
         let context = self

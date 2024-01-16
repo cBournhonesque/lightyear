@@ -31,10 +31,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                     world.resource_scope(
                                         |world: &mut World, mut room_manager: Mut<RoomManager>| {
                                             let delta = world.resource::<Time<Virtual>>().delta();
-                                            let overstep = world.resource::<Time<Fixed>>().overstep();
                                             // UPDATE: update server state, send keep-alives, receive packets from io
                                             // update time manager
-                                            time_manager.update(delta, overstep);
+                                            time_manager.update(delta);
+                                            trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
                                             // update netcode server
                                             let context = netcode

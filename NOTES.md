@@ -4,14 +4,13 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
-- ROLLBACK:
-  - why do we have an immediate rollback upon replication saying that predicted_exist=False and confirmed_exist=True?
-  - is it because we receive a component update on the server-timeline, so we NEED to rollback immediately to get the component
-    to reach the client-timeline?
-
 - SYNC:
-  - why is server time not updating correctly?
-  - why is sync breaking after 25000 ticks?
+  - why is sync breaking after 32700 ticks?
+  - if we set the client_tick to something else, then the relationship between time_manager and sync is broken,
+    so the timemanager's overstep is not trustworthy anymore?
+  - time gets updated during the First system, but i need the time at the end of the frame, so i need to run the time-systems myself
+    before PostUpdate!
+  - we must use the overstep only after FixedUpdate, because that's when it's updated
 
 - PHYSICS:
   - A: if I run FixedUpdate::MAIN AFTER PhysicsSets, I have a smooth physics simulation on client

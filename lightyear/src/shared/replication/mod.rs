@@ -76,7 +76,9 @@ pub struct EntityActionMessage<C, K: Hash + Eq> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
-    last_action_tick: Tick,
+    /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
+    /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
+    last_action_tick: Option<Tick>,
     pub(crate) updates: Vec<(Entity, Vec<C>)>,
 }
 
