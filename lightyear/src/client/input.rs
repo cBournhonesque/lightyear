@@ -181,13 +181,13 @@ fn receive_tick_events<P: Protocol>(
         match tick_event {
             TickEvent::TickSnap { old_tick, new_tick } => {
                 // if the tick got updated, update our inputs to match our new ticks
-                connection.input_buffer.start_tick.map(|start_tick| {
+                if let Some(start_tick) = connection.input_buffer.start_tick {
                     info!(
                         "Receive tick snap event {:?}. Updating input buffer start_tick!",
                         tick_event
                     );
-                    connection.input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick))
-                });
+                    connection.input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                };
             }
         }
     }
