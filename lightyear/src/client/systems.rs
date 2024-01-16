@@ -17,6 +17,7 @@ use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::tick_manager::TickEvent;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");
@@ -173,25 +174,30 @@ pub(crate) fn sync_update<P: Protocol>(
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,
     mut virtual_time: ResMut<Time<Virtual>>,
+    mut tick_events: EventWriter<TickEvent>,
 ) {
     let connection = connection.into_inner();
     if netclient.is_connected() {
         // NOTE: this triggers change detection
         // Handle pongs, update RTT estimates, update client prediction time
-        connection.sync_manager.update(
+        if let Some(tick_event) = connection.sync_manager.update(
             time_manager.deref_mut(),
             tick_manager.deref_mut(),
             &connection.ping_manager,
             &config.interpolation.delay,
             config.shared.server_send_interval,
-        );
+        ) {
+            tick_events.send(tick_event);
+        }
 
         if connection.sync_manager.is_synced() {
-            connection.sync_manager.update_prediction_time(
+            if let Some(tick_event) = connection.sync_manager.update_prediction_time(
                 time_manager.deref_mut(),
                 tick_manager.deref_mut(),
                 &connection.ping_manager,
-            );
+            ) {
+                tick_events.send(tick_event);
+            }
         }
     }
 
