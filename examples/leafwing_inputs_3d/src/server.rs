@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, MeshShape};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use bevy_xpbd_3d::prelude::*;
@@ -75,7 +75,7 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     //commands.spawn(Camera2dBundle::default());
     //if plugin.headless {
         commands.spawn(Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 10.0, 0.5)
+            transform: Transform::from_xyz(0.0, 20.0, 0.5)
                 .looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         });
@@ -183,7 +183,15 @@ pub(crate) fn replicate_players(
             e.insert((
                 replicate,
                 // not all physics components are replicated over the network, so add them on the server as well
+                Name::new(format!("Player {}", client_id)),
                 PhysicsBundle::player(),
+                // MeshShape cant replicate cause shape (Mesh) is not serializable
+                MeshShape {
+                    shape: shape::Cube { size: PLAYER_SIZE }.into(),
+                    color: Color::rgb(0.8, 0.7, 0.6),
+                },
+                TransformBundle::default(),
+                VisibilityBundle::default(),
             ));
         }
     }
