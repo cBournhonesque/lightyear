@@ -52,7 +52,7 @@ leafwing-input-manager = { version = "0.11.2", optional = true }
 
 # physics
 bevy_xpbd_2d = { version = "0.3.3", optional = true }
-bevy_xpbd_3d = { version = "0.3.3", optional = true }
+bevy_xpbd_3d = { version = "0.3.3", features = ["serialize", "3d", "f32", "parallel"], default-features = false, optional = true }
 
 # transport
 wtransport = { version = "0.1.9", optional = true }
