@@ -339,15 +339,15 @@ mod tests {
         // check ping store
         assert_eq!(
             ping_manager.ping_store.remove(PingId(0)),
-            Some(WrappedTime::new(100000))
+            Some(WrappedTime::new(100))
         );
         assert_eq!(
             ping_manager.ping_store.remove(PingId(1)),
-            Some(WrappedTime::new(220000))
+            Some(WrappedTime::new(220))
         );
         assert_eq!(
             ping_manager.ping_store.remove(PingId(2)),
-            Some(WrappedTime::new(320000))
+            Some(WrappedTime::new(320))
         );
 
         // receive pongs

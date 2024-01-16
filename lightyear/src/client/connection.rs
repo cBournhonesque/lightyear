@@ -332,7 +332,7 @@ impl<P: Protocol> ConnectionManager<P> {
                                     self.sync_manager.server_pong_generation = pong
                                         .pong_sent_time
                                         .tick_generation(tick_manager.config.tick_duration, tick);
-                                    info!(
+                                    trace!(
                                         ?tick,
                                         generation = ?self.sync_manager.server_pong_generation,
                                         time = ?pong.pong_sent_time,

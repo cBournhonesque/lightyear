@@ -487,9 +487,8 @@ impl<P: Protocol> Connection<P> {
                                     self.events.push_input_message(message);
                                 }
                                 InputMessageKind::Native => {
-                                    trace!("update input buffer");
                                     let input_message = message.try_into().unwrap();
-                                    info!("Received input message: {:?}", input_message.end_tick);
+                                    trace!("Received input message: {:?}", input_message.end_tick);
                                     self.input_buffer.update_from_message(input_message);
                                 }
                                 InputMessageKind::None => {

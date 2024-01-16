@@ -195,7 +195,7 @@ impl SyncManager {
         let generation = if (client_tick_raw - self.latest_received_server_tick.unwrap().0 as i32)
             < (i16::MIN as i32)
         {
-            info!("client tick is one generation ahead of server tick");
+            debug!("client tick is one generation ahead of server tick");
             self.server_latest_tick_generation() + 1
         } else {
             self.server_latest_tick_generation()
@@ -222,7 +222,7 @@ impl SyncManager {
     fn server_latest_tick_generation(&self) -> u16 {
         // check if the latest_server_tick has crossed a generation compared to the latest pong tick
         if self.latest_received_server_tick.unwrap().0 < self.server_pong_tick.0 {
-            info!("server tick crossed a generation");
+            debug!("latest server tick is a generation compared to the server pong tick");
             self.server_pong_generation + 1
         } else {
             self.server_pong_generation
@@ -430,7 +430,7 @@ impl SyncManager {
         .unwrap();
 
         if error > max_error_margin_time || error < -max_error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,
@@ -515,7 +515,7 @@ impl SyncManager {
         let delta_tick = client_ideal_tick - tick_manager.tick();
         // Update client ticks
         if rtt != Duration::default() {
-            info!(
+            debug!(
                 buffer_len = ?ping_manager.sync_stats.len(),
                 ?rtt,
                 ?jitter,

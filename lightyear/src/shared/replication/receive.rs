@@ -86,15 +86,22 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 // TODO: include somewhere in the update message the m.last_ack_tick since when we compute changes?
                 //  (if we want to do diff compression?
                 // otherwise buffer the update
-                channel
-                    .buffered_updates_with_last_action_tick
-                    // if we don't have a last_action_state for this update (which means that we don't need to wait for any
-                    // action message)
-                    // we'll just assign channel.latest_tick as the last_action_state (meaning that the update can be applied immediately)
-                    .entry(m.last_action_tick.unwrap_or(channel.latest_tick.unwrap()))
-                    .or_default()
-                    .entry(remote_tick)
-                    .or_insert(m);
+                match m.last_action_tick {
+                    None => {
+                        channel
+                            .buffered_updates_without_last_action_tick
+                            .entry(remote_tick)
+                            .or_insert(m);
+                    }
+                    Some(last_action_tick) => {
+                        channel
+                            .buffered_updates_with_last_action_tick
+                            .entry(last_action_tick)
+                            .or_default()
+                            .entry(remote_tick)
+                            .or_insert(m);
+                    }
+                };
             }
         }
         trace!(?channel, "group channel after buffering");
@@ -134,8 +141,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     /// (i.e. the latest server tick at which we received an update for that entity)
     pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
         self.channel_by_local(confirmed_entity)
-            .map(|channel| channel.latest_tick)
-            .flatten()
+            .and_then(|channel| channel.latest_tick)
     }
 
     /// Get the replication group id associated with a given local entity
@@ -364,6 +370,9 @@ pub struct GroupChannel<P: Protocol> {
     // the second tick is the update's server tick when it was sent
     pub buffered_updates_with_last_action_tick:
         BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
+    // updates for which there is no condition on the last_action_tick: we can apply them immediately
+    pub buffered_updates_without_last_action_tick:
+        BTreeMap<Tick, EntityUpdatesMessage<P::Components>>,
     /// remote tick of the latest update/action that we applied to the local group
     pub latest_tick: Option<Tick>,
 }
@@ -375,6 +384,7 @@ impl<P: Protocol> Default for GroupChannel<P> {
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
             buffered_updates_with_last_action_tick: Default::default(),
+            buffered_updates_without_last_action_tick: Default::default(),
             latest_tick: None,
         }
     }
@@ -434,13 +444,22 @@ impl<P: Protocol> GroupChannel<P> {
             std::mem::take(&mut self.buffered_updates_with_last_action_tick);
         for (_, mut updates) in buffered_updates_to_consider.into_iter() {
             // remove all updates whose tick is <= latest_tick
-            let updates = updates.split_off(&latest_tick);
-            for (tick, update) in updates {
+            for (tick, update) in updates.split_off(&self.latest_tick.unwrap()) {
                 self.latest_tick = Some(tick);
                 res.push((tick, update));
             }
         }
+        // keep updates for which we are waiting for the action_tick
         self.buffered_updates_with_last_action_tick = not_ready;
+
+        // apply all the updates for the buffered updates that have no last_action_tick
+        // remove all updates whose tick is <= latest_tick
+        let mut buffered_updates_to_consider =
+            std::mem::take(&mut self.buffered_updates_without_last_action_tick);
+        for (tick, update) in buffered_updates_to_consider.split_off(&self.latest_tick.unwrap()) {
+            self.latest_tick = Some(tick);
+            res.push((tick, update));
+        }
         res
     }
 
