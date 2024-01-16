@@ -286,10 +286,10 @@ pub(crate) fn shared_movement_behaviour(
 ) {
     const MOVE_SPEED: f32 = 1.0;
     if action.pressed(PlayerActions::Up) {
-        velocity.y += MOVE_SPEED;
+        velocity.z -= MOVE_SPEED;
     }
     if action.pressed(PlayerActions::Down) {
-        velocity.y -= MOVE_SPEED;
+        velocity.z += MOVE_SPEED;
     }
     if action.pressed(PlayerActions::Left) {
         velocity.x -= MOVE_SPEED;

@@ -109,7 +109,7 @@ impl PhysicsBundle {
     pub(crate) fn player() -> Self {
         Self {
             collider: Collider::cuboid(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE),
-            collider_density: ColliderDensity(1.2),
+            collider_density: ColliderDensity(5.8),
             rigid_body: RigidBody::Dynamic,
         }
     }

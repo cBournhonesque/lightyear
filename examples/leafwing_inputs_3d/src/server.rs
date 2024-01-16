@@ -75,7 +75,7 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     //commands.spawn(Camera2dBundle::default());
     //if plugin.headless {
         commands.spawn(Camera3dBundle {
-            transform: Transform::from_xyz(5.0, 10.0, 2.0)
+            transform: Transform::from_xyz(0.0, 10.0, 0.5)
                 .looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         });
