@@ -388,6 +388,9 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
         let Some(start_tick) = self.start_tick else {
             return None;
         };
+        if self.buffer.is_empty() {
+            return None;
+        }
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
         }
