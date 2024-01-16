@@ -24,7 +24,6 @@ use crate::protocol::Protocol;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::systems::tick::increment_tick;
 use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
 
@@ -141,6 +140,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
+                        // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         MainSet::SendPackets,
                     )
                         .in_set(MainSet::Send)
@@ -167,7 +167,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .add_systems(
                 PreUpdate,
                 (
-                    (receive::<P>).in_set(MainSet::Receive),
+                    receive::<P>.in_set(MainSet::Receive),
                     apply_deferred.in_set(MainSet::ReceiveFlush),
                 ),
             )

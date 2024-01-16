@@ -488,7 +488,7 @@ impl<P: Protocol> Connection<P> {
                                 }
                                 InputMessageKind::Native => {
                                     let input_message = message.try_into().unwrap();
-                                    trace!("Received input message: {:?}", input_message.end_tick);
+                                    debug!("Received input message: {:?}", input_message.end_tick);
                                     self.input_buffer.update_from_message(input_message);
                                 }
                                 InputMessageKind::None => {
