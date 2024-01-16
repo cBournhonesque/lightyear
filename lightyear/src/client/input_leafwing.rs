@@ -153,6 +153,7 @@ where
                 generate_action_diffs::<A>
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
+                    .after(InputManagerSystem::ManualControl)
                     .after(InputManagerSystem::Tick),
                 add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
             ),
