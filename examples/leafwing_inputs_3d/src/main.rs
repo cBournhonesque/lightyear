@@ -110,6 +110,7 @@ fn setup(app: &mut App, cli: Cli) {
                 port,
                 transport,
                 predict_all: predict,
+                headless: headless,
             };
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());

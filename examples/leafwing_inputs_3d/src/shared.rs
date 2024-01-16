@@ -37,6 +37,12 @@ pub fn shared_config() -> SharedConfig {
     }
 }
 
+#[derive(Component)]
+pub struct MeshShape {
+    shape: Mesh,
+    color: Color,
+}
+
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
@@ -72,6 +78,12 @@ impl Plugin for SharedPlugin {
         }
         // bundles
         app.add_systems(Startup, init);
+
+        if app.is_plugin_added::<RenderPlugin>() {
+            // only run *add_meshes_for_rendering* if we have the renderplugin added
+            // this avoid issues when running headless
+            app.add_systems(Update, add_meshes_for_rendering);
+        }
 
         // physics
         app.add_plugins(PhysicsPlugins::new(FixedUpdate))
@@ -125,15 +137,7 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
 const WALL_HEIGHT:f32 = 10.0;
 pub(crate) fn init(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    //commands.spawn(
-    //    AmbientLight {
-    //        color: Color::WHITE,
-    //        brightness: 0.5,
-    //    }
-    //);
     commands.spawn((
         PointLightBundle {
             transform: Transform::from_translation(Vec3::new(-2.0, 2.0, -2.0)),
@@ -149,16 +153,18 @@ pub(crate) fn init(
 
     // left wall
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(shape::Box::new(
+        MeshShape {
+            shape: shape::Box::new(
                 0.10,
                 WALL_HEIGHT,
                 10.0,
-            ).into()),
-            transform: Transform::from_translation(
+            ).into(),
+            color: Color::rgb_u8(124, 144, 255).into(),
+        },
+        TransformBundle {
+            local: Transform::from_translation(
                 Vec3::new(-5.0, WALL_HEIGHT * 0.5, 0.0)
-            ).with_rotation(Quat::from_rotation_y(0.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255).into()),
+            ),
             ..Default::default()
         },
         PhysicsBundle {
@@ -169,16 +175,18 @@ pub(crate) fn init(
     ));
     // right wall
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(shape::Box::new(
+        MeshShape {
+            shape: shape::Box::new(
                 0.10,
                 WALL_HEIGHT,
                 10.0,
-            ).into()),
-            transform: Transform::from_translation(
+            ).into(),
+            color: Color::rgb_u8(124, 144, 255).into(),
+        },
+        TransformBundle {
+            local: Transform::from_translation(
                 Vec3::new(5.0, WALL_HEIGHT * 0.5, 0.0)
-            ).with_rotation(Quat::from_rotation_y(0.0)),
-            material: materials.add(Color::rgb_u8(124, 144, 255).into()),
+            ),
             ..Default::default()
         },
         PhysicsBundle {
@@ -189,16 +197,18 @@ pub(crate) fn init(
     ));
     // top wall
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(shape::Box::new(
+        MeshShape {
+            shape: shape::Box::new(
                 0.10,
                 WALL_HEIGHT,
                 10.0,
-            ).into()),
-            transform: Transform::from_translation(
+            ).into(),
+            color: Color::rgb_u8(124, 144, 255).into(),
+        },
+        TransformBundle {
+            local: Transform::from_translation(
                 Vec3::new(0.0, WALL_HEIGHT * 0.5, 5.0)
             ).with_rotation(Quat::from_rotation_y(90.0_f32.to_radians())),
-            material: materials.add(Color::rgb_u8(124, 144, 255).into()),
             ..Default::default()
         },
         PhysicsBundle {
@@ -209,16 +219,18 @@ pub(crate) fn init(
     ));
     // bottom wall
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(shape::Box::new(
+        MeshShape {
+            shape: shape::Box::new(
                 0.10,
                 WALL_HEIGHT,
                 10.0,
-            ).into()),
-            transform: Transform::from_translation(
+            ).into(),
+            color: Color::rgb_u8(124, 144, 255).into(),
+        },
+        TransformBundle {
+            local: Transform::from_translation(
                 Vec3::new(0.0, WALL_HEIGHT * 0.5, -5.0)
             ).with_rotation(Quat::from_rotation_y(90.0_f32.to_radians())),
-            material: materials.add(Color::rgb_u8(124, 144, 255).into()),
             ..Default::default()
         },
         PhysicsBundle {
@@ -229,12 +241,14 @@ pub(crate) fn init(
     ));
 
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(shape::Plane { size: 10.0, subdivisions: 10 }.into()),
-            transform: Transform::from_translation(
-                Vec3::new(0.0, 0.0, 0.0)
+        MeshShape {
+            shape: shape::Plane { size: 10.0, subdivisions: 10 }.into(),
+            color: Color::rgb_u8(0x7c, 0x80, 0x76),
+        },
+        TransformBundle {
+            local: Transform::from_translation(
+                Vec3::ZERO
             ),
-            material: materials.add(Color::rgb_u8(0x7c, 0x80, 0x76).into()),
             ..Default::default()
         },
         PhysicsBundle {
@@ -243,6 +257,26 @@ pub(crate) fn init(
             rigid_body: RigidBody::Static,
         },
     ));
+}
+
+// This system looks for entities with a MeshShape component and adds a PbrBundle to them
+//
+pub(crate) fn add_meshes_for_rendering(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    query: Query<(Entity, &MeshShape), (Added<MeshShape>, Without<Handle<Mesh>>)>,
+) {
+
+    for (entity, mesh_shape) in query.iter() {
+        commands.entity(entity).insert((
+            meshes.add(mesh_shape.shape.clone()),
+            materials.add(mesh_shape.color.into()),
+            VisibilityBundle {
+                ..Default::default()
+            },
+        ));
+    }
 }
 
 // This system defines how we update the player's positions when we receive an input

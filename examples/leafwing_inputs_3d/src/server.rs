@@ -19,6 +19,7 @@ pub struct MyServerPlugin {
     ///
     /// If this is false, we will predict the client's entites but simple interpolate everything else.
     pub(crate) predict_all: bool,
+    pub(crate) headless: bool,
 }
 
 impl Plugin for MyServerPlugin {
@@ -72,11 +73,13 @@ impl Plugin for MyServerPlugin {
 
 pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     //commands.spawn(Camera2dBundle::default());
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(5.0, 10.0, 2.0)
-            .looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    //if plugin.headless {
+        commands.spawn(Camera3dBundle {
+            transform: Transform::from_xyz(5.0, 10.0, 2.0)
+                .looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        });
+    //}
 
     commands.spawn(
         TextBundle::from_section(
