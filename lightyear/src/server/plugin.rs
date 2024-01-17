@@ -3,6 +3,7 @@ use bevy::app::Last;
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use crate::_reexport::ShouldBeInterpolated;
 use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
@@ -10,7 +11,7 @@ use bevy::prelude::{
 use bevy::time::common_conditions::on_timer;
 
 use crate::netcode::ClientId;
-use crate::prelude::TimeManager;
+use crate::prelude::{ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -18,6 +19,7 @@ use crate::server::connection::replication_clean;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::input::InputPlugin;
+use crate::server::prediction::compute_hash;
 use crate::server::resource::Server;
 use crate::server::room::RoomPlugin;
 use crate::server::systems::clear_events;
@@ -116,6 +118,9 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 PostUpdate,
                 (
                     (
+                        // we need to set the value of hash before replicating the component
+                        ReplicationSet::SetPreSpawnedHash
+                            .before(ReplicationSet::SendComponentUpdates),
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
                         ReplicationSet::SendDespawnsAndRemovals,
@@ -127,7 +132,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                         MainSet::SendPackets,
                     )
                         .in_set(MainSet::Send),
-                    // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
+                    // some replication systems have to run once per frame, so we cannot put them in the `Send` set
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
                 ),
@@ -150,6 +155,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
+                    compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
                     send::<P>.in_set(MainSet::SendPackets),
                     clear_events::<P>.in_set(MainSet::ClearEvents),
                 ),

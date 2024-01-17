@@ -121,6 +121,10 @@ pub fn component_protocol_impl(
     });
     input.variants.push(parse_quote! {
         // #[sync(external)]
+        PreSpawnedPlayerObject(PreSpawnedPlayerObject)
+    });
+    input.variants.push(parse_quote! {
+        // #[sync(external)]
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     #[cfg(feature = "leafwing")]

@@ -9,8 +9,8 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, trace, warn};
 
-use crate::_reexport::FromType;
-use crate::prelude::{MainSet, NetworkTarget};
+use crate::_reexport::{FromType, ShouldBeInterpolated};
+use crate::prelude::{MainSet, NetworkTarget, ShouldBePredicted};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
@@ -430,6 +430,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
     })
 }
 
+// add replication systems that are shared between client and server
 pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mut App) {
     // we need to add despawn trackers immediately for entities for which we add replicate
     app.add_systems(

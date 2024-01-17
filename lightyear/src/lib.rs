@@ -68,6 +68,7 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
+    pub use crate::client::prediction::spawn::PreSpawnedPlayerObject;
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::LeafwingUserAction;
     pub use crate::inputs::native::UserAction;
@@ -79,7 +80,7 @@ pub mod prelude {
     pub use crate::shared::config::SharedConfig;
     pub use crate::shared::log::LogConfig;
     pub use crate::shared::ping::manager::PingConfig;
-    pub use crate::shared::plugin::SharedPlugin;
+    pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
         NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };

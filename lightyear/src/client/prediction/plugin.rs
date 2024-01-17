@@ -17,6 +17,7 @@ use crate::client::prediction::despawn::{
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
 use crate::client::prediction::resource::PredictionManager;
+use crate::client::prediction::spawn::{compute_hash, spawn_pre_spawned_player_object};
 use crate::client::resource::Client;
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
@@ -266,9 +267,21 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // no need, since we spawn predicted entities/components in replication
         app.add_systems(
             PreUpdate,
-            // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
-            //  not at every fixed-update tick, since it only depends on server messages
-            (spawn_predicted_entity::<P>, despawn_confirmed).in_set(PredictionSet::SpawnPrediction),
+            (
+                // we first try to see if the entity was a PreSpawnedPlayerObject
+                // if we couldn't match it then the component gets removed
+                // and then should we try the normal Prediction flow, or just consider that there was an error?
+                (
+                    spawn_pre_spawned_player_object::<P>,
+                    // apply_deferred,
+                    spawn_predicted_entity::<P>,
+                )
+                    .chain(),
+                // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
+                //  not at every fixed-update tick, since it only depends on server messages
+                despawn_confirmed,
+            )
+                .in_set(PredictionSet::SpawnPrediction),
         );
         app.add_systems(
             PostUpdate,
@@ -277,6 +290,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 handle_pre_prediction,
                 // clean-up the ShouldBePredicted components after we've sent them
                 clean_prespawned_entity::<P>.after(ReplicationSet::All),
+                // compute hashes for all pre-spawned player objects
+                compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
             )
                 .run_if(is_connected),
         );

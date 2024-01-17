@@ -4,6 +4,15 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+- PRESPAWNING:
+  - the entity is spawned on the client on predicted timeline, and then on server
+  - the server will grab authority over the entity, 
+  - EDGE CASES TO TEST:
+    - what happens if multiple entities have the same hash at the same tick?
+    - what happens if we can't match the pre-spawned entity? should then spawn it as normal predicted?
+  - DEBUG
+    - we now have a bunch of mismatches at the start for pre-predicted entities
+
 - SYNC:
   - why is sync breaking after 32700 ticks?
   - if we set the client_tick to something else, then the relationship between time_manager and sync is broken,

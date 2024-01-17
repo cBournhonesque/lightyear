@@ -43,7 +43,7 @@ impl PlayerBundle {
             replicate: Replicate {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: REPLICATION_GROUP,
+                replication_group: ReplicationGroup::Group(id),
                 ..default()
             },
             inputs: InputManagerBundle::<PlayerActions> {

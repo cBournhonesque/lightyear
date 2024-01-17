@@ -69,7 +69,11 @@ impl Plugin for SharedPlugin {
 
         // registry types for reflection
         app.register_type::<PlayerId>();
-        app.add_systems(Update, (shoot_bullet, move_bullet));
+        app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
+        // every system that is phyics-based and can be rolled-back has to be scheduled
+        // in FixedUpdateSet::Main
+        app.add_systems(FixedUpdate, move_bullet.in_set(FixedUpdateSet::Main));
+        app.add_systems(Update, shoot_bullet);
     }
 }
 
@@ -124,6 +128,27 @@ pub(crate) fn shared_player_movement(
     }
 }
 
+pub(crate) fn fixed_update_log(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    ball: Query<(Entity, &Transform), (With<BallMarker>, Without<Confirmed>)>,
+) {
+    let mut tick = tick_manager.tick();
+    if let Some(rollback) = rollback {
+        if let RollbackState::ShouldRollback { current_tick } = rollback.state {
+            tick = current_tick;
+        }
+    }
+    for (entity, transform) in ball.iter() {
+        info!(
+            ?tick,
+            ?entity,
+            pos = ?transform.translation.truncate(),
+            "Ball after fixed update"
+        );
+    }
+}
+
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn move_bullet(
     mut commands: Commands,
@@ -145,28 +170,61 @@ pub(crate) fn move_bullet(
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
+    tick_manager: Res<TickManager>,
+    identity: NetworkIdentity,
     mut query: Query<
-        (&Transform, &ColorComponent, &mut ActionState<PlayerActions>),
+        (
+            &PlayerId,
+            &Transform,
+            &ColorComponent,
+            &mut ActionState<PlayerActions>,
+        ),
         (Without<Interpolated>, Without<Confirmed>),
     >,
 ) {
+    let tick = tick_manager.tick();
     const BALL_MOVE_SPEED: f32 = 10.0;
-    for (transform, color, mut action) in query.iter_mut() {
-        // TODO: just_pressed should work since we're running this in Update, but it doesn't. It only spawns one bullet
-        //  on the client, but it spawns many bullets on the server, which is weird
-        //  if we were running this in FixedUpdate, we would need to `consume` the action.
-
+    for (id, transform, color, mut action) in query.iter_mut() {
+        // TODO:  if we were running this in FixedUpdate, we would need to `consume` the action. (in case there are several fixed-update steps
+        //  ine one frame)
         // NOTE: pressed lets you shoot many bullets, which can be cool
         if action.just_pressed(PlayerActions::Shoot) {
             // action.consume(PlayerActions::Shoot);
-            // info!("consume shoot");
+
+            info!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
             let ball = BallBundle::new(
                 transform.translation.truncate(),
                 transform.rotation.to_euler(EulerRot::XYZ).2,
                 color.0,
                 false,
             );
-            commands.spawn(ball);
+            // on the server, replicate the bullet
+            if identity.is_server() {
+                commands.spawn((
+                    ball,
+                    // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
+                    //  but the server will take authority as soon as the client receives the entity
+                    //  it does this by matching with the client entity that has the same hash
+                    //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
+                    //  unless you set the hash manually before PostUpdate to a value of your choice
+                    PreSpawnedPlayerObject::default(),
+                    Replicate {
+                        replication_target: NetworkTarget::All,
+                        // the bullet is predicted for the client who shot it
+                        prediction_target: NetworkTarget::Single(id.0),
+                        // the bullet is interpolated for other clients
+                        interpolation_target: NetworkTarget::AllExceptSingle(id.0),
+                        // NOTE: all predicted entities need to have the same replication group
+                        replication_group: ReplicationGroup::Group(id.0),
+                        ..default()
+                    },
+                ));
+            } else {
+                // on the client, just spawn the ball
+                // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
+                //  but the server will take authority as soon as the client receives the entity
+                commands.spawn((ball, PreSpawnedPlayerObject::default()));
+            }
         }
     }
 }
@@ -174,6 +232,23 @@ pub(crate) fn shoot_bullet(
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
     players: Query<(&Transform, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
+    // // we will change the color of balls when they become predicted (i.e. adopt server authority)
+    // prespawned_balls: Query<
+    //     (&Transform, &ColorComponent),
+    //     (
+    //         With<PreSpawnedPlayerObject>,
+    //         Without<Predicted>,
+    //         With<BallMarker>,
+    //     ),
+    // >,
+    // predicted_balls: Query<
+    //     (&Transform, &ColorComponent),
+    //     (
+    //         Without<PreSpawnedPlayerObject>,
+    //         With<Predicted>,
+    //         With<BallMarker>,
+    //     ),
+    // >,
     balls: Query<(&Transform, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
 ) {
     for (transform, color) in &players {
@@ -191,4 +266,8 @@ pub(crate) fn draw_elements(
     for (transform, color) in &balls {
         gizmos.circle_2d(transform.translation.truncate(), BALL_SIZE, color.0);
     }
+    // for (transform, color) in &prespawned_balls {
+    //     let color = color.0.set
+    //     gizmos.circle_2d(transform.translation.truncate(), BALL_SIZE, color.0);
+    // }
 }

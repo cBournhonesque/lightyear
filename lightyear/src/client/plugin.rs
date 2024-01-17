@@ -2,6 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use crate::_reexport::ShouldBeInterpolated;
 use crate::client::connection::{replication_clean, ConnectionManager};
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use bevy::prelude::*;
@@ -17,7 +18,7 @@ use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{receive, send, sync_update};
 use crate::connection::events::ConnectionEvents;
-use crate::prelude::{ReplicationSet, TimeManager};
+use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -131,6 +132,8 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .configure_sets(
                 PostUpdate,
                 (
+                    // the client hash component is not replicated to the server, so there's no ordering constraint
+                    ReplicationSet::SetPreSpawnedHash.in_set(ReplicationSet::All),
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,

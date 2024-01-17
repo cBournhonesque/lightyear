@@ -8,11 +8,11 @@ use bevy::reflect::Map;
 use bevy::utils::{EntityHashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind, ShouldBeInterpolated};
 use crate::channel::builder::Channel;
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, Tick};
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, ShouldBePredicted, Tick};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
