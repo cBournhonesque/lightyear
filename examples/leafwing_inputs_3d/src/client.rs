@@ -15,8 +15,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const INPUT_DELAY_TICKS: u16 = 0;
-pub const CORRECTION_TICKS_FACTOR: f32 = 1.0;
+pub const INPUT_DELAY_TICKS: u16 = 20;
+pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
@@ -139,14 +139,14 @@ pub(crate) fn init(
             ..default()
         }),
     );
-    let x = plugin.client_id as f32 * 1.2;
+    let x = plugin.client_id as f32 * 3.0;
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
     //if plugin.client_id == 2 {
         commands.spawn((
             Name::new(format!("LocalPlayer {}", plugin.client_id)),
             PlayerBundle::new(
                 plugin.client_id,
-                Vec3::new(x, 2.0, 0.0),
+                Vec3::new(-5.0 + x, 2.0, 0.0),
                 color_from_id(plugin.client_id),
                 InputMap::new([
                     (KeyCode::W, PlayerActions::Up),

@@ -181,9 +181,9 @@ pub(crate) fn replicate_players(
             ]));
             if plugin.predict_all {
                 replicate.prediction_target = NetworkTarget::All;
-                // if we predict other players, we need to replicate their actions to all clients other than the original one
-                // (the original client will apply the actions locally)
-                replicate.disable_replicate_once::<ActionState<PlayerActions>>();
+                // // if we predict other players, we need to replicate their actions to all clients other than the original one
+                // // (the original client will apply the actions locally)
+                // replicate.disable_replicate_once::<ActionState<PlayerActions>>();
             } else {
                 // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
                 replicate.prediction_target = NetworkTarget::Only(vec![*client_id]);

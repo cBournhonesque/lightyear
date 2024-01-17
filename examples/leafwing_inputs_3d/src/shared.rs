@@ -89,7 +89,7 @@ impl Plugin for SharedPlugin {
         app.add_plugins(PhysicsPlugins::new(FixedUpdate))
             .insert_resource(Time::new_with(Physics::fixed_once_hz(FIXED_TIMESTEP_HZ)))
             //.insert_resource(Gravity(Vec3::ZERO));
-            .insert_resource(Gravity(Vec3::new(0.0, -0.2, 0.0)));
+            .insert_resource(Gravity(Vec3::new(0.0, -10.0, 0.0)));
         app.configure_sets(
             FixedUpdate,
             // make sure that any physics simulation happens after the Main SystemSet
