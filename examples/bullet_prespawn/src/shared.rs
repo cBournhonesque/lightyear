@@ -26,7 +26,7 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
         log: LogConfig {
-            level: Level::WARN,
+            level: Level::INFO,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
         },
@@ -56,13 +56,13 @@ impl Plugin for SharedPlugin {
                     .after(InterpolationSet::Interpolate)
                     .after(PredictionSet::VisualCorrection),
             );
-            app.add_plugins(LogDiagnosticsPlugin {
-                filter: Some(vec![
-                    IoDiagnosticsPlugin::BYTES_IN,
-                    IoDiagnosticsPlugin::BYTES_OUT,
-                ]),
-                ..default()
-            });
+            // app.add_plugins(LogDiagnosticsPlugin {
+            //     filter: Some(vec![
+            //         IoDiagnosticsPlugin::BYTES_IN,
+            //         IoDiagnosticsPlugin::BYTES_OUT,
+            //     ]),
+            //     ..default()
+            // });
             app.add_systems(Startup, setup_diagnostic);
             app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
@@ -129,7 +129,7 @@ pub(crate) fn move_bullet(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Transform), With<BallMarker>>,
 ) {
-    const BALL_MOVE_SPEED: f32 = 20.0;
+    const BALL_MOVE_SPEED: f32 = 3.0;
     const MAP_LIMIT: f32 = 2000.0;
     for (entity, mut transform) in query.iter_mut() {
         let movement_direction = transform.rotation * Vec3::Y;
@@ -152,9 +152,14 @@ pub(crate) fn shoot_bullet(
 ) {
     const BALL_MOVE_SPEED: f32 = 10.0;
     for (transform, color, mut action) in query.iter_mut() {
-        // TODO: just_pressed should work
-        if action.pressed(PlayerActions::Shoot) {
-            action.consume(PlayerActions::Shoot);
+        // TODO: just_pressed should work since we're running this in Update, but it doesn't. It only spawns one bullet
+        //  on the client, but it spawns many bullets on the server, which is weird
+        //  if we were running this in FixedUpdate, we would need to `consume` the action.
+
+        // NOTE: pressed lets you shoot many bullets, which can be cool
+        if action.just_pressed(PlayerActions::Shoot) {
+            // action.consume(PlayerActions::Shoot);
+            // info!("consume shoot");
             let ball = BallBundle::new(
                 transform.translation.truncate(),
                 transform.rotation.to_euler(EulerRot::XYZ).2,

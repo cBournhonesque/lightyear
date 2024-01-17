@@ -60,7 +60,7 @@ impl PlayerBundle {
 pub(crate) struct BallBundle {
     transform: Transform,
     color: ColorComponent,
-    replicate: Replicate,
+    // replicate: Replicate,
     marker: BallMarker,
 }
 
@@ -71,22 +71,22 @@ impl BallBundle {
         color: Color,
         predicted: bool,
     ) -> Self {
-        let mut replicate = Replicate {
-            replication_target: NetworkTarget::None,
-            ..default()
-        };
-        if predicted {
-            replicate.prediction_target = NetworkTarget::All;
-            replicate.replication_group = REPLICATION_GROUP;
-        } else {
-            replicate.interpolation_target = NetworkTarget::All;
-        }
+        // let mut replicate = Replicate {
+        //     replication_target: NetworkTarget::None,
+        //     ..default()
+        // };
+        // if predicted {
+        //     replicate.prediction_target = NetworkTarget::All;
+        //     replicate.replication_group = REPLICATION_GROUP;
+        // } else {
+        //     replicate.interpolation_target = NetworkTarget::All;
+        // }
         let mut transform = Transform::from_xyz(position.x, position.y, 0.0);
         transform.rotate_z(rotation_radians);
         Self {
             transform,
             color: ColorComponent(color),
-            replicate,
+            // replicate,
             marker: BallMarker,
         }
     }

@@ -60,7 +60,8 @@ where
         // app.init_resource::<GlobalActions<A>>();
         // TODO: add a resource tracking the action-state of all clients
         // PLUGINS
-        // NOTE: we do note add the leafwing server plugin because it just ticks Action-States
+        // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+        app.add_plugins(InputManagerPlugin::<A>::server());
         // SETS
         app.configure_sets(
             FixedUpdate,
@@ -171,6 +172,7 @@ fn update_action_state<A: LeafwingUserAction>(
         trace!(
             ?tick,
             ?entity,
+            ?action_diff_buffer,
             "action state: {:?}. Latest action diff buffer tick: {:?}",
             &action_state.get_pressed(),
             action_diff_buffer.end_tick(),
