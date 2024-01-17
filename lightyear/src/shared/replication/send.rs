@@ -7,7 +7,7 @@ use bevy::prelude::Entity;
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashMap, HashSet};
 use crossbeam_channel::Receiver;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
@@ -286,7 +286,7 @@ impl<P: Protocol> ReplicationSender<P> {
             let channel = self.group_channels.entry(group_id).or_default();
             let message_id = channel.actions_next_send_message_id;
             channel.actions_next_send_message_id += 1;
-            channel.last_action_tick = tick;
+            channel.last_action_tick = Some(tick);
             messages.push((
                 ChannelKind::of::<EntityActionsChannel>(),
                 group_id,
@@ -305,6 +305,7 @@ impl<P: Protocol> ReplicationSender<P> {
                 ChannelKind::of::<EntityUpdatesChannel>(),
                 group_id,
                 ReplicationMessageData::Updates(EntityUpdatesMessage {
+                    // SAFETY: the last action tick is always set because we send Actions before Updates
                     last_action_tick: channel.last_action_tick,
                     // TODO: maybe we can just send the HashMap directly?
                     updates: Vec::from_iter(updates.into_iter()),
@@ -313,7 +314,7 @@ impl<P: Protocol> ReplicationSender<P> {
         }
 
         if !messages.is_empty() {
-            trace!(?messages, "Sending replication messages");
+            debug!(?messages, "Sending replication messages");
         }
 
         // clear send buffers
@@ -322,26 +323,23 @@ impl<P: Protocol> ReplicationSender<P> {
     }
 }
 
-/// Channel to keep track of receiving/sending replication messages for a given Group
+/// Channel to keep track of sending replication messages for a given Group
 #[derive(Debug)]
 pub struct GroupChannel {
-    // SEND
     pub actions_next_send_message_id: MessageId,
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
     // bevy tick when we received an ack of an update for this group
     // at the start it's None, and we collect any changes
     pub collect_changes_since_this_tick: Option<BevyTick>,
     // last tick for which we sent an action message
-    pub last_action_tick: Tick,
+    pub last_action_tick: Option<Tick>,
 }
 
 impl Default for GroupChannel {
     fn default() -> Self {
         Self {
             actions_next_send_message_id: MessageId(0),
-            // we start with a very high last_action_tick, so that we need to receive the Actions message
-            // before handling any Updates messages
-            last_action_tick: Tick(0) - 1,
+            last_action_tick: None,
             collect_changes_since_this_tick: None,
         }
     }
@@ -390,7 +388,7 @@ mod tests {
         manager.group_channels.insert(
             group_2,
             GroupChannel {
-                last_action_tick: Tick(3),
+                last_action_tick: Some(Tick(3)),
                 ..Default::default()
             },
         );
@@ -464,7 +462,7 @@ mod tests {
                 ChannelKind::of::<EntityUpdatesChannel>(),
                 group_2,
                 ReplicationMessageData::Updates(EntityUpdatesMessage {
-                    last_action_tick: Tick(3),
+                    last_action_tick: Some(Tick(3)),
                     updates: vec![(
                         entity_3,
                         vec![MyComponentsProtocol::Component3(Component3(5.0))]
@@ -486,7 +484,7 @@ mod tests {
                 .get(&group_1)
                 .unwrap()
                 .last_action_tick,
-            Tick(2)
+            Some(Tick(2))
         );
     }
 }

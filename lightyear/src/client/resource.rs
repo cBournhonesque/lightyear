@@ -73,8 +73,8 @@ pub struct ClientMut<'w, 's, P: Protocol> {
 
 impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     /// Maintain connection with server, queues up any packet received from the server
-    pub(crate) fn update(&mut self, delta: Duration, overstep: Duration) -> Result<()> {
-        self.time_manager.update(delta, overstep);
+    pub(crate) fn update(&mut self, delta: Duration) -> Result<()> {
+        self.time_manager.update(delta);
         self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
 
         // only start the connection (sending messages, sending pings, starting sync, etc.)

@@ -61,7 +61,6 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 if m.sequence_id < channel.actions_pending_recv_message_id {
                     return;
                 }
-
                 // update the list of entities in the group
                 m.actions
                     .iter()
@@ -77,20 +76,32 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     .insert(m.sequence_id, (remote_tick, m));
             }
             ReplicationMessageData::Updates(m) => {
+                // NOTE: this is valid instead after tick wrapping because we keep clamping the latest_tick values
+                //  for each channel
                 // if we have already applied a more recent update for this group, no need to keep this one
-                if remote_tick <= channel.latest_tick {
+                if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
                     return;
                 }
 
                 // TODO: include somewhere in the update message the m.last_ack_tick since when we compute changes?
                 //  (if we want to do diff compression?
                 // otherwise buffer the update
-                channel
-                    .buffered_updates
-                    .entry(m.last_action_tick)
-                    .or_default()
-                    .entry(remote_tick)
-                    .or_insert(m);
+                match m.last_action_tick {
+                    None => {
+                        channel
+                            .buffered_updates_without_last_action_tick
+                            .entry(remote_tick)
+                            .or_insert(m);
+                    }
+                    Some(last_action_tick) => {
+                        channel
+                            .buffered_updates_with_last_action_tick
+                            .entry(last_action_tick)
+                            .or_default()
+                            .entry(remote_tick)
+                            .or_insert(m);
+                    }
+                };
             }
         }
         trace!(?channel, "group channel after buffering");
@@ -130,7 +141,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     /// (i.e. the latest server tick at which we received an update for that entity)
     pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
         self.channel_by_local(confirmed_entity)
-            .map(|channel| channel.latest_tick)
+            .and_then(|channel| channel.latest_tick)
     }
 
     /// Get the replication group id associated with a given local entity
@@ -185,7 +196,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                trace!(?tick, ?m, "Received replication actions");
+                debug!(?tick, ?m, "Received replication actions");
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
@@ -297,7 +308,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
             }
             ReplicationMessageData::Updates(m) => {
-                trace!(?tick, ?m, "Received replication updates");
+                debug!(?tick, ?m, "Received replication updates");
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists
@@ -355,11 +366,15 @@ pub struct GroupChannel<P: Protocol> {
         BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
     // updates
     // map from necessary_last_action_tick to the buffered message
-    // the first tick is the last_action_tick
+    // the first tick is the last_action_tick (we can only apply the update if the last action tick has been reached)
     // the second tick is the update's server tick when it was sent
-    pub buffered_updates: BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
+    pub buffered_updates_with_last_action_tick:
+        BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
+    // updates for which there is no condition on the last_action_tick: we can apply them immediately
+    pub buffered_updates_without_last_action_tick:
+        BTreeMap<Tick, EntityUpdatesMessage<P::Components>>,
     /// remote tick of the latest update/action that we applied to the local group
-    pub latest_tick: Tick,
+    pub latest_tick: Option<Tick>,
 }
 
 impl<P: Protocol> Default for GroupChannel<P> {
@@ -368,8 +383,9 @@ impl<P: Protocol> Default for GroupChannel<P> {
             remote_entities: HashSet::default(),
             actions_pending_recv_message_id: MessageId(0),
             actions_recv_message_buffer: BTreeMap::new(),
-            buffered_updates: Default::default(),
-            latest_tick: Tick(0),
+            buffered_updates_with_last_action_tick: Default::default(),
+            buffered_updates_without_last_action_tick: Default::default(),
+            latest_tick: None,
         }
     }
 }
@@ -407,27 +423,43 @@ impl<P: Protocol> GroupChannel<P> {
 
         self.actions_pending_recv_message_id += 1;
         // Update the latest server tick that we have processed
-        self.latest_tick = message.0;
+        self.latest_tick = Some(message.0);
         Some(message)
     }
 
     fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage<P::Components>)> {
+        // if we haven't applied any actions (latest_tick is None) we cannot apply any updates
+        let Some(latest_tick) = self.latest_tick else {
+            return vec![];
+        };
         // go through all the buffered updates whose last_action_tick has been reached
         // (the update's last_action_tick <= latest_tick)
-        let not_ready = self.buffered_updates.split_off(&(self.latest_tick + 1));
+        let not_ready = self
+            .buffered_updates_with_last_action_tick
+            .split_off(&(latest_tick + 1));
 
         let mut res = vec![];
-        let buffered_updates_to_consider = std::mem::take(&mut self.buffered_updates);
-        for (necessary_action_tick, updates) in buffered_updates_to_consider.into_iter() {
-            for (tick, update) in updates {
-                // only push the update if the update's tick is more recent than the entity's current latest_tick
-                if self.latest_tick < tick {
-                    self.latest_tick = tick;
-                    res.push((tick, update));
-                }
+
+        let buffered_updates_to_consider =
+            std::mem::take(&mut self.buffered_updates_with_last_action_tick);
+        for (_, mut updates) in buffered_updates_to_consider.into_iter() {
+            // remove all updates whose tick is <= latest_tick
+            for (tick, update) in updates.split_off(&self.latest_tick.unwrap()) {
+                self.latest_tick = Some(tick);
+                res.push((tick, update));
             }
         }
-        self.buffered_updates = not_ready;
+        // keep updates for which we are waiting for the action_tick
+        self.buffered_updates_with_last_action_tick = not_ready;
+
+        // apply all the updates for the buffered updates that have no last_action_tick
+        // remove all updates whose tick is <= latest_tick
+        let mut buffered_updates_to_consider =
+            std::mem::take(&mut self.buffered_updates_without_last_action_tick);
+        for (tick, update) in buffered_updates_to_consider.split_off(&self.latest_tick.unwrap()) {
+            self.latest_tick = Some(tick);
+            res.push((tick, update));
+        }
         res
     }
 
@@ -522,7 +554,7 @@ mod tests {
             ReplicationMessage {
                 group_id: ReplicationGroupId(0),
                 data: ReplicationMessageData::Updates(EntityUpdatesMessage {
-                    last_action_tick: Tick(0),
+                    last_action_tick: Some(Tick(0)),
                     updates: Default::default(),
                 }),
             },
@@ -532,7 +564,7 @@ mod tests {
             .group_channels
             .get(&group_id)
             .unwrap()
-            .buffered_updates
+            .buffered_updates_with_last_action_tick
             .get(&Tick(0))
             .unwrap()
             .get(&Tick(1))
@@ -543,7 +575,7 @@ mod tests {
             ReplicationMessage {
                 group_id: ReplicationGroupId(0),
                 data: ReplicationMessageData::Updates(EntityUpdatesMessage {
-                    last_action_tick: Tick(2),
+                    last_action_tick: Some(Tick(2)),
                     updates: Default::default(),
                 }),
             },
@@ -553,7 +585,7 @@ mod tests {
             .group_channels
             .get(&group_id)
             .unwrap()
-            .buffered_updates
+            .buffered_updates_with_last_action_tick
             .get(&Tick(2))
             .unwrap()
             .get(&Tick(4))

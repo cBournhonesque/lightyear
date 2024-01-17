@@ -1,4 +1,5 @@
 //! Defines the server bevy plugin
+use bevy::app::Last;
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
@@ -6,12 +7,14 @@ use bevy::prelude::{
     apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin as PluginType, PostUpdate, PreUpdate,
 };
+use bevy::time::common_conditions::on_timer;
 
 use crate::netcode::ClientId;
 use crate::prelude::TimeManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::server::connection::replication_clean;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::input::InputPlugin;
@@ -22,8 +25,7 @@ use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::ReplicationSet;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::systems::tick::increment_tick;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
 
 use super::config::ServerConfig;
@@ -65,6 +67,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let netserver = crate::netcode::Server::new(config.server_config.netcode.clone());
 
+        let tick_duration = config.server_config.shared.tick.tick_duration;
+        // TODO: have better constants for clean_interval?
+        let clean_interval = tick_duration * (i16::MAX as u32 / 3);
+
         // TODO: maybe put those 2 in a ReplicationPlugin?
         add_replication_send_systems::<P, ConnectionManager<P>>(app);
         P::Components::add_per_component_replication_send_systems::<ConnectionManager<P>>(app);
@@ -80,10 +86,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             })
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
+            .add_plugins(TimePlugin {
+                send_interval: config.server_config.shared.server_send_interval,
+            })
             // RESOURCES //
-            .insert_resource(TimeManager::new(
-                config.server_config.shared.server_send_interval,
-            ))
             .insert_resource(config.server_config)
             .insert_resource(config.io)
             .insert_resource(netserver)
@@ -146,6 +152,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                     send::<P>.in_set(MainSet::SendPackets),
                     clear_events::<P>.in_set(MainSet::ClearEvents),
                 ),
+            )
+            .add_systems(
+                Last,
+                replication_clean::<P>.run_if(on_timer(clean_interval)),
             );
     }
 }

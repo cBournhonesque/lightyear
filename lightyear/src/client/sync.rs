@@ -12,8 +12,8 @@ use crate::client::resource::Client;
 use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
+use crate::shared::tick_manager::{Tick, TickEvent};
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
@@ -55,7 +55,7 @@ impl Default for SyncConfig {
             handshake_pings: 3,
             error_margin: 0.5,
             max_error_margin: 5.0,
-            speedup_factor: 1.1,
+            speedup_factor: 1.05,
             // server_time_estimate_smoothing: 0.0,
             server_time_estimate_smoothing: 0.2,
         }
@@ -142,7 +142,9 @@ impl SyncManager {
         ping_manager: &PingManager,
         interpolation_delay: &InterpolationDelay,
         server_send_interval: Duration,
-    ) {
+    ) -> Option<TickEvent> {
+        // TODO: we are in PostUpdate, so this seems incorrect? this uses the previous-frame's delta,
+        //  but instead we want to add the duration since the start of frame?
         self.duration_since_latest_received_server_tick += time_manager.delta();
         self.server_time_estimate += time_manager.delta();
         self.interpolation_time += time_manager.delta().mul_f32(self.interpolation_speed_ratio);
@@ -150,7 +152,6 @@ impl SyncManager {
         // check if we are ready to finalize the handshake
         if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
             self.synced = true;
-            self.finalize(time_manager, tick_manager, ping_manager);
             self.interpolation_time = self.interpolation_objective(
                 interpolation_delay,
                 server_send_interval,
@@ -160,11 +161,13 @@ impl SyncManager {
                 "interpolation_tick: {:?}",
                 self.interpolation_tick(tick_manager)
             );
+            return self.finalize(time_manager, tick_manager, ping_manager);
         }
 
         if self.synced {
             self.update_interpolation_time(interpolation_delay, server_send_interval, tick_manager);
         }
+        None
     }
 
     pub(crate) fn is_synced(&self) -> bool {
@@ -193,7 +196,7 @@ impl SyncManager {
         let generation = if (client_tick_raw - self.latest_received_server_tick.unwrap().0 as i32)
             < (i16::MIN as i32)
         {
-            trace!("client tick has changed generation");
+            debug!("client tick is one generation ahead of server tick");
             self.server_latest_tick_generation() + 1
         } else {
             self.server_latest_tick_generation()
@@ -203,8 +206,9 @@ impl SyncManager {
             tick_manager.tick(),
             generation,
             tick_manager.config.tick_duration,
-        );
-        trace!(
+        ) + time_manager.overstep();
+        // when getting time from ticks, don't forget the overstep
+        debug!(
             ?generation,
             current_tick = ?tick_manager.tick(),
             "current_prediction_time: {:?}", res);
@@ -219,7 +223,7 @@ impl SyncManager {
     fn server_latest_tick_generation(&self) -> u16 {
         // check if the latest_server_tick has crossed a generation compared to the latest pong tick
         if self.latest_received_server_tick.unwrap().0 < self.server_pong_tick.0 {
-            trace!("server tick crossed a generation");
+            debug!("latest server tick is a generation compared to the server pong tick");
             self.server_pong_generation + 1
         } else {
             self.server_pong_generation
@@ -230,6 +234,7 @@ impl SyncManager {
     /// Update the estimated current server time, computed from the time elapsed since the
     /// latest received server tick, and our estimate of the RTT
     pub(crate) fn update_server_time_estimate(&mut self, tick_duration: Duration, rtt: Duration) {
+        // TODO: should we add the time since
         // SAFETY: by that point we have received at least one server packet, so the latest_received_server_tick is not None
         let new_server_time_estimate = WrappedTime::from_tick(
             self.latest_received_server_tick.unwrap(),
@@ -395,7 +400,7 @@ impl SyncManager {
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
-    ) {
+    ) -> Option<TickEvent> {
         let rtt = ping_manager.rtt();
         let jitter = ping_manager.jitter();
         // current client time
@@ -439,8 +444,7 @@ impl SyncManager {
                 "Error too big, snapping prediction time/tick to objective",
             );
 
-            self.finalize(time_manager, tick_manager, ping_manager);
-            return;
+            return self.finalize(time_manager, tick_manager, ping_manager);
         }
 
         time_manager.sync_relative_speed = if error > error_margin_time {
@@ -476,6 +480,7 @@ impl SyncManager {
             trace!("good speed");
             1.0
         };
+        None
     }
 
     // Update internal time using offset so that times are synced.
@@ -486,7 +491,7 @@ impl SyncManager {
         time_manager: &mut TimeManager,
         tick_manager: &mut TickManager,
         ping_manager: &PingManager,
-    ) {
+    ) -> Option<TickEvent> {
         let tick_duration = tick_manager.config.tick_duration;
         let rtt = ping_manager.rtt();
         let jitter = ping_manager.jitter();
@@ -525,6 +530,114 @@ impl SyncManager {
                 "Finished syncing!"
             );
         }
-        tick_manager.set_tick_to(client_ideal_tick)
+        Some(tick_manager.set_tick_to(client_ideal_tick))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::input::InputSystemSet;
+    use crate::prelude::*;
+    use crate::server::events::InputEvent;
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use bevy::prelude::*;
+    use std::time::Duration;
+
+    fn press_input(
+        mut connection: ResMut<ClientConnectionManager>,
+        tick_manager: Res<TickManager>,
+    ) {
+        connection.add_input(MyInput(0), tick_manager.tick());
+    }
+    fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<MyInput>>) {
+        for _ in ev.read() {
+            for mut c in query.iter_mut() {
+                c.0 += 1.0;
+            }
+        }
+    }
+
+    #[test]
+    fn test_sync_after_tick_wrap() {
+        let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            enable_replication: false,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(20),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            SyncConfig::default(),
+            client::PredictionConfig::default(),
+            client::InterpolationConfig::default(),
+            link_conditioner,
+            frame_duration,
+        );
+
+        // set time to end of wrapping
+        let new_tick = Tick(u16::MAX - 1000);
+        let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
+
+        stepper.client_app.add_systems(
+            FixedUpdate,
+            press_input.in_set(InputSystemSet::BufferInputs),
+        );
+        stepper
+            .server_app
+            .add_systems(FixedUpdate, increment.in_set(FixedUpdateSet::Main));
+
+        stepper
+            .server_app
+            .world
+            .resource_mut::<TimeManager>()
+            .set_current_time(new_time);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<TickManager>()
+            .set_tick_to(new_tick);
+
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Component1(0.0),
+                Replicate {
+                    replication_target: NetworkTarget::All,
+                    ..default()
+                },
+            ))
+            .id();
+
+        for i in 0..200 {
+            stepper.frame_step();
+        }
+        stepper.init();
+        dbg!(&stepper.server_tick());
+        dbg!(&stepper.client_tick());
+        dbg!(&stepper.server_app.world.get::<Component1>(server_entity));
+
+        // make sure the client receives the replication message
+        for i in 0..5 {
+            stepper.frame_step();
+        }
+
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .unwrap();
+        dbg!(&stepper.client_app.world.get::<Component1>(client_entity));
     }
 }

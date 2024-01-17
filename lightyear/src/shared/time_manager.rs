@@ -9,13 +9,16 @@ It will interact with bevy's [`Time`] resource, and potentially change the relat
 The network serialization uses a u32 which can only represent times up to 46 days.
 This module contains some helper functions to compute the difference between two times.
 */
+use bevy::app::{App, RunFixedUpdateLoop};
 use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 use std::time::Duration;
 
 use crate::prelude::Tick;
-use bevy::prelude::{Res, Resource, Time, Timer, TimerMode};
+use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time, Timer, TimerMode};
+use bevy::time::{Fixed, Virtual};
+use bevy::utils::Instant;
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
 
@@ -26,10 +29,35 @@ pub(crate) fn is_ready_to_send(time_manager: Res<TimeManager>) -> bool {
     time_manager.is_ready_to_send()
 }
 
+/// Plugin that will centralize information about the various times (real, virtual, fixed)
+/// as well as track when we should send updates to the remote
+pub(crate) struct TimePlugin {
+    /// Interval at which we send updates to the remote
+    pub(crate) send_interval: Duration,
+}
+
+impl Plugin for TimePlugin {
+    fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.insert_resource(TimeManager::new(self.send_interval));
+        // SYSTEMS
+        app.add_systems(
+            RunFixedUpdateLoop,
+            update_overstep.after(bevy::time::run_fixed_update_schedule),
+        );
+    }
+}
+
+fn update_overstep(mut time_manager: ResMut<TimeManager>, fixed_time: Res<Time<Fixed>>) {
+    time_manager.update_overstep(fixed_time.overstep());
+}
+
 #[derive(Resource)]
 pub struct TimeManager {
-    /// The current time (in ms precision)
+    /// The virtual time
     wrapped_time: WrappedTime,
+    /// The real time
+    real_time: WrappedTime,
     /// The remaining time after running the fixed-update steps
     overstep: Duration,
     /// The time since the last frame; gets update by bevy's Time resource at the start of the frame
@@ -38,9 +66,13 @@ pub struct TimeManager {
     pub base_relative_speed: f32,
     /// Should we speedup or slowdown the simulation to sync the ticks?
     /// >1.0 = speedup, <1.0 = slowdown
+    /// We speed up the virtual time so that our ticks go faster/slower
+    /// Things that depend on real time (ping/pong times), channel/packet managers, send_interval should be unaffected
     pub(crate) sync_relative_speed: f32,
     /// Timer to keep track on we send the next update
     send_timer: Option<Timer>,
+    /// Instant at the start of the frame
+    frame_start: Option<Instant>,
 }
 
 impl TimeManager {
@@ -52,11 +84,13 @@ impl TimeManager {
         };
         Self {
             wrapped_time: WrappedTime::new(0),
+            real_time: WrappedTime::new(0),
             overstep: Duration::default(),
             delta: Duration::default(),
             base_relative_speed: 1.0,
             sync_relative_speed: 1.0,
             send_timer,
+            frame_start: None,
         }
     }
 
@@ -79,22 +113,48 @@ impl TimeManager {
         self.base_relative_speed * self.sync_relative_speed
     }
 
+    // pub fn update_real(&mut self, delta: Duration) {
+    //     self.real_time.elapsed = Instant::now();
+    // }
+
     /// Update the time by applying the latest delta
     /// delta: delta time since last frame
     /// overstep: remaining time after running the fixed-update steps
-    pub fn update(&mut self, delta: Duration, overstep: Duration) {
+    pub(crate) fn update(&mut self, delta: Duration) {
         self.delta = delta;
         self.wrapped_time.elapsed += delta;
-        // set the overstep to the overstep of fixed_time
-        self.overstep = overstep;
+        self.frame_start = Some(Instant::now());
         if let Some(timer) = self.send_timer.as_mut() {
             timer.tick(delta);
         }
     }
 
+    // TODO: reuse time-real for this?
+    /// Compute the real time elapsed since the start of the frame
+    /// (useful for
+    pub(crate) fn real_time_since_frame_start(&self) -> Duration {
+        self.frame_start
+            .map(|start| Instant::now() - start)
+            .unwrap_or_default()
+    }
+
+    /// Update the overstep (right after the overstep was computed, after RunFixedUpdateLoop)
+    fn update_overstep(&mut self, overstep: Duration) {
+        self.overstep = overstep;
+    }
+
+    fn update_real(&mut self, real_delta: Duration) {
+        self.real_time.elapsed += real_delta;
+    }
+
     /// Current time since start, wrapped around 46 days
     pub fn current_time(&self) -> WrappedTime {
         self.wrapped_time
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_current_time(&mut self, time: WrappedTime) {
+        self.wrapped_time = time;
     }
 }
 
@@ -371,6 +431,19 @@ mod tests {
         assert_eq!(
             b - WrappedTime::new(2000),
             ChronoDuration::milliseconds(-1000)
+        );
+    }
+
+    #[test]
+    fn test_add() {
+        let a = WrappedTime::new(0);
+        let b = WrappedTime::new(1000);
+
+        assert_eq!(a + b, WrappedTime::new(1000));
+        assert_eq!(b + Duration::from_millis(2000), WrappedTime::new(3000));
+        assert_eq!(
+            b + ChronoDuration::milliseconds(2000),
+            WrappedTime::new(3000)
         );
     }
 

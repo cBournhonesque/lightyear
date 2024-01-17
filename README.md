@@ -47,6 +47,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
   - *Lightyear* has special handling for player inputs (mouse presses, keyboards).
     They are buffered every tick on the `Client`, and *lightyear* makes sure that the client input for tick `N` will be also processed on tick `N` on the server.
     Inputs are protected against packet-loss: each packet will contain the client inputs for the last few frames.
+  - With the `leafwing` feature, there is a special integration with the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where your `leafwing` inputs are networked for you!
 - Replication
   - Entities that have the `Replicate` component will be automatically replicated to clients. Only the components that change will be sent over the network. This functionality is similar to what [bevy_replicon](https://github.com/lifescapegame/bevy_replicon) provides.
 - Advanced replication
@@ -57,13 +58,15 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
     is spawned immediately, but will still be controlled by the server.
   - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other entities. The entities will be mapped from the local World to the remove World.
   - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest management is made flexible by the use of `Rooms`
+  - **Input Delay**: you can add a custom amount of input-delay as a trade-off between having a more responsive game or more mis-predictions
 - Configurable
   - *Lightyear* is highly configurable: you can configure the size of the input buffer, the amount of interpolation-delay, the packet send rate, etc.
     All the configurations are accessible through the `ClientConfig` and `ServerConfig` structs.
 - Observability
   - *Lightyear* uses the `tracing` and `metrics` libraries to emit spans and logs around most events (sending/receiving messages, etc.). The metrics
     can be exported to Prometheus for analysis.
-
+- Examples
+  - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy crates such as `bevy_xpbd_2d`
 
 ## Planned features
 
