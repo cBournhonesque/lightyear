@@ -30,17 +30,17 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
         log: LogConfig {
-            level: Level::INFO,
+            level: Level::WARN,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
-        },
+        }
     }
 }
 
 #[derive(Component)]
 pub struct MeshShape {
-    shape: Mesh,
-    color: Color,
+    pub shape: Mesh,
+    pub color: Color,
 }
 
 pub struct SharedPlugin;
@@ -316,7 +316,7 @@ pub(crate) fn after_physics_log(
         }
     }
     for (entity, position, rotation) in players.iter() {
-        info!(
+        trace!(
             ?tick,
             ?entity,
             ?position,
@@ -345,8 +345,8 @@ pub(crate) fn last_log(
 ) {
     let tick = ticker.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        info!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        info!(
+        trace!(?tick, ?entity, ?position, ?correction, "Player LAST update");
+        trace!(
             ?tick,
             ?entity,
             ?rotation,
@@ -363,28 +363,6 @@ pub(crate) fn log() {
     debug!("run physics schedule!");
 }
 
-/// System that draws the player's boxes and cursors
-/*pub(crate) fn draw_elements(
-    mut gizmos: Gizmos,
-    players: Query<(&Position, &Rotation, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
-    balls: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
-    walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
-) {
-    for (position, rotation, color) in &players {
-        gizmos.rect_2d(
-            Vec2::new(position.x, position.y),
-            rotation.as_radians(),
-            Vec2::ONE * PLAYER_SIZE,
-            color.0,
-        );
-    }
-    for (position, color) in &balls {
-        gizmos.circle_2d(Vec2::new(position.x, position.y), BALL_SIZE, color.0);
-    }
-    for (wall, color) in &walls {
-        gizmos.line_2d(wall.start, wall.end, color.0);
-    }
-}*/
 
 // Wall
 #[derive(Bundle)]

@@ -121,7 +121,7 @@ pub(crate) fn init(
     plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 10.0, 0.5)
+        transform: Transform::from_xyz(0.0, 20.0, 0.5)
             .looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
@@ -155,11 +155,10 @@ pub(crate) fn init(
                     (KeyCode::D, PlayerActions::Right),
                 ]),
             ),
-            PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Cube { size: PLAYER_SIZE })),
-                material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-                ..Default::default()
-            },
+            TransformBundle::default(),
+            meshes.add(Mesh::from(shape::Cube { size: PLAYER_SIZE })),
+            materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+            VisibilityBundle::default(),
         ));
     //}
     client.connect();

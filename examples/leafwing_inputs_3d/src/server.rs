@@ -1,7 +1,8 @@
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, MeshShape};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use bevy::render::camera;
 use bevy_xpbd_3d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::server::*;
@@ -9,6 +10,9 @@ use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
+
+#[derive(Component)]
+struct PlayerInfoText;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyServerPlugin {
@@ -68,6 +72,10 @@ impl Plugin for MyServerPlugin {
                 .before(PhysicsSet::Prepare),
         );
         app.add_systems(Update, handle_disconnections);
+
+        if !self.headless {
+            app.add_systems(Update, player_info_text);
+        }
     }
 }
 
@@ -75,7 +83,7 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
     //commands.spawn(Camera2dBundle::default());
     //if plugin.headless {
         commands.spawn(Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 10.0, 0.5)
+            transform: Transform::from_xyz(0.0, 20.0, 0.5)
                 .looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         });
@@ -106,6 +114,8 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
 }
 
 /// Server disconnection system, delete all player entities upon disconnection
+///
+/// Should also remote the Text entity for player info
 pub(crate) fn handle_disconnections(
     mut disconnections: EventReader<DisconnectEvent>,
     mut commands: Commands,
@@ -183,8 +193,60 @@ pub(crate) fn replicate_players(
             e.insert((
                 replicate,
                 // not all physics components are replicated over the network, so add them on the server as well
+                Name::new(format!("Player {}", client_id)),
                 PhysicsBundle::player(),
+                // MeshShape cant replicate cause shape (Mesh) is not serializable
+                MeshShape {
+                    shape: shape::Cube { size: PLAYER_SIZE }.into(),
+                    color: Color::rgb(0.8, 0.7, 0.6),
+                },
+                TransformBundle::default(),
+                VisibilityBundle::default(),
+            ));
+
+            // spawn additional text for the player
+            commands.spawn((
+                PlayerInfoText,
+                PlayerId(*client_id),
+                Name::new(format!("Player Info Text {}", client_id)),
+                TextBundle::from_section(
+                    format!("Player {}", client_id),
+                    TextStyle {
+                        font_size: 18.0,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                ).with_text_alignment(TextAlignment::Center)
             ));
         }
     }
+}
+
+
+
+// follow the info text to the player
+fn player_info_text(
+    player_query: Query<(&PlayerId, &GlobalTransform), With<PlayerId>>,
+    mut player_text_query: Query<(&PlayerInfoText, &mut Style, &PlayerId), With<PlayerInfoText>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+) {
+
+    let (camera, camera_transform) = camera_query.single();
+
+    for (player_id, transform) in player_query.iter() {
+        let world_position = transform.translation();
+        let viewport_position = camera.world_to_viewport(camera_transform, world_position);
+        if let Some(viewport_position) = viewport_position {
+
+            for (pit, mut style, text_player_id) in player_text_query.iter_mut() {
+                if (text_player_id.0) != (player_id.0) {
+                    continue;
+                }
+                style.position_type = PositionType::Absolute;
+                style.left = Val::Px(viewport_position.x);
+                style.top = Val::Px(viewport_position.y - 50.0);
+            }
+        }
+    }
+
 }
