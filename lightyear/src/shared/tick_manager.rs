@@ -43,7 +43,7 @@ impl TickManager {
     #[doc(hidden)]
     pub fn increment_tick(&mut self) {
         self.tick += 1;
-        trace!(new_tick = ?self.tick, "incremented tick")
+        info!(new_tick = ?self.tick, "incremented tick")
     }
     pub(crate) fn set_tick_to(&mut self, tick: Tick) {
         self.tick = tick;

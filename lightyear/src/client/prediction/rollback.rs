@@ -11,6 +11,7 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
+use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::prelude::client::SyncMetadata;
 use crate::prelude::TickManager;
@@ -264,7 +265,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
 pub(crate) fn run_rollback(world: &mut World) {
     let tick_manager = world.get_resource::<TickManager>().unwrap();
     let rollback = world.get_resource::<Rollback>().unwrap();
-
     let current_tick = tick_manager.tick();
 
     // NOTE: all predicted entities should be on the same tick!
@@ -273,6 +273,33 @@ pub(crate) fn run_rollback(world: &mut World) {
         current_tick: current_rollback_tick,
     } = rollback.state
     {
+        // // TODO: also handle deleting pre-predicted entities!
+        //
+        // // IMPORTANT: we start by deleting pre-spawned entities that were spawned during rollback!
+        //
+        // // we want to delete any pre-spawned entities that were spawned after the rollback tick (current_rollback_tick - 1)
+        // // since we already handle incremented the rollback_tick during prepare_rollback
+        // let mut prediction_manager = world.resource_mut::<PredictionManager>();
+        // let mut entities_to_despawn = vec![];
+        // // NOTE: we only run fixed-update systems start from current_rollback_tick, so we need to delete any pre-spawned entities
+        // //  that were spawned since current_rollback_tick (included)
+        // // TODO: this does NOT handle the prespawned entities that were spawned during the rollback tick (current_rollback_tick - 1)
+        // for (_, hash) in prediction_manager
+        //     .prespawn_tick_to_hash
+        //     .drain_after(&current_rollback_tick)
+        // {
+        //     if let Some(entities) = prediction_manager.prespawn_hash_to_entities.remove(&hash) {
+        //         entities_to_despawn.extend(entities);
+        //     }
+        // }
+        // entities_to_despawn.into_iter().for_each(|entity| {
+        //     info!(
+        //         ?entity,
+        //         "deleting pre-spawned entity because it was created after the rollback tick"
+        //     );
+        //     world.despawn(entity);
+        // });
+
         // NOTE: careful! we restored the state to the end of tick `confirmed` = `current_rollback_tick - 1`
         //  we want to run fixed-update to be at the end of `current_tick`, so we need to run
         // `current_tick - (current_rollback_tick - 1)` ticks

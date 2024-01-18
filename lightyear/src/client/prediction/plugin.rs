@@ -17,7 +17,9 @@ use crate::client::prediction::despawn::{
 };
 use crate::client::prediction::predicted_history::update_prediction_history;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::spawn::{compute_hash, spawn_pre_spawned_player_object};
+use crate::client::prediction::spawn::{
+    compute_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
+};
 use crate::client::resource::Client;
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
@@ -139,8 +141,8 @@ pub enum PredictionSet {
 }
 
 /// Returns true if we are doing rollback
-pub fn is_in_rollback(rollback: Res<Rollback>) -> bool {
-    matches!(rollback.state, RollbackState::ShouldRollback { .. })
+pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
+    rollback.is_some_and(|rollback| matches!(rollback.state, RollbackState::ShouldRollback { .. }))
 }
 
 /// Returns true if the client is connected
@@ -259,46 +261,31 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 apply_deferred.in_set(PredictionSet::PrepareRollbackFlush),
             ),
         );
-        app.add_systems(
-            FixedUpdate,
-            (apply_deferred.in_set(PredictionSet::EntityDespawnFlush),),
-        );
 
-        // no need, since we spawn predicted entities/components in replication
-        app.add_systems(
-            PreUpdate,
-            (
-                // we first try to see if the entity was a PreSpawnedPlayerObject
-                // if we couldn't match it then the component gets removed
-                // and then should we try the normal Prediction flow, or just consider that there was an error?
-                (
-                    spawn_pre_spawned_player_object::<P>,
-                    // apply_deferred,
-                    spawn_predicted_entity::<P>,
-                )
-                    .chain(),
-                // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
-                //  not at every fixed-update tick, since it only depends on server messages
-                despawn_confirmed,
-            )
-                .in_set(PredictionSet::SpawnPrediction),
-        );
-        app.add_systems(
-            PostUpdate,
-            (
-                // fill in the client_entity and client_id for pre-predicted entities
-                handle_pre_prediction,
-                // clean-up the ShouldBePredicted components after we've sent them
-                clean_prespawned_entity::<P>.after(ReplicationSet::All),
-                // compute hashes for all pre-spawned player objects
-                compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
-            )
-                .run_if(is_connected),
-        );
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
         // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
         // 4. Potentially do rollback
-        app.add_systems(PreUpdate, run_rollback.in_set(PredictionSet::Rollback));
+        app.add_systems(
+            PreUpdate,
+            (
+                (
+                    // we first try to see if the entity was a PreSpawnedPlayerObject
+                    // if we couldn't match it then the component gets removed
+                    // and then should we try the normal Prediction flow, or just consider that there was an error?
+                    (
+                        spawn_pre_spawned_player_object::<P>,
+                        apply_deferred,
+                        spawn_predicted_entity::<P>,
+                    )
+                        .chain(),
+                    // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
+                    //  not at every fixed-update tick, since it only depends on server messages
+                    despawn_confirmed,
+                )
+                    .in_set(PredictionSet::SpawnPrediction),
+                run_rollback.in_set(PredictionSet::Rollback),
+            ),
+        );
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
@@ -310,6 +297,10 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             (
                 FixedUpdateSet::Main,
                 FixedUpdateSet::MainFlush,
+                // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
+                // TODO: entities spawned during update might have a tick that is off by 1 or more...
+                //  account for this when setting the hash?
+                ReplicationSet::SetPreSpawnedHash,
                 PredictionSet::EntityDespawn,
                 PredictionSet::EntityDespawnFlush,
                 PredictionSet::UpdateHistory,
@@ -319,11 +310,14 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         );
         app.add_systems(
             FixedUpdate,
-            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
-        );
-        app.add_systems(
-            FixedUpdate,
-            remove_despawn_marker.in_set(PredictionSet::EntityDespawnFlush),
+            (
+                // compute hashes for all pre-spawned player objects
+                compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
+                (remove_despawn_marker, apply_deferred)
+                    .chain()
+                    .in_set(PredictionSet::EntityDespawnFlush),
+                increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
+            ),
         );
 
         // PostUpdate systems
@@ -331,6 +325,19 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             PostUpdate,
             PredictionSet::VisualCorrection.before(TransformSystem::TransformPropagate),
+        );
+        app.add_systems(
+            PostUpdate,
+            (
+                pre_spawned_player_object_cleanup::<P>,
+                // fill in the client_entity and client_id for pre-predicted entities
+                handle_pre_prediction,
+                // clean-up the ShouldBePredicted components after we've sent them
+                clean_prespawned_entity::<P>.after(ReplicationSet::All),
+                // compute hashes for all pre-spawned player objects
+                compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
+            )
+                .run_if(is_connected),
         );
     }
 }

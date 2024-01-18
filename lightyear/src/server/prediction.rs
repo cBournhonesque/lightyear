@@ -36,8 +36,10 @@ pub(crate) fn compute_hash<P: Protocol>(
         let mut hasher = bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
         // TODO: the default hasher doesn't seem to be deterministic across processes
         // let mut hasher = bevy::utils::AHasher::default();
+
         // TODO: figure out how to hash the spawn tick
-        // tick.hash(&mut hasher);
+        info!("including tick {:?} for hash", tick);
+        tick.hash(&mut hasher);
 
         // NOTE: we cannot call hash() multiple times because the components in the archetype
         //  might get iterated in any order!
@@ -60,7 +62,7 @@ pub(crate) fn compute_hash<P: Protocol>(
             .collect::<Vec<_>>();
         types_to_hash.sort();
         types_to_hash.into_iter().for_each(|type_id| {
-            info!(?type_id, "using type id for hash");
+            trace!(?type_id, "using type id for hash");
             type_id.hash(&mut hasher)
         });
 

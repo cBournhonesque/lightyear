@@ -111,9 +111,10 @@ pub mod prelude {
         pub use crate::client::interpolation::{InterpolateStatus, Interpolated};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
+        pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
-        pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
+        pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
         pub use crate::netcode::Client as NetClient;

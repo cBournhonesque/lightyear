@@ -5,6 +5,7 @@ use bevy::render::RenderPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
@@ -70,10 +71,27 @@ impl Plugin for SharedPlugin {
         // registry types for reflection
         app.register_type::<PlayerId>();
         app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
-        // every system that is phyics-based and can be rolled-back has to be scheduled
+        // every system that is physics-based and can be rolled-back has to be scheduled
         // in FixedUpdateSet::Main
-        app.add_systems(FixedUpdate, move_bullet.in_set(FixedUpdateSet::Main));
-        app.add_systems(Update, shoot_bullet);
+        app.add_systems(
+            FixedUpdate,
+            // ideally, during rollback, we'd despawn the pre-predicted player objects and then respawn them during shoot_bullet.
+            // how? we keep track of their spawn-tick, if it was before the rollback-tick we despawn.
+            //  - for every pre-predicted or pre-spawned entity, we keep track of the spawn tick.
+            //  - if we rollback to before that, we
+            // (shoot_bullet, move_bullet)
+            (shoot_bullet.run_if(not(is_in_rollback)), move_bullet)
+                .chain()
+                .in_set(FixedUpdateSet::Main),
+        );
+        // NOTE: we need to create prespawned entities in FixedUpdate, because only then are inputs correctly associated with a tick
+        //  Example:
+        //  tick = 0
+        //   F1 PreUpdate: press-shoot. F1 FixedUpdate: SKIPPED!!! F1 Update: spawn bullet F1: PostUpdate add hash.
+        //   F2 FixedUpdate: tick = 1. Gather inputs for the tick (i.e. F1 preupdate + F2 preupdate)
+        //  So now the server will think that the bullet was shot at tick = 1, but on client it was shot on tick = 0 and the hashes won't match.
+        //  In general, most input-handling needs to be handled in FixedUpdate to be correct.
+        // app.add_systems(Update, shoot_bullet);
     }
 }
 
@@ -131,6 +149,7 @@ pub(crate) fn shared_player_movement(
 pub(crate) fn fixed_update_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
+    player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
     ball: Query<(Entity, &Transform), (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let mut tick = tick_manager.tick();
@@ -138,6 +157,14 @@ pub(crate) fn fixed_update_log(
         if let RollbackState::ShouldRollback { current_tick } = rollback.state {
             tick = current_tick;
         }
+    }
+    for (entity, transform) in player.iter() {
+        info!(
+        ?tick,
+        ?entity,
+        pos = ?transform.translation.truncate(),
+        "Player after fixed update"
+        );
     }
     for (entity, transform) in ball.iter() {
         info!(
@@ -185,11 +212,16 @@ pub(crate) fn shoot_bullet(
     let tick = tick_manager.tick();
     const BALL_MOVE_SPEED: f32 = 10.0;
     for (id, transform, color, mut action) in query.iter_mut() {
+        // NOTE: cannot use FixedUpdate + JustPressed in case we have a frame with no FixedUpdate, then the JustPressed would be lost
+        // NOTE: cannot use Update + JustPressed, because in case we have a frame with no FixedUpdate, the action-diff would be sent for
+        //  a different diff than the one where the action was executed. (but maybe we can account for that)
+        // NOTE: cannot spawn the bullet during FixedUpdate because then during rollback we spawn a new bullet! For now just set the system to
+        //  run when not in rollback
         // TODO:  if we were running this in FixedUpdate, we would need to `consume` the action. (in case there are several fixed-update steps
-        //  ine one frame)
+        //  ine one frame). We also cannot use JustPressed, becuase we could have a frame with no FixedUpdate.
         // NOTE: pressed lets you shoot many bullets, which can be cool
-        if action.just_pressed(PlayerActions::Shoot) {
-            // action.consume(PlayerActions::Shoot);
+        if action.pressed(PlayerActions::Shoot) {
+            action.consume(PlayerActions::Shoot);
 
             info!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
             let ball = BallBundle::new(

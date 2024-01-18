@@ -40,7 +40,7 @@ impl Plugin for MyClientPlugin {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(300),
+            incoming_latency: Duration::from_millis(150),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.02,
         };
@@ -74,7 +74,7 @@ impl Plugin for MyClientPlugin {
         // add leafwing input plugins, to handle synchronizing leafwing action states correctly
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
             LeafwingInputConfig::<PlayerActions> {
-                send_diffs_only: true,
+                send_diffs_only: false,
                 ..default()
             },
         ));
@@ -148,7 +148,7 @@ fn player_movement(
         With<Predicted>,
     >,
 ) {
-    for (mut transform, action_state, player_id) in player_query.iter_mut() {
+    for (transform, action_state, player_id) in player_query.iter_mut() {
         // we only control the movement of our own entity
         if player_id.0 != plugin.client_id {
             return;

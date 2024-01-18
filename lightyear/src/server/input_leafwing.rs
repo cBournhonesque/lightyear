@@ -130,7 +130,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
 {
     // let manager = &mut server.connection_manager;
     for (mut message, client_id) in connection_manager.events.into_iter_input_messages::<A>() {
-        trace!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
 
         for (target, diffs) in std::mem::take(&mut message.diffs) {
             match target {

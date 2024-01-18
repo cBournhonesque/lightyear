@@ -572,7 +572,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        trace!(
+        info!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
@@ -722,7 +722,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
 
         if !diffs.is_empty() {
-            trace!(?maybe_entity, "writing action diffs: {:?}", diffs);
+            debug!(?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,

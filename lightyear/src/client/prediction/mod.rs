@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use bevy::prelude::*;
 use tracing::{error, info};
 
-pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
+pub use despawn::{PredictionDespawnCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
@@ -42,7 +42,7 @@ pub struct Rollback {
 
 /// Resource that will track whether we should do rollback or not
 /// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum RollbackState {
     Default,
     ShouldRollback {
@@ -58,7 +58,7 @@ pub enum RollbackState {
 /// server
 pub(crate) fn clean_prespawned_entity<P: Protocol>(
     mut commands: Commands,
-    pre_predicted_entities: Query<Entity, With<ShouldBePredicted>>,
+    pre_predicted_entities: Query<Entity, (With<ShouldBePredicted>, Without<Confirmed>)>,
 ) {
     for entity in pre_predicted_entities.iter() {
         info!(
@@ -94,15 +94,15 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
     mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
     mut confirmed_entities: Query<(Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
     mut predicted_entities: Query<&mut Predicted>,
-    pre_spawned_player_object: Query<&PreSpawnedPlayerObject>,
 ) {
     for message in should_be_predicted_added.read() {
         let confirmed_entity = message.entity();
 
         if let Ok((confirmed, should_be_predicted)) = confirmed_entities.get_mut(confirmed_entity) {
             // TODO: improve this. Also that means we should run the pre-spawned system before this system AND have a flush...
-            if pre_spawned_player_object.contains(confirmed_entity) {
-                info!("Skipping spawning prediction for pre-spawned player object (was already handled)");
+            if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
+                info!("Skipping spawning prediction for pre-spawned player object (was already handled, we already have a predicted entity for this \
+                      confirmed entity)");
                 // special-case: pre-spawned player objects handled in a different function
                 continue;
             }
@@ -151,8 +151,8 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     confirmed_entity: Some(confirmed_entity),
                 });
                 predicted_entity = Some(predicted_entity_mut.id());
-                debug!(
-                    "Spawn predicted entity {:?} for confirmed: {:?}",
+                info!(
+                    "Delayed prediction spawn! predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );
                 #[cfg(feature = "metrics")]

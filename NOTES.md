@@ -4,14 +4,29 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+- TODO: create an example related to cheating, where the server can validate inputs
+
 - PRESPAWNING:
-  - the entity is spawned on the client on predicted timeline, and then on server
-  - the server will grab authority over the entity, 
+  - STATUS:
+    - seems to kind of work but not really
+    - included the tick in the hash, but maybe we should be more lenient to handle entities created in Update.
+    - added rollback to despawn the pre-spawned entities if there is a rollback
   - EDGE CASES TO TEST:
     - what happens if multiple entities have the same hash at the same tick?
+      - it should be ok to just match any of them? since we rollback?
+      - we could also just in general delete the client pre-spawned entity and then do normal rollback?
     - what happens if we can't match the pre-spawned entity? should then spawn it as normal predicted?
-  - DEBUG
-    - we now have a bunch of mismatches at the start for pre-predicted entities
+  - TODO
+    - simplify the distinction between the 3 predicted spawning types
+    - add unit tests
+    - handle edge cases of rollback that deletes the pre-spawned entity on the rollback tick.
+    - in general, put the pre-spawned entity deletion in the PrepareRollback system
+    - sometimes the predicted entity disappears, how come? interpolation tick is too forward? or because they are being deleted
+        on any rollback! 
+    - mispredictions at the beginning, why? because of tick snapping?
+    - mispredictions are very jittery, why? this seems new?
+    - bunch of mispredictions sometimes
+    
 
 - SYNC:
   - why is sync breaking after 32700 ticks?
