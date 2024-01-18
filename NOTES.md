@@ -31,6 +31,12 @@
       for the bullet, but not for the player, even though they are in the same replication group!!
     - sometimes the bullet doesn't spawn at all on server, why? input was lost? looks like it was because of a tick-snap-event
     - when spawning 2 bullets closely, the second bullet has a weird rollback behaviour
+      - that's because on the first rollback, we move all bullets, including the second one that hasn't been matched.
+      - EITHER:
+        - the user makes all systems not run rollback for PreSpawnedPlayerObjects
+        - or we rollback PreSpawnedPlayerObjects as well, instead of only entities that have a Confirmed counterpart
+      - TODO: maybe add an option for each entity to decide it's rollback eligible?
+    - I havea bunch of "could not despawn enttiy because it does not exist", let's check for each entity if it exists?
     
 
 - SYNC:

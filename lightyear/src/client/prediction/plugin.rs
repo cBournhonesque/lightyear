@@ -27,7 +27,10 @@ use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 
 use super::predicted_history::{add_component_history, apply_confirmed_update};
-use super::rollback::{check_rollback, increment_rollback_tick, prepare_rollback, run_rollback};
+use super::rollback::{
+    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
+    run_rollback,
+};
 use super::{
     clean_prespawned_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
     Rollback, RollbackState,
@@ -116,6 +119,8 @@ pub enum PredictionSet {
     /// Check if rollback is needed
     CheckRollback,
     /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
+    /// For pre-spawned entities, we just roll them back to their historical state.
+    /// If they didn't exist in the rollback tick, despawn them
     PrepareRollback,
     // we might need a flush because prepare-rollback might remove/add components when snapping the current state
     // to the confirmed state
@@ -176,7 +181,8 @@ where
                 (
                     // for SyncMode::Full, we need to check if we need to rollback.
                     check_rollback::<C, P>.in_set(PredictionSet::CheckRollback),
-                    prepare_rollback::<C, P>.in_set(PredictionSet::PrepareRollback),
+                    (prepare_rollback::<C, P>, prepare_rollback_prespawn::<C, P>)
+                        .in_set(PredictionSet::PrepareRollback),
                 ),
             );
             app.add_systems(

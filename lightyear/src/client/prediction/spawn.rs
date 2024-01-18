@@ -5,7 +5,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::despawn::PredictionDespawnCommand;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
+use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::netcode::ClientId;
 use crate::prelude::{ShouldBePredicted, Tick, TickManager};
 use crate::protocol::Protocol;
@@ -106,7 +106,14 @@ pub(crate) fn compute_hash<P: Protocol>(world: &mut World) {
     //         let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
     //         (tick_manager.tick(), interpolation_tick)
     //     });
-    let tick = world.resource::<TickManager>().tick();
+
+    // get the rollback tick if the pre-spawned entity is being recreated during rollback!
+    let rollback_state = world.resource::<Rollback>().state.clone();
+    let tick = match rollback_state {
+        RollbackState::Default => world.resource::<TickManager>().tick(),
+        RollbackState::ShouldRollback { current_tick } => current_tick,
+    };
+
     world.resource_scope(|world: &mut World, mut manager: Mut<PredictionManager>| {
         let components = world.components();
 
@@ -211,7 +218,8 @@ pub(crate) fn pre_spawned_player_object_cleanup<P: Protocol>(
     connection: Res<ConnectionManager<P>>,
     mut manager: ResMut<PredictionManager>,
 ) {
-    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
+    let tick = tick_manager.tick();
+    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager) - 20;
     // remove all the prespawned entities that have not been matched with a server entity
     for (_, hash) in manager
         .prespawn_tick_to_hash
@@ -224,7 +232,12 @@ pub(crate) fn pre_spawned_player_object_cleanup<P: Protocol>(
             .flatten()
             .for_each(|entity| {
                 if let Some(entity_commands) = commands.get_entity(*entity) {
-                    info!(?entity, "Cleaning up prespawned player object");
+                    info!(
+                        ?tick,
+                        ?entity,
+                        "Cleaning up prespawned player object up to interpolation tick: {:?}",
+                        interpolation_tick
+                    );
                     entity_commands.despawn_recursive();
                 }
             });

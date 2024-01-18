@@ -413,7 +413,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        info!(
+        trace!(
             ?kind,
             ?entity,
             ?component_change_tick,
@@ -431,7 +431,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
-            info!(
+            trace!(
                 ?kind,
                 change_tick = ?component_change_tick,
                 ?collect_changes_since_this_tick,

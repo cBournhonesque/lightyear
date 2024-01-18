@@ -70,7 +70,7 @@ impl Plugin for SharedPlugin {
 
         // registry types for reflection
         app.register_type::<PlayerId>();
-        app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
+        // app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
         // every system that is physics-based and can be rolled-back has to be scheduled
         // in FixedUpdateSet::Main
         app.add_systems(
@@ -79,10 +79,10 @@ impl Plugin for SharedPlugin {
             // how? we keep track of their spawn-tick, if it was before the rollback-tick we despawn.
             //  - for every pre-predicted or pre-spawned entity, we keep track of the spawn tick.
             //  - if we rollback to before that, we
-            // (shoot_bullet, move_bullet)
             (
                 player_movement,
-                shoot_bullet.run_if(not(is_in_rollback)),
+                shoot_bullet,
+                // shoot_bullet.run_if(not(is_in_rollback)),
                 move_bullet,
             )
                 .chain()

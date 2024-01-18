@@ -1,9 +1,11 @@
 use std::fmt::Debug;
 
 use bevy::prelude::{
-    Commands, DetectChanges, Entity, FixedUpdate, Query, Ref, Res, ResMut, With, Without, World,
+    Commands, DespawnRecursiveExt, DetectChanges, Entity, FixedUpdate, Query, Ref, Res, ResMut,
+    With, Without, World,
 };
-use tracing::{debug, info, trace, trace_span};
+use bevy::utils::{EntityHashSet, HashSet};
+use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
@@ -14,7 +16,7 @@ use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::prelude::client::SyncMetadata;
-use crate::prelude::TickManager;
+use crate::prelude::{PreSpawnedPlayerObject, TickManager};
 use crate::protocol::Protocol;
 
 use super::predicted_history::PredictionHistory;
@@ -149,7 +151,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
             &mut PredictionHistory<C>,
             Option<&mut Correction<C>>,
         ),
-        (With<Predicted>, Without<Confirmed>),
+        (
+            With<Predicted>,
+            Without<Confirmed>,
+            Without<PreSpawnedPlayerObject>,
+        ),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     rollback: Res<Rollback>,
@@ -167,7 +173,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
 
     let current_tick = tick_manager.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
-        let tick = confirmed.tick;
+        let rollback_tick = confirmed.tick;
         //
         // // 0. Confirm that we are in rollback.
         // // NOTE: currently all predicted entities must be in the same replication group because I do not know how
@@ -203,14 +209,14 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
             None => {
                 predicted_history
                     .buffer
-                    .add_item(tick, ComponentState::Removed);
+                    .add_item(rollback_tick, ComponentState::Removed);
                 entity_mut.remove::<C>();
             }
             // confirm exist, update or insert on predicted
             Some(c) => {
                 predicted_history
                     .buffer
-                    .add_item(tick, ComponentState::Updated(c.clone()));
+                    .add_item(rollback_tick, ComponentState::Updated(c.clone()));
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
@@ -223,7 +229,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                         // }
 
                         // insert the Correction information only if the component exists on both confirmed and predicted
-                        let correction_ticks = ((current_tick - tick) as f32
+                        let correction_ticks = ((current_tick - rollback_tick) as f32
                             * config.prediction.correction_ticks_factor)
                             .round() as i16;
 
@@ -259,6 +265,155 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
                 };
             }
         };
+    }
+}
+
+/// For prespawned predicted entities, we do not have a Confirmed component,
+/// we just rollback the entity to the previous state
+/// - entities that did not exist at the rollback tick are despawned (and should be respawned during rollback)
+/// - component that were inserted since rollback are removed
+/// - components that were removed since rollback are inserted
+/// - entities that were spawned since rollback are despawned
+/// - TODO: entities that were despawned since rollback are respawned (maybe just via using prediction_despawn()?)
+/// - TODO: do we need any correction?
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
+    // TODO: have a way to only get the updates of entities that are predicted?
+    mut commands: Commands,
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
+    mut prediction_manager: ResMut<PredictionManager>,
+    // We also snap the value of the component to the server state if we are in rollback
+    // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
+    mut predicted_query: Query<
+        (
+            Entity,
+            Option<&mut C>,
+            &mut PredictionHistory<C>,
+            Option<&mut Correction<C>>,
+        ),
+        (
+            With<PreSpawnedPlayerObject>,
+            Without<Confirmed>,
+            Without<Predicted>,
+        ),
+    >,
+    rollback: Res<Rollback>,
+) where
+    <P as Protocol>::ComponentKinds: FromType<C>,
+    P::Components: SyncMetadata<C>,
+{
+    let kind = <P::ComponentKinds as FromType<C>>::from_type();
+
+    // TODO: maybe change this into a run condition so that we don't even run the system (reduces parallelism)
+    // if P::Components::mode() != ComponentSyncMode::Full {
+    //     return;
+    // }
+    let _span = trace_span!("client prepare rollback for pre-spawned entities");
+
+    let current_tick = tick_manager.tick();
+
+    let RollbackState::ShouldRollback {
+        current_tick: rollback_tick_plus_one,
+    } = rollback.state
+    else {
+        error!("prepare_rollback_prespawn should only be called when we are in rollback");
+        return;
+    };
+    // careful, the current_tick is already incremented by 1 in the check_rollback stage...
+    let rollback_tick = rollback_tick_plus_one - 1;
+
+    // 0. If the prespawned entity didn't exist at the rollback tick, despawn it
+    // TODO: also handle deleting pre-predicted entities!
+    // NOTE: if rollback happened at current_tick - 1, then we will start running systems starting from current_tick.
+    //  so if the entity was spawned at tick >= current_tick, we despawn it, and it can get respawned again
+    let mut entities_to_despawn = EntityHashSet::default();
+    for (_, hash) in prediction_manager
+        .prespawn_tick_to_hash
+        .drain_after(&rollback_tick_plus_one)
+    {
+        if let Some(entities) = prediction_manager.prespawn_hash_to_entities.remove(&hash) {
+            entities_to_despawn.extend(entities);
+        }
+    }
+    entities_to_despawn.iter().for_each(|entity| {
+        info!(
+            ?entity,
+            "deleting pre-spawned entity because it was created after the rollback tick"
+        );
+        if let Some(entity_commands) = commands.get_entity(*entity) {
+            entity_commands.despawn_recursive();
+        }
+    });
+
+    for (prespawned_entity, predicted_component, mut predicted_history, mut correction) in
+        predicted_query.iter_mut()
+    {
+        if entities_to_despawn.contains(&prespawned_entity) {
+            continue;
+        }
+
+        // 1. restore the component to the historical value
+        match predicted_history.pop_until_tick(rollback_tick) {
+            None | Some(ComponentState::Removed) => {
+                if predicted_component.is_some() {
+                    info!(?prespawned_entity, ?kind, "Component for prespawned entity didn't exist at time of rollback, removing it");
+                    // the component didn't exist at the time, remove it!
+                    commands.entity(prespawned_entity).remove::<C>();
+                }
+            }
+            Some(ComponentState::Updated(c)) => {
+                // the component existed at the time, restore it!
+                if let Some(mut predicted_component) = predicted_component {
+                    // TODO: do we need to do a correction in this case?
+
+                    // insert the Correction information only if the component exists on both confirmed and predicted
+                    let correction_ticks = ((current_tick - rollback_tick) as f32
+                        * config.prediction.correction_ticks_factor)
+                        .round() as i16;
+
+                    // no need to add the Correction if the correction is instant
+                    if correction_ticks != 0 && P::Components::has_correction() {
+                        let final_correction_tick = current_tick + correction_ticks;
+                        if let Some(correction) = correction.as_mut() {
+                            debug!("updating existing correction");
+                            // if there is a correction, start the correction again from the previous
+                            // visual state to avoid glitches
+                            correction.original_prediction =
+                                std::mem::take(&mut correction.current_visual)
+                                    .unwrap_or_else(|| predicted_component.clone());
+                            correction.original_tick = current_tick;
+                            correction.final_correction_tick = final_correction_tick;
+                            // TODO: can set this to None, shouldnt make any diff
+                            correction.current_correction = Some(c.clone());
+                        } else {
+                            debug!("inserting new correction");
+                            commands.entity(prespawned_entity).insert(Correction {
+                                original_prediction: predicted_component.clone(),
+                                original_tick: current_tick,
+                                final_correction_tick,
+                                current_visual: None,
+                                current_correction: None,
+                            });
+                        }
+                    }
+
+                    // update the component to the corrected value
+                    *predicted_component = c.clone();
+                } else {
+                    info!(
+                        ?prespawned_entity,
+                        ?kind,
+                        "Component for prespawned entity existed at time of rollback, inserting it"
+                    );
+                    commands.entity(prespawned_entity).insert(c);
+                }
+            }
+        }
+
+        // 2. we need to clear the history so we can write a new one
+        predicted_history.clear();
     }
 }
 
@@ -317,7 +472,7 @@ pub(crate) fn run_rollback(world: &mut World) {
             //  for example we only want to run the physics on non-confirmed entities
             world.run_schedule(FixedUpdate)
         }
-        debug!("Finished rollback. Current tick: {:?}", current_tick);
+        info!("Finished rollback. Current tick: {:?}", current_tick);
     }
 
     // revert the state of Rollback for the next frame

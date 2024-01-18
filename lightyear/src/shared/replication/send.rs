@@ -236,7 +236,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .or_default()
             .contains(&kind)
         {
-            info!(
+            trace!(
                 ?group,
                 ?entity,
                 ?kind,
@@ -244,7 +244,7 @@ impl<P: Protocol> ReplicationSender<P> {
             );
             return;
         }
-        info!(?kind, "Inserting pending update!");
+        trace!(?kind, "Inserting pending update!");
         self.pending_updates
             .entry(group)
             .or_default()
@@ -272,10 +272,10 @@ impl<P: Protocol> ReplicationSender<P> {
 
         // get the list of entities in topological order
         for (group_id, mut actions) in self.pending_actions.drain() {
-            info!(?group_id, "pending actions: {:?}", actions);
+            trace!(?group_id, "pending actions: {:?}", actions);
             // add any updates for that group
             if let Some(updates) = self.pending_updates.remove(&group_id) {
-                info!(?group_id, "found updates for group: {:?}", updates);
+                trace!(?group_id, "found updates for group: {:?}", updates);
                 for (entity, components) in updates {
                     actions
                         .entry(entity)
@@ -301,7 +301,7 @@ impl<P: Protocol> ReplicationSender<P> {
         }
         // send the remaining updates
         for (group_id, updates) in self.pending_updates.drain() {
-            info!(?group_id, "pending updates: {:?}", updates);
+            trace!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
             messages.push((
                 ChannelKind::of::<EntityUpdatesChannel>(),

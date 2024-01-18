@@ -10,7 +10,7 @@ use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
-use crate::prelude::{Named, ShouldBePredicted, TickManager};
+use crate::prelude::{Named, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -126,7 +126,12 @@ pub fn add_component_history<C: SyncComponent, P: Protocol>(
         (Entity, Option<Ref<C>>),
         (
             Without<PredictionHistory<C>>,
-            Or<(With<Predicted>, With<ShouldBePredicted>)>,
+            // for all types of predicted entities, we want to add the component history to enable them to be rolled-back
+            Or<(
+                With<Predicted>,
+                With<ShouldBePredicted>,
+                With<PreSpawnedPlayerObject>,
+            )>,
         ),
     >,
     confirmed_entities: Query<(Entity, &Confirmed, Option<Ref<C>>)>,
