@@ -1,12 +1,15 @@
 //! Implement lightyear traits for some common bevy types
 use crate::_reexport::LinearInterpolator;
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
+use bevy::hierarchy::Parent;
 use bevy::prelude::{Entity, Transform};
 use bevy::utils::EntityHashSet;
 use std::ops::Mul;
 use tracing::{info, trace};
 
 use crate::prelude::{EntityMapper, MapEntities, Message, Named};
+
+// TODO: add implementations for Parent and Children
 
 impl Named for Transform {
     const NAME: &'static str = "Transform";
