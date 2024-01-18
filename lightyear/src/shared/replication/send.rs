@@ -314,7 +314,7 @@ impl<P: Protocol> ReplicationSender<P> {
         }
 
         if !messages.is_empty() {
-            trace!(?messages, "Sending replication messages");
+            debug!(?messages, "Sending replication messages");
         }
 
         // clear send buffers

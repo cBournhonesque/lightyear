@@ -27,7 +27,6 @@ use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::ReplicationSet;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::systems::tick::increment_tick;
 use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
 

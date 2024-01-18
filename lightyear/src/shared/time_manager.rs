@@ -151,6 +151,11 @@ impl TimeManager {
     pub fn current_time(&self) -> WrappedTime {
         self.wrapped_time
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_current_time(&mut self, time: WrappedTime) {
+        self.wrapped_time = time;
+    }
 }
 
 mod wrapped_time {

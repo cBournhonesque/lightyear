@@ -1,14 +1,54 @@
 //! Module to handle the [`Tick`], a sequence number incremented at each [`bevy::prelude::FixedUpdate`] schedule run
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use crate::_reexport::WrappedTime;
-use bevy::prelude::Resource;
+use crate::client::prediction::plugin::is_in_rollback;
+use crate::client::prediction::Rollback;
+use crate::prelude::FixedUpdateSet;
+use bevy::prelude::*;
 use tracing::{info, trace};
 
 use crate::utils::wrapping_id::wrapping_id;
 
 // Internal id that tracks the Tick value for the server and the client
 wrapping_id!(Tick);
+
+pub struct TickManagerPlugin {
+    pub(crate) config: TickConfig,
+}
+
+// TODO: we actually don't need this on server-side..
+#[derive(Event, Debug)]
+pub enum TickEvent {
+    TickSnap { old_tick: Tick, new_tick: Tick },
+}
+
+fn increment_tick(mut tick_manager: ResMut<TickManager>) {
+    tick_manager.increment_tick();
+    trace!("increment_tick! new tick: {:?}", tick_manager.tick());
+}
+
+impl Plugin for TickManagerPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            // EVENTS
+            .add_event::<TickEvent>()
+            // RESOURCES
+            // TODO: avoid clone
+            .insert_resource(TickManager::from_config(self.config.clone()))
+            // SYSTEMS
+            .add_systems(
+                FixedUpdate,
+                (
+                    increment_tick
+                        .in_set(FixedUpdateSet::TickUpdate)
+                        // run if there is no rollback resource, or if we are not in rollback
+                        .run_if(not(resource_exists::<Rollback>()).or_else(not(is_in_rollback))),
+                    apply_deferred.in_set(FixedUpdateSet::MainFlush),
+                ),
+            );
+    }
+}
 
 #[derive(Clone)]
 pub struct TickConfig {
@@ -45,8 +85,13 @@ impl TickManager {
         self.tick += 1;
         info!(new_tick = ?self.tick, "incremented tick")
     }
-    pub(crate) fn set_tick_to(&mut self, tick: Tick) {
+    pub(crate) fn set_tick_to(&mut self, tick: Tick) -> TickEvent {
+        let old_tick = self.tick;
         self.tick = tick;
+        TickEvent::TickSnap {
+            old_tick,
+            new_tick: tick,
+        }
     }
 
     /// Get the current tick of the local app
