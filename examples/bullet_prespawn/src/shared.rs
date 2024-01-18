@@ -80,7 +80,11 @@ impl Plugin for SharedPlugin {
             //  - for every pre-predicted or pre-spawned entity, we keep track of the spawn tick.
             //  - if we rollback to before that, we
             // (shoot_bullet, move_bullet)
-            (shoot_bullet.run_if(not(is_in_rollback)), move_bullet)
+            (
+                player_movement,
+                shoot_bullet.run_if(not(is_in_rollback)),
+                move_bullet,
+            )
                 .chain()
                 .in_set(FixedUpdateSet::Main),
         );
@@ -143,6 +147,22 @@ pub(crate) fn shared_player_movement(
     }
     if action.pressed(PlayerActions::Left) {
         transform.translation.x -= PLAYER_MOVE_SPEED;
+    }
+}
+
+// The client input only gets applied to predicted entities that we own
+// This works because we only predict the user's controlled entity.
+// If we were predicting more entities, we would have to only apply movement to the player owned one.
+fn player_movement(
+    tick_manager: Res<TickManager>,
+    mut player_query: Query<
+        (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
+        (Without<Confirmed>, Without<Interpolated>),
+    >,
+) {
+    for (transform, action_state, player_id) in player_query.iter_mut() {
+        shared_player_movement(transform, action_state);
+        // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
     }
 }
 

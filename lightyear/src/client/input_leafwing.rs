@@ -23,6 +23,7 @@ use crate::prelude::{MapEntities, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::tick_manager::TickEvent;
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Clone, Resource)]
@@ -140,7 +141,12 @@ where
             PostUpdate,
             // we send inputs only every send_interval
             (
-                InputSystemSet::SendInputMessage.in_set(MainSet::Send),
+                MainSet::Sync,
+                // handle tick events from sync before sending the message
+                InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
+                InputSystemSet::SendInputMessage
+                    .run_if(client_is_synced::<P>)
+                    .in_set(MainSet::Send),
                 MainSet::SendPackets,
             )
                 .chain(),
@@ -210,9 +216,9 @@ where
         app.add_systems(
             PostUpdate,
             (
-                prepare_input_message::<P, A>
-                    .in_set(InputSystemSet::SendInputMessage)
-                    .run_if(client_is_synced::<P>),
+                receive_tick_events::<A>
+                    .in_set(crate::client::input::InputSystemSet::ReceiveTickEvents),
+                prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
                 add_action_state_buffer_added_input_map::<A>,
             ),
         );
@@ -221,10 +227,15 @@ where
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
+    // FIXED UPDATE
     /// System Set where we update the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
     /// - rollback: we fetch the ActionState value from the InputBuffers
     BufferInputs,
+
+    // POST UPDATE
+    /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
+    ReceiveTickEvents,
     /// System Set to prepare the input message
     SendInputMessage,
 }
@@ -340,7 +351,13 @@ fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
         );
         trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
-        trace!("input buffer: {:?}", input_buffer);
+        trace!(
+            ?entity,
+            ?tick,
+            "input buffer. Start tick {:?}, len: {:?}",
+            input_buffer.start_tick,
+            input_buffer.buffer.len()
+        );
     }
     if let Some(action_state) = global_action_state {
         global_input_buffer.set(tick, action_state.as_ref());
@@ -572,7 +589,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        info!(
+        debug!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
@@ -588,6 +605,57 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
     //  maybe at interpolation_tick(), since it's before any latest server update we receive?
+}
+
+fn receive_tick_events<A: LeafwingUserAction>(
+    mut tick_events: EventReader<TickEvent>,
+    mut global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
+    mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
+    mut action_diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
+    mut input_buffer_query: Query<&mut InputBuffer<A>>,
+) {
+    for tick_event in tick_events.read() {
+        match tick_event {
+            TickEvent::TickSnap { old_tick, new_tick } => {
+                if let Some(ref mut action_diff_buffer) = global_action_diff_buffer {
+                    if let Some(start_tick) = action_diff_buffer.start_tick {
+                        trace!(
+                            "Receive tick snap event {:?}. Updating global action diff buffer start_tick!",
+                            tick_event
+                        );
+                        action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    }
+                }
+                if let Some(ref mut global_input_buffer) = global_input_buffer {
+                    if let Some(start_tick) = global_input_buffer.start_tick {
+                        trace!(
+                            "Receive tick snap event {:?}. Updating global input buffer start_tick!",
+                            tick_event
+                        );
+                        global_input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    }
+                }
+                for mut action_diff_buffer in action_diff_buffer_query.iter_mut() {
+                    if let Some(start_tick) = action_diff_buffer.start_tick {
+                        action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                        info!(
+                            "Receive tick snap event {:?}. Updating action diff buffer start_tick to {:?}!",
+                            tick_event, action_diff_buffer.start_tick
+                        );
+                    }
+                }
+                for mut input_buffer in input_buffer_query.iter_mut() {
+                    if let Some(start_tick) = input_buffer.start_tick {
+                        input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                        info!(
+                            "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                            tick_event, input_buffer.start_tick
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 // TODO: should run this only for entities with InputMap?

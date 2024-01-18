@@ -50,6 +50,7 @@ impl PlayerBundle {
                 action_state: ActionState::default(),
                 input_map,
             },
+            // IMPORTANT: this lets the server know that the entity is pre-predicted
             should_be_predicted: ShouldBePredicted::default(),
         }
     }

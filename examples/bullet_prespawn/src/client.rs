@@ -94,7 +94,7 @@ impl Plugin for MyClientPlugin {
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
         // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        // app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
         // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
         app.add_systems(
             PreUpdate,
@@ -137,31 +137,31 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<My
     client.connect();
 }
 
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
-fn player_movement(
-    plugin: Res<MyClientPlugin>,
-    tick_manager: Res<TickManager>,
-    mut player_query: Query<
-        (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        With<Predicted>,
-    >,
-) {
-    for (transform, action_state, player_id) in player_query.iter_mut() {
-        // we only control the movement of our own entity
-        if player_id.0 != plugin.client_id {
-            return;
-        }
-
-        // // TODO: only update if the mouse position has changed
-        // let angle =
-        //     Vec2::new(1.0, 0.0).angle_between(mouse_position - transform.translation.truncate());
-        // transform.rotation = Quat::from_rotation_z(angle);
-        shared_player_movement(transform, action_state);
-        // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
-    }
-}
+// // The client input only gets applied to predicted entities that we own
+// // This works because we only predict the user's controlled entity.
+// // If we were predicting more entities, we would have to only apply movement to the player owned one.
+// fn player_movement(
+//     plugin: Res<MyClientPlugin>,
+//     tick_manager: Res<TickManager>,
+//     mut player_query: Query<
+//         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
+//         With<Predicted>,
+//     >,
+// ) {
+//     for (transform, action_state, player_id) in player_query.iter_mut() {
+//         // we only control the movement of our own entity
+//         if player_id.0 != plugin.client_id {
+//             return;
+//         }
+//
+//         // // TODO: only update if the mouse position has changed
+//         // let angle =
+//         //     Vec2::new(1.0, 0.0).angle_between(mouse_position - transform.translation.truncate());
+//         // transform.rotation = Quat::from_rotation_z(angle);
+//         shared_player_movement(transform, action_state);
+//         // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+//     }
+// }
 
 fn update_cursor_state_from_window(
     window_query: Query<&Window>,

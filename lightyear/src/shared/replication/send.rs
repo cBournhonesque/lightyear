@@ -23,7 +23,6 @@ use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
 
 pub(crate) struct ReplicationSender<P: Protocol> {
-    // SEND
     // TODO: this is unused by server-send, should we just move it to client-connection?
     //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
@@ -46,7 +45,6 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     pub pending_unique_components:
         EntityHashMap<ReplicationGroupId, HashMap<Entity, HashSet<P::ComponentKinds>>>,
 
-    // BOTH
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 }
@@ -238,7 +236,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .or_default()
             .contains(&kind)
         {
-            debug!(
+            info!(
                 ?group,
                 ?entity,
                 ?kind,
@@ -246,6 +244,7 @@ impl<P: Protocol> ReplicationSender<P> {
             );
             return;
         }
+        info!(?kind, "Inserting pending update!");
         self.pending_updates
             .entry(group)
             .or_default()
@@ -273,8 +272,10 @@ impl<P: Protocol> ReplicationSender<P> {
 
         // get the list of entities in topological order
         for (group_id, mut actions) in self.pending_actions.drain() {
+            info!(?group_id, "pending actions: {:?}", actions);
             // add any updates for that group
             if let Some(updates) = self.pending_updates.remove(&group_id) {
+                info!(?group_id, "found updates for group: {:?}", updates);
                 for (entity, components) in updates {
                     actions
                         .entry(entity)
@@ -300,6 +301,7 @@ impl<P: Protocol> ReplicationSender<P> {
         }
         // send the remaining updates
         for (group_id, updates) in self.pending_updates.drain() {
+            info!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
             messages.push((
                 ChannelKind::of::<EntityUpdatesChannel>(),

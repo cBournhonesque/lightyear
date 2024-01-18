@@ -61,7 +61,7 @@ impl Plugin for MyServerPlugin {
             (replicate_players).in_set(MainSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, (player_movement).in_set(FixedUpdateSet::Main));
+        // app.add_systems(FixedUpdate, (player_movement).in_set(FixedUpdateSet::Main));
         app.add_systems(Update, handle_disconnections);
     }
 }
@@ -100,18 +100,18 @@ pub(crate) fn handle_disconnections(
     }
 }
 
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
-fn player_movement(
-    tick_manager: Res<TickManager>,
-    mut player_query: Query<(&mut Transform, &ActionState<PlayerActions>, &PlayerId)>,
-) {
-    for (transform, action_state, player_id) in player_query.iter_mut() {
-        shared_player_movement(transform, action_state);
-        // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
-    }
-}
+// // The client input only gets applied to predicted entities that we own
+// // This works because we only predict the user's controlled entity.
+// // If we were predicting more entities, we would have to only apply movement to the player owned one.
+// fn player_movement(
+//     tick_manager: Res<TickManager>,
+//     mut player_query: Query<(&mut Transform, &ActionState<PlayerActions>, &PlayerId)>,
+// ) {
+//     for (transform, action_state, player_id) in player_query.iter_mut() {
+//         shared_player_movement(transform, action_state);
+//         // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+//     }
+// }
 
 // Replicate the pre-spawned entities back to the client
 pub(crate) fn replicate_players(

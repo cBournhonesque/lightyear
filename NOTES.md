@@ -11,6 +11,7 @@
     - seems to kind of work but not really
     - included the tick in the hash, but maybe we should be more lenient to handle entities created in Update.
     - added rollback to despawn the pre-spawned entities if there is a rollback
+    - some prediction edge-cases are handled, but now it bugs when I spawn 2 bullets back-to-back (which means 2 rollbacks)
   - EDGE CASES TO TEST:
     - what happens if multiple entities have the same hash at the same tick?
       - it should be ok to just match any of them? since we rollback?
@@ -24,8 +25,12 @@
     - sometimes the predicted entity disappears, how come? interpolation tick is too forward? or because they are being deleted
         on any rollback! 
     - mispredictions at the beginning, why? because of tick snapping?
-    - mispredictions are very jittery, why? this seems new?
-    - bunch of mispredictions sometimes
+    - why is there an initial rollback for the matching? it's probably because we only add PredictionHistory at PreUpdate
+      so we don't have the history for the first tick when the entity was spawned. Might be worth having to avoid rollback?
+    - the INITIAL ROLLBACK AFTER MATCH SETS THE PLAYER IN A WRONG POSITION, WHY? Because we receive the packet from the server
+      for the bullet, but not for the player, even though they are in the same replication group!!
+    - sometimes the bullet doesn't spawn at all on server, why? input was lost? looks like it was because of a tick-snap-event
+    - when spawning 2 bullets closely, the second bullet has a weird rollback behaviour
     
 
 - SYNC:
