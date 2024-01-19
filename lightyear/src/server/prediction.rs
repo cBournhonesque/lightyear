@@ -66,7 +66,7 @@ pub(crate) fn compute_hash<P: Protocol>(
         });
 
         let hash = hasher.finish();
-        info!(?entity, ?tick, ?hash, "computed spawn hash for entity");
+        trace!(?entity, ?tick, ?hash, "computed spawn hash for entity");
         let mut prespawn = entity_mut.get_mut::<PreSpawnedPlayerObject>().unwrap();
         prespawn.hash = Some(hash);
     }

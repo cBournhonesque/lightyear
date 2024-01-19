@@ -638,7 +638,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
                 for mut action_diff_buffer in action_diff_buffer_query.iter_mut() {
                     if let Some(start_tick) = action_diff_buffer.start_tick {
                         action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        info!(
+                        debug!(
                             "Receive tick snap event {:?}. Updating action diff buffer start_tick to {:?}!",
                             tick_event, action_diff_buffer.start_tick
                         );
@@ -647,7 +647,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
                 for mut input_buffer in input_buffer_query.iter_mut() {
                     if let Some(start_tick) = input_buffer.start_tick {
                         input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        info!(
+                        debug!(
                             "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                             tick_event, input_buffer.start_tick
                         );

@@ -118,7 +118,7 @@ impl<T: SyncComponent> PredictionHistory<T> {
 
 // TODO: only run this for SyncComponent where SyncMode != None
 #[allow(clippy::type_complexity)]
-pub fn add_component_history<C: SyncComponent, P: Protocol>(
+pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     manager: Res<PredictionManager>,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
@@ -228,7 +228,7 @@ fn add_history<C: SyncComponent, P: Protocol>(
         if let Some(predicted_component) = predicted_component {
             // component got added on predicted side, add history
             if predicted_component.is_added() {
-                info!(?kind, ?tick, ?predicted_entity, "Adding prediction history");
+                debug!(?kind, ?tick, ?predicted_entity, "Adding prediction history");
                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
                 let mut history = PredictionHistory::<C>::default();
                 history.buffer.add_item(

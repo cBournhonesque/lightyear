@@ -11,8 +11,8 @@ pub use predicted_history::{ComponentState, PredictionHistory};
 use crate::client::components::{ComponentSyncMode, Confirmed};
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
+use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::spawn::PreSpawnedPlayerObject;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{PrePredicted, Replicate, ShouldBePredicted};
@@ -22,9 +22,9 @@ pub(crate) mod correction;
 mod despawn;
 pub mod plugin;
 pub mod predicted_history;
-mod resource;
+pub mod prespawn;
+pub(crate) mod resource;
 pub(crate) mod rollback;
-pub mod spawn;
 
 /// Marks an entity that is being predicted by the client
 #[derive(Component, Debug)]
@@ -61,7 +61,7 @@ pub(crate) fn clean_pre_predicted_entity<P: Protocol>(
     pre_predicted_entities: Query<Entity, (With<ShouldBePredicted>, Without<Confirmed>)>,
 ) {
     for entity in pre_predicted_entities.iter() {
-        info!(
+        debug!(
             ?entity,
             "removing replicate from pre-spawned player-controlled entity"
         );
@@ -101,7 +101,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
         if let Ok((confirmed, should_be_predicted)) = confirmed_entities.get_mut(confirmed_entity) {
             // TODO: improve this. Also that means we should run the pre-spawned system before this system AND have a flush...
             if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
-                info!("Skipping spawning prediction for pre-spawned player object (was already handled, we already have a predicted entity for this \
+                debug!("Skipping spawning prediction for pre-spawned player object (was already handled, we already have a predicted entity for this \
                       confirmed entity)");
                 // special-case: pre-spawned player objects handled in a different function
                 continue;
@@ -151,7 +151,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     confirmed_entity: Some(confirmed_entity),
                 });
                 predicted_entity = Some(predicted_entity_mut.id());
-                info!(
+                debug!(
                     "Delayed prediction spawn! predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );

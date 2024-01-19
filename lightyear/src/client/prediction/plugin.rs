@@ -18,10 +18,10 @@ use crate::client::prediction::despawn::{
 use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
 };
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::spawn::{
-    compute_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
+use crate::client::prediction::prespawn::{
+    compute_prespawn_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
 };
+use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
@@ -329,7 +329,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             FixedUpdate,
             (
                 // compute hashes for all pre-spawned player objects
-                compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
+                compute_prespawn_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
                 (remove_despawn_marker, apply_deferred)
                     .chain()
                     .in_set(PredictionSet::EntityDespawnFlush),

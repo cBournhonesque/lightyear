@@ -247,38 +247,41 @@ pub(crate) fn shoot_bullet(
             action.consume(PlayerActions::Shoot);
 
             info!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
-            let ball = BallBundle::new(
-                transform.translation.truncate(),
-                transform.rotation.to_euler(EulerRot::XYZ).2,
-                color.0,
-                false,
-            );
-            // on the server, replicate the bullet
-            if identity.is_server() {
-                commands.spawn((
-                    ball,
+
+            for delta in &[-0.2, 0.2] {
+                let ball = BallBundle::new(
+                    transform.translation.truncate(),
+                    transform.rotation.to_euler(EulerRot::XYZ).2 + delta,
+                    color.0,
+                    false,
+                );
+                // on the server, replicate the bullet
+                if identity.is_server() {
+                    commands.spawn((
+                        ball,
+                        // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
+                        //  but the server will take authority as soon as the client receives the entity
+                        //  it does this by matching with the client entity that has the same hash
+                        //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
+                        //  unless you set the hash manually before PostUpdate to a value of your choice
+                        PreSpawnedPlayerObject::default(),
+                        Replicate {
+                            replication_target: NetworkTarget::All,
+                            // the bullet is predicted for the client who shot it
+                            prediction_target: NetworkTarget::Single(id.0),
+                            // the bullet is interpolated for other clients
+                            interpolation_target: NetworkTarget::AllExceptSingle(id.0),
+                            // NOTE: all predicted entities need to have the same replication group
+                            replication_group: ReplicationGroup::Group(id.0),
+                            ..default()
+                        },
+                    ));
+                } else {
+                    // on the client, just spawn the ball
                     // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    //  it does this by matching with the client entity that has the same hash
-                    //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
-                    //  unless you set the hash manually before PostUpdate to a value of your choice
-                    PreSpawnedPlayerObject::default(),
-                    Replicate {
-                        replication_target: NetworkTarget::All,
-                        // the bullet is predicted for the client who shot it
-                        prediction_target: NetworkTarget::Single(id.0),
-                        // the bullet is interpolated for other clients
-                        interpolation_target: NetworkTarget::AllExceptSingle(id.0),
-                        // NOTE: all predicted entities need to have the same replication group
-                        replication_group: ReplicationGroup::Group(id.0),
-                        ..default()
-                    },
-                ));
-            } else {
-                // on the client, just spawn the ball
-                // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
-                //  but the server will take authority as soon as the client receives the entity
-                commands.spawn((ball, PreSpawnedPlayerObject::default()));
+                    commands.spawn((ball, PreSpawnedPlayerObject::default()));
+                }
             }
         }
     }

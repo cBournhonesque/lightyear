@@ -111,7 +111,7 @@ pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
                     }),
                 };
                 if should_rollback {
-                    info!(
+                    debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
@@ -338,7 +338,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
         }
     }
     entities_to_despawn.iter().for_each(|entity| {
-        info!(
+        debug!(
             ?entity,
             "deleting pre-spawned entity because it was created after the rollback tick"
         );
@@ -358,7 +358,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
         match predicted_history.pop_until_tick(rollback_tick) {
             None | Some(ComponentState::Removed) => {
                 if predicted_component.is_some() {
-                    info!(?prespawned_entity, ?kind, "Component for prespawned entity didn't exist at time of rollback, removing it");
+                    debug!(?prespawned_entity, ?kind, "Component for prespawned entity didn't exist at time of rollback, removing it");
                     // the component didn't exist at the time, remove it!
                     commands.entity(prespawned_entity).remove::<C>();
                 }
@@ -402,7 +402,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent, P: Protocol>(
                     // update the component to the corrected value
                     *predicted_component = c.clone();
                 } else {
-                    info!(
+                    debug!(
                         ?prespawned_entity,
                         ?kind,
                         "Component for prespawned entity existed at time of rollback, inserting it"
@@ -472,7 +472,7 @@ pub(crate) fn run_rollback(world: &mut World) {
             //  for example we only want to run the physics on non-confirmed entities
             world.run_schedule(FixedUpdate)
         }
-        info!("Finished rollback. Current tick: {:?}", current_tick);
+        debug!("Finished rollback. Current tick: {:?}", current_tick);
     }
 
     // revert the state of Rollback for the next frame

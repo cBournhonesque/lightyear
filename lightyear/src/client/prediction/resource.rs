@@ -7,19 +7,19 @@ use bevy::utils::{EntityHashMap, HashSet};
 
 use crate::shared::replication::entity_map::PredictedEntityMap;
 
-#[derive(Resource, Default)]
-pub struct PredictionManager {
+#[derive(Resource, Default, Debug)]
+pub(crate) struct PredictionManager {
     /// Map between remote and predicted entities
-    pub predicted_entity_map: PredictedEntityMap,
+    pub(crate) predicted_entity_map: PredictedEntityMap,
     /// Map from the hash of a PrespawnedPlayerObject to the corresponding local entity
     /// NOTE: multiple entities could share the same hash. In which case, upon receiving a server prespawned entity,
     /// we will randomly select a random entity in the set to be its predicted counterpart
     ///
     /// Also stores the tick at which the entities was spawned.
     /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
-    pub prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
+    pub(crate) prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
     /// Store the spawn tick of the entity, as well as the corresponding hash
-    pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+    pub(crate) prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
 }
 
 impl PredictionManager {
