@@ -100,13 +100,6 @@ pub struct ClientPreSpawnedPlayerObject {
 
 /// Compute the hash of the spawned entity by hashing the type of all its components along with the tick at which it was created
 pub(crate) fn compute_hash<P: Protocol>(world: &mut World) {
-    // let (tick, interpolation_tick) =
-    //     world.resource_scope(|world: &mut World, connection: Mut<ConnectionManager<P>>| {
-    //         let tick_manager = world.resource::<TickManager>();
-    //         let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
-    //         (tick_manager.tick(), interpolation_tick)
-    //     });
-
     // get the rollback tick if the pre-spawned entity is being recreated during rollback!
     let rollback_state = world.resource::<Rollback>().state.clone();
     let tick = match rollback_state {
@@ -120,7 +113,7 @@ pub(crate) fn compute_hash<P: Protocol>(world: &mut World) {
         // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
         let mut pre_spawned_query =
             world.query_filtered::<(EntityRef, Ref<PreSpawnedPlayerObject>), Without<Confirmed>>();
-        let mut predicted_entities = vec![];
+        // let mut predicted_entities = vec![];
         for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
             // we only care about newly-added PreSpawnedPlayerObject components
             if !prespawn.is_added() {
@@ -141,7 +134,6 @@ pub(crate) fn compute_hash<P: Protocol>(world: &mut World) {
                     //  so that we have the exact spawn tick! Solutions:
                     //  run compute_hash in post-update as well
                     // we include the spawn tick in the hash
-                    info!("including tick {:?} for hash", tick);
                     tick.hash(&mut hasher);
 
                     // NOTE: we cannot call hash() multiple times because the components in the archetype
@@ -179,7 +171,7 @@ pub(crate) fn compute_hash<P: Protocol>(world: &mut World) {
                     new_hash
                 },
                 |hash| {
-                    info!(
+                    trace!(
                         ?entity,
                         ?tick,
                         ?hash,
@@ -199,15 +191,17 @@ pub(crate) fn compute_hash<P: Protocol>(world: &mut World) {
             // add a timer on the entity so that it gets despawned if the interpolation tick
             // reaches it without matching with any server entity
             manager.prespawn_tick_to_hash.add_item(tick, hash);
-            predicted_entities.push(entity);
+            // predicted_entities.push(entity);
         }
 
-        for entity in predicted_entities {
-            info!("remove PreSpawnedPlayerObject");
-            // we stored the relevant information in the PredictionManager resource
-            // so we can remove the component here
-            world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
-        }
+        // NOTE: originally I wanted to remove PreSpawnedPlayerObject here because I wanted to call `compute_hash`
+        // at PostUpdate, which would run twice (at the end of FixedUpdate and at PostUpdate)
+        // for entity in predicted_entities {
+        //     info!("remove PreSpawnedPlayerObject");
+        //     // we stored the relevant information in the PredictionManager resource
+        //     // so we can remove the component here
+        //     world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
+        // }
     });
 }
 
@@ -219,7 +213,8 @@ pub(crate) fn pre_spawned_player_object_cleanup<P: Protocol>(
     mut manager: ResMut<PredictionManager>,
 ) {
     let tick = tick_manager.tick();
-    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager) - 20;
+    // TODO: why is interpolation tick not good enough and we need to use an earlier tick?
+    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager) - 40;
     // remove all the prespawned entities that have not been matched with a server entity
     for (_, hash) in manager
         .prespawn_tick_to_hash

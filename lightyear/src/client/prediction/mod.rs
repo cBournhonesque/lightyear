@@ -56,7 +56,7 @@ pub enum RollbackState {
 /// have authority on the entity.
 /// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
 /// server
-pub(crate) fn clean_prespawned_entity<P: Protocol>(
+pub(crate) fn clean_pre_predicted_entity<P: Protocol>(
     mut commands: Commands,
     pre_predicted_entities: Query<Entity, (With<ShouldBePredicted>, Without<Confirmed>)>,
 ) {

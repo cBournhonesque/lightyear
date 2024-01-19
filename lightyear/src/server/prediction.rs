@@ -30,7 +30,7 @@ pub(crate) fn compute_hash<P: Protocol>(
             .hash
             .is_some()
         {
-            info!("Hash for pre-spawned player object was already computed!");
+            trace!("Hash for pre-spawned player object was already computed!");
             continue;
         }
         let mut hasher = bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
@@ -38,7 +38,6 @@ pub(crate) fn compute_hash<P: Protocol>(
         // let mut hasher = bevy::utils::AHasher::default();
 
         // TODO: figure out how to hash the spawn tick
-        info!("including tick {:?} for hash", tick);
         tick.hash(&mut hasher);
 
         // NOTE: we cannot call hash() multiple times because the components in the archetype

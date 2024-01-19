@@ -199,7 +199,10 @@ pub(crate) fn fixed_update_log(
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn move_bullet(
     mut commands: Commands,
-    mut query: Query<(Entity, &mut Transform), With<BallMarker>>,
+    mut query: Query<
+        (Entity, &mut Transform),
+        (With<BallMarker>, Without<Confirmed>, Without<Interpolated>),
+    >,
 ) {
     const BALL_MOVE_SPEED: f32 = 3.0;
     const MAP_LIMIT: f32 = 2000.0;

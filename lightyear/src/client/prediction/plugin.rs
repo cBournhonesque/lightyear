@@ -15,7 +15,9 @@ use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back,
 };
-use crate::client::prediction::predicted_history::update_prediction_history;
+use crate::client::prediction::predicted_history::{
+    add_prespawned_component_history, update_prediction_history,
+};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::spawn::{
     compute_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
@@ -32,7 +34,7 @@ use super::rollback::{
     run_rollback,
 };
 use super::{
-    clean_prespawned_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
+    clean_pre_predicted_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
     Rollback, RollbackState,
 };
 
@@ -187,8 +189,11 @@ where
             );
             app.add_systems(
                 FixedUpdate,
-                // we need to run this during fixed update to know accurately the history for each tick
-                update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
+                (
+                    add_prespawned_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
+                    // we need to run this during fixed update to know accurately the history for each tick
+                    update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
+                ),
             );
             app.add_systems(
                 PostUpdate,
@@ -306,9 +311,15 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
                 // TODO: entities spawned during update might have a tick that is off by 1 or more...
                 //  account for this when setting the hash?
+                // NOTE: we need to call this before SpawnHistory otherwise the history would affect the hash.
+                // TODO: find a way to exclude predicted history from the hash
                 ReplicationSet::SetPreSpawnedHash,
                 PredictionSet::EntityDespawn,
                 PredictionSet::EntityDespawnFlush,
+                // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
+                // right away to avoid rollbacks
+                PredictionSet::SpawnHistory,
+                PredictionSet::SpawnHistoryFlush,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
@@ -322,6 +333,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 (remove_despawn_marker, apply_deferred)
                     .chain()
                     .in_set(PredictionSet::EntityDespawnFlush),
+                apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
                 increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
             ),
         );
@@ -337,11 +349,13 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             (
                 pre_spawned_player_object_cleanup::<P>,
                 // fill in the client_entity and client_id for pre-predicted entities
-                handle_pre_prediction,
+                handle_pre_prediction.before(ReplicationSet::All),
                 // clean-up the ShouldBePredicted components after we've sent them
-                clean_prespawned_entity::<P>.after(ReplicationSet::All),
+                clean_pre_predicted_entity::<P>.after(ReplicationSet::All),
+                // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
+                //  tick to compute the hash
                 // compute hashes for all pre-spawned player objects
-                compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
+                // compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
             )
                 .run_if(is_connected),
         );

@@ -36,7 +36,9 @@
         - the user makes all systems not run rollback for PreSpawnedPlayerObjects
         - or we rollback PreSpawnedPlayerObjects as well, instead of only entities that have a Confirmed counterpart
       - TODO: maybe add an option for each entity to decide it's rollback eligible?
-    - I havea bunch of "could not despawn enttiy because it does not exist", let's check for each entity if it exists?
+    - I havea bunch of "could not despawn enttiy because it does not exist", let's check for each entity if it exists before despawn?
+    - I've seen cases where the bullet is not spawned on the same tick on client and server, why?
+    - we rollback the pre-spawned entities all the time because we didn't add a history for them right away..
     
 
 - SYNC:
