@@ -111,6 +111,7 @@ impl PacketReceiver for WebTransportClientPacketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_server_receiver.try_recv() {
             Ok(data) => {
+                // Ok(Some((data.payload().as_mut(), self.server_addr)))
                 self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
                 Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
             }
