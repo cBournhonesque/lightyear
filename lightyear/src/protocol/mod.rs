@@ -144,14 +144,17 @@ macro_rules! protocolize {
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliableWithAcks,
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1.0,
                     });
                     protocol.add_channel::<PingChannel>(ChannelSettings {
                         mode: ChannelMode::SequencedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1000.0,
                     });
                     protocol.add_channel::<InputChannel>(ChannelSettings {
                         // we want to use unordered unreliable because the server has a buffer to re-order the inputs anyway
@@ -160,14 +163,17 @@ macro_rules! protocolize {
                         //  because our messages contain the last 10 ticks of input anyway, so we don't need to read older ones.
                         mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::ClientToServer,
+                        priority: 3.0,
                     });
                     protocol.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1.0,
                     });
                     protocol.add_channel::<TickBufferChannel>(ChannelSettings {
                         mode: ChannelMode::TickBuffered,
                         direction: ChannelDirection::ClientToServer,
+                        priority: 1.0,
                     });
                     protocol
                 }
@@ -237,26 +243,32 @@ macro_rules! protocolize {
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliableWithAcks,
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1.0,
                     });
                     protocol.add_channel::<PingChannel>(ChannelSettings {
                         mode: ChannelMode::SequencedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1000.0,
                     });
                     protocol.add_channel::<InputChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::ClientToServer,
+                        priority: 3.0,
                     });
                     protocol.add_channel::<DefaultUnorderedUnreliableChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                        priority: 1.0,
                     });
                     protocol.add_channel::<TickBufferChannel>(ChannelSettings {
                         mode: ChannelMode::TickBuffered,
                         direction: ChannelDirection::ClientToServer,
+                        priority: 1.0,
                     });
                     protocol
                 }

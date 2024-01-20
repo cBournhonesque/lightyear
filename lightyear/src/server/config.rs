@@ -8,7 +8,7 @@ use crate::netcode::Key;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
     pub keep_alive_send_rate: f64,
@@ -47,7 +47,7 @@ impl NetcodeConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PacketConfig {
     /// Number of bytes per second that can be sent to each client
     pub per_client_send_bandwidth_cap: Quota,
@@ -83,7 +83,7 @@ impl PacketConfig {
     }
 }
 
-#[derive(Clone, Default, Resource)]
+#[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,

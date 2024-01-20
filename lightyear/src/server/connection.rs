@@ -18,6 +18,7 @@ use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
+use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
@@ -44,6 +45,9 @@ pub struct ConnectionManager<P: Protocol> {
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
+
+    packet_config: PacketConfig,
+    ping_config: PingConfig,
 }
 
 /// Do some regular cleanup on the internals of replication:
@@ -88,13 +92,19 @@ pub(crate) fn replication_clean<P: Protocol>(
 }
 
 impl<P: Protocol> ConnectionManager<P> {
-    pub fn new(channel_registry: ChannelRegistry) -> Self {
+    pub fn new(
+        channel_registry: ChannelRegistry,
+        packet_config: PacketConfig,
+        ping_config: PingConfig,
+    ) -> Self {
         Self {
             connections: HashMap::default(),
             channel_registry,
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
+            packet_config,
+            ping_config,
         }
     }
 
@@ -157,13 +167,17 @@ impl<P: Protocol> ConnectionManager<P> {
         });
     }
 
-    pub(crate) fn add(&mut self, client_id: ClientId, ping_config: &PingConfig) {
+    pub(crate) fn add(&mut self, client_id: ClientId) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
             metrics::increment_gauge!("connected_clients", 1.0);
 
             info!("New connection from id: {}", client_id);
-            let mut connection = Connection::new(&self.channel_registry, ping_config);
+            let mut connection = Connection::new(
+                &self.channel_registry,
+                self.packet_config.clone(),
+                self.ping_config.clone(),
+            );
             connection.events.push_connection();
             self.new_clients.push(client_id);
             e.insert(connection);
@@ -321,9 +335,13 @@ pub struct Connection<P: Protocol> {
 }
 
 impl<P: Protocol> Connection<P> {
-    pub(crate) fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
+    pub(crate) fn new(
+        channel_registry: &ChannelRegistry,
+        packet_config: PacketConfig,
+        ping_config: PingConfig,
+    ) -> Self {
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry);
+        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
         // get the acks-tracker for entity updates
         let update_acks_tracker = message_manager
             .channels

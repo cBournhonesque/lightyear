@@ -129,7 +129,7 @@ impl From<SingleData> for MessageContainer {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 /// This structure contains the bytes for a single 'logical' message
 ///
 /// We store the bytes instead of the message directly.
@@ -144,6 +144,7 @@ pub struct SingleData {
     // NOTE: This is only used for tick buffered receiver, so that the message is read at the same exact tick it was sent
     pub tick: Option<Tick>,
     pub bytes: Bytes,
+    // we do not encode the priority in the packet
     pub priority: f32,
 }
 
@@ -371,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_serde_single_data() {
-        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into());
+        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into(), 1.0);
         let mut writer = WriteWordBuffer::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
@@ -399,6 +400,7 @@ mod tests {
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
+            priority: 1.0,
         };
         let mut writer = WriteWordBuffer::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();

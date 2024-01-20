@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::shared::log::LogConfig;
 use crate::shared::tick_manager::TickConfig;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SharedConfig {
     pub enable_replication: bool,
     /// how often does the client send updates to the server?

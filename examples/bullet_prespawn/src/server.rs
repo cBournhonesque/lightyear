@@ -7,6 +7,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::client::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::server::config::PacketConfig;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -45,7 +46,8 @@ impl Plugin for MyServerPlugin {
         let config = ServerConfig {
             shared: shared_config().clone(),
             netcode: netcode_config,
-            ping: PingConfig::default(),
+            packet: PacketConfig::default().enable_bandwidth_cap(),
+            ..default()
         };
         let plugin_config = PluginConfig::new(config, io, protocol());
         app.add_plugins(server::ServerPlugin::new(plugin_config));

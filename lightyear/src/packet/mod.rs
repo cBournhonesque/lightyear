@@ -33,9 +33,6 @@ pub mod packet;
 
 /// Manages building a single [`Packet`](packet::Packet) from multiple [`Messages`](message::Message)
 pub(crate) mod packet_manager;
-
-pub(crate) mod message_receivers;
-pub(crate) mod message_sender;
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 mod packet_type;
 pub(crate) mod priority_manager;

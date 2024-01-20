@@ -21,7 +21,7 @@ pub struct LogPlugin {
     pub config: LogConfig,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Configuration to setup logging/metrics
 pub struct LogConfig {
     /// Filters logs using the [`EnvFilter`] format

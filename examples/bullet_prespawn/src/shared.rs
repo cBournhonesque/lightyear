@@ -101,13 +101,13 @@ impl Plugin for SharedPlugin {
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
-        .add("bytes_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+        .add("KB/S in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
         .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.0}"));
+        .format(|v| format!("{v:.2}"));
     onscreen
-        .add("bytes_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+        .add("KB/s out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
         .aggregate(Aggregate::Average)
-        .format(|v| format!("{v:.0}"));
+        .format(|v| format!("{v:.2}"));
 }
 
 // Generate pseudo-random color from id

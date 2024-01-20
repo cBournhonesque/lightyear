@@ -49,7 +49,8 @@ impl FragmentReceiver {
             current_time,
         )? {
             self.fragment_messages.remove(&fragment.message_id);
-            let mut data = SingleData::new(Some(fragment.message_id), payload);
+            // we don't need the priority on the receiver side
+            let mut data = SingleData::new(Some(fragment.message_id), payload, 1.0);
             // TODO: verify that all fragments had the same tick
             data.tick = fragment.tick;
             return Ok(Some(data));

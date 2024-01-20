@@ -94,7 +94,7 @@ impl<P: Protocol> ConnectionManager<P> {
         input_delay_ticks: u16,
     ) -> Self {
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry);
+        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
         // get the acks-tracker for entity updates
         let update_acks_tracker = message_manager
             .channels

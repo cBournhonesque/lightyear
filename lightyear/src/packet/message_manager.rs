@@ -1,15 +1,17 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use anyhow::{anyhow, Context};
+use governor::Quota;
 use tracing::trace;
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
+use crate::client::config::PacketConfig;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::packet::packet::{Packet, PacketId};
 use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
-use crate::packet::priority_manager::PriorityManager;
+use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -33,7 +35,6 @@ pub struct MessageManager {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,
     priority_manager: PriorityManager,
-    // TODO: add ordering of channels per priority
     pub(crate) channels: HashMap<ChannelKind, ChannelContainer>,
     pub(crate) channel_registry: ChannelRegistry,
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
@@ -44,10 +45,10 @@ pub struct MessageManager {
 }
 
 impl MessageManager {
-    pub fn new(channel_registry: &ChannelRegistry) -> Self {
+    pub fn new(channel_registry: &ChannelRegistry, priority_config: PriorityConfig) -> Self {
         Self {
             packet_manager: PacketBuilder::new(),
-            priority_manager: PriorityManager::new(),
+            priority_manager: PriorityManager::new(priority_config),
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
@@ -96,7 +97,7 @@ impl MessageManager {
         self.writer.start_write();
         message.encode(&mut self.writer)?;
         let message_bytes: Vec<u8> = self.writer.finish_write().into();
-        Ok(channel.sender.buffer_send(message_bytes.into()))
+        Ok(channel.sender.buffer_send(message_bytes.into(), priority))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -204,12 +205,17 @@ impl MessageManager {
         }
 
         // adjust the real amount of bytes that we sent through the limiter
-        let total_bytes_sent = bytes.iter().map(|b| b.len()).sum::<u32>();
-        let _ = self.priority_manager.limiter.check_n(
-            (total_bytes_sent - num_bytes_added_to_limiter)
-                .try_into()
-                .unwrap(),
-        );
+        if self.priority_manager.config.enabled {
+            let total_bytes_sent = bytes.iter().map(|b| b.len() as u32).sum::<u32>();
+            if let Ok(remaining_bytes_to_add) =
+                (total_bytes_sent - num_bytes_added_to_limiter).try_into()
+            {
+                let _ = self
+                    .priority_manager
+                    .limiter
+                    .check_n(remaining_bytes_to_add);
+            }
+        }
 
         Ok(bytes)
     }
@@ -313,6 +319,7 @@ mod tests {
     use crate::_reexport::*;
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
+    use crate::packet::priority_manager::PriorityConfig;
     use crate::prelude::*;
     use crate::tests::protocol::*;
 
@@ -330,8 +337,10 @@ mod tests {
         let protocol = protocol();
 
         // Create message managers
-        let mut client_message_manager = MessageManager::new(protocol.channel_registry());
-        let mut server_message_manager = MessageManager::new(protocol.channel_registry());
+        let mut client_message_manager =
+            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let mut server_message_manager =
+            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
 
         // client: buffer send messages, and then send
         let message = MyMessageProtocol::Message1(Message1("1".to_string()));
@@ -415,8 +424,10 @@ mod tests {
         let protocol = protocol();
 
         // Create message managers
-        let mut client_message_manager = MessageManager::new(protocol.channel_registry());
-        let mut server_message_manager = MessageManager::new(protocol.channel_registry());
+        let mut client_message_manager =
+            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let mut server_message_manager =
+            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
 
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
@@ -519,8 +530,10 @@ mod tests {
         let protocol = protocol();
 
         // Create message managers
-        let mut client_message_manager = MessageManager::new(protocol.channel_registry());
-        let mut server_message_manager = MessageManager::new(protocol.channel_registry());
+        let mut client_message_manager =
+            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let mut server_message_manager =
+            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
 
         let update_acks_tracker = client_message_manager
             .channels

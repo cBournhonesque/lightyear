@@ -79,7 +79,7 @@ pub struct SyncStats {
 pub type SyncStatsBuffer = ReadyBuffer<WrappedTime, SyncStats>;
 
 impl PingManager {
-    pub fn new(config: &PingConfig) -> Self {
+    pub fn new(config: PingConfig) -> Self {
         Self {
             config: config.clone(),
             // pings
