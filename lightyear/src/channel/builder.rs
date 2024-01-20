@@ -100,6 +100,18 @@ pub struct ChannelSettings {
     // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
     pub mode: ChannelMode,
     pub direction: ChannelDirection,
+    /// Sets the priority of the channel. The final priority of a message will be `MessagePriority * ChannelPriority`
+    pub priority: f32,
+}
+
+impl Default for ChannelSettings {
+    fn default() -> Self {
+        Self {
+            mode: ChannelMode::UnorderedUnreliable,
+            direction: ChannelDirection::Bidirectional,
+            priority: 1.0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

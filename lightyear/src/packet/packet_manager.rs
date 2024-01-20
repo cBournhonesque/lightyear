@@ -614,6 +614,7 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::default;
     use std::collections::{BTreeMap, VecDeque};
 
     use bytes::Bytes;
@@ -639,7 +640,7 @@ mod tests {
     fn get_channel_registry() -> ChannelRegistry {
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            ..default()
         };
         let mut c = ChannelRegistry::new();
         c.add::<Channel1>(settings.clone());

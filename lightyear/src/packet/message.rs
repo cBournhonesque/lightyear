@@ -144,14 +144,16 @@ pub struct SingleData {
     // NOTE: This is only used for tick buffered receiver, so that the message is read at the same exact tick it was sent
     pub tick: Option<Tick>,
     pub bytes: Bytes,
+    pub priority: f32,
 }
 
 impl SingleData {
-    pub fn new(id: Option<MessageId>, bytes: Bytes) -> Self {
+    pub fn new(id: Option<MessageId>, bytes: Bytes, priority: f32) -> Self {
         Self {
             id,
             tick: None,
             bytes,
+            priority,
         }
     }
 
@@ -211,6 +213,7 @@ impl SingleData {
             id,
             tick,
             bytes: Bytes::from(read_bytes),
+            priority: 1.0,
             // bytes: Bytes::copy_from_slice(read_bytes),
         })
     }
@@ -226,6 +229,7 @@ pub struct FragmentData {
     pub num_fragments: FragmentIndex,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
+    pub priority: f32,
 }
 
 impl FragmentData {
@@ -282,6 +286,8 @@ impl FragmentData {
             fragment_id,
             num_fragments,
             bytes,
+            // we can assign a random priority on the reader side
+            priority: 1.0,
         })
     }
 

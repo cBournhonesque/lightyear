@@ -9,6 +9,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
 use crate::packet::packet::{Packet, PacketId};
 use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
+use crate::packet::priority_manager::PriorityManager;
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
@@ -24,11 +25,14 @@ use crate::shared::time_manager::TimeManager;
 // TODO: hard to split message manager into send/receive because the acks need both the send side and receive side
 //  maybe have a separate actor for acks?
 
+pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
+
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
 pub struct MessageManager {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,
+    priority_manager: PriorityManager,
     // TODO: add ordering of channels per priority
     pub(crate) channels: HashMap<ChannelKind, ChannelContainer>,
     pub(crate) channel_registry: ChannelRegistry,
@@ -43,6 +47,7 @@ impl MessageManager {
     pub fn new(channel_registry: &ChannelRegistry) -> Self {
         Self {
             packet_manager: PacketBuilder::new(),
+            priority_manager: PriorityManager::new(),
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
@@ -73,6 +78,17 @@ impl MessageManager {
         message: M,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<Option<MessageId>> {
+        self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
+    }
+
+    /// Buffer a message to be sent on this connection
+    /// Returns the message id associated with the message, if there is one
+    pub fn buffer_send_with_priority<M: BitSerializable>(
+        &mut self,
+        message: M,
+        channel_kind: ChannelKind,
+        priority: f32,
+    ) -> anyhow::Result<Option<MessageId>> {
         let channel = self
             .channels
             .get_mut(&channel_kind)
@@ -91,8 +107,7 @@ impl MessageManager {
         // Step 1. Get the list of packets to send from all channels
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
-        let mut data_to_send: BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =
-            BTreeMap::new();
+        let mut data_to_send: Vec<(NetId, (VecDeque<SingleData>, VecDeque<FragmentData>))> = vec![];
         for (channel_kind, channel) in self.channels.iter_mut() {
             let channel_id = self
                 .channel_registry
@@ -100,26 +115,51 @@ impl MessageManager {
                 .context("cannot find channel id")?;
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
-                data_to_send.insert(*channel_id, channel.sender.send_packet());
+                data_to_send.push((*channel_id, channel.sender.send_packet()));
             }
         }
-        for (channel_id, (single_data, fragment_data)) in data_to_send.iter() {
-            let channel_kind = self
-                .channel_registry
-                .get_kind_from_net_id(*channel_id)
-                .unwrap();
-            let channel_name = self.channel_registry.name(channel_kind).unwrap();
-            trace!("sending data on channel {}", channel_name);
-            // for single_data in single_data.iter() {
-            //     info!(size = ?single_data.bytes.len(), "Single data");
-            // }
-            // for fragment_data in fragment_data.iter() {
-            //     info!(size = ?fragment_data.bytes.len(),
-            //           id = ?fragment_data.fragment_id,
-            //           num_fragments = ?fragment_data.num_fragments,
-            //           "Fragment data");
-            // }
-        }
+
+        // 0. priority manager: sort the data by priority
+        // 1. try to build packet
+        //   - NOTE: this re-sorts the packets, which seems like a waste?
+        // 2. for each packet, check if rate limiter accepts it
+        //   - if it does, just send it
+        //   - if it does not, take all the singledata/fragmentdata from the packet and re-add them to the channel buffer.
+        //     or actually maybe no need to put it in the channelbuffer... just keep it in the message manager?
+        //     because we know we want to send it, just need to have enough priority
+        //     (could have some issues with reliable retrying though)
+        //   - the problem is for fragments, ideally we want all fragments to be sent together.
+        //   - but should be ok since we start by writing all fragmented data to packets first?
+
+        // new approach:
+        // - sort the data by priotity (channel * message * time_since_last)
+        // - for each data, check if the rate limiter accepts it.
+        // - build the packets using the accepted limiter
+        // - call the limiter with the header-size + channel-size (or just total packet bytes - what we called earlier)
+
+        // for (channel_id, (single_data, fragment_data)) in data_to_send.iter() {
+        //     let channel_kind = self
+        //         .channel_registry
+        //         .get_kind_from_net_id(*channel_id)
+        //         .unwrap();
+        //     let channel_name = self.channel_registry.name(channel_kind).unwrap();
+        //     trace!("sending data on channel {}", channel_name);
+        //     // for single_data in single_data.iter() {
+        //     //     info!(size = ?single_data.bytes.len(), "Single data");
+        //     // }
+        //     // for fragment_data in fragment_data.iter() {
+        //     //     info!(size = ?fragment_data.bytes.len(),
+        //     //           id = ?fragment_data.fragment_id,
+        //     //           num_fragments = ?fragment_data.num_fragments,
+        //     //           "Fragment data");
+        //     // }
+        // }
+
+        // priority manager: get the list of messages we can send according to the rate limiter
+        //  (the other messages are stored in an internal buffer)
+        let (data_to_send, num_bytes_added_to_limiter) = self
+            .priority_manager
+            .priority_filter(data_to_send, &self.channel_registry);
 
         let packets = self.packet_manager.build_packets(data_to_send);
 
@@ -162,6 +202,14 @@ impl MessageManager {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
+
+        // adjust the real amount of bytes that we sent through the limiter
+        let total_bytes_sent = bytes.iter().map(|b| b.len()).sum::<u32>();
+        let _ = self.priority_manager.limiter.check_n(
+            (total_bytes_sent - num_bytes_added_to_limiter)
+                .try_into()
+                .unwrap(),
+        );
 
         Ok(bytes)
     }

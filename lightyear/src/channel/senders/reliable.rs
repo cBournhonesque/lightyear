@@ -24,6 +24,7 @@ pub struct FragmentAck {
 pub enum UnackedMessage {
     Single {
         bytes: Bytes,
+        priority: f32,
         /// If None: this packet has never been sent before
         /// else: the last instant when this packet was sent
         last_sent: Option<WrappedTime>,
@@ -90,12 +91,12 @@ impl ChannelSend for ReliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, None, message, priority);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -109,6 +110,7 @@ impl ChannelSend for ReliableSender {
         } else {
             UnackedMessage::Single {
                 bytes: message,
+                priority,
                 last_sent: None,
             }
         };
@@ -167,6 +169,7 @@ impl ChannelSend for ReliableSender {
             match unacked_message {
                 UnackedMessage::Single {
                     bytes,
+                    priority,
                     ref mut last_sent,
                 } => {
                     if should_send(last_sent) {
@@ -177,7 +180,8 @@ impl ChannelSend for ReliableSender {
                             fragment_id: None,
                         };
                         if !self.message_ids_to_send.contains(&message_info) {
-                            let message = SingleData::new(Some(*message_id), bytes.clone());
+                            let message =
+                                SingleData::new(Some(*message_id), bytes.clone(), *priority);
                             self.single_messages_to_send.push_back(message);
                             self.message_ids_to_send.insert(message_info);
                             *last_sent = Some(self.current_time);
@@ -266,7 +270,7 @@ mod tests {
 
         // Buffer a new message
         let message1 = Bytes::from("hello");
-        sender.buffer_send(message1.clone());
+        sender.buffer_send(message1.clone(), 1.0);
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent
@@ -284,7 +288,7 @@ mod tests {
         assert_eq!(sender.single_messages_to_send.len(), 1);
         assert_eq!(
             sender.single_messages_to_send.front().unwrap(),
-            &SingleData::new(Some(MessageId(0)), message1.clone())
+            &SingleData::new(Some(MessageId(0)), message1.clone(), 1.0)
         );
 
         // Ack the first message

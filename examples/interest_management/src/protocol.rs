@@ -159,7 +159,7 @@ pub(crate) fn protocol() -> MyProtocol {
     let mut protocol = MyProtocol::default();
     protocol.add_channel::<Channel1>(ChannelSettings {
         mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        direction: ChannelDirection::Bidirectional,
+        ..default()
     });
     protocol
 }

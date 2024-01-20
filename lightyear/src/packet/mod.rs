@@ -38,4 +38,5 @@ pub(crate) mod message_receivers;
 pub(crate) mod message_sender;
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 mod packet_type;
+pub(crate) mod priority_manager;
 pub(crate) mod stats_manager;

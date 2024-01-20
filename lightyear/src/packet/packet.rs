@@ -364,6 +364,7 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::default;
     use bytes::Bytes;
 
     use bitcode::encoding::Gamma;
@@ -387,7 +388,7 @@ mod tests {
     fn get_channel_registry() -> ChannelRegistry {
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            ..default()
         };
         let mut c = ChannelRegistry::new();
         c.add::<Channel1>(settings.clone());

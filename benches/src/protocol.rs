@@ -1,4 +1,5 @@
 use bevy::prelude::Component;
+use bevy::utils::default;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
@@ -63,11 +64,11 @@ pub fn protocol() -> MyProtocol {
     let mut p = MyProtocol::default();
     p.add_channel::<Channel1>(ChannelSettings {
         mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        direction: ChannelDirection::Bidirectional,
+        ..default()
     });
     p.add_channel::<Channel2>(ChannelSettings {
         mode: ChannelMode::UnorderedUnreliable,
-        direction: ChannelDirection::Bidirectional,
+        ..default()
     });
     p
 }

@@ -256,9 +256,11 @@ impl IoDiagnosticsPlugin {
             return;
         }
         diagnostics.add_measurement(Self::BYTES_IN, || {
-            stats.bytes_received as f64 / delta_seconds
+            (stats.bytes_received as f64 / 1000.0) / delta_seconds
         });
-        diagnostics.add_measurement(Self::BYTES_OUT, || stats.bytes_sent as f64 / delta_seconds);
+        diagnostics.add_measurement(Self::BYTES_OUT, || {
+            (stats.bytes_sent as f64 / 1000.0) / delta_seconds
+        });
         diagnostics.add_measurement(Self::PACKETS_IN, || {
             stats.packets_received as f64 / delta_seconds
         });
@@ -273,12 +275,12 @@ impl Plugin for IoDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
         app.register_diagnostic(Diagnostic::new(
             IoDiagnosticsPlugin::BYTES_IN,
-            "bytes received per second",
+            "KB received per second",
             IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
         ));
         app.register_diagnostic(Diagnostic::new(
             IoDiagnosticsPlugin::BYTES_OUT,
-            "bytes sent per second",
+            "KB sent per second",
             IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
         ));
         app.register_diagnostic(Diagnostic::new(

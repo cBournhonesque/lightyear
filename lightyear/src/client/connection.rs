@@ -9,6 +9,7 @@ use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
+use crate::client::config::PacketConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::events::ConnectionEvents;
 use crate::connection::message::{ClientMessage, ServerMessage};
@@ -87,8 +88,9 @@ pub(crate) fn replication_clean<P: Protocol>(
 impl<P: Protocol> ConnectionManager<P> {
     pub fn new(
         channel_registry: &ChannelRegistry,
+        packet_config: PacketConfig,
         sync_config: SyncConfig,
-        ping_config: &PingConfig,
+        ping_config: PingConfig,
         input_delay_ticks: u16,
     ) -> Self {
         // create the message manager and the channels
