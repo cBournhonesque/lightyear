@@ -21,9 +21,6 @@
     - simplify the distinction between the 3 predicted spawning types
     - add unit tests
     - handle edge cases of rollback that deletes the pre-spawned entity on the rollback tick.
-    - in general, put the pre-spawned entity deletion in the PrepareRollback system
-    - sometimes the predicted entity disappears, how come? interpolation tick is too forward? or because they are being deleted
-        on any rollback! 
     - mispredictions at the beginning, why? because of tick snapping?
     - why is there an initial rollback for the matching? it's probably because we only add PredictionHistory at PreUpdate
       so we don't have the history for the first tick when the entity was spawned. Might be worth having to avoid rollback?
@@ -39,6 +36,9 @@
     - I havea bunch of "could not despawn enttiy because it does not exist", let's check for each entity if it exists before despawn?
     - I've seen cases where the bullet is not spawned on the same tick on client and server, why?
     - we rollback the pre-spawned entities all the time because we didn't add a history for them right away..
+    - I still frequent rollbacks for the matched entities, weirdly.
+    - There are some cases where server/client don't run input on the same tick?
+    - Also sometimes we have annoying interpolation freezes..
     
 
 - SYNC:

@@ -14,6 +14,7 @@ use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
+use crate::prelude::PreSpawnedPlayerObject;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
@@ -348,8 +349,12 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         //     P::ComponentKinds::from(P::Components::from(ShouldBePredicted {
         //         client_entity: None,
         //     }));
+
+        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type() {
+        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
+            || kind == <P::ComponentKinds as FromType<PreSpawnedPlayerObject>>::from_type()
+        {
             actual_target = replicate.prediction_target.clone();
         }
 

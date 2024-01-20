@@ -55,7 +55,7 @@ pub mod _reexport {
         push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
     pub use crate::shared::time_manager::WrappedTime;
-    pub use crate::utils::ready_buffer::ReadyBuffer;
+    pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;
 }
 

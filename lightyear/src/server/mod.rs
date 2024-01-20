@@ -13,7 +13,7 @@ mod input;
 
 pub mod plugin;
 
-pub(crate) mod resource;
+pub mod resource;
 
 pub mod room;
 

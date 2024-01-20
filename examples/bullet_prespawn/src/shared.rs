@@ -22,7 +22,7 @@ pub fn shared_config() -> SharedConfig {
         enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
-        // server_send_interval: Duration::from_millis(100),
+        // server_send_interval: Duration::from_millis(500),
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
@@ -70,7 +70,7 @@ impl Plugin for SharedPlugin {
 
         // registry types for reflection
         app.register_type::<PlayerId>();
-        // app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
         // every system that is physics-based and can be rolled-back has to be scheduled
         // in FixedUpdateSet::Main
         app.add_systems(
@@ -171,6 +171,7 @@ pub(crate) fn fixed_update_log(
     rollback: Option<Res<Rollback>>,
     player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
     ball: Query<(Entity, &Transform), (With<BallMarker>, Without<Confirmed>)>,
+    interpolated_ball: Query<(Entity, &Transform), (With<BallMarker>, With<Interpolated>)>,
 ) {
     let mut tick = tick_manager.tick();
     if let Some(rollback) = rollback {
@@ -179,7 +180,7 @@ pub(crate) fn fixed_update_log(
         }
     }
     for (entity, transform) in player.iter() {
-        info!(
+        trace!(
         ?tick,
         ?entity,
         pos = ?transform.translation.truncate(),
@@ -187,11 +188,19 @@ pub(crate) fn fixed_update_log(
         );
     }
     for (entity, transform) in ball.iter() {
-        info!(
+        trace!(
             ?tick,
             ?entity,
             pos = ?transform.translation.truncate(),
             "Ball after fixed update"
+        );
+    }
+    for (entity, transform) in interpolated_ball.iter() {
+        trace!(
+            ?tick,
+            ?entity,
+            pos = ?transform.translation.truncate(),
+            "interpolated Ball after fixed update"
         );
     }
 }
@@ -249,6 +258,7 @@ pub(crate) fn shoot_bullet(
             info!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 
             for delta in &[-0.2, 0.2] {
+                // for delta in &[0.0] {
                 let ball = BallBundle::new(
                     transform.translation.truncate(),
                     transform.rotation.to_euler(EulerRot::XYZ).2 + delta,

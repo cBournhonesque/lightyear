@@ -3,7 +3,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use bevy::ecs::system::SystemState;
-use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
+use bevy::prelude::{App, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
 use bevy::{DefaultPlugins, MinimalPlugins};
 
@@ -129,6 +129,16 @@ impl BevyStepper {
             tick_duration: shared_config.tick.tick_duration,
             current_time: now,
         }
+    }
+
+    pub(crate) fn interpolation_tick(&mut self) -> Tick {
+        self.client_app.world.resource_scope(
+            |world: &mut World, manager: Mut<ClientConnectionManager>| {
+                manager
+                    .sync_manager
+                    .interpolation_tick(world.resource::<TickManager>())
+            },
+        )
     }
 
     pub(crate) fn client_tick(&self) -> Tick {

@@ -6,14 +6,16 @@ use bevy::prelude::{
     Update,
 };
 
-use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
-use super::interpolation_history::{add_component_history, apply_confirmed_update};
+use super::interpolation_history::{
+    add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
+};
 use super::spawn_interpolated_entity;
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
@@ -151,16 +153,31 @@ where
     app.add_systems(
         Update,
         (
-            (add_component_history::<C, P>).in_set(InterpolationSet::SpawnHistory),
-            (removed_components::<C>).in_set(InterpolationSet::Despawn),
-            (
-                apply_confirmed_update::<C, P>,
-                update_interpolate_status::<C, P>,
-            )
-                .chain()
-                .in_set(InterpolationSet::PrepareInterpolation),
+            add_component_history::<C, P>.in_set(InterpolationSet::SpawnHistory),
+            removed_components::<C>.in_set(InterpolationSet::Despawn),
         ),
     );
+    match P::Components::mode() {
+        ComponentSyncMode::Full => {
+            app.add_systems(
+                Update,
+                (
+                    apply_confirmed_update_mode_full::<C, P>,
+                    update_interpolate_status::<C, P>,
+                )
+                    .chain()
+                    .in_set(InterpolationSet::PrepareInterpolation),
+            );
+        }
+        ComponentSyncMode::Simple => {
+            app.add_systems(
+                Update,
+                apply_confirmed_update_mode_simple::<C, P>
+                    .in_set(InterpolationSet::PrepareInterpolation),
+            );
+        }
+        _ => {}
+    }
 }
 
 // We add the interpolate system in different function because we don't want the non

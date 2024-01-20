@@ -33,7 +33,7 @@ pub struct Replicate<P: Protocol> {
     // TODO: this should not be public, but replicate is public... how to fix that?
     //  have a separate component ReplicateVisibility?
     //  or force users to use `Replicate::default().with...`?
-    /// List of clients that we the entity is currently replicated to.
+    /// List of clients that the entity is currently replicated to.
     /// Will be updated before the other replication systems
     #[doc(hidden)]
     pub replication_clients_cache: HashMap<ClientId, ClientVisibility>,
