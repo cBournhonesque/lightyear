@@ -2,7 +2,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
-use tracing::debug;
+use tracing::{debug, info, trace};
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
@@ -86,9 +86,10 @@ pub fn spawn_interpolated_entity<P: Protocol>(
                 tick: confirmed_tick,
             });
         }
-        debug!(
+        trace!(
             "Spawn interpolated entity {:?} for confirmed: {:?}",
-            interpolated, confirmed_entity
+            interpolated,
+            confirmed_entity
         );
         #[cfg(feature = "metrics")]
         {

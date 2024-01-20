@@ -14,6 +14,7 @@ use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::netcode::{generate_key, ClientId, ConnectToken};
 use crate::packet::message::Message;
+use crate::prelude::PreSpawnedPlayerObject;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
@@ -273,11 +274,11 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             // );
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             // update the collect changes tick
-            replication_sender
-                .group_channels
-                .entry(group)
-                .or_default()
-                .update_collect_changes_since_this_tick(system_current_tick);
+            // replication_sender
+            //     .group_channels
+            //     .entry(group)
+            //     .or_default()
+            //     .update_collect_changes_since_this_tick(system_current_tick);
             replication_sender.prepare_entity_spawn(entity, group);
             // if we need to do prediction/interpolation, send a marker component to indicate that to the client
             if replicate.prediction_target.should_send_to(&client_id) {
@@ -315,11 +316,11 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             // );
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             // update the collect changes tick
-            replication_sender
-                .group_channels
-                .entry(group)
-                .or_default()
-                .update_collect_changes_since_this_tick(system_current_tick);
+            // replication_sender
+            //     .group_channels
+            //     .entry(group)
+            //     .or_default()
+            //     .update_collect_changes_since_this_tick(system_current_tick);
             replication_sender.prepare_entity_despawn(entity, group);
             Ok(())
         })
@@ -348,8 +349,12 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         //     P::ComponentKinds::from(P::Components::from(ShouldBePredicted {
         //         client_entity: None,
         //     }));
+
+        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type() {
+        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
+            || kind == <P::ComponentKinds as FromType<PreSpawnedPlayerObject>>::from_type()
+        {
             actual_target = replicate.prediction_target.clone();
         }
 
@@ -364,11 +369,11 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 // );
                 let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
                 // update the collect changes tick
-                replication_sender
-                    .group_channels
-                    .entry(group)
-                    .or_default()
-                    .update_collect_changes_since_this_tick(system_current_tick);
+                // replication_sender
+                //     .group_channels
+                //     .entry(group)
+                //     .or_default()
+                //     .update_collect_changes_since_this_tick(system_current_tick);
                 replication_sender.prepare_component_insert(entity, group, component.clone());
                 Ok(())
             })
@@ -386,11 +391,18 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
-            replication_sender
-                .group_channels
-                .entry(group)
-                .or_default()
-                .update_collect_changes_since_this_tick(system_current_tick);
+            // TODO: I don't think it's actually correct to only correct the changes since that action.
+            // what if we do:
+            // - Frame 1: update is ACKED
+            // - Frame 2: update
+            // - Frame 3: action
+            // - Frame 4: send
+            // then we won't send the frame-2 update because we only collect changes since frame 3
+            // replication_sender
+            //     .group_channels
+            //     .entry(group)
+            //     .or_default()
+            //     .update_collect_changes_since_this_tick(system_current_tick);
             replication_sender.prepare_component_remove(entity, group, component_kind);
             Ok(())
         })
@@ -406,6 +418,13 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
+        trace!(
+            ?kind,
+            ?entity,
+            ?component_change_tick,
+            ?system_current_tick,
+            "Prepare entity update"
+        );
 
         let group = replicate.group_id(Some(entity));
         self.apply_replication(target).try_for_each(|client_id| {
@@ -421,7 +440,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 ?kind,
                 change_tick = ?component_change_tick,
                 ?collect_changes_since_this_tick,
-                "prepare entity update changed check"
+                "prepare entity update changed check (we want the component-change-tick to be higher than collect-changes-since-this-tick)"
             );
 
             if collect_changes_since_this_tick.map_or(true, |tick| {

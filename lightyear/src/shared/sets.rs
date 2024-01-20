@@ -4,6 +4,9 @@ use bevy::prelude::SystemSet;
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSet {
+    /// Set the hash for each entity that is pre-spawned on the client
+    /// (has a PreSpawnedPlayerObject component)
+    SetPreSpawnedHash,
     /// Gathers entity despawns and component removals
     /// Needs to run once per frame instead of once per send_interval
     /// because they rely on bevy events that are cleared every frame

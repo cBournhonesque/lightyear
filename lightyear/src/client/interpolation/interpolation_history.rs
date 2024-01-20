@@ -3,7 +3,7 @@ use std::ops::Deref;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::components::{Confirmed, SyncMetadata};
@@ -101,9 +101,11 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                     new_component.map_entities(Box::new(&manager.interpolated_entity_map));
                     match P::Components::mode() {
                         ComponentSyncMode::Full => {
-                            debug!("spawn interpolation history");
+                            trace!(?interpolated_entity, tick=?tick_manager.tick(),  "spawn interpolation history");
                             interpolated_entity_mut.insert((
-                                new_component,
+                                // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
+                                //  we can interpolate between. Otherwise it will look jarring if send_interval is low.
+                                // new_component,
                                 history,
                                 InterpolateStatus::<C> {
                                     start: None,
@@ -126,13 +128,11 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     }
 }
 
-/// When we receive a server update, we need to store it in the confirmed history,
-/// or update the interpolated component directly if InterpolatedComponentMode::Sync
-pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
+/// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
+pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
     manager: ResMut<InterpolationManager>,
     mut interpolated_entities: Query<
-        // TODO: handle missing T?
-        (&mut C, Option<&mut ConfirmedHistory<C>>),
+        &mut ConfirmedHistory<C>,
         (With<Interpolated>, Without<Confirmed>),
     >,
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
@@ -142,45 +142,50 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
-                if let Ok((mut interpolated_component, history_option)) =
-                    interpolated_entities.get_mut(p)
-                {
-                    match P::Components::mode() {
-                        ComponentSyncMode::Full => {
-                            let Some(mut history) = history_option else {
-                                error!(
-                                    "Interpolated entity {:?} doesn't have a ComponentHistory",
-                                    p
-                                );
-                                continue;
-                            };
-                            let tick = confirmed.tick;
-                            // let Some(tick) = client
-                            //     .replication_receiver()
-                            //     .get_confirmed_tick(confirmed_entity)
-                            // else {
-                            //     error!(
-                            //         "Could not find replication channel for entity {:?}",
-                            //         confirmed_entity
-                            //     );
-                            //     continue;
-                            // };
-                            // map any entities from confirmed to predicted
-                            let mut component = confirmed_component.deref().clone();
-                            component.map_entities(Box::new(&manager.interpolated_entity_map));
-                            trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
-                            // assign the history at the value that the entity currently is
-                            history.buffer.add_item(tick, component);
-                        }
-                        // for sync-components, we just match the confirmed component
-                        ComponentSyncMode::Simple => {
-                            // map any entities from confirmed to predicted
-                            let mut component = confirmed_component.deref().clone();
-                            component.map_entities(Box::new(&manager.interpolated_entity_map));
-                            *interpolated_component = component;
-                        }
-                        _ => {}
-                    }
+                if let Ok(mut history) = interpolated_entities.get_mut(p) {
+                    let tick = confirmed.tick;
+                    // let Some(tick) = client
+                    //     .replication_receiver()
+                    //     .get_confirmed_tick(confirmed_entity)
+                    // else {
+                    //     error!(
+                    //         "Could not find replication channel for entity {:?}",
+                    //         confirmed_entity
+                    //     );
+                    //     continue;
+                    // };
+
+                    // map any entities from confirmed to predicted
+                    let mut component = confirmed_component.deref().clone();
+                    component.map_entities(Box::new(&manager.interpolated_entity_map));
+                    trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
+                    // update the history at the value that the entity currently is
+                    history.buffer.add_item(tick, component);
+
+                    // TODO: here we do not want to update directly the component, that will be done during interpolation
+                }
+            }
+        }
+    }
+}
+
+/// When we receive a server update for a simple component, we just update the entity directly
+pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent, P: Protocol>(
+    manager: ResMut<InterpolationManager>,
+    mut interpolated_entities: Query<&mut C, (With<Interpolated>, Without<Confirmed>)>,
+    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
+) where
+    P::Components: SyncMetadata<C>,
+{
+    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed.interpolated {
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
+                if let Ok(mut interpolated_component) = interpolated_entities.get_mut(p) {
+                    // for sync-components, we just match the confirmed component
+                    // map any entities from confirmed to interpolated first
+                    let mut component = confirmed_component.deref().clone();
+                    component.map_entities(Box::new(&manager.interpolated_entity_map));
+                    *interpolated_component = component;
                 }
             }
         }

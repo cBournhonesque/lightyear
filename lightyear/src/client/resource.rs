@@ -291,11 +291,13 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         // trace!(?entity, "Send entity spawn for tick {:?}", self.tick());
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick
-        replication_sender
-            .group_channels
-            .entry(group)
-            .or_default()
-            .update_collect_changes_since_this_tick(system_current_tick);
+        // (we can collect changes only since the last actions because all updates will wait for that action to be spawned)
+        // TODO: I don't think it's correct to update the change-tick since the latest action!
+        // replication_sender
+        //     .group_channels
+        //     .entry(group)
+        //     .or_default()
+        //     .update_collect_changes_since_this_tick(system_current_tick);
         replication_sender.prepare_entity_spawn(entity, group);
         // Prediction/interpolation
         Ok(())
@@ -312,11 +314,11 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         // trace!(?entity, "Send entity despawn for tick {:?}", self.tick());
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick
-        replication_sender
-            .group_channels
-            .entry(group)
-            .or_default()
-            .update_collect_changes_since_this_tick(system_current_tick);
+        // replication_sender
+        //     .group_channels
+        //     .entry(group)
+        //     .or_default()
+        //     .update_collect_changes_since_this_tick(system_current_tick);
         replication_sender.prepare_entity_despawn(entity, group);
         // Prediction/interpolation
         Ok(())
@@ -339,11 +341,11 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         //     "Inserting single component"
         // );
         // update the collect changes tick
-        self.replication_sender
-            .group_channels
-            .entry(group)
-            .or_default()
-            .update_collect_changes_since_this_tick(system_current_tick);
+        // self.replication_sender
+        //     .group_channels
+        //     .entry(group)
+        //     .or_default()
+        //     .update_collect_changes_since_this_tick(system_current_tick);
         self.replication_sender
             .prepare_component_insert(entity, group, component.clone());
         Ok(())
@@ -359,11 +361,11 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     ) -> Result<()> {
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
         let group = replicate.group_id(Some(entity));
-        self.replication_sender
-            .group_channels
-            .entry(group)
-            .or_default()
-            .update_collect_changes_since_this_tick(system_current_tick);
+        // self.replication_sender
+        //     .group_channels
+        //     .entry(group)
+        //     .or_default()
+        //     .update_collect_changes_since_this_tick(system_current_tick);
         self.replication_sender
             .prepare_component_remove(entity, group, component_kind);
         Ok(())

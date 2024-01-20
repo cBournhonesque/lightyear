@@ -4,13 +4,14 @@ use std::fmt::Debug;
 use bevy::prelude::*;
 use tracing::{error, info};
 
-pub use despawn::{PredictionCommandsExt, PredictionDespawnMarker};
+pub use despawn::{PredictionDespawnCommandsExt, PredictionDespawnMarker};
 pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
+use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
@@ -21,7 +22,8 @@ pub(crate) mod correction;
 mod despawn;
 pub mod plugin;
 pub mod predicted_history;
-mod resource;
+pub mod prespawn;
+pub(crate) mod resource;
 pub(crate) mod rollback;
 
 /// Marks an entity that is being predicted by the client
@@ -40,7 +42,7 @@ pub struct Rollback {
 
 /// Resource that will track whether we should do rollback or not
 /// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum RollbackState {
     Default,
     ShouldRollback {
@@ -54,12 +56,15 @@ pub enum RollbackState {
 /// have authority on the entity.
 /// Therefore we will remove the `Replicate` component right after the first time we've sent a replicating message to the
 /// server
-pub(crate) fn clean_prespawned_entity<P: Protocol>(
+pub(crate) fn clean_pre_predicted_entity<P: Protocol>(
     mut commands: Commands,
-    pre_predicted_entities: Query<Entity, With<ShouldBePredicted>>,
+    pre_predicted_entities: Query<Entity, (With<ShouldBePredicted>, Without<Confirmed>)>,
 ) {
     for entity in pre_predicted_entities.iter() {
-        debug!(?entity, "removing replicate from pre-spawned entity");
+        debug!(
+            ?entity,
+            "removing replicate from pre-spawned player-controlled entity"
+        );
         commands
             .entity(entity)
             .remove::<Replicate<P>>()
@@ -74,6 +79,7 @@ pub(crate) fn clean_prespawned_entity<P: Protocol>(
             ));
     }
 }
+// TODO: split pre-predicted from normally predicted, it's too confusing!!!
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
@@ -86,15 +92,20 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
     mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
-    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
+    mut confirmed_entities: Query<(Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
     mut predicted_entities: Query<&mut Predicted>,
 ) {
     for message in should_be_predicted_added.read() {
-        let entity = message.entity();
+        let confirmed_entity = message.entity();
 
-        if let Ok((confirmed_entity, confirmed, should_be_predicted)) =
-            confirmed_entities.get_mut(entity)
-        {
+        if let Ok((confirmed, should_be_predicted)) = confirmed_entities.get_mut(confirmed_entity) {
+            // TODO: improve this. Also that means we should run the pre-spawned system before this system AND have a flush...
+            if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
+                debug!("Skipping spawning prediction for pre-spawned player object (was already handled, we already have a predicted entity for this \
+                      confirmed entity)");
+                // special-case: pre-spawned player objects handled in a different function
+                continue;
+            }
             let mut predicted_entity = None;
 
             // check if we are in a pre-prediction scenario
@@ -113,7 +124,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     debug!(
                         local_client = ?client_id,
                         should_be_predicted_client = ?netclient.id(),
-                        "Received ShouldBePredicted component from server for an entity that is pre-predicted by another client: {:?}!", entity);
+                        "Received ShouldBePredicted component from server for an entity that is pre-predicted by another client: {:?}!", confirmed_entity);
                 } else {
                     // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
                     // just re-use the existing one!
@@ -141,7 +152,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                 });
                 predicted_entity = Some(predicted_entity_mut.id());
                 debug!(
-                    "Spawn predicted entity {:?} for confirmed: {:?}",
+                    "Delayed prediction spawn! predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );
                 #[cfg(feature = "metrics")]
@@ -165,6 +176,8 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
             if let Some(mut confirmed) = confirmed {
                 confirmed.predicted = Some(predicted_entity);
             } else {
+                // TODO: this is the same as the current tick no? or maybe not because we could have received updates before the spawn
+                //  and they are applied simultaneously
                 // get the confirmed tick for the entity
                 // if we don't have it, something has gone very wrong
                 let confirmed_tick = connection
@@ -179,7 +192,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
             }
         } else {
             error!(
-                "Received ShouldBePredicted component from server for an entity that does not exist: {:?}!", entity
+                "Received ShouldBePredicted component from server for an entity that does not exist: {:?}!", confirmed_entity
             );
         }
     }

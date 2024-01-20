@@ -56,7 +56,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
   - **Client-authoritative replication**: you can also replicate entities from the client to the server.
   - **Pre-spawning predicted entities**: you can spawn Predicted entities on the client, and then replicate them to the server. This ensures that the entity
     is spawned immediately, but will still be controlled by the server.
-  - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other entities. The entities will be mapped from the local World to the remove World.
+  - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other entities. The entities will be mapped from the local World to the remote World.
   - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest management is made flexible by the use of `Rooms`
   - **Input Delay**: you can add a custom amount of input-delay as a trade-off between having a more responsive game or more mis-predictions
 - Configurable

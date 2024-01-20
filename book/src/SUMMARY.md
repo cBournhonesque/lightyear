@@ -32,6 +32,7 @@
     - [Inputs](./concepts/advanced_replication/inputs.md)
     - [Interpolation](./boncepts/advanced_replication/interpolation.md)
     - [Prediction](./concepts/advanced_replication/prediction.md)
+    - [Prespawning](./concepts/advanced_replication/prespawning.md)
     - [ComponentSyncMode](./concepts/advanced_replication/component_sync_mode.md)
     - [Interest management](./concepts/advanced_replication/interest_management.md)
     - [Client Replication](./concepts/advanced_replication/client_replication.md)

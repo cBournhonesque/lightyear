@@ -79,7 +79,7 @@ impl<A: LeafwingUserAction> Named for ActionState<A> {
 // TODO: improve this data structure
 #[derive(Resource, Component, Debug)]
 pub(crate) struct InputBuffer<A: LeafwingUserAction> {
-    start_tick: Option<Tick>,
+    pub(crate) start_tick: Option<Tick>,
     pub(crate) buffer: VecDeque<BufferItem<ActionState<A>>>,
 }
 impl<A: LeafwingUserAction> std::fmt::Display for InputBuffer<A> {
@@ -420,7 +420,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 /// The `ActionDiffBuffer` stores the ActionDiff received from the client for each tick
 #[derive(Resource, Component, Debug)]
 pub(crate) struct ActionDiffBuffer<A: LeafwingUserAction> {
-    start_tick: Option<Tick>,
+    pub(crate) start_tick: Option<Tick>,
     buffer: VecDeque<HashMap<A, ActionDiff<A>>>,
 }
 
@@ -517,7 +517,7 @@ impl<A: LeafwingUserAction> ActionDiffBuffer<A> {
             return vec![];
         }
         self.buffer
-            .get((tick.0 - start_tick.0) as usize)
+            .get((tick - start_tick) as usize)
             .map(|v| v.values().cloned().collect())
             .unwrap_or(vec![])
     }

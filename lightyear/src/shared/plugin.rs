@@ -1,8 +1,10 @@
 //! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
+use crate::client::config::ClientConfig;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::Rollback;
 use crate::prelude::{FixedUpdateSet, TickManager};
 use bevy::app::FixedUpdate;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::shared::config::SharedConfig;
@@ -11,6 +13,22 @@ use crate::shared::tick_manager::TickManagerPlugin;
 
 pub struct SharedPlugin {
     pub config: SharedConfig,
+}
+
+/// You can use this as a SystemParam to identify whether you're running on the client or the server
+#[derive(SystemParam)]
+pub struct NetworkIdentity<'w, 's> {
+    config: Option<Res<'w, ClientConfig>>,
+    _marker: std::marker::PhantomData<&'s ()>,
+}
+
+impl<'w, 's> NetworkIdentity<'w, 's> {
+    pub fn is_client(&self) -> bool {
+        self.config.is_some()
+    }
+    pub fn is_server(&self) -> bool {
+        self.config.is_none()
+    }
 }
 
 impl Plugin for SharedPlugin {

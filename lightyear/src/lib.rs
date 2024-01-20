@@ -55,7 +55,7 @@ pub mod _reexport {
         push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
     pub use crate::shared::time_manager::WrappedTime;
-    pub use crate::utils::ready_buffer::ReadyBuffer;
+    pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;
 }
 
@@ -68,6 +68,7 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
+    pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::LeafwingUserAction;
     pub use crate::inputs::native::UserAction;
@@ -79,7 +80,7 @@ pub mod prelude {
     pub use crate::shared::config::SharedConfig;
     pub use crate::shared::log::LogConfig;
     pub use crate::shared::ping::manager::PingConfig;
-    pub use crate::shared::plugin::SharedPlugin;
+    pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
         NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
@@ -110,9 +111,10 @@ pub mod prelude {
         pub use crate::client::interpolation::{InterpolateStatus, Interpolated};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
+        pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
-        pub use crate::client::prediction::{Predicted, PredictionCommandsExt};
+        pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
         pub use crate::netcode::Client as NetClient;

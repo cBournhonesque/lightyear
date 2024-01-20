@@ -17,10 +17,6 @@ use crate::shared::tick_manager::Tick;
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
 
-pub trait PredictionCommandsExt {
-    fn prediction_despawn<P: Protocol>(&mut self);
-}
-
 /// This command must be used to despawn the predicted or confirmed entity.
 /// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
 /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
@@ -76,7 +72,10 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
     }
 }
 
-impl PredictionCommandsExt for EntityCommands<'_, '_, '_> {
+pub trait PredictionDespawnCommandsExt {
+    fn prediction_despawn<P: Protocol>(&mut self);
+}
+impl PredictionDespawnCommandsExt for EntityCommands<'_, '_, '_> {
     fn prediction_despawn<P: Protocol>(&mut self) {
         let entity = self.id();
         self.commands().add(PredictionDespawnCommand {
