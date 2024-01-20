@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::iter::Extend;
 
 use anyhow::Context;
-use bevy::prelude::{Entity, World};
+use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashSet};
 use tracing::{debug, error, info, trace, trace_span, warn};
@@ -234,9 +234,12 @@ impl<P: Protocol> ReplicationReceiver<P> {
                             if let Some(group) = self.group_channels.get_mut(&group_id) {
                                 group.remote_entities.remove(&entity);
                             }
-                            world.despawn(local_entity);
-                            self.remote_entity_to_group.remove(&entity);
+                            // TODO: we despawn all children as well right now, but that might not be what we want?
+                            if let Some(entity_mut) = world.get_entity_mut(local_entity) {
+                                entity_mut.despawn_recursive();
+                            }
                             events.push_despawn(local_entity);
+                            self.remote_entity_to_group.remove(&entity);
                         } else {
                             error!("Received despawn for an entity that does not exist")
                         }
