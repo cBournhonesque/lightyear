@@ -412,7 +412,7 @@ impl<P: Protocol> Connection<P> {
                 let message_id = self
                     .message_manager
                     .buffer_send(message, channel)?
-                    .expect("The EntityUpdatesChannel should always return a message_id");
+                    .expect("The replication channels should always return a message_id");
 
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
