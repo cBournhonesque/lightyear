@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use wtransport;
 use wtransport::datagram::Datagram;
 use wtransport::endpoint::IncomingSession;
@@ -70,6 +70,12 @@ impl WebTransportServerSocket {
                     connection.send_datagram(msg.as_ref()).unwrap_or_else(|e| {
                         error!("send_datagram error: {:?}", e);
                     });
+                }
+                // client disconnected
+                _ = connection.closed() => {
+                    info!("Connection closed");
+
+                    return;
                 }
             }
         }
