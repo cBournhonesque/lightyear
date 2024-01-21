@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
-use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time};
+use bevy::prelude::{default, App, Mut, PluginGroup, Real, Resource, Time};
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
@@ -10,7 +10,8 @@ use bevy::MinimalPlugins;
 use lightyear::client as lightyear_client;
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, InputConfig, InterpolationConfig, NetClient, PredictionConfig,
+    SyncConfig,
 };
 use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
@@ -126,33 +127,36 @@ impl BevyStepper {
         }
     }
 
-    pub fn client(&self, client_id: ClientId) -> &Client {
+    pub fn client_resource<R: Resource>(&self, client_id: ClientId) -> &R {
         self.client_apps
             .get(&client_id)
             .unwrap()
             .world
-            .resource::<Client>()
+            .resource::<R>()
     }
 
-    pub fn client_mut(&mut self, client_id: ClientId) -> Mut<Client> {
+    pub fn client_resource_mut<R: Resource>(&mut self, client_id: ClientId) -> Mut<R> {
         self.client_apps
             .get_mut(&client_id)
             .unwrap()
             .world
-            .resource_mut::<Client>()
-    }
-
-    fn server(&self) -> &Server {
-        self.server_app.world.resource::<Server>()
+            .resource_mut::<R>()
     }
 
     pub fn init(&mut self) {
         self.client_apps.values_mut().for_each(|client_app| {
-            client_app.world.resource_mut::<Client>().connect();
+            client_app.world.resource_mut::<NetClient>().connect();
         });
 
         // Advance the world to let the connection process complete
-        for _ in 0..50 {
+        for _ in 0..100 {
+            if self
+                .client_apps
+                .values()
+                .all(|c| c.world.resource::<ClientConnectionManager>().is_synced())
+            {
+                return;
+            }
             self.frame_step();
         }
     }
