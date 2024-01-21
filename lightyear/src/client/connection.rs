@@ -113,7 +113,7 @@ impl<P: Protocol> ConnectionManager<P> {
         }
     }
 
-    pub(crate) fn is_synced(&self) -> bool {
+    pub fn is_synced(&self) -> bool {
         self.sync_manager.is_synced()
     }
 
