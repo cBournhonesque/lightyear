@@ -82,6 +82,16 @@ impl MessageManager {
         self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
     }
 
+    // TODO: for priority sending, we might want to include the tick at which we buffered the message
+    //  because the tick at which the message is sent is not guaranteed to be the same as the tick at which
+    //  it was buffered. (which normally is the case for replication messages)
+    //  This is also not the case in general for Messages. You could buffer a message at PreUpdate on tick 7, but
+    //  then it actually gets sent on tick 8 so the packet header says tick 8. In some cases it could be important to
+    //  know the exact tick at which the message was buffered.
+    //  For input messages it's not a problem because we include the tick directly in the message.
+    //  For now let's keep it simple and simply add the tick when we try to send the message (so this works for all
+    //  replication messages), not when we buffer it. For cases where it's necessary to know the tick when the message
+    //  was buffered, the user can just include the tick in the message itself.
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
     pub fn buffer_send_with_priority<M: BitSerializable>(
@@ -158,9 +168,11 @@ impl MessageManager {
 
         // priority manager: get the list of messages we can send according to the rate limiter
         //  (the other messages are stored in an internal buffer)
-        let (data_to_send, num_bytes_added_to_limiter) = self
-            .priority_manager
-            .priority_filter(data_to_send, &self.channel_registry);
+        let (data_to_send, num_bytes_added_to_limiter) = self.priority_manager.priority_filter(
+            data_to_send,
+            &self.channel_registry,
+            current_tick,
+        );
 
         let packets = self.packet_manager.build_packets(data_to_send);
 

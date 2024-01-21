@@ -1,3 +1,4 @@
+//! NOTE: This does not work anymore since we don't serialize the tick in SingleData anymore!.
 use anyhow::Context;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;

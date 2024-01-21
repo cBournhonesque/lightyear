@@ -25,19 +25,16 @@ const HEADER_BYTES: usize = 11;
 pub(crate) const MTU_PAYLOAD_BYTES: usize = MAX_PACKET_SIZE - HEADER_BYTES - 1;
 
 /// The maximum number of bytes for a message before it is fragmented
-/// The final size of the fragmented packet (channel_id: 2, fragment_id: 1, message_id: 2, num_fragments: 1, number of bytes in fragment: 2)
+/// The final size of the fragmented packet (channel_net_id: 2, fragment_id: 1, tick: 2, message_id: 2, num_fragments: 1, number of bytes in fragment: 4)
 /// must be lower than MTU_PAYLOAD_BYTES
-pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 8;
+/// (might even be 13 in some situations?)
+pub(crate) const FRAGMENT_SIZE: usize = MTU_PAYLOAD_BYTES - 12;
 
 // TODO: we don't need SinglePacket vs FragmentPacket; we can just re-use the same thing
 //  because MessageContainer already has the information about whether it is a fragment or not
 //  we just have an underlying assumption that in a fragment packet, the first message will be a fragment message,
 //  and all others will be normal messages
 //  The reason we do this is we dont want to pay 1 bit on every message to know if it's fragmented or not
-
-// pub(crate) struct Packet<const C: usize = MTU_PACKET_BYTES> {
-//     pub(crate) data: BTreeMap<NetId, Vec<MessageContainer>>
-// }
 
 /// Single individual packet sent over the network
 /// Contains multiple small messages
