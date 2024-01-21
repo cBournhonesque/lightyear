@@ -243,7 +243,7 @@ macro_rules! protocolize {
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
-                        priority: 1.0,
+                        priority: 2.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliableWithAcks,
