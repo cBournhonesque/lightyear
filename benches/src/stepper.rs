@@ -1,6 +1,6 @@
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
@@ -37,7 +37,7 @@ pub struct BevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: std::time::Instant,
+    pub current_time: bevy::utils::Instant,
 }
 
 // Do not forget to use --features mock_time when using the LinkConditioner
@@ -50,7 +50,7 @@ impl BevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = std::time::Instant::now();
+        let now = bevy::utils::Instant::now();
         let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
 
         // Shared config

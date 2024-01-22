@@ -189,7 +189,7 @@ fn update_action_state<P: Protocol, A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use bevy::input::InputPlugin;
     use leafwing_input_manager::prelude::ActionState;

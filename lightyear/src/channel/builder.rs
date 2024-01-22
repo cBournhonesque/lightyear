@@ -1,5 +1,5 @@
 //! This module contains the [`Channel`] trait
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use lightyear_macros::ChannelInternal;
 

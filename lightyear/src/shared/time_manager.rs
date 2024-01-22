@@ -308,7 +308,7 @@ impl From<WrappedTime> for Duration {
 #[cfg(test)]
 mod tests {
     use crate::shared::time_manager::WrappedTime;
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     #[test]
     fn test_mul() {

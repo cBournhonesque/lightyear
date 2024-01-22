@@ -448,7 +448,7 @@ fn clean_entity_despawns<P: Protocol>(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;

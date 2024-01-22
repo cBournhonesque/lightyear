@@ -1,9 +1,9 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
-use std::time::Duration;
 use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {

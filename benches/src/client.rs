@@ -1,6 +1,6 @@
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::app::App;
 use bevy::prelude::default;

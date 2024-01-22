@@ -1,9 +1,9 @@
 //! Helpers to setup a bevy app where I can just step the world easily.
 //! Uses crossbeam channels to mock the network
 use bevy::core::TaskPoolThreadAssignmentPolicy;
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::prelude::{default, App, Mut, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time};
 use bevy::tasks::available_parallelism;
@@ -37,7 +37,7 @@ pub struct LocalBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: std::time::Instant,
+    pub current_time: bevy::utils::Instant,
 }
 
 // Do not forget to use --features mock_time when using the LinkConditioner
@@ -50,7 +50,7 @@ impl LocalBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = std::time::Instant::now();
+        let now = bevy::utils::Instant::now();
         // Local channels transport only works with server socket = LOCAL_SOCKET
         let server_addr = LOCAL_SOCKET;
 
