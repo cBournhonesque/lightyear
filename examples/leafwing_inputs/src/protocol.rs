@@ -3,7 +3,6 @@ use bevy::utils::EntityHashSet;
 use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ShouldBePredicted;
 use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;

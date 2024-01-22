@@ -3,13 +3,15 @@ use bevy::input::common_conditions::input_just_released;
 use std::fmt::Debug;
 
 use bevy::prelude::*;
+use bevy::utils::petgraph::dot::Config;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, info, trace};
 
-use crate::_reexport::ShouldBePredicted;
 use crate::channel::builder::InputChannel;
+use crate::client::config::ClientConfig;
+use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
 use crate::client::resource::Client;
@@ -18,11 +20,11 @@ use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::MapEntities;
+use crate::prelude::{MapEntities, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::tick_manager::TickManaged;
+use crate::shared::tick_manager::TickEvent;
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Clone, Resource)]
@@ -99,8 +101,8 @@ impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
 //     config.input_delay_ticks > 0
 // }
 
-fn is_input_delay<P: Protocol>(client: Res<Client<P>>) -> bool {
-    client.config().prediction.input_delay_ticks > 0
+fn is_input_delay(config: Res<ClientConfig>) -> bool {
+    config.prediction.input_delay_ticks > 0
 }
 
 impl<P: Protocol, A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
@@ -140,7 +142,12 @@ where
             PostUpdate,
             // we send inputs only every send_interval
             (
-                InputSystemSet::SendInputMessage.in_set(MainSet::Send),
+                MainSet::Sync,
+                // handle tick events from sync before sending the message
+                InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
+                InputSystemSet::SendInputMessage
+                    .run_if(client_is_synced::<P>)
+                    .in_set(MainSet::Send),
                 MainSet::SendPackets,
             )
                 .chain(),
@@ -153,6 +160,7 @@ where
                 generate_action_diffs::<A>
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
+                    .after(InputManagerSystem::ManualControl)
                     .after(InputManagerSystem::Tick),
                 add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
             ),
@@ -167,9 +175,9 @@ where
             (
                 (
                     (
-                        (write_action_diffs::<P, A>, buffer_action_state::<P, A>),
+                        (write_action_diffs::<A>, buffer_action_state::<P, A>),
                         // get the non-delayed action-state, for the user to act on the current tick's actions
-                        get_non_rollback_action_state::<Client<P>, A>.run_if(is_input_delay::<P>),
+                        get_non_rollback_action_state::<A>.run_if(is_input_delay),
                     )
                         .chain()
                         .run_if(not(is_in_rollback)),
@@ -182,7 +190,7 @@ where
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
                 get_delayed_action_state::<A>
-                    .run_if(is_input_delay::<P>)
+                    .run_if(is_input_delay)
                     .run_if(not(is_in_rollback))
                     .after(FixedUpdateSet::Main),
             ),
@@ -209,9 +217,9 @@ where
         app.add_systems(
             PostUpdate,
             (
-                prepare_input_message::<P, A>
-                    .in_set(InputSystemSet::SendInputMessage)
-                    .run_if(client_is_synced::<P>),
+                receive_tick_events::<A>
+                    .in_set(crate::client::input::InputSystemSet::ReceiveTickEvents),
+                prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
                 add_action_state_buffer_added_input_map::<A>,
             ),
         );
@@ -220,10 +228,15 @@ where
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
+    // FIXED UPDATE
     /// System Set where we update the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
     /// - rollback: we fetch the ActionState value from the InputBuffers
     BufferInputs,
+
+    // POST UPDATE
+    /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
+    ReceiveTickEvents,
     /// System Set to prepare the input message
     SendInputMessage,
 }
@@ -318,14 +331,14 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 /// Write the value of the ActionStates for the current tick in the InputBuffer
 /// We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
-    // TODO: get tick from tick_manager, not client
-    client: ResMut<Client<P>>,
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
     mut global_input_buffer: ResMut<InputBuffer<A>>,
     global_action_state: Option<Res<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &ActionState<A>, &mut InputBuffer<A>)>,
 ) {
-    let input_delay_ticks = client.config().prediction.input_delay_ticks as i16;
-    let tick = client.tick() + input_delay_ticks;
+    let input_delay_ticks = config.prediction.input_delay_ticks as i16;
+    let tick = tick_manager.tick() + input_delay_ticks;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(
             ?entity,
@@ -339,7 +352,13 @@ fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
         );
         trace!(?entity, ?tick, "set action state in input buffer");
         input_buffer.set(tick, action_state);
-        trace!("input buffer: {:?}", input_buffer);
+        trace!(
+            ?entity,
+            ?tick,
+            "input buffer. Start tick {:?}, len: {:?}",
+            input_buffer.start_tick,
+            input_buffer.buffer.len()
+        );
     }
     if let Some(action_state) = global_action_state {
         global_input_buffer.set(tick, action_state.as_ref());
@@ -349,13 +368,13 @@ fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
 // TODO: combine this with the rollback function
 // If we have input-delay, we need to set the ActionState for the current tick
 // using the value stored in the buffer
-fn get_non_rollback_action_state<C: TickManaged, A: LeafwingUserAction>(
-    ticker: Res<C>,
+fn get_non_rollback_action_state<A: LeafwingUserAction>(
+    tick_manager: Res<TickManager>,
     global_input_buffer: Res<InputBuffer<A>>,
     global_action_state: Option<ResMut<ActionState<A>>>,
     mut action_state_query: Query<(Entity, &mut ActionState<A>, &InputBuffer<A>)>,
 ) {
-    let tick = ticker.tick();
+    let tick = tick_manager.tick();
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // let state_is_empty = input_buffer.get(tick).is_none();
         // let input_buffer = input_buffer.buffer;
@@ -420,14 +439,15 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
 /// to compute the next ActionStates?
 /// NOTE: since we're using diffs. we need to make sure that all our diffs are sent correctly to the server.
 ///  If a diff is missing, maybe the server should make a request and we send them the entire ActionState?
-fn write_action_diffs<P: Protocol, A: LeafwingUserAction>(
-    client: Res<Client<P>>,
+fn write_action_diffs<A: LeafwingUserAction>(
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
     mut global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     mut diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
     mut action_diff_event: ResMut<Events<ActionDiffEvent<A>>>,
 ) {
-    let delay = client.config().prediction.input_delay_ticks as i16;
-    let tick = client.tick() + delay;
+    let delay = config.prediction.input_delay_ticks as i16;
+    let tick = tick_manager.tick() + delay;
     // we drain the events when reading them
     for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
@@ -446,7 +466,9 @@ fn write_action_diffs<P: Protocol, A: LeafwingUserAction>(
 
 // Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
-    mut client: ResMut<Client<P>>,
+    mut connection: ResMut<ConnectionManager<P>>,
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     global_input_buffer: Option<ResMut<InputBuffer<A>>>,
     mut action_diff_buffer_query: Query<(
@@ -459,7 +481,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
 ) where
     P::Message: From<InputMessage<A>>,
 {
-    let tick = client.tick() + client.config().prediction.input_delay_ticks as i16;
+    let tick = tick_manager.tick() + config.prediction.input_delay_ticks as i16;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
@@ -467,20 +489,19 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     //  this system what the latest acked input tick is?
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let num_tick = ((client.config().shared.client_send_interval.as_micros()
-        / client.config().shared.tick.tick_duration.as_micros())
-        + 1) as u16;
-    let redundancy = client.config().input.packet_redundancy;
+    let num_tick: u16 = ((config.shared.client_send_interval.as_nanos()
+        / config.shared.tick.tick_duration.as_nanos())
+        + 1)
+    .try_into()
+    .unwrap();
+    let redundancy = config.input.packet_redundancy;
     let message_len = redundancy * num_tick;
 
     let mut message = InputMessage::<A>::new(tick);
 
     // delete old input values
     // anything beyond interpolation tick should be safe to be deleted
-    let interpolation_tick = client
-        .connection
-        .sync_manager
-        .interpolation_tick(&client.tick_manager);
+    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
     trace!(
         "popping all inputs since interpolation tick: {:?}",
         interpolation_tick
@@ -526,8 +547,8 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
             // 2. the entity is predicted.
             // We need to first convert the entity to confirmed, and then from confirmed to remote
             if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
-                if let Some(server_entity) = client
-                    .replication_receiver()
+                if let Some(server_entity) = connection
+                    .replication_receiver
                     .remote_entity_map
                     .get_remote(confirmed)
                     .copied()
@@ -569,13 +590,13 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        trace!(
+        debug!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
             message.diffs
         );
-        client
+        connection
             .send_message::<InputChannel, InputMessage<A>>(message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
@@ -585,6 +606,57 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
     // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
     //  maybe at interpolation_tick(), since it's before any latest server update we receive?
+}
+
+fn receive_tick_events<A: LeafwingUserAction>(
+    mut tick_events: EventReader<TickEvent>,
+    mut global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
+    mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
+    mut action_diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
+    mut input_buffer_query: Query<&mut InputBuffer<A>>,
+) {
+    for tick_event in tick_events.read() {
+        match tick_event {
+            TickEvent::TickSnap { old_tick, new_tick } => {
+                if let Some(ref mut action_diff_buffer) = global_action_diff_buffer {
+                    if let Some(start_tick) = action_diff_buffer.start_tick {
+                        trace!(
+                            "Receive tick snap event {:?}. Updating global action diff buffer start_tick!",
+                            tick_event
+                        );
+                        action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    }
+                }
+                if let Some(ref mut global_input_buffer) = global_input_buffer {
+                    if let Some(start_tick) = global_input_buffer.start_tick {
+                        trace!(
+                            "Receive tick snap event {:?}. Updating global input buffer start_tick!",
+                            tick_event
+                        );
+                        global_input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    }
+                }
+                for mut action_diff_buffer in action_diff_buffer_query.iter_mut() {
+                    if let Some(start_tick) = action_diff_buffer.start_tick {
+                        action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                        debug!(
+                            "Receive tick snap event {:?}. Updating action diff buffer start_tick to {:?}!",
+                            tick_event, action_diff_buffer.start_tick
+                        );
+                    }
+                }
+                for mut input_buffer in input_buffer_query.iter_mut() {
+                    if let Some(start_tick) = input_buffer.start_tick {
+                        input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                        debug!(
+                            "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                            tick_event, input_buffer.start_tick
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 // TODO: should run this only for entities with InputMap?
@@ -699,6 +771,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
             }
         }
         let release_diffs = if config.send_diffs_only {
+            // TODO: issue for consumed keys: https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443
             action_state.get_just_released()
         } else {
             action_state.get_released()

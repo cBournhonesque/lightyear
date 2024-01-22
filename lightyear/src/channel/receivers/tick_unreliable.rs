@@ -55,7 +55,7 @@ impl TickUnreliableReceiver {
 impl ChannelReceive for TickUnreliableReceiver {
     fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.current_time = time_manager.current_time();
-        self.current_tick = tick_manager.current_tick();
+        self.current_tick = tick_manager.tick();
         self.fragment_receiver
             .cleanup(self.current_time - DISCARD_AFTER);
     }

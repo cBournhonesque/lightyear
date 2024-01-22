@@ -228,8 +228,9 @@ mod tests {
 
         // Check that the entity is replicated to client
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<ClientConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -255,8 +256,9 @@ mod tests {
 
         // Check that this entity was replicated correctly, and that the component got mapped
         let client_entity_2 = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<ClientConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity_2)

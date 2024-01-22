@@ -5,7 +5,7 @@
 
 pub mod config;
 
-mod connection;
+pub mod connection;
 
 pub mod events;
 
@@ -19,4 +19,5 @@ pub mod room;
 
 #[cfg(feature = "leafwing")]
 pub mod input_leafwing;
+pub(crate) mod prediction;
 mod systems;

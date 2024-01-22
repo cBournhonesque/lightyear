@@ -6,16 +6,17 @@ use tracing::trace;
 
 use bitcode::{Decode, Encode};
 
-use crate::_reexport::{TimeManager, WrappedTime};
+use crate::_reexport::WrappedTime;
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::PacketStatsManager;
+use crate::prelude::TimeManager;
 use crate::shared::tick_manager::Tick;
 
 /// Header included at the start of all packets
-// TODO: use packet_struct for encoding
 #[derive(Encode, Decode, Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub(crate) struct PacketHeader {
+    // TODO: this seems useless besides Data vs DataFragment
     /// Type of the packet sent
     packet_type: PacketType,
     /// Packet id from the sender's perspective

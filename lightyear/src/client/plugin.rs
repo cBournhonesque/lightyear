@@ -2,13 +2,13 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use crate::_reexport::ShouldBeInterpolated;
+use crate::client::connection::{replication_clean, ConnectionManager};
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
-use bevy::prelude::IntoSystemSetConfigs;
-use bevy::prelude::{
-    apply_deferred, not, resource_exists, App, Condition, FixedUpdate, IntoSystemConfigs,
-    Plugin as PluginType, PostUpdate, PreUpdate,
-};
+use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy::transform::TransformSystem;
+use bevy::utils::Duration;
 
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
@@ -16,15 +16,16 @@ use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_connected, is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
-use crate::client::systems::{is_ready_to_send, receive, send, sync_update};
-use crate::prelude::ReplicationSet;
+use crate::client::systems::{receive, send, sync_update};
+use crate::connection::events::ConnectionEvents;
+use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::systems::tick::increment_tick;
+use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
 
 use super::config::ClientConfig;
@@ -61,19 +62,23 @@ impl<P: Protocol> ClientPlugin<P> {
     }
 }
 
-impl<P: Protocol> PluginType for ClientPlugin<P> {
+impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let client = Client::new(
-            config.client_config.clone(),
-            config.io,
-            config.auth,
-            config.protocol,
-        );
-        let fixed_timestep = config.client_config.shared.tick.tick_duration;
 
-        add_replication_send_systems::<P, Client<P>>(app);
-        P::Components::add_per_component_replication_send_systems::<Client<P>>(app);
+        let token = config
+            .auth
+            .get_token(config.client_config.netcode.client_timeout_secs)
+            .expect("could not generate token");
+        let token_bytes = token.try_into_bytes().unwrap();
+        let netcode =
+            crate::netcode::Client::with_config(&token_bytes, config.client_config.netcode.build())
+                .expect("could not create netcode client");
+        let fixed_timestep = config.client_config.shared.tick.tick_duration;
+        let clean_interval = fixed_timestep * (i16::MAX as u32 / 3);
+
+        add_replication_send_systems::<P, ConnectionManager<P>>(app);
+        P::Components::add_per_component_replication_send_systems::<ConnectionManager<P>>(app);
         P::Components::add_events::<()>(app);
         // TODO: it's annoying to have to keep that () around...
         //  revisit this.. maybe the into_iter_messages returns directly an object that
@@ -92,9 +97,22 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),
             ))
+            .add_plugins(TimePlugin {
+                send_interval: config.client_config.shared.client_send_interval,
+            })
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // RESOURCES //
-            .insert_resource(client)
+            .insert_resource(config.client_config.clone())
+            .insert_resource(config.io)
+            .insert_resource(netcode)
+            .insert_resource(ConnectionManager::<P>::new(
+                config.protocol.channel_registry(),
+                config.client_config.sync,
+                &config.client_config.ping,
+                config.client_config.prediction.input_delay_ticks,
+            ))
+            .insert_resource(ConnectionEvents::<P>::new())
+            .insert_resource(config.protocol)
             // SYSTEM SETS //
             .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
             .configure_sets(
@@ -113,6 +131,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .configure_sets(
                 PostUpdate,
                 (
+                    // the client hash component is not replicated to the server, so there's no ordering constraint
+                    ReplicationSet::SetPreSpawnedHash.in_set(ReplicationSet::All),
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
@@ -123,6 +143,7 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     (
                         ReplicationSet::SendEntityUpdates,
                         ReplicationSet::SendComponentUpdates,
+                        // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         MainSet::SendPackets,
                     )
                         .in_set(MainSet::Send)
@@ -132,13 +153,13 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
                     // only replicate entities once client is connected
                     // TODO: should it be only when the client is synced? because before that the ticks might be incorrect!
-                    ReplicationSet::All.run_if(is_connected::<P>),
+                    ReplicationSet::All.run_if(is_connected),
                 ),
             )
             .configure_sets(
                 PostUpdate,
                 // run sync before send because some send systems need to know if the client is synced
-                (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send::<P>)).chain(),
+                (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send)).chain(),
             )
             // EVENTS //
             .add_event::<ConnectEvent>()
@@ -149,21 +170,8 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
             .add_systems(
                 PreUpdate,
                 (
-                    (receive::<P>).in_set(MainSet::Receive),
+                    receive::<P>.in_set(MainSet::Receive),
                     apply_deferred.in_set(MainSet::ReceiveFlush),
-                ),
-            )
-            // TODO: a bit of a code-smell that i have to run this here instead of in the shared plugin
-            //  maybe TickManager should be a separate resource not contained in Client/Server?
-            //  and runs Update in PreUpdate before the client/server systems
-            .add_systems(
-                FixedUpdate,
-                (
-                    increment_tick::<Client<P>>
-                        .in_set(FixedUpdateSet::TickUpdate)
-                        // run if there is no rollback resource, or if we are not in rollback
-                        .run_if((not(resource_exists::<Rollback>())).or_else(not(is_in_rollback))),
-                    apply_deferred.in_set(FixedUpdateSet::MainFlush),
                 ),
             )
             // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
@@ -173,6 +181,10 @@ impl<P: Protocol> PluginType for ClientPlugin<P> {
                     send::<P>.in_set(MainSet::SendPackets),
                     sync_update::<P>.in_set(MainSet::Sync),
                 ),
+            )
+            .add_systems(
+                Last,
+                replication_clean::<P>.run_if(on_timer(clean_interval)),
             );
     }
 }

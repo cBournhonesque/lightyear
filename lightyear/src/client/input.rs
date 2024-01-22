@@ -3,18 +3,21 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::channel::builder::InputChannel;
+use crate::client::config::ClientConfig;
+use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::native::UserAction;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
-use crate::shared::tick_manager::TickManaged;
+use crate::shared::tick_manager::TickEvent;
 
 #[derive(Debug, Clone)]
 pub struct InputConfig {
@@ -70,7 +73,7 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // SETS
         app.configure_sets(
             FixedUpdate,
-            ((
+            (
                 FixedUpdateSet::TickUpdate,
                 // no need to keep buffering inputs during rollback
                 InputSystemSet::BufferInputs.run_if(not(is_in_rollback)),
@@ -78,13 +81,19 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
                 FixedUpdateSet::Main,
                 InputSystemSet::ClearInputEvent,
             )
-                .chain(),),
+                .chain(),
         );
         app.configure_sets(
             PostUpdate,
-            // we send inputs only every send_interval
             (
-                InputSystemSet::SendInputMessage.in_set(MainSet::Send),
+                // handle tick events from sync before sending the message
+                InputSystemSet::ReceiveTickEvents
+                    .after(MainSet::Sync)
+                    .run_if(client_is_synced::<P>),
+                // we send inputs only every send_interval
+                InputSystemSet::SendInputMessage
+                    .in_set(MainSet::Send)
+                    .run_if(client_is_synced::<P>),
                 MainSet::SendPackets,
             )
                 .chain(),
@@ -104,15 +113,17 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // app.add_systems(PostUpdate, clear_input_events::<P>);
         app.add_systems(
             PostUpdate,
-            prepare_input_message::<P>
-                .in_set(InputSystemSet::SendInputMessage)
-                .run_if(client_is_synced::<P>),
+            (
+                prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
+                receive_tick_events::<P>.in_set(InputSystemSet::ReceiveTickEvents),
+            ),
         );
     }
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
+    // FIXED UPDATE
     /// System Set to write the input events to the input buffer.
     /// The User should add their system here!!
     BufferInputs,
@@ -120,7 +131,11 @@ pub enum InputSystemSet {
     WriteInputEvent,
     /// System Set to clear the input events (otherwise bevy clears events every frame, not every tick)
     ClearInputEvent,
-    /// System Set to prepare the input message
+
+    // POST UPDATE
+    /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
+    ReceiveTickEvents,
+    /// System Set to prepare the input message (in Send SystemSet)
     SendInputMessage,
 }
 
@@ -144,22 +159,47 @@ fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::I
 // The only tricky part is that events are cleared every frame, but we want to clear every tick instead
 // Do it in this system because we want an input for every tick
 fn write_input_event<P: Protocol>(
-    mut client: ResMut<Client<P>>,
+    tick_manager: Res<TickManager>,
+    connection: Res<ConnectionManager<P>>,
     mut input_events: EventWriter<InputEvent<P::Input>>,
     rollback: Option<Res<Rollback>>,
 ) {
-    let tick = rollback.map_or(client.tick(), |rollback| match rollback.state {
-        RollbackState::Default => client.tick(),
+    let tick = rollback.map_or(tick_manager.tick(), |rollback| match rollback.state {
+        RollbackState::Default => tick_manager.tick(),
         RollbackState::ShouldRollback {
             current_tick: rollback_tick,
         } => rollback_tick,
     });
-    input_events.send(InputEvent::new(client.get_input(tick).clone(), ()));
+    input_events.send(InputEvent::new(connection.get_input(tick), ()));
+}
+
+fn receive_tick_events<P: Protocol>(
+    mut tick_events: EventReader<TickEvent>,
+    mut connection: ResMut<ConnectionManager<P>>,
+) {
+    for tick_event in tick_events.read() {
+        match tick_event {
+            TickEvent::TickSnap { old_tick, new_tick } => {
+                // if the tick got updated, update our inputs to match our new ticks
+                if let Some(start_tick) = connection.input_buffer.start_tick {
+                    trace!(
+                        "Receive tick snap event {:?}. Updating input buffer start_tick!",
+                        tick_event
+                    );
+                    connection.input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                };
+            }
+        }
+    }
 }
 
 // Take the input buffer, and prepare the input message to send to the server
-fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
-    let current_tick = client.tick();
+fn prepare_input_message<P: Protocol>(
+    mut connection: ResMut<ConnectionManager<P>>,
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
+) {
+    let current_tick = tick_manager.tick();
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?current_tick, "prepare_input_message");
     // TODO: instead of 15, send ticks up to the latest yet ACK-ed input tick
@@ -167,10 +207,12 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     //  this system what the latest acked input tick is?
 
     // we send redundant inputs, so that if a packet is lost, we can still recover
-    let num_tick = ((client.config().shared.client_send_interval.as_micros()
-        / client.config().shared.tick.tick_duration.as_micros())
-        + 1) as u16;
-    let redundancy = client.config().input.packet_redundancy;
+    let num_tick: u16 = ((config.shared.client_send_interval.as_nanos()
+        / config.shared.tick.tick_duration.as_nanos())
+        + 1)
+    .try_into()
+    .unwrap();
+    let redundancy = config.input.packet_redundancy;
     // let redundancy = 3;
     let message_len = redundancy * num_tick;
     // TODO: we can either:
@@ -178,14 +220,15 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     //  - buffer an input every frame; and require some redundancy (number of tick per frame)
     //  - or buffer an input only when we are sending, and require more redundancy
     // let message_len = 20 as u16;
-    let message = client
-        .get_input_buffer()
-        .create_message(client.tick(), message_len);
+    let message = connection
+        .input_buffer
+        .create_message(tick_manager.tick(), message_len);
     // all inputs are absent
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        client
+        debug!("sending input message: {:?}", message.end_tick);
+        connection
             .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
@@ -196,22 +239,7 @@ fn prepare_input_message<P: Protocol>(mut client: ResMut<Client<P>>) {
     //  maybe at interpolation_tick(), since it's before any latest server update we receive?
 
     // delete old input values
-    let interpolation_tick = client
-        .connection
-        .sync_manager
-        .interpolation_tick(&client.tick_manager);
-    client.get_mut_input_buffer().pop(interpolation_tick);
+    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
+    connection.input_buffer.pop(interpolation_tick);
     // .pop(current_tick - (message_len + 1));
 }
-
-// on the client:
-// - FixedUpdate: before physics but after increment tick,
-//   - rollback: we get the input from the history -> HERE GIVE THE USER AN OPPORTUNITY TO CUSTOMIZE.
-//        BY DEFAULT WE JUST TAKE THE INPUT FOR THE TICK, BUT MAYBE WE WANT TO DO SOMETHING ELSE?
-//        SLIGHTLY MODIFY THE INPUT? IF NONE, REPEAT THE PREVIOUS ONE?
-//   - non rollback:
-//         we get the input from keyboard/mouse and store it in the InputBuffer
-//         use input for predicted entities
-//   - can use system piping?
-// - Send:
-//   - we read the

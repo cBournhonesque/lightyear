@@ -88,6 +88,12 @@ impl WebTransportServerSocket {
                         error!("send_datagram error: {:?}", e);
                     });
                 }
+                // client disconnected
+                _ = connection.closed() => {
+                    info!("Connection closed");
+
+                    return;
+                }
             }
         }
     }

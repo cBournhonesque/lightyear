@@ -1,3 +1,4 @@
+use bevy::prelude::Resource;
 use std::{
     collections::VecDeque,
     net::SocketAddr,
@@ -33,10 +34,10 @@ type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + 
 /// # Example
 /// ```
 /// # struct MyContext;
-/// # use crate::lightyear::netcode::{generate_key, Server};
+/// # use crate::lightyear::netcode::{generate_key, NetcodeServer};
 /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 40007));
 /// # let private_key = generate_key();
-/// # let token = Server::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
+/// # let token = NetcodeServer::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
 /// # let token_bytes = token.try_into_bytes().unwrap();
 /// use crate::lightyear::netcode::{Client, ClientConfig, ClientState};
 ///
@@ -162,20 +163,22 @@ pub enum ClientState {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
+/// use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, NetcodeServer};
 /// # use std::net::{Ipv4Addr, SocketAddr};
-/// # use bevy::utils::{Instant, Duration};
+/// # use std::time::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
 /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
 /// #    addr))
 /// # );
-/// # let mut server = Server::new(0, [0; 32]).unwrap();
+/// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = Client::new(&token_bytes).unwrap();
 /// client.connect();
 /// ```
+
+#[derive(Resource)]
 pub struct Client<Ctx = ()> {
     id: ClientId,
     state: ClientState,
@@ -549,7 +552,7 @@ impl<Ctx> Client<Ctx> {
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
-    /// # let mut server = Server::new(0, [0; 32]).unwrap();
+    /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
     /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
     /// let mut client = Client::new(&token_bytes).unwrap();

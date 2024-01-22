@@ -1,10 +1,14 @@
 /*!
 Defines the [`ClientMessage`] and [`ServerMessage`] enums that are used to send messages over the network
 */
+use anyhow::Context;
+use bitcode::encoding::Fixed;
+use bitcode::{Decode, Encode};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::{info_span, trace};
 
-use crate::_reexport::MessageProtocol;
+use crate::_reexport::{BitSerializable, MessageProtocol, ReadBuffer, WriteBuffer};
 use crate::prelude::{ChannelKind, NetworkTarget};
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
@@ -16,13 +20,33 @@ pub(crate) struct MessageMetadata {
 }
 
 // ClientMessages can include some extra Metadata
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug)]
 pub enum ClientMessage<P: Protocol> {
+    #[bitcode_hint(frequency = 2)]
+    #[bitcode(with_serde)]
     Message(P::Message, NetworkTarget),
+    #[bitcode_hint(frequency = 3)]
+    #[bitcode(with_serde)]
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
+    #[bitcode_hint(frequency = 1)]
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
     Sync(SyncMessage),
+}
+
+impl<P: Protocol> BitSerializable for ClientMessage<P> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+        writer.encode(self, Fixed).context("could not encode")
+        // Encode::encode(self, Fixed, writer).context("could not encode")
+        // self.encode(Fixed, writer).context("could not encode")
+    }
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        reader.decode::<Self>(Fixed).context("could not decode")
+        // <Self as Decode>::decode(Fixed, reader).context("could not decode")
+    }
 }
 
 impl<P: Protocol> ClientMessage<P> {
@@ -125,14 +149,32 @@ impl<P: Protocol> ClientMessage<P> {
     }
 }
 
-// TODO: add frequency information
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug)]
 pub enum ServerMessage<P: Protocol> {
+    #[bitcode_hint(frequency = 2)]
+    #[bitcode(with_serde)]
     Message(P::Message),
+    #[bitcode_hint(frequency = 3)]
+    #[bitcode(with_serde)]
     Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
+    #[bitcode_hint(frequency = 1)]
     Sync(SyncMessage),
+}
+
+impl<P: Protocol> BitSerializable for ServerMessage<P> {
+    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+        writer.encode(self, Fixed).context("could not encode")
+        // writer.serialize(self)
+    }
+    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        reader.decode::<Self>(Fixed).context("could not decode")
+        // reader.deserialize::<Self>()
+    }
 }
 
 impl<P: Protocol> ServerMessage<P> {

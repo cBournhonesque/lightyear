@@ -97,6 +97,34 @@ impl<K: Ord, T: PartialEq> ReadyBuffer<K, T> {
         val
     }
 
+    /// Pop all items that are more recent or equal than the provided key, then return all the values that were popped
+    pub(crate) fn drain_after(&mut self, key: &K) -> Vec<(K, T)> {
+        if self.heap.is_empty() {
+            return vec![];
+        }
+        let mut older = vec![];
+        let mut newer = vec![];
+        while let Some(item_with_key) = self.heap.pop() {
+            // keep older keys in the buffer
+            if item_with_key.key < *key {
+                older.push(item_with_key);
+                continue;
+            }
+            newer.push((item_with_key.key, item_with_key.item));
+            break;
+        }
+        // all the remaining values in the heap are the ones that are newer than the provided key
+        newer.extend(
+            self.heap
+                .drain()
+                .map(|item| (item.key, item.item))
+                .collect::<Vec<_>>(),
+        );
+        // put back the older values
+        older.into_iter().for_each(|item| self.heap.push(item));
+        newer
+    }
+
     /// Returns the length of the underlying queue
     pub fn len(&self) -> usize {
         self.heap.len()
@@ -194,5 +222,52 @@ mod tests {
         buffer.add_item(Tick(1), 1);
         assert_eq!(buffer.pop_until(&Tick(0)), None);
         assert_eq!(buffer.len(), 1);
+    }
+
+    #[test]
+    fn test_drain_until() {
+        let mut buffer = ReadyBuffer::new();
+
+        buffer.add_item(Tick(1), 1);
+        buffer.add_item(Tick(2), 2);
+        buffer.add_item(Tick(3), 3);
+        buffer.add_item(Tick(4), 4);
+
+        assert_eq!(
+            buffer.drain_until(&Tick(2)),
+            vec![(Tick(1), 1), (Tick(2), 2),]
+        );
+        assert_eq!(buffer.len(), 2);
+        assert_eq!(
+            buffer.heap.peek(),
+            Some(&ItemWithReadyKey {
+                key: Tick(3),
+                item: 3
+            })
+        );
+    }
+
+    #[test]
+    fn test_drain_after() {
+        let mut buffer = ReadyBuffer::new();
+
+        buffer.add_item(Tick(1), 1);
+        buffer.add_item(Tick(2), 2);
+        buffer.add_item(Tick(3), 3);
+        buffer.add_item(Tick(4), 4);
+
+        assert_eq!(
+            buffer.drain_after(&Tick(3)),
+            // TODO: actually there is no order guarantee
+            vec![(Tick(3), 3), (Tick(4), 4),]
+        );
+        assert_eq!(buffer.len(), 2);
+        assert_eq!(
+            buffer.heap.peek(),
+            Some(&ItemWithReadyKey {
+                key: Tick(1),
+                item: 1
+            })
+        );
     }
 }

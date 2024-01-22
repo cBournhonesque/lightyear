@@ -14,7 +14,7 @@ use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
 use crate::connection::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
-use crate::prelude::{EntityMapper, MapEntities, Message, Named};
+use crate::prelude::{EntityMapper, MapEntities, Message, Named, PreSpawnedPlayerObject};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::replication::components::ShouldBePredicted;
@@ -200,6 +200,7 @@ cfg_if!(
             + ComponentKindBehaviour
             + FromType<ShouldBePredicted>
             + FromType<ShouldBeInterpolated>
+            + FromType<PreSpawnedPlayerObject>
             + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput1>>
             + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput2>>
         {
@@ -224,6 +225,7 @@ cfg_if!(
             + ComponentKindBehaviour
             + FromType<ShouldBePredicted>
             + FromType<ShouldBeInterpolated>
+            + FromType<PreSpawnedPlayerObject>
         {
             type Protocol: Protocol;
         }

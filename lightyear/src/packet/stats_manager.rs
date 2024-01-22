@@ -120,6 +120,8 @@ mod tests {
     fn test_packet_stats() {
         let mut time_manager = TimeManager::new(Duration::default());
         let mut packet_stats_manager = PacketStatsManager::new(Duration::from_secs(2));
+        // set the time to a value bigger than the stats buffer
+        time_manager.update(Duration::from_secs(3));
 
         // add some packet data
         packet_stats_manager.sent_packet();
@@ -130,6 +132,7 @@ mod tests {
         // update the packet stats
         packet_stats_manager.update(&time_manager);
         assert_eq!(packet_stats_manager.current_stats, PacketStats::default());
+        assert_eq!(packet_stats_manager.stats_buffer.len(), 1);
 
         // compute final stats
         packet_stats_manager.compute_stats();
@@ -138,7 +141,7 @@ mod tests {
         // add some more packet data at a later time
         packet_stats_manager.sent_packet();
         packet_stats_manager.sent_packet_lost();
-        time_manager.update(Duration::from_secs(1), Duration::from_secs(0));
+        time_manager.update(Duration::from_secs(1));
         assert_eq!(
             packet_stats_manager.current_stats,
             PacketStats {
@@ -156,7 +159,7 @@ mod tests {
 
         // add some more packet data at a later time, the older stats should get removed
         packet_stats_manager.sent_packet();
-        time_manager.update(Duration::from_secs(1), Duration::from_secs(0));
+        time_manager.update(Duration::from_secs(1));
         packet_stats_manager.update(&time_manager);
         assert_eq!(packet_stats_manager.current_stats, PacketStats::default());
         assert_eq!(packet_stats_manager.stats_buffer.len(), 2);

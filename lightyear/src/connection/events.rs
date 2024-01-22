@@ -2,7 +2,7 @@
 */
 use std::iter;
 
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, Resource};
 use bevy::utils::HashMap;
 use tracing::trace;
 
@@ -16,7 +16,7 @@ use crate::protocol::message::MessageKind;
 use crate::protocol::{EventContext, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
-#[derive(Debug)]
+#[derive(Debug, Resource)]
 pub struct ConnectionEvents<P: Protocol> {
     // netcode
     // we put disconnections outside of there because `ConnectionEvents` gets removed upon disconnection

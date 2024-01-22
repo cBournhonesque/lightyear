@@ -40,7 +40,7 @@ impl TickUnreliableSender {
 
 impl ChannelSend for TickUnreliableSender {
     fn update(&mut self, _: &TimeManager, _: &PingManager, tick_manager: &TickManager) {
-        self.current_tick = tick_manager.current_tick();
+        self.current_tick = tick_manager.tick();
     }
 
     /// Add a new message to the buffer of messages to be sent.

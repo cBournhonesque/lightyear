@@ -8,27 +8,6 @@ use crate::prelude::client::*;
 use crate::prelude::*;
 use crate::tests::protocol::*;
 
-pub fn setup(auth: Authentication) -> anyhow::Result<Client> {
-    let addr = SocketAddr::from_str("127.0.0.1:0")?;
-    let io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(addr)));
-    let config = ClientConfig {
-        shared: SharedConfig {
-            enable_replication: false,
-            tick: TickConfig::new(Duration::from_millis(10)),
-            ..Default::default()
-        },
-        input: InputConfig::default(),
-        netcode: Default::default(),
-        ping: PingConfig::default(),
-        sync: SyncConfig::default(),
-        prediction: PredictionConfig::default(),
-        interpolation: InterpolationConfig::default(),
-    };
-
-    // create lightyear client
-    Ok(Client::new(config, io, auth, protocol()))
-}
-
 pub fn bevy_setup(app: &mut App, auth: Authentication) {
     // create udp-socket based io
     let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();

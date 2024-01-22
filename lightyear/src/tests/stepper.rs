@@ -2,7 +2,8 @@ use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
+use bevy::ecs::system::SystemState;
+use bevy::prelude::{App, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
 use bevy::{DefaultPlugins, MinimalPlugins};
 
@@ -130,27 +131,36 @@ impl BevyStepper {
         }
     }
 
-    pub(crate) fn client(&self) -> &Client {
-        self.client_app.world.resource::<Client>()
+    pub(crate) fn interpolation_tick(&mut self) -> Tick {
+        self.client_app.world.resource_scope(
+            |world: &mut World, manager: Mut<ClientConnectionManager>| {
+                manager
+                    .sync_manager
+                    .interpolation_tick(world.resource::<TickManager>())
+            },
+        )
     }
 
-    pub(crate) fn client_mut(&mut self) -> Mut<Client> {
-        self.client_app.world.resource_mut::<Client>()
+    pub(crate) fn client_tick(&self) -> Tick {
+        self.client_app.world.resource::<TickManager>().tick()
     }
-
-    pub(crate) fn server(&self) -> &Server {
-        self.server_app.world.resource::<Server>()
+    pub(crate) fn server_tick(&self) -> Tick {
+        self.server_app.world.resource::<TickManager>().tick()
     }
-    pub(crate) fn server_mut(&mut self) -> Mut<Server> {
-        self.server_app.world.resource_mut::<Server>()
-    }
-
     pub(crate) fn init(&mut self) {
-        self.client_mut().connect();
+        self.client_app
+            .world
+            .resource_mut::<crate::netcode::Client>()
+            .connect();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
-            if self.client().is_synced() {
+            if self
+                .client_app
+                .world
+                .resource::<ClientConnectionManager>()
+                .is_synced()
+            {
                 break;
             }
             self.frame_step();

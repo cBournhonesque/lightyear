@@ -8,11 +8,11 @@ use bevy::reflect::Map;
 use bevy::utils::{EntityHashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind, ShouldBeInterpolated};
 use crate::channel::builder::Channel;
 use crate::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, Tick};
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, ShouldBePredicted, Tick};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
@@ -76,7 +76,9 @@ pub struct EntityActionMessage<C, K: Hash + Eq> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
-    last_action_tick: Tick,
+    /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
+    /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
+    last_action_tick: Option<Tick>,
     pub(crate) updates: Vec<(Entity, Vec<C>)>,
 }
 
@@ -157,7 +159,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// Then those 2 component inserts might be stored in different packets, and arrive at different times because of jitter
     ///
     /// But the receiving systems might expect both components to be present at the same time.
-    fn buffer_replication_messages(&mut self, bevy_tick: BevyTick) -> Result<()>;
+    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>>;
 }
@@ -214,8 +216,9 @@ mod tests {
 
         // Check that the entity is replicated to client
         let client_entity = *stepper
-            .client()
-            .connection()
+            .client_app
+            .world
+            .resource::<ClientConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)

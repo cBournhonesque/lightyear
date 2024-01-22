@@ -1,4 +1,6 @@
 //! Defines client-specific configuration options
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::Resource;
 use bevy::utils::Duration;
 
 use crate::client::input::InputConfig;
@@ -59,7 +61,7 @@ impl PacketConfig {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Resource, Clone, Default)]
 pub struct ClientConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,

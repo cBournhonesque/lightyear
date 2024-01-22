@@ -4,6 +4,51 @@
   - use local executors for async, and use one process/thread per core instead of doing multi-threading (more complicated and less performant
   - one server: 1 game room per core?
 
+- TODO: create an example related to cheating, where the server can validate inputs
+
+- PRESPAWNING:
+  - STATUS:
+    - seems to kind of work but not really
+    - included the tick in the hash, but maybe we should be more lenient to handle entities created in Update.
+    - added rollback to despawn the pre-spawned entities if there is a rollback
+    - some prediction edge-cases are handled, but now it bugs when I spawn 2 bullets back-to-back (which means 2 rollbacks)
+  - EDGE CASES TO TEST:
+    - what happens if multiple entities have the same hash at the same tick?
+      - it should be ok to just match any of them? since we rollback?
+      - we could also just in general delete the client pre-spawned entity and then do normal rollback?
+    - what happens if we can't match the pre-spawned entity? should then spawn it as normal predicted?
+  - TODO
+    - simplify the distinction between the 3 predicted spawning types
+    - add unit tests
+    - handle edge cases of rollback that deletes the pre-spawned entity on the rollback tick.
+    - mispredictions at the beginning, why? because of tick snapping?
+    - why is there an initial rollback for the matching? it's probably because we only add PredictionHistory at PreUpdate
+      so we don't have the history for the first tick when the entity was spawned. Might be worth having to avoid rollback?
+    - the INITIAL ROLLBACK AFTER MATCH SETS THE PLAYER IN A WRONG POSITION, WHY? Because we receive the packet from the server
+      for the bullet, but not for the player, even though they are in the same replication group!!
+    - sometimes the bullet doesn't spawn at all on server, why? input was lost? looks like it was because of a tick-snap-event
+    - when spawning 2 bullets closely, the second bullet has a weird rollback behaviour
+      - that's because on the first rollback, we move all bullets, including the second one that hasn't been matched.
+      - EITHER:
+        - the user makes all systems not run rollback for PreSpawnedPlayerObjects
+        - or we rollback PreSpawnedPlayerObjects as well, instead of only entities that have a Confirmed counterpart
+      - TODO: maybe add an option for each entity to decide it's rollback eligible?
+    - I havea bunch of "could not despawn enttiy because it does not exist", let's check for each entity if it exists before despawn?
+    - I've seen cases where the bullet is not spawned on the same tick on client and server, why?
+    - we rollback the pre-spawned entities all the time because we didn't add a history for them right away..
+    - I still frequent rollbacks for the matched entities, weirdly.
+    - There are some cases where server/client don't run input on the same tick?
+    - Also sometimes we have annoying interpolation freezes..
+    
+
+- SYNC:
+  - why is sync breaking after 32700 ticks?
+  - if we set the client_tick to something else, then the relationship between time_manager and sync is broken,
+    so the timemanager's overstep is not trustworthy anymore?
+  - time gets updated during the First system, but i need the time at the end of the frame, so i need to run the time-systems myself
+    before PostUpdate!
+  - we must use the overstep only after FixedUpdate, because that's when it's updated
+
 - PHYSICS:
   - A: if I run FixedUpdate::MAIN AFTER PhysicsSets, I have a smooth physics simulation on client
     if I run FixedUpdate::MAIN BEFORE PhysicsSets, it's very jittery. Why? It should be the opposite!

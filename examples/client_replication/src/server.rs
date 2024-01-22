@@ -88,7 +88,7 @@ pub(crate) fn handle_disconnections(
 pub(crate) fn movement(
     mut position_query: Query<(&mut PlayerPosition, &PlayerId)>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    server: Res<Server>,
+    tick_manager: Res<TickManager>,
 ) {
     for input in input_reader.read() {
         let client_id = input.context();
@@ -97,7 +97,7 @@ pub(crate) fn movement(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
                 client_id,
-                server.tick()
+                tick_manager.tick()
             );
 
             for (position, player_id) in position_query.iter_mut() {

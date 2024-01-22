@@ -5,6 +5,7 @@ use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::_reexport::LinearInterpolator;
+use lightyear::netcode::NetcodeServer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;
@@ -107,7 +108,7 @@ impl Plugin for MyClientPlugin {
 // Startup system for the client
 pub(crate) fn init(
     mut commands: Commands,
-    mut client: ResMut<Client>,
+    mut client: ResMut<NetClient>,
     plugin: Res<MyClientPlugin>,
 ) {
     commands.spawn(Camera2dBundle::default());
@@ -124,7 +125,7 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ResMut<Client>, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<Input<KeyCode>>) {
     if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
         return client.add_input(Inputs::Direction(Direction::Up));
     }
@@ -188,11 +189,12 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn debug_prediction_pre_rollback(
-    client: Res<Client>,
+    tick_manager: Res<TickManager>,
+    client: Client,
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
-    info!(tick = ?client.tick(),
+    info!(tick = ?tick_manager.tick(),
         inputs = ?client.get_input_buffer(),
         "prediction pre rollback debug");
     for (parent, tail_history) in tail_query.iter() {
@@ -205,11 +207,11 @@ pub(crate) fn debug_prediction_pre_rollback(
 }
 
 pub(crate) fn debug_prediction_post_rollback(
-    client: Res<Client>,
+    tick_manager: Res<TickManager>,
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
-    info!(tick = ?client.tick(), "prediction post rollback debug");
+    info!(tick = ?tick_manager.tick(), "prediction post rollback debug");
     for (parent, tail_history) in tail_query.iter() {
         let parent_history = parent_query
             .get(parent.0)
@@ -220,7 +222,7 @@ pub(crate) fn debug_prediction_post_rollback(
 }
 
 pub(crate) fn debug_interpolate(
-    client: Res<Client>,
+    tick_manager: Res<TickManager>,
     parent_query: Query<(
         &InterpolateStatus<PlayerPosition>,
         &ConfirmedHistory<PlayerPosition>,
@@ -231,7 +233,7 @@ pub(crate) fn debug_interpolate(
         &ConfirmedHistory<TailPoints>,
     )>,
 ) {
-    info!(tick = ?client.tick(), "interpolation debug");
+    info!(tick = ?tick_manager.tick(), "interpolation debug");
     for (parent, tail_status, tail_history) in tail_query.iter() {
         let (parent_status, parent_history) = parent_query
             .get(parent.0)

@@ -3,9 +3,9 @@ use bevy::utils::Duration;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::World;
+use bevy::prelude::{Res, ResMut, Resource, World};
 use serde::Serialize;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -15,7 +15,7 @@ use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{ChannelKind, MapEntities, NetworkTarget};
+use crate::prelude::{Channel, ChannelKind, MapEntities, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -32,7 +32,8 @@ use crate::shared::time_manager::TimeManager;
 use super::sync::SyncManager;
 
 /// Wrapper that handles the connection with the server
-pub struct Connection<P: Protocol> {
+#[derive(Resource)]
+pub struct ConnectionManager<P: Protocol> {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
     pub(crate) replication_receiver: ReplicationReceiver<P>,
@@ -44,7 +45,46 @@ pub struct Connection<P: Protocol> {
     // TODO: maybe don't do any replication until connection is synced?
 }
 
-impl<P: Protocol> Connection<P> {
+/// Do some regular cleanup on the internals of replication:
+/// - set the latest_tick for every group to
+pub(crate) fn replication_clean<P: Protocol>(
+    mut connection: ResMut<ConnectionManager<P>>,
+    tick_manager: Res<TickManager>,
+) {
+    debug!("Running replication clean");
+    let tick = tick_manager.tick();
+    // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
+    // (meaning that there's no need when we receive the update to check if we have already received a previous action)
+    for group_channel in connection.replication_sender.group_channels.values_mut() {
+        debug!("Checking group channel: {:?}", group_channel);
+        if let Some(last_action_tick) = group_channel.last_action_tick {
+            if tick - last_action_tick > (i16::MAX / 2) {
+                debug!(
+                    ?tick,
+                    ?last_action_tick,
+                    ?group_channel,
+                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
+                group_channel.last_action_tick = None;
+            }
+        }
+    }
+    // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
+    for group_channel in connection.replication_receiver.group_channels.values_mut() {
+        debug!("Checking group channel: {:?}", group_channel);
+        if let Some(latest_tick) = group_channel.latest_tick {
+            if tick - latest_tick > (i16::MAX / 2) {
+                debug!(
+                    ?tick,
+                    ?latest_tick,
+                    ?group_channel,
+                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                group_channel.latest_tick = Some(tick);
+            }
+        }
+    }
+}
+
+impl<P: Protocol> ConnectionManager<P> {
     pub fn new(
         channel_registry: &ChannelRegistry,
         sync_config: SyncConfig,
@@ -73,6 +113,26 @@ impl<P: Protocol> Connection<P> {
         }
     }
 
+    pub fn is_synced(&self) -> bool {
+        self.sync_manager.is_synced()
+    }
+
+    pub(crate) fn received_new_server_tick(&self) -> bool {
+        self.sync_manager.duration_since_latest_received_server_tick == Duration::default()
+    }
+
+    pub fn latest_received_server_tick(&self) -> Tick {
+        self.sync_manager
+            .latest_received_server_tick
+            .unwrap_or(Tick(0))
+    }
+
+    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
+    /// to keep it for rollback)
+    pub(crate) fn get_input(&self, tick: Tick) -> Option<P::Input> {
+        self.input_buffer.get(tick).cloned()
+    }
+
     pub(crate) fn clear(&mut self) {
         self.events.clear();
     }
@@ -89,6 +149,28 @@ impl<P: Protocol> Connection<P> {
 
         // we update the sync manager in POST_UPDATE
         // self.sync_manager.update(time_manager);
+    }
+
+    /// Send a message to the server
+    pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.buffer_message(message.into(), channel, NetworkTarget::None)
+    }
+
+    /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    pub fn send_message_to_target<C: Channel, M: Message>(
+        &mut self,
+        message: M,
+        target: NetworkTarget,
+    ) -> Result<()>
+    where
+        P::Message: From<M>,
+    {
+        let channel = ChannelKind::of::<C>();
+        self.buffer_message(message.into(), channel, target)
     }
 
     pub(crate) fn buffer_message(
@@ -179,6 +261,8 @@ impl<P: Protocol> Connection<P> {
                 .into_iter()
                 .try_for_each(|mut pong| {
                     trace!("Sending pong {:?}", pong);
+                    // TODO: should we send real time or virtual time here?
+                    //  probably real time if we just want to estimate RTT?
                     // update the send time of the pong
                     pong.pong_sent_time = time_manager.current_time();
                     let message = ClientMessage::<P>::Sync(SyncMessage::Pong(pong));
@@ -187,8 +271,7 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager
-            .send_packets(tick_manager.current_tick())
+        self.message_manager.send_packets(tick_manager.tick())
     }
 
     pub fn receive(
@@ -240,6 +323,20 @@ impl<P: Protocol> Connection<P> {
                                 SyncMessage::Pong(pong) => {
                                     // process the pong
                                     self.ping_manager.process_pong(pong, time_manager);
+                                    // TODO: a bit dangerous because we want:
+                                    // - real time when computing RTT
+                                    // - virtual time when computing the generation
+                                    // - maybe we should just send both in Pong message?
+                                    // update the tick generation from the time + tick information
+                                    self.sync_manager.server_pong_tick = tick;
+                                    self.sync_manager.server_pong_generation = pong
+                                        .pong_sent_time
+                                        .tick_generation(tick_manager.config.tick_duration, tick);
+                                    trace!(
+                                        ?tick,
+                                        generation = ?self.sync_manager.server_pong_generation,
+                                        time = ?pong.pong_sent_time,
+                                        "Updated server pong generation")
                                 }
                             }
                         }
@@ -247,9 +344,8 @@ impl<P: Protocol> Connection<P> {
                 }
                 // Check if we have any replication messages we can apply to the World (and emit events)
                 if self.sync_manager.is_synced() {
-                    for (group, replication_list) in self
-                        .replication_receiver
-                        .read_messages(tick_manager.current_tick())
+                    for (group, replication_list) in
+                        self.replication_receiver.read_messages(tick_manager.tick())
                     {
                         trace!(?group, ?replication_list, "read replication messages");
                         replication_list

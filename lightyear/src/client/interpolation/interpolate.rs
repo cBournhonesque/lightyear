@@ -1,10 +1,14 @@
-use bevy::prelude::{Component, Query, ResMut};
-use tracing::trace;
+use bevy::ecs::system::EntityCommands;
+use bevy::prelude::{Commands, Component, Entity, Mut, Query, Res, ResMut};
+use tracing::{info, trace};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::resource::Client;
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 
@@ -31,26 +35,33 @@ pub struct InterpolateStatus<C: Component> {
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
 /// Invariant: start_tick <= current_interpolate_tick <= end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
-    client: ResMut<Client<P>>,
-    mut query: Query<(&mut C, &mut InterpolateStatus<C>, &mut ConfirmedHistory<C>)>,
+    config: Res<ClientConfig>,
+    connection: Res<ConnectionManager<P>>,
+    tick_manager: Res<TickManager>,
+    mut query: Query<(
+        Entity,
+        Option<&mut C>,
+        &mut InterpolateStatus<C>,
+        &mut ConfirmedHistory<C>,
+    )>,
 ) where
     P::Components: SyncMetadata<C>,
 {
-    if P::Components::mode() != ComponentSyncMode::Full {
-        return;
-    }
-    if !client.is_synced() {
+    let kind = C::type_name();
+    if !connection.is_synced() {
         return;
     }
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
-    let send_interval_delta_tick =
-        (SEND_INTERVAL_TICK_FACTOR * client.config().shared.server_send_interval.as_secs_f32()
-            / client.config().shared.tick.tick_duration.as_secs_f32()) as i16
-            + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+        * config.shared.server_send_interval.as_secs_f32()
+        / config.shared.tick.tick_duration.as_secs_f32()) as i16
+        + 1;
 
-    let current_interpolate_tick = client.interpolation_tick();
-    for (mut component, mut status, mut history) in query.iter_mut() {
+    let current_interpolate_tick = connection
+        .sync_manager
+        .interpolation_tick(tick_manager.as_ref());
+    for (entity, component, mut status, mut history) in query.iter_mut() {
         let mut start = status.start.take();
         let mut end = status.end.take();
 
@@ -58,9 +69,17 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         // we need to replace start with end, and clear end
         if let Some((end_tick, ref end_value)) = end {
             if end_tick <= current_interpolate_tick {
+                trace!(
+                    ?entity,
+                    ?end_tick,
+                    ?current_interpolate_tick,
+                    "interpolation is beyond previous end tick"
+                );
                 start = end.clone();
                 // TODO: this clone should be avoidable
-                *component = end_value.clone();
+                if let Some(mut component) = component {
+                    *component = end_value.clone();
+                }
                 end = None;
             }
         }
@@ -147,9 +166,10 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
         }
 
         trace!(
-            component = ?component.name(),
+            ?entity,
+            component = ?kind,
             ?current_interpolate_tick,
-            last_received_server_tick = ?client.latest_received_server_tick(),
+            last_received_server_tick = ?connection.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
             "update_interpolate_status");
@@ -166,287 +186,309 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
 }
 
 pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
-    mut query: Query<(&mut C, &InterpolateStatus<C>)>,
+    mut commands: Commands,
+    mut query: Query<(Entity, Option<&mut C>, &InterpolateStatus<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
 {
-    for (mut component, status) in query.iter_mut() {
+    let set_value = |mut commands: EntityCommands, component: Option<Mut<C>>, value: C| {
+        if let Some(mut component) = component {
+            *component = value;
+        } else {
+            commands.insert(value);
+        }
+    };
+
+    for (entity, component, status) in query.iter_mut() {
+        let entity_commands = commands.entity(entity);
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
             if status.current == *start_tick {
-                *component = start_value.clone();
+                trace!(?entity, ?start_tick, "setting component to start value");
+                set_value(entity_commands, component, start_value.clone());
                 continue;
             }
             if let Some((end_tick, end_value)) = &status.end {
-                // info!(?start_tick, ?end_tick, "doing interpolation!");
+                trace!(?entity, ?start_tick, interpolate_tick=?status.current, ?end_tick, "doing interpolation!");
                 if status.current == *end_tick {
-                    *component = end_value.clone();
+                    set_value(entity_commands, component, end_value.clone());
                     continue;
                 }
                 if start_tick != end_tick {
                     let t =
                         (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
-                    *component = P::Components::lerp(start_value.clone(), end_value.clone(), t);
-                    // *component = C::lerp(start_value.clone(), end_value.clone(), t);
+                    let value = P::Components::lerp(start_value.clone(), end_value.clone(), t);
+                    set_value(entity_commands, component, value);
                 } else {
-                    *component = start_value.clone();
+                    set_value(entity_commands, component, start_value.clone());
                 }
             }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // #![allow(unused_imports)]
-    // #![allow(unused_variables)]
-    // #![allow(dead_code)]
-    //
-    // use std::net::SocketAddr;
-    // use std::str::FromStr;
-    // use bevy::utils::{Duration, Instant};
-    //
-    // use bevy::log::LogPlugin;
-    // use bevy::prelude::{
-    //     App, Commands, Entity, EventReader, FixedUpdate, IntoSystemConfigs, PluginGroup, Query, Real,
-    //     Res, ResMut, Startup, Time, With,
-    // };
-    // use bevy::time::TimeUpdateStrategy;
-    // use bevy::winit::WinitPlugin;
-    // use bevy::{DefaultPlugins, MinimalPlugins};
-    // use lightyear::client::components::Confirmed;
-    // use tracing::{debug, info};
-    // use tracing_subscriber::fmt::format::FmtSpan;
-    //
-    // use lightyear::_reexport::*;
-    // use lightyear::prelude::client::*;
-    // use lightyear::prelude::*;
-    // use lightyear_tests::protocol::{protocol, Channel2, Component1, Component2, MyInput, MyProtocol};
-    // use lightyear_tests::stepper::{BevyStepper, Step};
-    //
-    // fn setup() -> (BevyStepper, Entity, Entity, u16) {
-    //     let frame_duration = Duration::from_millis(10);
-    //     let tick_duration = Duration::from_millis(10);
-    //     let shared_config = SharedConfig {
-    //         enable_replication: false,
-    //         tick: TickConfig::new(tick_duration),
-    //         ..Default::default()
-    //     };
-    //     let link_conditioner = LinkConditionerConfig {
-    //         incoming_latency: Duration::from_millis(40),
-    //         incoming_jitter: Duration::from_millis(5),
-    //         incoming_loss: 0.05,
-    //     };
-    //     let sync_config = SyncConfig::default().speedup_factor(1.0);
-    //     let prediction_config = PredictionConfig::default().disable(true);
-    //     let interpolation_delay = Duration::from_millis(100);
-    //     let interpolation_config =
-    //         InterpolationConfig::default().with_delay(InterpolationDelay::Delay(interpolation_delay));
-    //     let mut stepper = BevyStepper::new(
-    //         shared_config,
-    //         sync_config,
-    //         prediction_config,
-    //         interpolation_config,
-    //         link_conditioner,
-    //         frame_duration,
-    //     );
-    //     stepper.client_mut().set_synced();
-    //
-    //     // Create a confirmed entity
-    //     let confirmed = stepper
-    //         .client_app
-    //         .world
-    //         .spawn((Component1(0.0), ShouldBeInterpolated))
-    //         .id();
-    //
-    //     // Tick once
-    //     stepper.frame_step();
-    //     assert_eq!(stepper.client().tick(), Tick(1));
-    //     let interpolated = stepper
-    //         .client_app
-    //         .world
-    //         .get::<Confirmed>(confirmed)
-    //         .unwrap()
-    //         .interpolated
-    //         .unwrap();
-    //
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<Component1>(confirmed)
-    //             .unwrap(),
-    //         &Component1(0.0)
-    //     );
-    //
-    //     // check that the interpolated entity got spawned
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<Interpolated>(interpolated)
-    //             .unwrap()
-    //             .confirmed_entity,
-    //         confirmed
-    //     );
-    //
-    //     // check that the component history got created and is empty
-    //     let history = ConfirmedHistory::<Component1>::new();
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<ConfirmedHistory<Component1>>(interpolated)
-    //             .unwrap(),
-    //         &history,
-    //     );
-    //     // check that the confirmed component got replicated
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<Component1>(interpolated)
-    //             .unwrap(),
-    //         &Component1(0.0)
-    //     );
-    //     // check that the interpolate status got updated
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<InterpolateStatus<Component1>>(interpolated)
-    //             .unwrap(),
-    //         &InterpolateStatus::<Component1> {
-    //             start: None,
-    //             end: (Tick(0), Component1(0.0)).into(),
-    //             current: Tick(1) - interpolation_tick_delay,
-    //         }
-    //     );
-    //     (stepper, confirmed, interpolated, interpolation_tick_delay)
-    // }
-    //
-    // // Test interpolation
-    // #[test]
-    // fn test_interpolation() -> anyhow::Result<()> {
-    //     let (mut stepper, confirmed, interpolated, interpolation_tick_delay) = setup();
-    //     // reach interpolation start tick
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //     // check that the interpolate status got updated (end becomes start)
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<InterpolateStatus<Component1>>(interpolated)
-    //             .unwrap(),
-    //         &InterpolateStatus::<Component1> {
-    //             start: (Tick(0), Component1(0.0)).into(),
-    //             end: None,
-    //             current: Tick(3) - interpolation_tick_delay,
-    //         }
-    //     );
-    //
-    //     // receive server update
-    //     stepper
-    //         .client_mut()
-    //         .set_latest_received_server_tick(Tick(2));
-    //     stepper
-    //         .client_app
-    //         .world
-    //         .get_entity_mut(confirmed)
-    //         .unwrap()
-    //         .get_mut::<Component1>()
-    //         .unwrap()
-    //         .0 = 2.0;
-    //
-    //     stepper.frame_step();
-    //     // check that interpolation is working correctly
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<InterpolateStatus<Component1>>(interpolated)
-    //             .unwrap(),
-    //         &InterpolateStatus::<Component1> {
-    //             start: (Tick(0), Component1(0.0)).into(),
-    //             end: (Tick(2), Component1(2.0)).into(),
-    //             current: Tick(4) - interpolation_tick_delay,
-    //         }
-    //     );
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<Component1>(interpolated)
-    //             .unwrap(),
-    //         &Component1(1.0)
-    //     );
-    //     stepper.frame_step();
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<InterpolateStatus<Component1>>(interpolated)
-    //             .unwrap(),
-    //         &InterpolateStatus::<Component1> {
-    //             start: (Tick(2), Component1(2.0)).into(),
-    //             end: None,
-    //             current: Tick(5) - interpolation_tick_delay,
-    //         }
-    //     );
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<Component1>(interpolated)
-    //             .unwrap(),
-    //         &Component1(2.0)
-    //     );
-    //     Ok(())
-    // }
-    //
-    // // We are in the situation: S1 < I
-    // // where S1 is a confirmed ticks, and I is the interpolated tick
-    // // and we receive S1 < S2 < I
-    // // Then we should now start interpolating from S2
-    // #[test]
-    // fn test_received_more_recent_start() -> anyhow::Result<()> {
-    //     let (mut stepper, confirmed, interpolated, interpolation_tick_delay) = setup();
-    //
-    //     // reach interpolation start tick
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //     stepper.frame_step();
-    //     assert_eq!(stepper.client().tick(), Tick(5));
-    //
-    //     // receive server update
-    //     stepper
-    //         .client_mut()
-    //         .set_latest_received_server_tick(Tick(1));
-    //     stepper
-    //         .client_app
-    //         .world
-    //         .get_entity_mut(confirmed)
-    //         .unwrap()
-    //         .get_mut::<Component1>()
-    //         .unwrap()
-    //         .0 = 1.0;
-    //
-    //     stepper.frame_step();
-    //     // check the status uses the more recent server update
-    //     assert_eq!(
-    //         stepper
-    //             .client_app
-    //             .world
-    //             .get::<InterpolateStatus<Component1>>(interpolated)
-    //             .unwrap(),
-    //         &InterpolateStatus::<Component1> {
-    //             start: (Tick(1), Component1(1.0)).into(),
-    //             end: None,
-    //             current: Tick(6) - interpolation_tick_delay,
-    //         }
-    //     );
-    //     Ok(())
-    // }
-}
+// #[cfg(test)]
+// mod tests {
+//     #![allow(unused_imports)]
+//     #![allow(unused_variables)]
+//     #![allow(dead_code)]
+//
+//     use std::net::SocketAddr;
+//     use std::str::FromStr;
+//     use bevy::utils::{Duration, Instant};
+//
+//     use bevy::log::LogPlugin;
+//     use bevy::prelude::*;
+//     use bevy::time::TimeUpdateStrategy;
+//     use bevy::{DefaultPlugins, MinimalPlugins};
+//     use tracing::{debug, info};
+//     use tracing_subscriber::fmt::format::FmtSpan;
+//
+//     use crate::_reexport::*;
+//     use crate::prelude::client::*;
+//     use crate::prelude::*;
+//     use crate::tests::protocol::*;
+//     use crate::tests::stepper::{BevyStepper, Step};
+//
+//     fn setup() -> (BevyStepper, Entity, Entity) {
+//         let frame_duration = Duration::from_millis(10);
+//         let tick_duration = Duration::from_millis(10);
+//         let shared_config = SharedConfig {
+//             enable_replication: false,
+//             tick: TickConfig::new(tick_duration),
+//             ..Default::default()
+//         };
+//         let link_conditioner = LinkConditionerConfig {
+//             incoming_latency: Duration::from_millis(40),
+//             incoming_jitter: Duration::from_millis(5),
+//             incoming_loss: 0.05,
+//         };
+//         let sync_config = SyncConfig::default().speedup_factor(1.0);
+//         let prediction_config = PredictionConfig::default().disable(true);
+//         let interpolation_delay = Duration::from_millis(100);
+//         let interpolation_config = InterpolationConfig::default().with_delay(InterpolationDelay {
+//             min_delay: interpolation_delay,
+//             send_interval_ratio: 0.0,
+//         });
+//         let mut stepper = BevyStepper::new(
+//             shared_config,
+//             sync_config,
+//             prediction_config,
+//             interpolation_config,
+//             link_conditioner,
+//             frame_duration,
+//         );
+//         stepper.init();
+//
+//         // Create a confirmed entity on the server
+//         let server_entity = stepper
+//             .server_app
+//             .world
+//             .spawn((Component1(0.0), ShouldBeInterpolated))
+//             .id();
+//
+//         // Set the latest received server tick
+//         let confirmed_tick = stepper.client_app.world.resource_mut::<ClientConnectionManager>()
+//             .replication_receiver
+//             .remote_entity_map
+//             .get_confirmed_tick(confirmed_entity)
+//             .unwrap();
+//
+//         // Tick once
+//         stepper.frame_step();
+//         let tick = stepper.client_tick();
+//         let interpolated = stepper
+//             .client_app
+//             .world
+//             .get::<Confirmed>(confirmed)
+//             .unwrap()
+//             .interpolated
+//             .unwrap();
+//
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<Component1>(confirmed)
+//                 .unwrap(),
+//             &Component1(0.0)
+//         );
+//
+//         // check that the interpolated entity got spawned
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<Interpolated>(interpolated)
+//                 .unwrap()
+//                 .confirmed_entity,
+//             confirmed
+//         );
+//
+//         // check that the component history got created and is empty
+//         let history = ConfirmedHistory::<Component1>::new();
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<ConfirmedHistory<Component1>>(interpolated)
+//                 .unwrap(),
+//             &history,
+//         );
+//         // check that the confirmed component got replicated
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<Component1>(interpolated)
+//                 .unwrap(),
+//             &Component1(0.0)
+//         );
+//         // check that the interpolate status got updated
+//         let interpolation_tick = stepper.interpolation_tick();
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .unwrap(),
+//             &InterpolateStatus::<Component1> {
+//                 start: None,
+//                 end: (tick, Component1(0.0)).into(),
+//                 current: interpolation_tick,
+//             }
+//         );
+//         (stepper, confirmed, interpolated)
+//     }
+//
+//     // Test interpolation
+//     #[test]
+//     fn test_interpolation() -> anyhow::Result<()> {
+//         let (mut stepper, confirmed, interpolated) = setup();
+//         let start_tick = stepper.client_tick();
+//         // reach interpolation start tick
+//         stepper.frame_step();
+//         stepper.frame_step();
+//
+//         // check that the interpolate status got updated (end becomes start)
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .unwrap(),
+//             &InterpolateStatus::<Component1> {
+//                 start: (Tick(0), Component1(0.0)).into(),
+//                 end: None,
+//                 current: Tick(3),
+//                 // current: Tick(3) - interpolation_tick_delay,
+//             }
+//         );
+//
+//         // receive server update
+//         // stepper
+//         //     .client_mut()
+//         //     .set_latest_received_server_tick(Tick(2));
+//         stepper
+//             .client_app
+//             .world
+//             .get_entity_mut(confirmed)
+//             .unwrap()
+//             .get_mut::<Component1>()
+//             .unwrap()
+//             .0 = 2.0;
+//
+//         stepper.frame_step();
+//         // check that interpolation is working correctly
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .unwrap(),
+//             &InterpolateStatus::<Component1> {
+//                 start: (Tick(0), Component1(0.0)).into(),
+//                 end: (Tick(2), Component1(2.0)).into(),
+//                 current: Tick(4),
+//                 // current: Tick(4) - interpolation_tick_delay,
+//             }
+//         );
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<Component1>(interpolated)
+//                 .unwrap(),
+//             &Component1(1.0)
+//         );
+//         stepper.frame_step();
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .unwrap(),
+//             &InterpolateStatus::<Component1> {
+//                 start: (Tick(2), Component1(2.0)).into(),
+//                 end: None,
+//                 current: Tick(5),
+//                 // current: Tick(5) - interpolation_tick_delay,
+//             }
+//         );
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<Component1>(interpolated)
+//                 .unwrap(),
+//             &Component1(2.0)
+//         );
+//         Ok(())
+//     }
+//
+//     // We are in the situation: S1 < I
+//     // where S1 is a confirmed ticks, and I is the interpolated tick
+//     // and we receive S1 < S2 < I
+//     // Then we should now start interpolating from S2
+//     #[test]
+//     fn test_received_more_recent_start() -> anyhow::Result<()> {
+//         let (mut stepper, confirmed, interpolated) = setup();
+//
+//         // reach interpolation start tick
+//         stepper.frame_step();
+//         stepper.frame_step();
+//         stepper.frame_step();
+//         stepper.frame_step();
+//         assert_eq!(stepper.client_tick(), Tick(5));
+//
+//         // receive server update
+//         // stepper
+//         //     .client_mut()
+//         //     .set_latest_received_server_tick(Tick(1));
+//         stepper
+//             .client_app
+//             .world
+//             .get_entity_mut(confirmed)
+//             .unwrap()
+//             .get_mut::<Component1>()
+//             .unwrap()
+//             .0 = 1.0;
+//
+//         stepper.frame_step();
+//         // check the status uses the more recent server update
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world
+//                 .get::<InterpolateStatus<Component1>>(interpolated)
+//                 .unwrap(),
+//             &InterpolateStatus::<Component1> {
+//                 start: (Tick(1), Component1(1.0)).into(),
+//                 end: None,
+//                 current: Tick(6),
+//                 // current: Tick(6) - interpolation_tick_delay,
+//             }
+//         );
+//         Ok(())
+//     }
+// }

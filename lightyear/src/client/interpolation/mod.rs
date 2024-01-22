@@ -2,13 +2,14 @@
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
-use tracing::debug;
+use tracing::{debug, info, trace};
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 
 use crate::client::components::{Confirmed, LerpFn, SyncComponent};
+use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::resource::Client;
 use crate::protocol::Protocol;
@@ -51,7 +52,7 @@ pub struct Interpolated {
 }
 
 pub fn spawn_interpolated_entity<P: Protocol>(
-    client: Res<Client<P>>,
+    connection: Res<ConnectionManager<P>>,
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
@@ -75,8 +76,8 @@ pub fn spawn_interpolated_entity<P: Protocol>(
         } else {
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            let confirmed_tick = client
-                .replication_receiver()
+            let confirmed_tick = connection
+                .replication_receiver
                 .get_confirmed_tick(confirmed_entity)
                 .unwrap();
             confirmed_entity_mut.insert(Confirmed {
@@ -85,9 +86,10 @@ pub fn spawn_interpolated_entity<P: Protocol>(
                 tick: confirmed_tick,
             });
         }
-        debug!(
+        trace!(
             "Spawn interpolated entity {:?} for confirmed: {:?}",
-            interpolated, confirmed_entity
+            interpolated,
+            confirmed_entity
         );
         #[cfg(feature = "metrics")]
         {

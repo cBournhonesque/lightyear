@@ -5,9 +5,12 @@
 //! Inputs, Messages and Components are all data structures that can be serialized and sent over the network.
 //! Channels are an abstraction over how the data will be sent over the network (reliability, ordering, etc.)
 
+use anyhow::Context;
 use std::fmt::Debug;
 
-use bevy::prelude::App;
+use bevy::prelude::{App, Resource};
+use bitcode::encoding::Fixed;
+use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -66,7 +69,7 @@ pub(crate) mod registry;
 ///
 ///# fn main() {}
 /// ```
-pub trait Protocol: Send + Sync + Clone + Debug + 'static {
+pub trait Protocol: Send + Sync + Clone + Debug + Resource + 'static {
     type Input: crate::inputs::native::UserAction;
     #[cfg(feature = "leafwing")]
     type LeafwingInput1: crate::inputs::leafwing::LeafwingUserAction;
@@ -108,7 +111,7 @@ macro_rules! protocolize {
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
 
-            #[derive(Debug, Clone)]
+            #[derive(Debug, Clone, Resource)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -172,8 +175,12 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type Client = $shared_crate_name::client::resource::Client<$protocol>;
-        pub type Server = $shared_crate_name::server::resource::Server<$protocol>;
+        pub type Client<'w, 's> = $shared_crate_name::client::resource::Client<'w, 's, $protocol>;
+        pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
+        pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
+        pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
+        pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
+        pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
     };
 
@@ -195,7 +202,7 @@ macro_rules! protocolize {
             use $shared_crate_name::_reexport::*;
             use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
-            #[derive(Debug, Clone)]
+            #[derive(Debug, Clone, Resource)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -257,8 +264,12 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type Client = $shared_crate_name::client::resource::Client<$protocol>;
-        pub type Server = $shared_crate_name::server::resource::Server<$protocol>;
+        pub type Client<'w, 's> = $shared_crate_name::client::resource::Client<'w, 's, $protocol>;
+        pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
+        pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
+        pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
+        pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
+        pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
     };
 
@@ -387,6 +398,22 @@ where
         reader.deserialize::<Self>()
     }
 }
+
+// impl<T> BitSerializable for T
+// where
+//     T: Encode + Decode + Clone,
+// {
+//     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+//         self.encode(Fixed, writer).context("could not encode")
+//     }
+//
+//     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         <Self as Decode>::decode(Fixed, reader).context("could not decode")
+//     }
+// }
 
 /// Data that can be used in an Event
 /// Same as `Event`, but we implement it automatically for all compatible types

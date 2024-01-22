@@ -10,6 +10,7 @@ use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
+use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 use tracing::Level;
@@ -90,19 +91,8 @@ impl Plugin for SharedPlugin {
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
-        if app.world.contains_resource::<Client>() {
-            app.add_systems(
-                FixedUpdate,
-                after_physics_log::<Client>.after(FixedUpdateSet::Main),
-            );
-            app.add_systems(Last, last_log::<Client>);
-        }
-        if app.world.contains_resource::<Server>() {
-            app.add_systems(
-                FixedUpdate,
-                after_physics_log::<Server>.after(FixedUpdateSet::Main),
-            );
-        }
+        app.add_systems(FixedUpdate, after_physics_log.after(FixedUpdateSet::Main));
+        app.add_systems(Last, last_log);
 
         // registry types for reflection
         app.register_type::<PlayerId>();
@@ -172,8 +162,8 @@ pub(crate) fn shared_movement_behaviour(
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
 }
 
-pub(crate) fn after_physics_log<T: TickManaged>(
-    ticker: Res<T>,
+pub(crate) fn after_physics_log(
+    tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     players: Query<
         (Entity, &Position, &Rotation),
@@ -181,7 +171,7 @@ pub(crate) fn after_physics_log<T: TickManaged>(
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
-    let mut tick = ticker.tick();
+    let mut tick = tick_manager.tick();
     if let Some(rollback) = rollback {
         if let RollbackState::ShouldRollback { current_tick } = rollback.state {
             tick = current_tick;
@@ -201,8 +191,8 @@ pub(crate) fn after_physics_log<T: TickManaged>(
     }
 }
 
-pub(crate) fn last_log<T: TickManaged>(
-    ticker: Res<T>,
+pub(crate) fn last_log(
+    tick_manager: Res<TickManager>,
     players: Query<
         (
             Entity,
@@ -215,7 +205,7 @@ pub(crate) fn last_log<T: TickManaged>(
     >,
     ball: Query<&Position, (With<BallMarker>, Without<Confirmed>)>,
 ) {
-    let tick = ticker.tick();
+    let tick = tick_manager.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
         info!(?tick, ?entity, ?position, ?correction, "Player LAST update");
         info!(
