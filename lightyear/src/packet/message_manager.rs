@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use anyhow::{anyhow, Context};
+use crossbeam_channel::Receiver;
 use governor::Quota;
 use tracing::trace;
 
@@ -54,6 +55,11 @@ impl MessageManager {
             packet_to_message_ack_map: HashMap::new(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
         }
+    }
+
+    pub(crate) fn get_replication_update_send_receiver(&mut self) -> Receiver<MessageId> {
+        self.priority_manager
+            .subscribe_replication_update_sent_messages()
     }
 
     /// Update book-keeping

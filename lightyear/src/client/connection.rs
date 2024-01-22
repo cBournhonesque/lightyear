@@ -102,7 +102,11 @@ impl<P: Protocol> ConnectionManager<P> {
             .unwrap()
             .sender
             .subscribe_acks();
-        let replication_sender = ReplicationSender::new(update_acks_tracker);
+        // get a channel to get notified when a replication update message gets actually send (to update priority)
+        let replication_update_send_receiver =
+            message_manager.get_replication_update_send_receiver();
+        let replication_sender =
+            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
         let replication_receiver = ReplicationReceiver::new();
         Self {
             message_manager,
@@ -226,6 +230,7 @@ impl<P: Protocol> ConnectionManager<P> {
                     .buffer_send(message, channel)?
                     .expect("The EntityUpdatesChannel should always return a message_id");
 
+                // TODO: if should_track_ack OR bandwidth_cap is enabled
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
@@ -378,8 +383,7 @@ impl<P: Protocol> ConnectionManager<P> {
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks();
-
+        // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
         if self
@@ -400,6 +404,8 @@ impl<P: Protocol> ConnectionManager<P> {
             );
         }
         trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
+        // notify the replication sender that some sent messages were received
+        self.replication_sender.recv_update_acks();
         Ok(())
     }
 }

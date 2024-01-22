@@ -37,8 +37,8 @@ impl PlayerBundle {
                 prediction_target: NetworkTarget::Only(vec![id]),
                 // interpolation_target: NetworkTarget::None,
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                // this is the default: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
-                replication_group: ReplicationGroup::FromEntity,
+                // the default is: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
+                replication_group: ReplicationGroup::default(),
                 ..default()
             },
         }
@@ -61,7 +61,7 @@ impl TailBundle {
                 // interpolation_target: NetworkTarget::None,
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 // replicate this entity within the same replication group as the parent
-                replication_group: ReplicationGroup::Group(parent.to_bits()),
+                replication_group: ReplicationGroup::default().set_id(parent.to_bits()),
                 ..default()
             },
         }

@@ -19,6 +19,7 @@ use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 pub mod components;
 
 pub mod entity_map;
+mod priority;
 pub(crate) mod receive;
 pub(crate) mod send;
 pub mod systems;
@@ -98,6 +99,17 @@ pub struct ReplicationMessage<C, K: Hash + Eq> {
 
 pub trait ReplicationSend<P: Protocol>: Resource {
     // type Manager: ReplicationManager;
+
+    /// Set the priority for a given replication group, for a given client
+    /// This IS the client-facing API that users must use to update the priorities for a given client.
+    ///
+    /// If multiple entities in the group have different priorities, then the latest updated priority will take precedence
+    fn update_priority(
+        &mut self,
+        replication_group_id: ReplicationGroupId,
+        client_id: ClientId,
+        priority: f32,
+    ) -> Result<()>;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages
     /// (this is used to send the initial state of the world to new clients)
