@@ -1,0 +1,17 @@
+[package]
+name = "xwt"
+version = "0.3.0"
+edition = "2021"
+resolver = "2"
+license = "MIT"
+description = """
+A common WebTransport interface for browser and native.
+Write once, run anywhere. Originally intended for use with bevy.
+"""
+repository = "https://github.com/MOZGIII/xwt"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+xwt-web-sys = { version = "0.3", path = "../xwt-web-sys", default-features = false }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+xwt-wtransport = { version = "0.2", path = "../xwt-wtransport", default-features = false }

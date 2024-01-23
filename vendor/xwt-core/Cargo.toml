@@ -1,0 +1,15 @@
+[package]
+name = "xwt-core"
+version = "0.2.0"
+edition = "2021"
+resolver = "2"
+license = "MIT"
+description = """
+A common WebTransport interface for browser and native.
+Write once, run anywhere.
+"""
+repository = "https://github.com/MOZGIII/xwt"
+
+[dependencies]
+async-trait = "0.1"
+tokio = { version = "1", default-features = false, features = [] }

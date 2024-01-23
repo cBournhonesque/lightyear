@@ -33,7 +33,7 @@ pub(crate) fn create_plugin(
     };
     let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
     let certificate_digest =
-        String::from("c97a3b4c246684c77f694028d7b8eb40e25420b90b4c1165eb11a5423ebe5421");
+        String::from("d101bc75611f8771fc1fc646ea5af6417b7efd8b3eba8848fc34bf75c8bcc25f");
     let transport_config = match transport {
         #[cfg(not(target_family = "wasm"))]
         Transports::Udp => TransportConfig::UdpSocket(client_addr),

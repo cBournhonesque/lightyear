@@ -1,0 +1,15 @@
+[package]
+name = "xwt-error"
+version = "0.2.0"
+edition = "2021"
+resolver = "2"
+license = "MIT"
+description = """
+A suite of reusable error types that naturally emerge from the xwt
+API.
+Use when you don't want/need your own more precise types.
+"""
+repository = "https://github.com/MOZGIII/xwt"
+
+[dependencies]
+xwt-core = { version = "0.2", path = "../xwt-core", default-features = false }

@@ -1,0 +1,21 @@
+[package]
+name = "xwt-wtransport"
+version = "0.2.0"
+edition = "2021"
+resolver = "2"
+license = "MIT"
+description = """
+An implementation of the xwt that runs natively via wtransport crate.
+"""
+repository = "https://github.com/MOZGIII/xwt"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+xwt-core = { version = "0.2", path = "../xwt-core", default-features = false }
+
+wtransport = { version = "0.1.8" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+xwt-tests = { version = "0.2", path = "../xwt-tests" }
+
+anyhow = "1"
+tokio = { version = "1", features = ["macros"] }

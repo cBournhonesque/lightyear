@@ -1,0 +1,23 @@
+[package]
+name = "web-sys-stream-utils"
+version = "0.2.0"
+edition = "2021"
+resolver = "2"
+license = "MIT"
+description = """
+Stream-related utilities for web-sys.
+"""
+repository = "https://github.com/MOZGIII/xwt"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = { version = "0.2" }
+wasm-bindgen-futures = { version = "0.4" }
+web-sys = { version = "0.3", features = [
+  "ReadableStreamDefaultReader",
+  "ReadableStreamGetReaderOptions",
+  "ReadableStreamReaderMode",
+  "ReadableStreamByobReader",
+  "WritableStreamDefaultWriter",
+] }
+tracing = "0.1.40"

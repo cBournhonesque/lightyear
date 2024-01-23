@@ -1,0 +1,19 @@
+[package]
+name = "xwt-tests"
+version = "0.2.0"
+edition = "2021"
+resolver = "2"
+license = "MIT"
+description = """
+Common test suite for xwt.
+Intended for reuse to provide the same coverage in all the execution
+environments.
+"""
+repository = "https://github.com/MOZGIII/xwt"
+
+[dependencies]
+xwt-core = { version = "0.2", path = "../xwt-core", default-features = false }
+xwt-error = { version = "0.2", path = "../xwt-error", default-features = false }
+
+thiserror = "1"
+tokio = { version = "1", default-features = false, features = ["io-util"] }

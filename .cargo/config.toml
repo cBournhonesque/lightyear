@@ -1,6 +1,5 @@
 [build]
-#target = "wasm32-unknown-unknown"
-target = "aarch64-apple-darwin"
+target = "wasm32-unknown-unknown"
 rustflags = ["--cfg", "web_sys_unstable_apis"]
 
 [target.wasm32-unknown-unknown]
