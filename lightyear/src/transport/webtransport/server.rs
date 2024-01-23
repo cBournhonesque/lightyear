@@ -71,7 +71,7 @@ impl WebTransportServerSocket {
                 x = connection.receive_datagram() => {
                     match x {
                         Ok(data) => {
-                            trace!("received datagram from client!: {:?}", &data);
+                            info!("received datagram from client!: {:?}", &data);
                             from_client_sender.send((data, client_addr)).unwrap();
                         }
                         Err(e) => {
@@ -83,7 +83,7 @@ impl WebTransportServerSocket {
                 }
                 // send messages to client
                 Some(msg) = to_client_receiver.recv() => {
-                    trace!("sending datagram to client!: {:?}", &msg);
+                    info!("sending datagram to client!: {:?}", &msg);
                     connection.send_datagram(msg.as_ref()).unwrap_or_else(|e| {
                         error!("send_datagram error: {:?}", e);
                     });
