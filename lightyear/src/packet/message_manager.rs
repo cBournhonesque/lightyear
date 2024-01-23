@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use anyhow::{anyhow, Context};
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
@@ -77,6 +77,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
+        info!("Preparing to send message: {:?}", message);
         self.writer.start_write();
         message.encode(&mut self.writer)?;
         let message_bytes: Vec<u8> = self.writer.finish_write().into();
@@ -240,6 +241,7 @@ impl MessageManager {
                 trace!(?channel_kind, "reading message: {:?}", single_data);
                 let mut reader = ReadWordBuffer::start_read(single_data.bytes.as_ref());
                 let message = M::decode(&mut reader).expect("Could not decode message");
+                info!("Read message from buffer: {:?}", message);
                 // TODO: why do we need finish read? to check for errors?
                 // reader.finish_read()?;
 
