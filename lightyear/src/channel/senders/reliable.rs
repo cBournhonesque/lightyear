@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
@@ -224,6 +224,10 @@ impl ChannelSend for ReliableSender {
             // accumulate the priority for the messages that we might send again later
             unacked_message_with_priority.accumulated_priority +=
                 unacked_message_with_priority.base_priority;
+            info!(
+                "Accumulating priority for reliable message {:?} to {:?}",
+                message_id, unacked_message_with_priority.accumulated_priority
+            );
         }
     }
 

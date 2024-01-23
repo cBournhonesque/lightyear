@@ -7,7 +7,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Entity, Res, ResMut, Resource, World};
 use bevy::utils::EntityHashMap;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;

@@ -19,7 +19,7 @@ pub fn shared_config() -> SharedConfig {
         enable_replication: true,
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::default(),
-        server_send_interval: Duration::from_millis(40),
+        server_send_interval: Duration::from_millis(100),
         tick: TickConfig {
             // right now, we NEED the tick_duration to be smaller than the send_interval
             // (otherwise we can send multiple packets for the same tick at different frames)
@@ -39,10 +39,10 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Update, (draw_players, draw_props));
+            // diagnostics
+            app.add_systems(Startup, setup_diagnostic);
+            app.add_plugins(ScreenDiagnosticsPlugin::default());
         }
-        // diagnostics
-        app.add_systems(Startup, setup_diagnostic);
-        app.add_plugins(ScreenDiagnosticsPlugin::default());
 
         // movement
         app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
@@ -98,32 +98,31 @@ pub(crate) fn draw_players(
 }
 
 /// System that draws the props
-pub(crate) fn draw_props(
-    mut gizmos: Gizmos,
-    circles: Query<&Position, With<Circle>>,
-    triangles: Query<&Position, With<Triangle>>,
-    squares: Query<&Position, With<Square>>,
-) {
-    for position in &circles {
-        gizmos.circle_2d(*position.deref(), PROP_SIZE, Color::GREEN);
-    }
-    for position in &triangles {
-        gizmos.linestrip_2d(
-            vec![
-                *position.deref() + Vec2::new(0.0, PROP_SIZE),
-                *position.deref() + Vec2::new(PROP_SIZE, -PROP_SIZE),
-                *position.deref() + Vec2::new(-PROP_SIZE, -PROP_SIZE),
-                *position.deref() + Vec2::new(0.0, PROP_SIZE),
-            ],
-            Color::RED,
-        );
-    }
-    for position in &squares {
-        gizmos.rect_2d(
-            *position.deref(),
-            0.0,
-            Vec2::splat(PROP_SIZE * 2.0),
-            Color::BLUE,
-        );
+pub(crate) fn draw_props(mut gizmos: Gizmos, props: Query<(&Position, &Shape)>) {
+    for (position, shape) in props.iter() {
+        match shape {
+            Shape::Circle => {
+                gizmos.circle_2d(*position.deref(), PROP_SIZE, Color::GREEN);
+            }
+            Shape::Triangle => {
+                gizmos.linestrip_2d(
+                    vec![
+                        *position.deref() + Vec2::new(0.0, PROP_SIZE),
+                        *position.deref() + Vec2::new(PROP_SIZE, -PROP_SIZE),
+                        *position.deref() + Vec2::new(-PROP_SIZE, -PROP_SIZE),
+                        *position.deref() + Vec2::new(0.0, PROP_SIZE),
+                    ],
+                    Color::RED,
+                );
+            }
+            Shape::Square => {
+                gizmos.rect_2d(
+                    *position.deref(),
+                    0.0,
+                    Vec2::splat(PROP_SIZE * 2.0),
+                    Color::BLUE,
+                );
+            }
+        }
     }
 }

@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU32;
 use tracing::{error, info};
 
+#[derive(Debug)]
 pub struct BufferedMessage {
     priority: f32,
     channel_net_id: NetId,
@@ -153,6 +154,10 @@ impl PriorityManager {
         // sort from highest priority to lower
         // self.buffered_data
         all_messages.sort_by(|a, b| b.priority.partial_cmp(&a.priority).unwrap());
+        info!(
+            "all messages to send, sorted by priority: {:?}",
+            all_messages
+        );
 
         // select the top messages with the rate limiter
         let mut data_to_send: BTreeMap<NetId, (VecDeque<SingleData>, VecDeque<FragmentData>)> =

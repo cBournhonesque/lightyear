@@ -257,6 +257,12 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         client_id: ClientId,
         priority: f32,
     ) -> Result<()> {
+        info!(
+            ?client_id,
+            ?replication_group_id,
+            "Set priority to {:?}",
+            priority
+        );
         let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
         replication_sender.update_base_priority(replication_group_id, priority);
         Ok(())
@@ -308,6 +314,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             }
             // also set the priority for the group when we spawn it
             self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
+
             Ok(())
         })
     }

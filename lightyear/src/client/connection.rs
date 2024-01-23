@@ -278,7 +278,11 @@ impl<P: Protocol> ConnectionManager<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager.send_packets(tick_manager.tick())
+        let payloads = self.message_manager.send_packets(tick_manager.tick());
+
+        // update the replication sender about which messages were actually sent, and accumulate priority
+        self.replication_sender.recv_update_send();
+        payloads
     }
 
     pub fn receive(

@@ -196,7 +196,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                debug!(?tick, ?m, "Received replication actions");
+                info!(?tick, ?m, "Received replication actions");
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.
@@ -311,7 +311,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                 }
             }
             ReplicationMessageData::Updates(m) => {
-                debug!(?tick, ?m, "Received replication updates");
+                info!(?tick, ?m, "Received replication updates");
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists

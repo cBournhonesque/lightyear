@@ -85,7 +85,8 @@ impl<P: Protocol> ReplicationSender<P> {
                 if let Some(channel) = self.group_channels.get_mut(group_id) {
                     // TODO: think about we reset the priority, or how it should be accumulated
                     // reset the priority
-                    channel.accumulated_priority = 0.0;
+                    info!("successfully sent message for replication group! Resetting priority");
+                    channel.accumulated_priority = Some(0.0);
                 } else {
                     error!("Received a send message-id notification but the corresponding group channel does not exist");
                 }
@@ -98,7 +99,11 @@ impl<P: Protocol> ReplicationSender<P> {
 
         // then accumulate the priority for all replication groups
         self.group_channels.values_mut().for_each(|channel| {
-            channel.accumulated_priority += channel.base_priority;
+            channel.accumulated_priority = channel
+                .accumulated_priority
+                .map_or(Some(channel.base_priority), |acc| {
+                    Some(acc + channel.base_priority)
+                });
         });
     }
 
@@ -133,6 +138,10 @@ impl<P: Protocol> ReplicationSender<P> {
     pub(crate) fn update_base_priority(&mut self, group_id: ReplicationGroupId, priority: f32) {
         let channel = self.group_channels.entry(group_id).or_default();
         channel.base_priority = priority;
+        // if we already have an accumulated priority, don't override it
+        if channel.accumulated_priority.is_none() {
+            channel.accumulated_priority = Some(priority);
+        }
     }
 
     // TODO: how can I emit metrics here that contain the channel kind?
@@ -331,7 +340,9 @@ impl<P: Protocol> ReplicationSender<P> {
                 }
             }
             let channel = self.group_channels.entry(group_id).or_default();
-            let priority = channel.accumulated_priority;
+            let priority = channel
+                .accumulated_priority
+                .unwrap_or(channel.base_priority);
             let message_id = channel.actions_next_send_message_id;
             channel.actions_next_send_message_id += 1;
             channel.last_action_tick = Some(tick);
@@ -351,7 +362,9 @@ impl<P: Protocol> ReplicationSender<P> {
         for (group_id, updates) in self.pending_updates.drain() {
             trace!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
-            let priority = channel.accumulated_priority;
+            let priority = channel
+                .accumulated_priority
+                .unwrap_or(channel.base_priority);
             messages.push((
                 ChannelKind::of::<EntityUpdatesChannel>(),
                 group_id,
@@ -389,7 +402,7 @@ pub struct GroupChannel {
     /// The priority to send the replication group.
     /// This will be reset to base_priority every time we send network updates, unless we couldn't send a message
     /// for this group because of the bandwidth cap, in which case it will be accumulated.
-    pub accumulated_priority: f32,
+    pub accumulated_priority: Option<f32>,
     pub base_priority: f32,
 }
 
@@ -398,7 +411,7 @@ impl Default for GroupChannel {
         Self {
             actions_next_send_message_id: MessageId(0),
             last_action_tick: None,
-            accumulated_priority: 1.0,
+            accumulated_priority: None,
             collect_changes_since_this_tick: None,
             base_priority: 1.0,
         }

@@ -8,6 +8,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::ops::Deref;
 use std::time::Duration;
 
 pub struct MyServerPlugin {
@@ -16,7 +17,7 @@ pub struct MyServerPlugin {
 }
 
 const GRID_SIZE: f32 = 20.0;
-const NUM_CIRCLES: i32 = 20;
+const NUM_CIRCLES: i32 = 10;
 
 impl Plugin for MyServerPlugin {
     fn build(&self, app: &mut App) {
@@ -27,7 +28,7 @@ impl Plugin for MyServerPlugin {
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.02,
+            incoming_loss: 0.00,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
@@ -84,8 +85,8 @@ pub(crate) fn init(mut commands: Commands) {
         for y in -NUM_CIRCLES..NUM_CIRCLES {
             commands.spawn((
                 Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
-                Circle,
-                ShapeChangeTimer(Timer::from_seconds(1.0, TimerMode::Repeating)),
+                Shape::Circle,
+                ShapeChangeTimer(Timer::from_seconds(0.2, TimerMode::Repeating)),
                 Replicate {
                     // A ReplicationGroup is replicated together as a single message, so the priority should
                     // be set on the group.
@@ -140,17 +141,16 @@ pub(crate) fn tick_timers(mut timers: Query<&mut ShapeChangeTimer>, time: Res<Ti
     }
 }
 
-pub(crate) fn update_props(mut commands: Commands, props: Query<(EntityRef, &ShapeChangeTimer)>) {
-    for (entity_ref, timer) in props.iter() {
+pub(crate) fn update_props(mut props: Query<(&mut Shape, &ShapeChangeTimer)>) {
+    for (mut shape, timer) in props.iter_mut() {
         if timer.just_finished() {
-            let mut entity_commands = commands.entity(entity_ref.id());
-            if entity_ref.contains::<Circle>() {
-                entity_commands.remove::<Circle>().insert(Triangle);
-            } else if entity_ref.contains::<Triangle>() {
-                entity_commands.remove::<Triangle>().insert(Square);
-            } else if entity_ref.contains::<Square>() {
-                entity_commands.remove::<Square>().insert(Circle);
-            };
+            if shape.deref() == &Shape::Circle {
+                *shape = Shape::Triangle;
+            } else if shape.deref() == &Shape::Triangle {
+                *shape = Shape::Square;
+            } else if shape.deref() == &Shape::Square {
+                *shape = Shape::Circle;
+            }
         }
     }
 }
