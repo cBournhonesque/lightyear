@@ -144,7 +144,8 @@ macro_rules! protocolize {
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
-                        priority: 1.0,
+                        // we want to send the entity actions as soon as possible
+                        priority: 2.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliableWithAcks,
@@ -154,6 +155,7 @@ macro_rules! protocolize {
                     protocol.add_channel::<PingChannel>(ChannelSettings {
                         mode: ChannelMode::SequencedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                        // we always want to include the ping in the packet
                         priority: 1000.0,
                     });
                     protocol.add_channel::<InputChannel>(ChannelSettings {
@@ -243,6 +245,7 @@ macro_rules! protocolize {
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
+                        // we want to send the entity actions as soon as possible
                         priority: 2.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
@@ -253,6 +256,7 @@ macro_rules! protocolize {
                     protocol.add_channel::<PingChannel>(ChannelSettings {
                         mode: ChannelMode::SequencedUnreliable,
                         direction: ChannelDirection::Bidirectional,
+                        // we always want to include the ping in the packet
                         priority: 1000.0,
                     });
                     protocol.add_channel::<InputChannel>(ChannelSettings {

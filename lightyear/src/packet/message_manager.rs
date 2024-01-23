@@ -125,6 +125,7 @@ impl MessageManager {
         // for each channel, prepare packets using the buffered messages that are ready to be sent
         // TODO: iterate through the channels in order of channel priority? (with accumulation)
         let mut data_to_send: Vec<(NetId, (VecDeque<SingleData>, VecDeque<FragmentData>))> = vec![];
+        let mut has_data_to_send = false;
         for (channel_kind, channel) in self.channels.iter_mut() {
             let channel_id = self
                 .channel_registry
@@ -132,8 +133,16 @@ impl MessageManager {
                 .context("cannot find channel id")?;
             channel.sender.collect_messages_to_send();
             if channel.sender.has_messages_to_send() {
-                data_to_send.push((*channel_id, channel.sender.send_packet()));
+                let (single_data, fragment_data) = channel.sender.send_packet();
+                if !single_data.is_empty() || !fragment_data.is_empty() {
+                    has_data_to_send = true;
+                }
+                data_to_send.push((*channel_id, (single_data, fragment_data)));
             }
+        }
+        // return early if there are no messages to send
+        if !has_data_to_send {
+            return Ok(vec![]);
         }
 
         // 0. priority manager: sort the data by priority
@@ -149,7 +158,7 @@ impl MessageManager {
         //   - but should be ok since we start by writing all fragmented data to packets first?
 
         // new approach:
-        // - sort the data by priotity (channel * message * time_since_last)
+        // - sort the data by priority (channel * message * time_since_last)
         // - for each data, check if the rate limiter accepts it.
         // - build the packets using the accepted limiter
         // - call the limiter with the header-size + channel-size (or just total packet bytes - what we called earlier)
@@ -222,7 +231,7 @@ impl MessageManager {
                 })?;
         }
 
-        // adjust the real amount of bytes that we sent through the limiter
+        // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
         if self.priority_manager.config.enabled {
             let total_bytes_sent = bytes.iter().map(|b| b.len() as u32).sum::<u32>();
             if let Ok(remaining_bytes_to_add) =

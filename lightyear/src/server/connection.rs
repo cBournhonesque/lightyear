@@ -400,7 +400,7 @@ impl<P: Protocol> Connection<P> {
         self.replication_sender
             .finalize(tick)
             .into_iter()
-            .try_for_each(|(channel, group_id, message_data)| {
+            .try_for_each(|(channel, group_id, message_data, priority)| {
                 let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
                 let channel_name = self
                     .message_manager
@@ -415,7 +415,7 @@ impl<P: Protocol> Connection<P> {
                 message.emit_send_logs(&channel_name);
                 let message_id = self
                     .message_manager
-                    .buffer_send(message, channel)?
+                    .buffer_send_with_priority(message, channel, priority)?
                     .expect("The replication channels should always return a message_id");
 
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later

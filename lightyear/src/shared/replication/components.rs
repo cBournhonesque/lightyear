@@ -201,16 +201,6 @@ pub enum ReplicationGroupIdBuilder {
     Group(u64),
 }
 
-/// Value that indicates whether or not this message or replication-group should be prioritized
-#[derive(Component, Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Priority(f32);
-
-impl Default for Priority {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,

@@ -70,7 +70,7 @@ impl<P: Protocol> ReplicationSender<P> {
             pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
             // PRIORITY
-            message_send_receiver: Default::default(),
+            message_send_receiver,
         }
     }
 
@@ -96,7 +96,7 @@ impl<P: Protocol> ReplicationSender<P> {
             }
         }
 
-        // then accumulate the priority for all messages
+        // then accumulate the priority for all replication groups
         self.group_channels.values_mut().for_each(|channel| {
             channel.accumulated_priority += channel.base_priority;
         });
@@ -111,8 +111,8 @@ impl<P: Protocol> ReplicationSender<P> {
             if let Some((group_id, bevy_tick)) =
                 self.updates_message_id_to_group_id.remove(&message_id)
             {
-                if let Some(mut channel) = self.group_channels.get_mut(&group_id) {
-                    channel.update_collect_changes_since_this_tick(*bevy_tick)
+                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                    channel.update_collect_changes_since_this_tick(bevy_tick)
                 } else {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }
@@ -313,6 +313,7 @@ impl<P: Protocol> ReplicationSender<P> {
         ChannelKind,
         ReplicationGroupId,
         ReplicationMessageData<P::Components, P::ComponentKinds>,
+        f32,
     )> {
         let mut messages = Vec::new();
 
@@ -330,6 +331,7 @@ impl<P: Protocol> ReplicationSender<P> {
                 }
             }
             let channel = self.group_channels.entry(group_id).or_default();
+            let priority = channel.accumulated_priority;
             let message_id = channel.actions_next_send_message_id;
             channel.actions_next_send_message_id += 1;
             channel.last_action_tick = Some(tick);
@@ -341,6 +343,7 @@ impl<P: Protocol> ReplicationSender<P> {
                     // TODO: maybe we can just send the HashMap directly?
                     actions: Vec::from_iter(actions.into_iter()),
                 }),
+                priority,
             ));
             debug!("final action messages to send: {:?}", messages);
         }
@@ -348,6 +351,7 @@ impl<P: Protocol> ReplicationSender<P> {
         for (group_id, updates) in self.pending_updates.drain() {
             trace!(?group_id, "pending updates: {:?}", updates);
             let channel = self.group_channels.entry(group_id).or_default();
+            let priority = channel.accumulated_priority;
             messages.push((
                 ChannelKind::of::<EntityUpdatesChannel>(),
                 group_id,
@@ -357,6 +361,7 @@ impl<P: Protocol> ReplicationSender<P> {
                     // TODO: maybe we can just send the HashMap directly?
                     updates: Vec::from_iter(updates.into_iter()),
                 }),
+                priority,
             ));
         }
 

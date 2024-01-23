@@ -312,8 +312,7 @@ impl Packet {
                     header,
                     data: PacketData::Fragmented(fragmented_packet),
                 })
-            }
-            _ => Err(anyhow::anyhow!("Packet type not supported")),
+            } // _ => Err(anyhow::anyhow!("Packet type not supported")),
         }
     }
 

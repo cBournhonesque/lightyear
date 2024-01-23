@@ -1,17 +1,23 @@
 [package]
-name = "bullet_prespawn"
-version = "0.0.0"
+name = "priority"
+version = "0.1.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
+description = "Examples for the lightyear server-client networking library for the Bevy game engine"
+readme = "README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license = "MIT OR Apache-2.0"
 publish = false
+
 
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-bevy_framepace = "0.14.1"
 bevy_screen_diagnostics = "0.4.0"
 leafwing-input-manager = "0.11.2"
 lightyear = { path = "../../lightyear", features = [

@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::shared::shared_config;
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -34,7 +34,7 @@ impl Plugin for MyClientPlugin {
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.00,
+            incoming_loss: 0.02,
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -47,18 +47,18 @@ impl Plugin for MyClientPlugin {
             Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
         let config = ClientConfig {
             shared: shared_config().clone(),
-            input: InputConfig::default(),
-            netcode: Default::default(),
-            ping: PingConfig::default(),
-            sync: SyncConfig::default(),
-            prediction: PredictionConfig::default(),
+            packet: PacketConfig::default()
+                // by default there is no bandwidth limit so we need to enable it
+                .enable_bandwidth_cap()
+                // we can set the max bandwidth to 56 KB/s
+                .with_send_bandwidth_bytes_per_second_cap(56000),
             // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default().with_delay(
                 InterpolationDelay::default()
                     .with_min_delay(Duration::from_millis(50))
                     .with_send_interval_ratio(2.0),
             ),
-            // .with_delay(InterpolationDelay::Ratio(2.0)),
+            ..default()
         };
         let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         app.add_plugins(ClientPlugin::new(plugin_config));
@@ -68,14 +68,13 @@ impl Plugin for MyClientPlugin {
         app.init_resource::<ActionState<Inputs>>();
         app.insert_resource(self.clone());
         app.add_systems(Startup, init);
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
             Update,
             (
                 add_input_map,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
-                log,
+                // log,
             ),
         );
     }
@@ -93,23 +92,6 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<My
         },
     ));
     client.connect();
-    // client.set_base_relative_speed(0.001);
-}
-
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
-pub(crate) fn movement(
-    // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
-) {
-    // if we are not doing prediction, no need to read inputs
-    if <Components as SyncMetadata<Position>>::mode() != ComponentSyncMode::Full {
-        return;
-    }
-    for (position, input) in position_query.iter_mut() {
-        shared_movement_behaviour(position, input);
-    }
 }
 
 // System to receive messages on the client
@@ -117,8 +99,6 @@ pub(crate) fn add_input_map(
     mut commands: Commands,
     predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
 ) {
-    // we don't want to replicate the ActionState from the server to client, because if we have an ActionState
-    // on the Confirmed player it will keep getting replicated to Predicted and will interfere with our inputs
     for player_entity in predicted_players.iter() {
         commands.entity(player_entity).insert((
             PlayerBundle::get_input_map(),
