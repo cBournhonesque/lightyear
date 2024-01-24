@@ -2,20 +2,124 @@
 //! WebTransport client implementation.
 use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-use anyhow::Context;
-use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
-use tokio::select;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
+use std::collections::VecDeque;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tracing::{debug, error, info, trace};
-use web_sys::js_sys::{Array, Uint8Array};
-use web_sys::wasm_bindgen::JsValue;
-use web_sys::WebTransportHash;
+use web_sys::{
+    js_sys::{Array, Uint8Array},
+    WebTransportHash,
+};
+
+use wasm_bindgen::{convert::IntoWasmAbi, prelude::*};
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
-use xwt_core::prelude::*;
-use xwt_web_sys::{Connection, Endpoint};
+
+// this could be a module maybe?
+#[wasm_bindgen(inline_js = "export class WebTransportWrapper {
+    constructor(url, serverCertificateHashes, readyCB, receiveCB, closedCB) {
+        this.transport = new WebTransport(url, {
+            serverCertificateHashes
+        });
+
+        this.transport.ready.then(async () => {
+            this.writer = this.transport.datagrams.writable.getWriter();
+
+            for(const buffer of this.sendQueue) this.write(buffer);
+            
+            readyCB(); // we are ready to send
+
+            const reader = this.transport.datagrams.readable.getReader();
+
+            while(true) {
+                const { value, done } = await reader.read();
+                if(done) break;
+                // value is assumed to be of type Uint8Array
+                // if not read from, the unbounded channel on the wasm side will grow infinitely!
+                receiveCB(value);
+            }
+        });
+
+        this.transport.closed.then(e => {
+            this.writer = undefined;
+
+            closedCB(e.closeCode, e.reason);
+        });
+
+        this.sendQueue = [];
+    }
+
+    /**
+     * Closes the webtransport connection (the closed callback still proceeds as usual though!)
+     * @param {number?} closeCode 
+     * @param {string?} reason 
+     */
+    close(closeCode, reason) {
+        this.transport.close({
+            closeCode,
+            reason
+        });
+    }
+
+    /**
+     * Sends a datagram (there are no additional check to save performance!)
+     * @param {Uint8Array} buffer 
+     */
+    write(buffer) {
+        // buffer is assumed to be of type Uint8Array
+        if(this.writer) this.writer.write(buffer);
+        else this.sendQueue.push(buffer);
+    }
+}")]
+extern "C" {
+    type WebTransportWrapper;
+
+    #[wasm_bindgen(constructor)]
+    fn new(
+        url: String,
+        server_certificate_hashes: Array,
+        ready: &Closure<dyn FnMut()>,
+        recv: &Closure<dyn FnMut(Uint8Array)>,
+        closed: &Closure<dyn FnMut(Option<usize>, Option<String>)>,
+    ) -> WebTransportWrapper;
+
+    #[wasm_bindgen(method)]
+    fn close(this: &WebTransportWrapper, code: Option<usize>, reason: Option<String>);
+
+    #[wasm_bindgen(method)]
+    fn write(this: &WebTransportWrapper, buffer: Uint8Array);
+}
+
+impl PacketSender for WebTransportWrapper {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
+        let arr = Uint8Array::new_with_length(payload.len().try_into().unwrap());
+        arr.copy_from(payload);
+        self.write(arr);
+        Ok(())
+    }
+}
+
+unsafe impl Send for WebTransportWrapper {}
+unsafe impl Sync for WebTransportWrapper {}
+
+#[derive(Debug)]
+pub struct PacketQueue {
+    server_addr: SocketAddr,
+    pub queue: UnboundedReceiver<Vec<u8>>,
+    buffer: [u8; MTU],
+}
+
+impl PacketReceiver for PacketQueue {
+    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+        if let Ok(packet) = self.queue.try_recv() {
+            let data = packet.as_slice();
+            self.buffer[..data.len()].copy_from_slice(data);
+            Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
+        } else {
+            Ok(None)
+        }
+    }
+}
 
 /// WebTransport client socket
 pub struct WebTransportClientSocket {
@@ -38,15 +142,6 @@ impl WebTransportClientSocket {
     }
 }
 
-fn js_array(values: &[&str]) -> JsValue {
-    return JsValue::from(
-        values
-            .into_iter()
-            .map(|x| JsValue::from_str(x))
-            .collect::<Array>(),
-    );
-}
-
 impl Transport for WebTransportClientSocket {
     fn local_addr(&self) -> SocketAddr {
         self.client_addr
@@ -55,8 +150,6 @@ impl Transport for WebTransportClientSocket {
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
-        let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
-        let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
 
         let server_url = format!("https://{}", server_addr);
         info!(
@@ -64,7 +157,6 @@ impl Transport for WebTransportClientSocket {
             &server_url
         );
 
-        let mut options = web_sys::WebTransportOptions::new();
         let hashes = Array::new();
         let certificate_digests = [&self.certificate_digest]
             .into_iter()
@@ -76,101 +168,34 @@ impl Transport for WebTransportClientSocket {
             jshash.algorithm("sha-256").value(&digest);
             hashes.push(&jshash);
         }
-        options.server_certificate_hashes(&hashes);
-        let endpoint = xwt_web_sys::Endpoint { options };
 
-        // TODO: try tokio single-threaded runtime as well?
-        IoTaskPool::get().spawn(async move {
-            info!("Starting webtransport io thread");
+        let (receiver, queue) = unbounded_channel::<Vec<u8>>();
 
-            let connecting = endpoint
-                .connect(&server_url)
-                .await
-                .map_err(|e| {
-                    error!("failed to connect to server: {:?}", e);
-                })
-                .unwrap();
-            let connection = connecting
-                .wait_connect()
-                .await
-                .map_err(|e| {
-                    error!("failed to connect to server: {:?}", e);
-                })
-                .unwrap();
-            loop {
-                tokio::select! {
-                    // receive messages from server
-                    x = connection.receive_datagram() => {
-                        match x {
-                            Ok(data) => {
-                                trace!("receive datagram from server: {:?}", &data);
-                                from_server_sender.send(data).unwrap();
-                            }
-                            Err(e) => {
-                                error!("receive_datagram connection error: {:?}", e);
-                                break;
-                            }
-                        }
-                    }
-
-                    // send messages to server
-                    Some(msg) = to_server_receiver.recv() => {
-                        trace!("send datagram to server: {:?}", &msg);
-                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
-                            error!("send_datagram error: {:?}", e);
-                        });
-                    }
-                }
-            }
-        });
-        let packet_sender = WebTransportClientPacketSender { to_server_sender };
-        let packet_receiver = WebTransportClientPacketReceiver {
+        let mut is_ready = false;
+        let mut is_closed = false;
+        let queue = PacketQueue {
             server_addr,
-            from_server_receiver,
+            queue,
             buffer: [0; MTU],
         };
-        (Box::new(packet_sender), Box::new(packet_receiver))
-    }
-}
 
-struct WebTransportClientPacketSender {
-    to_server_sender: mpsc::UnboundedSender<Box<[u8]>>,
-}
+        let recv =
+            Closure::wrap(
+                Box::new(move |buffer: Uint8Array| _ = receiver.send(buffer.to_vec()))
+                    as Box<dyn FnMut(Uint8Array)>,
+            );
+        let ready = Closure::wrap(Box::new(move || is_ready = true) as Box<dyn FnMut()>);
+        let closed = Closure::wrap(
+            Box::new(move |code: Option<usize>, reason: Option<String>| is_closed = true)
+                as Box<dyn FnMut(Option<usize>, Option<String>)>,
+        );
 
-impl PacketSender for WebTransportClientPacketSender {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
-        let data = payload.to_vec().into_boxed_slice();
-        self.to_server_sender
-            .send(data)
-            .map_err(|e| std::io::Error::other(format!("send_datagram error: {:?}", e)))
-    }
-}
+        let transport = WebTransportWrapper::new(server_url, hashes, &ready, &recv, &closed);
 
-struct WebTransportClientPacketReceiver {
-    server_addr: SocketAddr,
-    from_server_receiver: mpsc::UnboundedReceiver<Vec<u8>>,
-    buffer: [u8; MTU],
-}
+        recv.forget();
+        ready.forget();
+        closed.forget();
 
-impl PacketReceiver for WebTransportClientPacketReceiver {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
-        match self.from_server_receiver.try_recv() {
-            Ok(datagram) => {
-                // convert from datagram to payload via xwt
-                let data = datagram.as_slice();
-                self.buffer[..data.len()].copy_from_slice(data);
-                Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
-            }
-            Err(e) => {
-                if e == TryRecvError::Empty {
-                    Ok(None)
-                } else {
-                    Err(std::io::Error::other(format!(
-                        "receive_datagram error: {:?}",
-                        e
-                    )))
-                }
-            }
-        }
+        (Box::new(transport), Box::new(queue))
     }
 }
