@@ -30,20 +30,23 @@ pub async fn read(
     reader: &web_sys::ReadableStreamDefaultReader,
 ) -> Result<Option<Vec<u8>>, wasm_bindgen::JsValue> {
     let fut = wasm_bindgen_futures::JsFuture::from(reader.read());
+    tracing::trace!("calling datagram read. Before waiting for future...");
     let result = fut.await?;
+    tracing::trace!("finished waiting for future");
     let result: crate::sys::ReadableStreamDefaultReaderValue = result.into();
     let value = result.value();
+    tracing::trace!("read result: {:?}", result);
 
     let Some(js_buf) = value else {
         if result.is_done() {
+            tracing::trace!("result is done");
             return Ok(None);
         }
         unreachable!("no value and we are also not done, this should be impossible");
     };
 
     let vec: Vec<u8> = js_buf.to_vec();
-
-    tracing::info!("{} {}", vec.len(), js_buf.length());
+    tracing::trace!("{} {}", vec.len(), js_buf.length());
 
     Ok(Some(vec))
 }

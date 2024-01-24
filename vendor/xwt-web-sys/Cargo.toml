@@ -15,6 +15,9 @@ xwt-core = { version = "0.2", path = "../xwt-core", default-features = false }
 web-sys-async-io = { version = "0.2", path = "../web-sys-async-io" }
 web-sys-stream-utils = { version = "0.2", path = "../web-sys-stream-utils" }
 
+futures = "0.3.19"
+thiserror = "1.0"
+parking_lot = "0.7.1"
 tokio = { version = "1", default-features = false, features = [] }
 wasm-bindgen-futures = { version = "0.4" }
 wasm-bindgen = { version = "0.2" }
@@ -37,3 +40,4 @@ xwt-tests = { version = "0.2", path = "../xwt-tests" }
 wasm-bindgen-test = "0.3"
 
 [dependencies]
+bytes = "1.5.0"

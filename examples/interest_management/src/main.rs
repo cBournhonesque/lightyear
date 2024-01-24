@@ -52,7 +52,7 @@ cfg_if::cfg_if! {
             // app.add_plugins(DefaultPlugins.build());
             app.add_plugins(DefaultPlugins.set(LogPlugin {
                 level: Level::INFO,
-                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace,lightyear::netcode=trace".to_string(),
             }));
             if let Cli::Client {
                 inspector,

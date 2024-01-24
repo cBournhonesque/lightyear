@@ -65,13 +65,18 @@ impl WebTransportServerSocket {
             .insert(client_addr, to_client_sender);
 
         // connection established, waiting for data from client
+        // let mut c: usize = 0;
         loop {
+            // c += 1;
+            // if c > 100 {
+            //     c = 1;
+            // }
             tokio::select! {
                 // receive messages from client
                 x = connection.receive_datagram() => {
                     match x {
                         Ok(data) => {
-                            info!("received datagram from client!: {:?}", &data);
+                            trace!("received datagram from client!: {:?}", &data);
                             from_client_sender.send((data, client_addr)).unwrap();
                         }
                         Err(e) => {
@@ -82,8 +87,9 @@ impl WebTransportServerSocket {
                     }
                 }
                 // send messages to client
-                Some(msg) = to_client_receiver.recv() => {
-                    info!("sending datagram to client!: {:?}", &msg);
+                Some(mut msg) = to_client_receiver.recv() => {
+                    // msg = Box::from(vec![0u8; c]);
+                    trace!("sending datagram to client!: {:?}", &msg);
                     connection.send_datagram(msg.as_ref()).unwrap_or_else(|e| {
                         error!("send_datagram error: {:?}", e);
                     });
@@ -91,7 +97,7 @@ impl WebTransportServerSocket {
                 // client disconnected
                 _ = connection.closed() => {
                     info!("Connection closed");
-
+                    to_client_channels.lock().unwrap().remove(&client_addr);
                     return;
                 }
             }

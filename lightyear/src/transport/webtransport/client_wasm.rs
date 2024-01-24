@@ -3,8 +3,11 @@
 use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use anyhow::Context;
+use bevy::tasks::block_on;
 use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
+use std::rc::Rc;
+use std::sync::Arc;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -14,6 +17,7 @@ use web_sys::wasm_bindgen::JsValue;
 use web_sys::WebTransportHash;
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
+use bytes::Bytes;
 use xwt_core::prelude::*;
 use xwt_web_sys::{Connection, Endpoint};
 
@@ -79,8 +83,9 @@ impl Transport for WebTransportClientSocket {
         options.server_certificate_hashes(&hashes);
         let endpoint = xwt_web_sys::Endpoint { options };
 
-        // TODO: try tokio single-threaded runtime as well?
-        IoTaskPool::get().spawn(async move {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        let (send2, recv2) = tokio::sync::oneshot::channel();
+        let connection = IoTaskPool::get().spawn_local(async move {
             info!("Starting webtransport io thread");
 
             let connecting = endpoint
@@ -97,32 +102,96 @@ impl Transport for WebTransportClientSocket {
                     error!("failed to connect to server: {:?}", e);
                 })
                 .unwrap();
+            let connection = Rc::new(connection);
+            info!("sending connection");
+            send.send(connection.clone()).unwrap();
+            send2.send(connection.clone()).unwrap();
+            info!("finished sending connection");
+        });
+        // NOTE (IMPORTANT!):
+        // - we spawn two different futures for receive and send datagrams
+        // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
+        // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
+        //   to poll the existing one.
+        // - this is FAULTY behaviour
+        IoTaskPool::get().spawn(async move {
+            info!("Starting receive datagrams thread");
+            let connection = recv.await.expect("could not get connection");
+            info!("received receive datagrams connection");
             loop {
-                tokio::select! {
-                    // receive messages from server
-                    x = connection.receive_datagram() => {
-                        match x {
-                            Ok(data) => {
-                                info!("receive datagram from server: {:?}", &data);
-                                from_server_sender.send(data).unwrap();
-                            }
-                            Err(e) => {
-                                error!("receive_datagram connection error: {:?}", e);
-                                break;
-                            }
-                        }
+                match connection.receive_datagram().await {
+                    Ok(data) => {
+                        trace!("receive datagram from server: {:?}", &data);
+                        from_server_sender.send(data).unwrap();
                     }
-
-                    // send messages to server
-                    Some(msg) = to_server_receiver.recv() => {
-                        info!("send datagram to server: {:?}", &msg);
-                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
-                            error!("send_datagram error: {:?}", e);
-                        });
+                    Err(e) => {
+                        error!("receive_datagram connection error: {:?}", e);
+                        break;
                     }
                 }
             }
         });
+        IoTaskPool::get().spawn(async move {
+            info!("Starting send datagrams thread");
+            let connection = recv2.await.expect("could not get connection");
+            info!("received send datagrams connection");
+            loop {
+                if let Some(msg) = to_server_receiver.recv().await {
+                    trace!("send datagram to server: {:?}", &msg);
+                    connection.send_datagram(msg).await.unwrap_or_else(|e| {
+                        error!("send_datagram error: {:?}", e);
+                    });
+                }
+            }
+        });
+
+        // // TODO: try tokio single-threaded runtime as well?
+        // IoTaskPool::get().spawn(async move {
+        //     info!("Starting webtransport io thread");
+        //
+        //     let connecting = endpoint
+        //         .connect(&server_url)
+        //         .await
+        //         .map_err(|e| {
+        //             error!("failed to connect to server: {:?}", e);
+        //         })
+        //         .unwrap();
+        //     let connection = connecting
+        //         .wait_connect()
+        //         .await
+        //         .map_err(|e| {
+        //             error!("failed to connect to server: {:?}", e);
+        //         })
+        //         .unwrap();
+        //     loop {
+        //         tokio::select! {
+        //             // receive messages from server
+        //             // x = connection.read_datagram() => {
+        //             //     match x {
+        //             //         Some(Ok(data)) => {
+        //             //             info!("receive datagram from server: {:?}", &data);
+        //             //             from_server_sender.send(data).unwrap();
+        //             //         }
+        //             //         Some(Err(e)) => {
+        //             //             error!("receive_datagram connection error: {:?}", e);
+        //             //             break;
+        //             //         }
+        //             //         None => {
+        //             //             break;
+        //             //         }
+        //             //     }
+        //             // }
+        //
+        //             // send messages to server
+        //             Some(msg) = to_server_receiver.recv() => {
+        //                 info!("send datagram to server: {:?}", &msg);
+        //                 connection.send_datagram(msg).await.unwrap_or_else(|e| {
+        //                     error!("send_datagram error: {:?}", e);
+        //                 });
+        //             }
+        //         }
+        //     }
+        // });
         let packet_sender = WebTransportClientPacketSender { to_server_sender };
         let packet_receiver = WebTransportClientPacketReceiver {
             server_addr,
@@ -149,6 +218,7 @@ impl PacketSender for WebTransportClientPacketSender {
 struct WebTransportClientPacketReceiver {
     server_addr: SocketAddr,
     from_server_receiver: mpsc::UnboundedReceiver<Vec<u8>>,
+    // from_server_receiver: mpsc::UnboundedReceiver<Bytes>,
     buffer: [u8; MTU],
 }
 
@@ -158,7 +228,9 @@ impl PacketReceiver for WebTransportClientPacketReceiver {
             Ok(datagram) => {
                 // convert from datagram to payload via xwt
                 let data = datagram.as_slice();
+                // let data = datagram.as_ref();
                 self.buffer[..data.len()].copy_from_slice(data);
+                // Ok(Some((datagram.as_mut(), self.server_addr)))
                 Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
             }
             Err(e) => {

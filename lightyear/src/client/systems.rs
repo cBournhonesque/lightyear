@@ -43,9 +43,9 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
                                         time_manager.update(delta);
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
-                                        netcode
-                                            .try_update(delta.as_secs_f64(), io.deref_mut())
-                                            .unwrap();
+                                        let _ = netcode
+                                            .try_update(delta.as_secs_f64(), io.deref_mut());
+                                            // .unwrap();
 
                                         // only start the connection (sending messages, sending pings, starting sync, etc.)
                                         // once we are connected
@@ -58,9 +58,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
                                         // RECV PACKETS: buffer packets into message managers
                                         while let Some(mut reader) = netcode.recv() {
-                                            connection
-                                                .recv_packet(&mut reader, tick_manager.as_ref())
-                                                .unwrap();
+                                            let _ = connection
+                                                .recv_packet(&mut reader, tick_manager.as_ref());
                                         }
 
                                         // RECEIVE: receive packets from message managers

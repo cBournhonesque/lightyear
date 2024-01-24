@@ -1,12 +1,18 @@
 #![cfg(target_family = "wasm")]
 
+use js_sys::Uint8Array;
+use parking_lot::Mutex;
 use std::{fmt::Debug, rc::Rc};
 
-use tracing::info;
+use tracing::{info, trace};
 use xwt_core::async_trait;
 
+pub(crate) mod datagram;
 mod error;
+pub(crate) mod reader;
 
+use crate::datagram::ReadDatagram;
+use crate::reader::StreamReader;
 pub use error::*;
 
 #[derive(Debug, Clone, Default)]
@@ -24,6 +30,10 @@ impl xwt_core::traits::EndpointConnect for Endpoint {
         let _ = wasm_bindgen_futures::JsFuture::from(transport.ready()).await?;
 
         let datagrams = transport.datagrams();
+        // let datagram_readable_stream_reader = Mutex::new(StreamReader::new(
+        //     Some("incoming_datagrams"),
+        //     datagrams.readable(),
+        // ));
         let datagram_readable_stream_reader =
             web_sys_stream_utils::get_reader(datagrams.readable());
         let datagram_writable_stream_writer =
@@ -41,7 +51,9 @@ impl xwt_core::traits::EndpointConnect for Endpoint {
 #[derive(Debug)]
 pub struct Connection {
     pub transport: Rc<web_sys::WebTransport>,
+    // pub datagram_readable_stream_reader: Mutex<StreamReader<Uint8Array>>,
     pub datagram_readable_stream_reader: web_sys::ReadableStreamDefaultReader,
+    // pub data
     pub datagram_writable_stream_writer: web_sys::WritableStreamDefaultWriter,
 }
 
@@ -230,18 +242,34 @@ impl xwt_core::io::Read for RecvStream {
     }
 }
 
+// impl Connection {
+//     pub fn read_datagram(&self) -> ReadDatagram<'_> {
+//         ReadDatagram {
+//             stream: &self.datagram_readable_stream_reader,
+//         }
+//     }
+// }
+
 #[async_trait(?Send)]
 impl xwt_core::datagram::Receive for Connection {
     type Datagram = Vec<u8>;
     type Error = Error;
 
+    // fn receive_datagram(&self) -> ReadDatagram<'_> {
+    //     ReadDatagram {
+    //         stream: &self.datagram_readable_stream_reader,
+    //     }
+    // }
+
     async fn receive_datagram(&self) -> Result<Self::Datagram, Self::Error> {
+        trace!("calling receive datagram");
         let maybe_data = web_sys_stream_utils::read(&self.datagram_readable_stream_reader).await?;
         let Some(data) = maybe_data else {
             return Err(Error("unexpected stream termination".into()));
         };
-        info!("{}", data.len());
+        trace!("Receive data: {:?}. Len: {:?}", data, data.len());
         Ok(data)
+        // Err(Error("not implemented".into()))
     }
 }
 
@@ -253,6 +281,7 @@ impl xwt_core::datagram::Send for Connection {
     where
         D: AsRef<[u8]> + Debug,
     {
+        trace!("Send data: {:?}", payload);
         web_sys_stream_utils::write(&self.datagram_writable_stream_writer, payload.as_ref())
             .await?;
         Ok(())

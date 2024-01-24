@@ -6,6 +6,10 @@
 
 - TODO: create an example related to cheating, where the server can validate inputs
 
+- WASM:
+  - why does the client still send keep-alives, when keepalive is 10Hz, and ping interval is 100ms?
+
+
 - PRESPAWNING:
   - STATUS:
     - seems to kind of work but not really
