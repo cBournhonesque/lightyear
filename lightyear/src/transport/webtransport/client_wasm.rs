@@ -5,6 +5,7 @@ use crate::transport::{PacketReceiver, PacketSender, Transport};
 use anyhow::Context;
 use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
+use std::rc::Rc;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -79,8 +80,9 @@ impl Transport for WebTransportClientSocket {
         options.server_certificate_hashes(&hashes);
         let endpoint = xwt_web_sys::Endpoint { options };
 
-        // TODO: try tokio single-threaded runtime as well?
-        IoTaskPool::get().spawn(async move {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        let (send2, recv2) = tokio::sync::oneshot::channel();
+        let connection = IoTaskPool::get().spawn_local(async move {
             info!("Starting webtransport io thread");
 
             let connecting = endpoint
@@ -97,29 +99,39 @@ impl Transport for WebTransportClientSocket {
                     error!("failed to connect to server: {:?}", e);
                 })
                 .unwrap();
+            let connection = Rc::new(connection);
+            send.send(connection.clone()).unwrap();
+            send2.send(connection.clone()).unwrap();
+        });
+        // NOTE (IMPORTANT!):
+        // - we spawn two different futures for receive and send datagrams
+        // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
+        // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
+        //   to poll the existing one. This is FAULTY behaviour
+        // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
+        //   cancelled
+        IoTaskPool::get().spawn(async move {
+            let connection = recv.await.expect("could not get connection");
             loop {
-                tokio::select! {
-                    // receive messages from server
-                    x = connection.receive_datagram() => {
-                        match x {
-                            Ok(data) => {
-                                trace!("receive datagram from server: {:?}", &data);
-                                from_server_sender.send(data).unwrap();
-                            }
-                            Err(e) => {
-                                error!("receive_datagram connection error: {:?}", e);
-                                break;
-                            }
-                        }
+                match connection.receive_datagram().await {
+                    Ok(data) => {
+                        trace!("receive datagram from server: {:?}", &data);
+                        from_server_sender.send(data).unwrap();
                     }
-
-                    // send messages to server
-                    Some(msg) = to_server_receiver.recv() => {
-                        trace!("send datagram to server: {:?}", &msg);
-                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
-                            error!("send_datagram error: {:?}", e);
-                        });
+                    Err(e) => {
+                        error!("receive_datagram connection error: {:?}", e);
                     }
+                }
+            }
+        });
+        IoTaskPool::get().spawn(async move {
+            let connection = recv2.await.expect("could not get connection");
+            loop {
+                if let Some(msg) = to_server_receiver.recv().await {
+                    trace!("send datagram to server: {:?}", &msg);
+                    connection.send_datagram(msg).await.unwrap_or_else(|e| {
+                        error!("send_datagram error: {:?}", e);
+                    });
                 }
             }
         });
