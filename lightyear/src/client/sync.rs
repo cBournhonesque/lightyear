@@ -543,7 +543,7 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::prelude::*;
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     fn press_input(
         mut connection: ResMut<ClientConnectionManager>,

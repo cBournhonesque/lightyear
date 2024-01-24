@@ -5,7 +5,7 @@ use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::tests::stepper::{BevyStepper, Step};
 use bevy::prelude::*;
-use std::time::Duration;
+use bevy::utils::Duration;
 
 fn press_input(mut connection: ResMut<ClientConnectionManager>, tick_manager: Res<TickManager>) {
     connection.add_input(MyInput(0), tick_manager.tick());

@@ -3,13 +3,13 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::client::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyServerPlugin {

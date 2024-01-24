@@ -3,6 +3,7 @@ use crate::shared::{color_from_id, shared_config, shared_player_movement};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionDiff;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
@@ -15,7 +16,6 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::time::Duration;
 
 pub const INPUT_DELAY_TICKS: u16 = 0;
 pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;

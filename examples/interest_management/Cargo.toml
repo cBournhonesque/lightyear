@@ -12,6 +12,9 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = false
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 webtransport = ["lightyear/webtransport", "dep:tokio"]

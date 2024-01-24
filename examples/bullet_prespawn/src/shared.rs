@@ -2,6 +2,7 @@ use crate::protocol::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
@@ -11,7 +12,6 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use std::time::Duration;
 use tracing::Level;
 
 const FRAME_HZ: f64 = 60.0;

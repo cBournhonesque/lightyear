@@ -1,8 +1,8 @@
 //! Defines the server bevy systems and run conditions
 use bevy::ecs::system::{SystemChangeTick, SystemState};
 use bevy::prelude::{Events, Fixed, Mut, ParamSet, Res, ResMut, Time, Virtual, World};
+use bevy::utils::Duration;
 use std::ops::DerefMut;
-use std::time::Duration;
 use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;

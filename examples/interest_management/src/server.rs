@@ -29,14 +29,7 @@ pub(crate) async fn create_plugin(port: u16, transport: Transports) -> MyServerP
                 Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
                     .await
                     .unwrap();
-            // let certificate = Certificate::self_signed(&["localhost", "127.0.0.1:1334"]);
             let digest = utils::digest_certificate(&certificate);
-            dbg!("hashes: {}", certificate.hashes());
-            println!("hashes: {}", certificate.hashes().first().unwrap());
-            error!(
-                "Generated self-signed certificate with digest: {:?}",
-                digest
-            );
             dbg!(
                 "Generated self-signed certificate with digest: {:?}",
                 digest
