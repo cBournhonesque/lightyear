@@ -79,12 +79,6 @@ cfg_if::cfg_if! {
         async fn main() {
             let cli = Cli::parse();
             let mut app = App::new();
-            // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-            // app.add_plugins(DefaultPlugins.build());
-            // app.add_plugins(DefaultPlugins.set(LogPlugin {
-            //     level: Level::INFO,
-            //     filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
-            // }));
             setup(&mut app, cli).await;
 
             app.run();
