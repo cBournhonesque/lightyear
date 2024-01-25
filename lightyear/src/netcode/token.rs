@@ -4,6 +4,7 @@ use std::{
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
 };
 
+use crate::netcode::packet::RequestPacket;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
 use thiserror::Error;
@@ -18,7 +19,7 @@ use super::{
 };
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;
-const TOKEN_EXPIRE_SEC: i32 = 30;
+pub(crate) const TOKEN_EXPIRE_SEC: i32 = 30;
 
 /// An error that can occur when de-serializing a connect token from bytes.
 #[derive(Error, Debug)]

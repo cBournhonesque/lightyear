@@ -82,7 +82,7 @@ pub(crate) fn handle_connections(
     for connection in connections.read() {
         let client_id = connection.context();
         // Generate pseudo random color from client id.
-        let h = (((client_id * 30) % 360) as f32) / 360.0;
+        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
         let player_position = Vec2::ZERO;

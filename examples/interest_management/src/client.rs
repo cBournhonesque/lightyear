@@ -20,17 +20,18 @@ pub struct MyClientPlugin {
 }
 
 pub(crate) fn create_plugin(
-    client_id: u16,
+    client_id: u64,
     client_port: u16,
     server_addr: SocketAddr,
     transport: Transports,
 ) -> MyClientPlugin {
     let auth = Authentication::Manual {
         server_addr,
-        client_id: client_id as ClientId,
+        client_id,
         private_key: KEY,
         protocol_id: PROTOCOL_ID,
     };
+    // let auth = Authentication::RequestConnectToken { server_addr };
     let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
     let certificate_digest =
         String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819");
@@ -46,7 +47,7 @@ pub(crate) fn create_plugin(
     };
 
     MyClientPlugin {
-        client_id: client_id as ClientId,
+        client_id,
         auth,
         transport_config,
     }

@@ -56,6 +56,7 @@ impl Transport for WebTransportClientSocket {
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
+        // TODO: This can exhaust all available memory unless there is some other way to limit the amount of in-flight data in place
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
 

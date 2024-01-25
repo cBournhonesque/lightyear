@@ -38,9 +38,11 @@ cfg_if::cfg_if! {
         #[wasm_bindgen_test]
         fn test_client() {
             // let cli = Cli::parse();
+            let client_id = rand::random::<u64>();
+            info!("client_id: {}", client_id);
             let cli = Cli::Client {
                 inspector: false,
-                client_id: 0,
+                client_id,
                 client_port: CLIENT_PORT,
                 server_addr: Ipv4Addr::LOCALHOST,
                 server_port: SERVER_PORT,
@@ -127,7 +129,7 @@ enum Cli {
         inspector: bool,
 
         #[arg(short, long, default_value_t = 0)]
-        client_id: u16,
+        client_id: u64,
 
         #[arg(long, default_value_t = CLIENT_PORT)]
         client_port: u16,

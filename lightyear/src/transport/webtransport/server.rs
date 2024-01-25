@@ -71,7 +71,7 @@ impl WebTransportServerSocket {
                 x = connection.receive_datagram() => {
                     match x {
                         Ok(data) => {
-                            trace!("received datagram from client!: {:?}", &data);
+                            trace!("received datagram from client!: {:?} {:?}", &data, data.len());
                             from_client_sender.send((data, client_addr)).unwrap();
                         }
                         Err(e) => {
@@ -91,7 +91,7 @@ impl WebTransportServerSocket {
                 // client disconnected
                 _ = connection.closed() => {
                     info!("Connection closed");
-
+                    to_client_channels.lock().unwrap().remove(&client_addr);
                     return;
                 }
             }

@@ -461,18 +461,18 @@ fn clean_entity_despawns(
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
+    use bevy::utils::{Duration, HashMap};
 
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
 
+    use super::*;
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
     use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::utils::Duration;
 
     fn setup() -> BevyStepper {
         let frame_duration = Duration::from_millis(10);

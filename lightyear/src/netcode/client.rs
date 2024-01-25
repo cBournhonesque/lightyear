@@ -546,9 +546,10 @@ impl<Ctx> Client<Ctx> {
     /// # Example
     /// ```
     /// # use std::net::SocketAddr;
-    /// # use crate::lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
+    /// # use lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
     /// # use bevy::utils::{Instant, Duration};
     /// # use std::thread;
+    /// # use lightyear::netcode::NetcodeServer;
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
