@@ -25,7 +25,6 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload interest management wasm example
-          name: "interest_management"
           path: 'examples/interest_management/out'
       - name: Deploy to GitHub Pages
         id: deployment
