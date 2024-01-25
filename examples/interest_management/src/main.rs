@@ -150,7 +150,10 @@ fn setup_client(app: &mut App, cli: Cli) {
         server_addr,
         server_port,
         transport,
-    } = cli;
+    } = cli
+    else {
+        return;
+    };
     let server_addr = SocketAddr::new(server_addr.into(), server_port);
     let client_plugin = client::create_plugin(client_id, client_port, server_addr, transport);
 
