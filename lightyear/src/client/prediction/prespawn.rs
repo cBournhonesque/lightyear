@@ -166,7 +166,7 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                         .collect::<Vec<_>>();
                     kinds_to_hash.sort();
                     kinds_to_hash.into_iter().for_each(|kind| {
-                        info!(?kind, "using kind for hash");
+                        trace!(?kind, "using kind for hash");
                         kind.hash(&mut hasher)
                     });
 
@@ -174,7 +174,7 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                     // prespawn.hash = Some(hasher.finish());
 
                     let new_hash = hasher.finish();
-                    info!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                    trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                     new_hash
                 },
                 |hash| {
