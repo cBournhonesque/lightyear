@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 use std::net::SocketAddr;
 use std::str::FromStr;
 

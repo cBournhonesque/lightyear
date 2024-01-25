@@ -1,6 +1,6 @@
 //! Defines the client bevy resource
+use bevy::utils::Duration;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
@@ -150,10 +150,11 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     }
 }
 
+#[derive(Resource, Clone)]
 #[allow(clippy::large_enum_variant)]
 /// Struct used to authenticate with the server
 pub enum Authentication {
-    /// Use a `ConnectToken`
+    /// Use a `ConnectToken` that was already received (usually from a secure-connection to a webserver)
     Token(ConnectToken),
     /// Or build a `ConnectToken` manually from the given parameters
     Manual {
@@ -162,6 +163,8 @@ pub enum Authentication {
         private_key: Key,
         protocol_id: u64,
     },
+    /// Request a connect token directly to the server
+    RequestConnectToken { server_addr: SocketAddr },
 }
 
 impl Authentication {
@@ -177,6 +180,7 @@ impl Authentication {
                 .timeout_seconds(client_timeout_secs)
                 .generate()
                 .ok(),
+            Authentication::RequestConnectToken { .. } => None,
         }
     }
 }

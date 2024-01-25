@@ -143,7 +143,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
                         buffer.update_from_message(message.end_tick, diffs);
                     } else {
                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                        info!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
                 InputTarget::Global => {
@@ -191,7 +191,7 @@ fn update_action_state<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use bevy::input::InputPlugin;
     use leafwing_input_manager::prelude::ActionState;

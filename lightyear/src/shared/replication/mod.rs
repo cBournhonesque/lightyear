@@ -166,7 +166,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use crate::prelude::client::*;
     use crate::prelude::*;

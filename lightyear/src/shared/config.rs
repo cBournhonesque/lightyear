@@ -1,5 +1,5 @@
 //! Configuration that has to be the same between the server and the client.
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use crate::shared::log::LogConfig;
 use crate::shared::tick_manager::TickConfig;

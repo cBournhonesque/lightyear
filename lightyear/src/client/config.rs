@@ -1,7 +1,7 @@
 //! Defines client-specific configuration options
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::Resource;
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;

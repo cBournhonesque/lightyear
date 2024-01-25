@@ -10,10 +10,10 @@ The network serialization uses a u32 which can only represent times up to 46 day
 This module contains some helper functions to compute the difference between two times.
 */
 use bevy::app::{App, RunFixedUpdateLoop};
+use bevy::utils::Duration;
 use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
-use std::time::Duration;
 
 use crate::prelude::Tick;
 use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time, Timer, TimerMode};

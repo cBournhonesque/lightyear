@@ -2,6 +2,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
@@ -10,41 +11,59 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::time::Duration;
 
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Clone)]
 pub struct MyClientPlugin {
     pub(crate) client_id: ClientId,
-    pub(crate) client_port: u16,
-    pub(crate) server_addr: Ipv4Addr,
-    pub(crate) server_port: u16,
-    pub(crate) transport: Transports,
+    pub(crate) auth: Authentication,
+    pub(crate) transport_config: TransportConfig,
+}
+
+pub(crate) fn create_plugin(
+    client_id: u64,
+    client_port: u16,
+    server_addr: SocketAddr,
+    transport: Transports,
+) -> MyClientPlugin {
+    let auth = Authentication::Manual {
+        server_addr,
+        client_id,
+        private_key: KEY,
+        protocol_id: PROTOCOL_ID,
+    };
+    // let auth = Authentication::RequestConnectToken { server_addr };
+    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+    let certificate_digest =
+        String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819");
+    let transport_config = match transport {
+        #[cfg(not(target_family = "wasm"))]
+        Transports::Udp => TransportConfig::UdpSocket(client_addr),
+        Transports::WebTransport => TransportConfig::WebTransportClient {
+            client_addr,
+            server_addr,
+            #[cfg(target_family = "wasm")]
+            certificate_digest,
+        },
+    };
+
+    MyClientPlugin {
+        client_id,
+        auth,
+        transport_config,
+    }
 }
 
 impl Plugin for MyClientPlugin {
     fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id: self.client_id,
-            private_key: KEY,
-            protocol_id: PROTOCOL_ID,
-        };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::Webtransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let io = Io::from_config(
+            IoConfig::from_transport(self.transport_config.clone())
+                .with_conditioner(link_conditioner),
+        );
         let config = ClientConfig {
             shared: shared_config().clone(),
             input: InputConfig::default(),
@@ -60,7 +79,7 @@ impl Plugin for MyClientPlugin {
             ),
             // .with_delay(InterpolationDelay::Ratio(2.0)),
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol(), self.auth.clone());
         app.add_plugins(ClientPlugin::new(plugin_config));
         app.add_plugins(crate::shared::SharedPlugin);
         // input-handling plugin from leafwing
@@ -147,7 +166,7 @@ pub(crate) fn handle_interpolated_spawn(
 
 pub(crate) fn log(
     tick_manager: Res<TickManager>,
-    ClientConnectionManager: Res<ClientConnectionManager>,
+    connection: Res<ClientConnectionManager>,
     confirmed: Query<&Position, With<Confirmed>>,
     predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
     mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,

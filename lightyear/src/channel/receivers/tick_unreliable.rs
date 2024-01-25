@@ -86,7 +86,7 @@ impl ChannelReceive for TickUnreliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use bytes::Bytes;
 

@@ -1,5 +1,5 @@
 //! Specify how a Client sends/receives messages with a Server
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;

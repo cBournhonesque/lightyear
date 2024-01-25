@@ -5,6 +5,7 @@ use bevy::log::info;
 use bevy::prelude::default;
 use bevy::utils::tracing;
 use bevy::utils::tracing::Level;
+use bevy::utils::Duration;
 use divan::{AllocProfiler, Bencher};
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
@@ -12,7 +13,6 @@ use lightyear::prelude::{ClientId, LogConfig, NetworkTarget, SharedConfig, TickC
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 use lightyear_benches::stepper::{BevyStepper, Step};
-use std::time::Duration;
 
 fn main() {
     divan::main()

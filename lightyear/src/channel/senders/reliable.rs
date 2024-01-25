@@ -1,6 +1,6 @@
+use bevy::utils::Duration;
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashSet};
-use std::time::Duration;
 
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
@@ -246,7 +246,7 @@ impl ChannelSend for ReliableSender {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use bytes::Bytes;
 

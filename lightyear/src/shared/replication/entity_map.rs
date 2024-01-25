@@ -178,7 +178,7 @@ impl<'a> MapEntities<'a> for Entity {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use crate::prelude::client::*;
     use crate::prelude::*;

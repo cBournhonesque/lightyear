@@ -1,3 +1,4 @@
+//! The transport is a UDP socket
 use std::io::Result;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -84,9 +85,9 @@ impl PacketReceiver for UdpSocket {
 
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::time::Duration;
 
     use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
     use crate::transport::udp::UdpSocket;

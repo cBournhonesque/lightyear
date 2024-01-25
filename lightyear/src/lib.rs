@@ -123,9 +123,6 @@ pub mod prelude {
         pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
     }
     pub mod server {
-        #[cfg(feature = "webtransport")]
-        pub use wtransport::tls::Certificate;
-
         pub use crate::server::config::NetcodeConfig;
         pub use crate::server::config::ServerConfig;
         pub use crate::server::events::{
@@ -137,6 +134,8 @@ pub mod prelude {
 
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        pub use wtransport::tls::Certificate;
 
         pub use crate::netcode::Server as NetServer;
     }

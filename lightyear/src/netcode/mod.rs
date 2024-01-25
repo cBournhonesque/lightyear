@@ -139,6 +139,7 @@ mod packet;
 mod replay;
 mod server;
 mod token;
+mod utils;
 
 pub(crate) const MAC_BYTES: usize = 16;
 pub(crate) const MAX_PKT_BUF_SIZE: usize = 1300;

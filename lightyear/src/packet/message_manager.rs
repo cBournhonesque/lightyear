@@ -259,8 +259,8 @@ impl MessageManager {
 
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
     use std::collections::HashMap;
-    use std::time::Duration;
 
     use crate::_reexport::*;
     use crate::packet::message::MessageId;

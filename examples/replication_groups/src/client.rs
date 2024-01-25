@@ -3,6 +3,7 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use lightyear::_reexport::LinearInterpolator;
 use lightyear::netcode::NetcodeServer;
 use lightyear::prelude::client::*;
@@ -10,7 +11,6 @@ use lightyear::prelude::*;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::time::Duration;
 
 #[derive(Resource, Clone, Copy)]
 pub struct MyClientPlugin {
