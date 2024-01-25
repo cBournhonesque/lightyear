@@ -147,6 +147,7 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                             if let Some(type_id) =
                                 world.components().get_info(component_id).unwrap().type_id()
                             {
+                                // TODO: maybe exclude PreSpawnedPlayerObject as well?
                                 // ignore some book-keeping components
                                 if type_id != TypeId::of::<Replicate<P>>()
                                     && type_id != TypeId::of::<ShouldBePredicted>()
@@ -160,7 +161,7 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                         .collect::<Vec<_>>();
                     kinds_to_hash.sort();
                     kinds_to_hash.into_iter().for_each(|kind| {
-                        trace!(?kind, "using kind for hash");
+                        info!(?kind, "using kind for hash");
                         kind.hash(&mut hasher)
                     });
 
@@ -168,7 +169,7 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                     // prespawn.hash = Some(hasher.finish());
 
                     let new_hash = hasher.finish();
-                    debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                    info!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                     new_hash
                 },
                 |hash| {
@@ -371,9 +372,14 @@ mod tests {
     use bevy::prelude::Entity;
     use bevy::utils::{Duration, EntityHashMap};
     use std::collections::BinaryHeap;
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     #[test]
     fn test_compute_hash() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_span_events(FmtSpan::ENTER)
+            .with_max_level(tracing::Level::INFO)
+            .init();
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {

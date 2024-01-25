@@ -23,7 +23,6 @@ Then you can launch multiple clients with the commands:
 - `cargo run  -- server --transport web-transport`
 - `cargo run  -- client -c 1 --transport web-transport`
 
-
 ### Testing in wasm
 
 To test the example in wasm, you can run the following commands:
