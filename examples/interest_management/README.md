@@ -23,16 +23,19 @@ Then you can launch multiple clients with the commands:
 - `cargo run  -- server --transport web-transport`
 - `cargo run  -- client -c 1 --transport web-transport`
 
-### Testing in wasm
+### Testing webtransport in wasm
 
 To test the example in wasm, you can run the following commands:
-- `sh examples/generate.sh` (to generate the temporary SSL certificates)
+- `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
 - `cargo run --example interest_management --features webtransport -- server --transport web-transport` to start the server
-- You will then need to copy the `digest` string for the server certificate and paste it in the `examples/interest_management/client.rs` file.
-  Replace the certificate value in the client.rs file
+- You will then need to copy the certificate digest string that is outputted by the server in the logs and paste it in the `examples/interest_management/client.rs` file.
+  Replace the certificate value like so:
 ```
 let certificate_digest =
 String::from("09945594ec0978bb76891fb5de82106d7928191152777c9fc81bec0406055159");
 ```
 - then start the client wasm test with
   `RUSTFLAGS=--cfg=web_sys_unstable_apis wasm-pack test --chrome --features webtransport --target wasm32-unknown-unknown`
+
+NOTE:
+- the wasm example seems to work better in release mode!
