@@ -25,6 +25,10 @@ Then you can launch multiple clients with the commands:
 
 ### Testing webtransport in wasm
 
+
+https://github.com/cBournhonesque/lightyear/assets/8112632/4ee0685b-0ac6-42c8-849a-28896a158508
+
+
 To test the example in wasm, you can run the following commands:
 - `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
 - `cargo run --example interest_management --features webtransport -- server --transport web-transport` to start the server
