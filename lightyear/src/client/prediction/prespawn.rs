@@ -123,9 +123,10 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                     // let mut hasher =
                     //     bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
 
-                    let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
-                        .with_seed(1)
-                        .build_hasher();
+                    let mut hasher = seahash::SeaHasher::new();
+                    // let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
+                    //     .with_seed(1)
+                    //     .build_hasher();
                     // TODO: the default hasher doesn't seem to be deterministic across processes
                     // let mut hasher = bevy::utils::AHasher::default();
 

@@ -36,10 +36,9 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 cfg_if::cfg_if! {
     if #[cfg(target_family = "wasm")] {
         #[wasm_bindgen_test]
-        fn test_client() {
-            // let cli = Cli::parse();
+        fn wasm_client() {
+            // NOTE: clap argument parsing does not work on WASM
             let client_id = rand::random::<u64>();
-            info!("client_id: {}", client_id);
             let cli = Cli::Client {
                 inspector: false,
                 client_id,
@@ -48,39 +47,16 @@ cfg_if::cfg_if! {
                 server_port: SERVER_PORT,
                 transport: Transports::WebTransport,
             };
-
             let mut app = App::new();
-            // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-            // app.add_plugins(DefaultPlugins.build());
-            app.add_plugins(DefaultPlugins.set(LogPlugin {
-                level: Level::INFO,
-                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
-            }));
-            if let Cli::Client {
-                inspector,
-                client_id,
-                client_port,
-                server_addr,
-                server_port,
-                transport,
-            } = cli
-            {
-                let server_addr = SocketAddr::new(IpAddr::V4(server_addr), server_port);
-                let client_plugin =
-                    client::create_plugin(client_id, client_port, server_addr, transport);
-                app.add_plugins(client_plugin);
-            }
-            // setup(&mut app, cli).await;
+            setup_client(&mut app, cli);
             app.run();
         }
-        fn main() {}
     } else {
         #[tokio::main]
         async fn main() {
             let cli = Cli::parse();
             let mut app = App::new();
             setup(&mut app, cli).await;
-
             app.run();
         }
 
@@ -103,7 +79,6 @@ pub enum Transports {
 
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
-    SinglePlayer,
     #[cfg(not(target_family = "wasm"))]
     Server {
         #[arg(long, default_value = "false")]
@@ -140,9 +115,9 @@ enum Cli {
     },
 }
 
+// the function is async because the server needs to load the certificates from a file
 async fn setup(app: &mut App, cli: Cli) {
     match cli {
-        Cli::SinglePlayer => {}
         #[cfg(not(target_family = "wasm"))]
         Cli::Server {
             headless,
@@ -161,29 +136,33 @@ async fn setup(app: &mut App, cli: Cli) {
             }
             app.add_plugins(server_plugin);
         }
-        Cli::Client {
-            inspector,
-            client_id,
-            client_port,
-            server_addr,
-            server_port,
-            transport,
-        } => {
-            let server_addr = SocketAddr::new(IpAddr::V4(server_addr), server_port);
-            let client_plugin =
-                client::create_plugin(client_id, client_port, server_addr, transport);
-            // let client_plugin = MyClientPlugin {
-            //     client_id: client_id as ClientId,
-            //     client_port,
-            //     server_addr,
-            //     server_port,
-            //     transport,
-            // };
-            app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-            if inspector {
-                app.add_plugins(WorldInspectorPlugin::new());
-            }
-            app.add_plugins(client_plugin);
+        Cli::Client { .. } => {
+            setup_client(app, cli);
         }
     }
+}
+
+fn setup_client(app: &mut App, cli: Cli) {
+    let Cli::Client {
+        inspector,
+        client_id,
+        client_port,
+        server_addr,
+        server_port,
+        transport,
+    } = cli;
+    let server_addr = SocketAddr::new(server_addr.into(), server_port);
+    let client_plugin = client::create_plugin(client_id, client_port, server_addr, transport);
+
+    // use the default bevy logger for now
+    // (the lightyear logger doesn't handle wasm)
+    app.add_plugins(DefaultPlugins.set(LogPlugin {
+        level: Level::INFO,
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+    }));
+
+    if inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
+    app.add_plugins(client_plugin);
 }
