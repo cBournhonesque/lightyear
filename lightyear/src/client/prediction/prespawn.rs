@@ -120,8 +120,12 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                 || {
                     // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
                     // TODO: should I create the hasher once outside?
-                    let mut hasher =
-                        bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+                    // let mut hasher =
+                    //     bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+
+                    let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
+                        .with_seed(1)
+                        .build_hasher();
                     // TODO: the default hasher doesn't seem to be deterministic across processes
                     // let mut hasher = bevy::utils::AHasher::default();
 
@@ -418,7 +422,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 15863332379658547565;
+        let expected_hash: u64 = 3132182087460153976;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             EntityHashMap::from_iter(vec![(
