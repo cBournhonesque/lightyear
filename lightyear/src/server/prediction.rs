@@ -1,5 +1,6 @@
 //! Handles logic related to prespawning entities
 
+use crate::_reexport::ComponentProtocol;
 use crate::prelude::{PreSpawnedPlayerObject, Protocol, ShouldBePredicted, TickManager};
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use bevy::ecs::component::Components;
@@ -40,10 +41,12 @@ pub(crate) fn compute_hash<P: Protocol>(
         // TODO: figure out how to hash the spawn tick
         tick.hash(&mut hasher);
 
+        let protocol_component_types = P::Components::type_ids();
+
         // NOTE: we cannot call hash() multiple times because the components in the archetype
         //  might get iterated in any order!
         //  Instead we will get the sorted list of types to hash first, sorted by type_id
-        let mut types_to_hash = entity_mut
+        let mut kinds_to_hash = entity_mut
             .archetype()
             .components()
             .filter_map(|component_id| {
@@ -53,16 +56,16 @@ pub(crate) fn compute_hash<P: Protocol>(
                         && type_id != TypeId::of::<ShouldBePredicted>()
                         && type_id != TypeId::of::<DespawnTracker>()
                     {
-                        return Some(type_id);
+                        return protocol_component_types.get(&type_id).copied();
                     }
                 }
                 None
             })
             .collect::<Vec<_>>();
-        types_to_hash.sort();
-        types_to_hash.into_iter().for_each(|type_id| {
-            trace!(?type_id, "using type id for hash");
-            type_id.hash(&mut hasher)
+        kinds_to_hash.sort();
+        kinds_to_hash.into_iter().for_each(|kind| {
+            trace!(?kind, "using kind for hash");
+            kind.hash(&mut hasher)
         });
 
         let hash = hasher.finish();

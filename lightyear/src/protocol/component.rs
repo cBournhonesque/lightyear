@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use bevy::prelude::{App, Component, Entity, EntityWorldMut, World};
-use bevy::utils::EntityHashSet;
+use bevy::utils::{EntityHashSet, HashMap};
 use cfg_if::cfg_if;
 
 use crate::_reexport::{InstantCorrector, NullInterpolator};
@@ -39,6 +39,9 @@ pub trait ComponentProtocol:
     + TryInto<ShouldBePredicted>
 {
     type Protocol: Protocol;
+
+    /// Map from the type-id to the component kind for each component in the protocol
+    fn type_ids() -> HashMap<TypeId, <Self::Protocol as Protocol>::ComponentKinds>;
 
     /// Apply a ComponentInsert to an entity
     fn insert(self, entity: &mut EntityWorldMut);
@@ -189,6 +192,8 @@ cfg_if!(
             + for<'a> MapEntities<'a>
             + PartialEq
             + Eq
+            + PartialOrd
+            + Ord
             + Clone
             + Copy
             + Hash
@@ -214,6 +219,8 @@ cfg_if!(
             + for<'a> MapEntities<'a>
             + PartialEq
             + Eq
+            + PartialOrd
+            + Ord
             + Clone
             + Copy
             + Hash

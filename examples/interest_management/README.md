@@ -16,7 +16,6 @@ To start the server, run `cargo run --example interest_management -- server`
 Then you can launch multiple clients with the commands:
 
 - `cargo run  -- client -c 1`
-
 - `cargo run  -- client -c 2 --client-port 2000`
 
 ### Testing webtransport

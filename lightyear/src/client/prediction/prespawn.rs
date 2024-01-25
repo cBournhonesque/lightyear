@@ -1,5 +1,6 @@
 //! Handles spawning entities that are predicted
 
+use crate::_reexport::ComponentProtocol;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -130,11 +131,16 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                     //  run compute_hash in post-update as well
                     // we include the spawn tick in the hash
                     tick.hash(&mut hasher);
+                    //
+                    // // TODO: we only want to use components from the protocol, because server/client might use a lot of different stuff...
+                    // entity_ref.contains_type_id()
+
+                    let protocol_component_types = P::Components::type_ids();
 
                     // NOTE: we cannot call hash() multiple times because the components in the archetype
                     //  might get iterated in any order!
                     //  Instead we will get the sorted list of types to hash first, sorted by type_id
-                    let mut types_to_hash = entity_ref
+                    let mut kinds_to_hash = entity_ref
                         .archetype()
                         .components()
                         .filter_map(|component_id| {
@@ -146,16 +152,16 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                                     && type_id != TypeId::of::<ShouldBePredicted>()
                                     && type_id != TypeId::of::<DespawnTracker>()
                                 {
-                                    return Some(type_id);
+                                    return protocol_component_types.get(&type_id).copied();
                                 }
                             }
                             None
                         })
                         .collect::<Vec<_>>();
-                    types_to_hash.sort();
-                    types_to_hash.into_iter().for_each(|type_id| {
-                        trace!(?type_id, "using type id for hash");
-                        type_id.hash(&mut hasher)
+                    kinds_to_hash.sort();
+                    kinds_to_hash.into_iter().for_each(|kind| {
+                        trace!(?kind, "using kind for hash");
+                        kind.hash(&mut hasher)
                     });
 
                     // No need to set the value on the component here, we only need the value in the resource!
@@ -406,7 +412,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 7359332948284246547;
+        let expected_hash: u64 = 15863332379658547565;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             EntityHashMap::from_iter(vec![(
