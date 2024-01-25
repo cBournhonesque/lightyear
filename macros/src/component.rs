@@ -249,6 +249,7 @@ pub fn component_protocol_impl(
             #delegate_method
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+            #[repr(C)]
             #enum_kind
 
             impl ComponentProtocolKind for #enum_kind_name {

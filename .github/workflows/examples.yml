@@ -1,8 +1,8 @@
-name: Update examples
+name: Update interest_management example
 on:
   push:
     paths:
-      - "examples/**"
+      - "examples/interest_management/**"
     branches:
       - main
 

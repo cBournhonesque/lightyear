@@ -29,7 +29,7 @@ To test the example in wasm, you can run the following commands:
 - `sh examples/generate.sh` (to generate the temporary SSL certificates)
 - `cargo run --example interest_management --features webtransport -- server --transport web-transport` to start the server
 - You will then need to copy the `digest` string for the server certificate and paste it in the `examples/interest_management/client.rs` file.
-  Replace the value at the line 
+  Replace the certificate value in the client.rs file
 ```
 let certificate_digest =
 String::from("09945594ec0978bb76891fb5de82106d7928191152777c9fc81bec0406055159");
