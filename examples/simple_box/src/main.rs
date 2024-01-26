@@ -7,10 +7,11 @@
 //! - `cargo run --example simple_box -- client -c 1`
 mod client;
 mod protocol;
+mod rivet;
 mod server;
 mod shared;
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
 use bevy::log::LogPlugin;
@@ -45,7 +46,7 @@ pub const KEY: Key = [0; 32];
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Transports {
     Udp,
-    Webtransport,
+    WebTransport,
 }
 
 #[derive(Parser, PartialEq, Debug)]
@@ -69,7 +70,7 @@ enum Cli {
         inspector: bool,
 
         #[arg(short, long, default_value_t = 0)]
-        client_id: u16,
+        client_id: u64,
 
         #[arg(long, default_value_t = CLIENT_PORT)]
         client_port: u16,
@@ -108,6 +109,10 @@ fn setup(app: &mut App, cli: Cli) {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
             app.add_plugins(server_plugin);
+
+            // tell rivet that the server is ready
+            #[cfg(feature = "rivet")]
+            crate::rivet::server::lobby_ready().expect("rivet::lobby_ready");
         }
         Cli::Client {
             inspector,
@@ -117,13 +122,10 @@ fn setup(app: &mut App, cli: Cli) {
             server_port,
             transport,
         } => {
-            let client_plugin = MyClientPlugin {
-                client_id: client_id as ClientId,
-                client_port,
-                server_addr,
-                server_port,
-                transport,
-            };
+            let server_addr = SocketAddr::new(server_addr.into(), server_port);
+            let client_plugin =
+                client::create_plugin(client_id, client_port, server_addr, transport);
+
             app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());

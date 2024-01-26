@@ -167,5 +167,6 @@ pub(crate) mod tests;
 /// Provides an abstraction over an unreliable transport
 pub mod transport;
 
+mod deploy;
 /// Extra utilities
 pub mod utils;
