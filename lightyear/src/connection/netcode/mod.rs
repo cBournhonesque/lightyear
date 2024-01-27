@@ -45,7 +45,7 @@
 
  ```
  use std::{thread, time::{Instant, Duration}, net::SocketAddr};
- use crate::lightyear::netcode::{generate_key, NetcodeServer, MAX_PACKET_SIZE};
+ use crate::lightyear::connection::netcode::{generate_key, NetcodeServer, MAX_PACKET_SIZE};
 
  use lightyear::prelude::{IoConfig, TransportConfig};
  use crate::lightyear::transport::io::Io;
@@ -87,7 +87,7 @@
  ```
 use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 use lightyear::prelude::{IoConfig, TransportConfig};
-use crate::lightyear::netcode::{generate_key, ConnectToken, Client, MAX_PACKET_SIZE};
+use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, MAX_PACKET_SIZE};
 use crate::lightyear::transport::io::Io;
 
 // Create an io
@@ -105,7 +105,7 @@ let connect_token = ConnectToken::build("127.0.0.1:12345", protocol_id, client_i
 
 // Start the client
 let token_bytes = connect_token.try_into_bytes().unwrap();
-let mut client = Client::new(&token_bytes).unwrap();
+let mut client = NetcodeClient::new(&token_bytes).unwrap();
 client.connect();
 
 // Run the client at 60Hz

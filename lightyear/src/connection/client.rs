@@ -42,6 +42,7 @@ pub struct ClientConnection {
     pub(crate) client: Box<dyn NetClient>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum NetConfig {
     Netcode {

@@ -36,7 +36,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
                                             // update netcode server
-                                            let context = netcode
+                                            netcode
                                                 .try_update(delta.as_secs_f64())
                                                 .expect("Error updating netcode server");
 

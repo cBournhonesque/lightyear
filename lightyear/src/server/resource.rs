@@ -96,7 +96,7 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
         // handle connection
         for client_id in self.netcode.new_connections().iter().copied() {
             // let client_addr = self.netcode.client_addr(client_id).unwrap();
-            // info!("New connection from {} (id: {})", client_addr, client_id);
+            // info!("New connection from id: {}", client_id);
             self.connection_manager.add(client_id, &self.config.ping);
         }
 

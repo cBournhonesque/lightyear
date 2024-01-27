@@ -44,7 +44,7 @@ type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + 
 /// # let private_key = generate_key();
 /// # let token = NetcodeServer::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
 /// # let token_bytes = token.try_into_bytes().unwrap();
-/// use crate::lightyear::netcode::{Client, ClientConfig, ClientState};
+/// use crate::lightyear::connection::netcode::{NetcodeClient, ClientConfig, ClientState};
 ///
 /// let cfg = ClientConfig::with_context(MyContext {})
 ///     .num_disconnect_packets(10)
@@ -54,7 +54,7 @@ type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + 
 ///        println!("client connected to server");
 ///     }
 /// });
-/// let mut client = Client::with_config(&token_bytes, cfg).unwrap();
+/// let mut client = NetcodeClient::with_config(&token_bytes, cfg).unwrap();
 /// client.connect();
 /// ```
 pub struct ClientConfig<Ctx> {
@@ -243,7 +243,7 @@ impl NetcodeClient {
     ///
     /// # Example
     /// ```
-    /// # use crate::lightyear::netcode::{generate_key, ConnectToken, Client, ClientConfig, ClientState};
+    /// # use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, ClientConfig, ClientState};
     /// // Generate a connection token for the client
     /// let private_key = generate_key();
     /// let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
@@ -252,7 +252,7 @@ impl NetcodeClient {
     ///     .try_into_bytes()
     ///     .unwrap();
     ///
-    /// let mut client = Client::new(&token_bytes).unwrap();
+    /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// ```
     pub fn new(token_bytes: &[u8]) -> Result<Self> {
         let client = NetcodeClient::from_token(token_bytes, ClientConfig::default())?;
@@ -268,7 +268,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///
     /// # Example
     /// ```
-    /// # use crate::lightyear::netcode::{generate_key, ConnectToken, Client, ClientConfig, ClientState};
+    /// # use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, ClientConfig, ClientState};
     /// # let private_key = generate_key();
     /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
     /// #    .generate()
@@ -281,7 +281,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///    assert_eq!(to, ClientState::SendingConnectionRequest);
     /// });
     ///
-    /// let mut client = Client::with_config(&token_bytes, cfg).unwrap();
+    /// let mut client = NetcodeClient::with_config(&token_bytes, cfg).unwrap();
     /// ```
     pub fn with_config(token_bytes: &[u8], cfg: ClientConfig<Ctx>) -> Result<Self> {
         let client = NetcodeClient::from_token(token_bytes, cfg)?;
@@ -550,17 +550,17 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # Example
     /// ```
     /// # use std::net::SocketAddr;
-    /// # use lightyear::netcode::{ConnectToken, Client, ClientConfig, ClientState, Server};
+    /// # use lightyear::connection::netcode::{ConnectToken, NetcodeClient, ClientConfig, ClientState, Server};
     /// # use bevy::utils::{Instant, Duration};
     /// # use std::thread;
-    /// # use lightyear::netcode::NetcodeServer;
+    /// # use lightyear::connection::netcode::NetcodeServer;
     /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
     /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
     /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
-    /// let mut client = Client::new(&token_bytes).unwrap();
+    /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///
     /// let start = Instant::now();

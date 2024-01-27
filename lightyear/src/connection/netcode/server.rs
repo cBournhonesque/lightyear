@@ -1046,7 +1046,7 @@ impl NetServer for Server {
     }
 
     fn new_disconnections(&self) -> Vec<ClientId> {
-        self.server.cfg.context.connections.clone()
+        self.server.cfg.context.disconnections.clone()
     }
 }
 

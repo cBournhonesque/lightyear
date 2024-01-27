@@ -279,7 +279,7 @@ impl Bytes for ChallengeToken {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::netcode::{generate_key, ConnectToken, USER_DATA_BYTES, CONNECT_TOKEN_BYTES};
+/// use crate::lightyear::connection::netcode::{generate_key, ConnectToken, USER_DATA_BYTES, CONNECT_TOKEN_BYTES};
 ///
 /// // mandatory fields
 /// let server_address = "crates.io:12345"; // the server's public address (can also be multiple addresses)
@@ -304,7 +304,7 @@ impl Bytes for ChallengeToken {
 /// assert_eq!(token_bytes.len(), CONNECT_TOKEN_BYTES);
 /// ```
 ///
-/// Alternatively, you can use [`Server::token`](crate::netcode::server::NetcodeServer::token) to generate a connect token from an already existing [`Server`](crate::netcode::server::NetcodeServer).
+/// Alternatively, you can use [`Server::token`](crate::connection::netcode::server::NetcodeServer::token) to generate a connect token from an already existing [`Server`](crate::connection::netcode::server::NetcodeServer).
 #[derive(Clone)]
 pub struct ConnectToken {
     pub(crate) version_info: [u8; NETCODE_VERSION.len()],
