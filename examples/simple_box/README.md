@@ -15,3 +15,7 @@ Then you can launch multiple clients with the commands:
 - `cargo run -- client -c 1`
 
 - `cargo run -- client -c 2 --client-port 2000`
+
+To use webtransport:
+- `cargo run -- server --transport web-transport`
+- `cargo run -- client -c 1 --transport web-transport`
