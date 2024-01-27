@@ -29,18 +29,31 @@ pub struct ServerConnection {
     server: Box<dyn NetServer>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub enum NetConfig {
-    Netcode { config: NetcodeConfig, io: Io },
+    Netcode {
+        config: NetcodeConfig,
+    },
     // TODO: add steam-specific config
     Steam,
-    Rivet { config: NetcodeConfig, io: Io },
+    #[cfg(feature = "rivet")]
+    Rivet {
+        config: NetcodeConfig,
+    },
+}
+
+impl Default for NetConfig {
+    fn default() -> Self {
+        NetConfig::Netcode {
+            config: NetcodeConfig::default(),
+        }
+    }
 }
 
 impl NetConfig {
-    pub fn get_server(self) -> ServerConnection {
+    pub fn get_server(self, io: Io) -> ServerConnection {
         match self {
-            NetConfig::Netcode { config, io } => {
+            NetConfig::Netcode { config } => {
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
                     server: Box::new(server),
@@ -49,7 +62,8 @@ impl NetConfig {
             NetConfig::Steam => {
                 unimplemented!()
             }
-            NetConfig::Rivet { config, io } => {
+            #[cfg(feature = "rivet")]
+            NetConfig::Rivet { config } => {
                 let server = super::rivet::server::RivetServer {
                     netcode_server: super::netcode::Server::new(config, io),
                 };

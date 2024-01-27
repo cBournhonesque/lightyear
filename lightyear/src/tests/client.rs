@@ -23,14 +23,13 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         net: NetConfig::Netcode {
             auth,
             config: Default::default(),
-            io,
         },
         ping: PingConfig::default(),
         sync: SyncConfig::default(),
         prediction: PredictionConfig::default(),
         interpolation: InterpolationConfig::default(),
     };
-    let plugin_config = PluginConfig::new(config, protocol());
+    let plugin_config = PluginConfig::new(config, io, protocol());
     let plugin = ClientPlugin::new(plugin_config);
     app.add_plugins(plugin);
 }

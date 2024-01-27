@@ -75,4 +75,8 @@ impl NetClient for RivetClient {
     fn id(&self) -> ClientId {
         self.netcode_client.unwrap().id()
     }
+
+    fn local_addr(&self) -> SocketAddr {
+        self.io.unwrap().local_addr()
+    }
 }

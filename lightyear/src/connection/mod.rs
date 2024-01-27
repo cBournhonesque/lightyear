@@ -4,5 +4,5 @@ mod backend;
 pub(crate) mod client;
 mod config;
 pub mod netcode;
-mod rivet;
+pub(crate) mod rivet;
 pub(crate) mod server;

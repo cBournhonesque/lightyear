@@ -14,7 +14,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
-use crate::connection::client::ClientConnection;
+use crate::connection::client::{ClientConnection, NetClient};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{PrePredicted, Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;

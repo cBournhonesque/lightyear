@@ -23,7 +23,7 @@ use crate::client::prediction::prespawn::{
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
-use crate::connection::client::ClientConnection;
+use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;

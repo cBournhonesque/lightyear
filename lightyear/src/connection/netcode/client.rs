@@ -632,9 +632,9 @@ impl<Ctx> NetcodeClient<Ctx> {
 
 /// Client that can establish a connection to the Server
 #[derive(Resource)]
-pub(crate) struct Client<Ctx> {
-    pub(crate) client: NetcodeClient<Ctx>,
-    pub(crate) io: Io,
+pub struct Client<Ctx> {
+    pub client: NetcodeClient<Ctx>,
+    pub io: Io,
 }
 
 impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
@@ -665,5 +665,9 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
 
     fn id(&self) -> ClientId {
         self.client.id()
+    }
+
+    fn local_addr(&self) -> SocketAddr {
+        self.io.local_addr()
     }
 }

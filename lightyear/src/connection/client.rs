@@ -1,5 +1,6 @@
 use crate::_reexport::ReadWordBuffer;
 use crate::prelude::{Io, IoConfig, TransportConfig};
+use std::net::SocketAddr;
 
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::ClientId;
@@ -28,6 +29,8 @@ pub trait NetClient: Send + Sync {
 
     /// Get the id of the client
     fn id(&self) -> ClientId;
+
+    fn local_addr(&self) -> SocketAddr;
 }
 
 #[derive(Resource)]
@@ -35,24 +38,33 @@ pub struct ClientConnection {
     pub(crate) client: Box<dyn NetClient>,
 }
 
+#[derive(Clone)]
 pub enum NetConfig {
     Netcode {
         auth: Authentication,
         config: NetcodeConfig,
-        io: Io,
     },
     // TODO: add steam-specific config
     Steam,
+    #[cfg(feature = "rivet")]
     Rivet {
         config: NetcodeConfig,
-        io: Io,
     },
 }
 
+impl Default for NetConfig {
+    fn default() -> Self {
+        Self::Netcode {
+            auth: Authentication::default(),
+            config: NetcodeConfig::default(),
+        }
+    }
+}
+
 impl NetConfig {
-    pub fn get_client(self) -> ClientConnection {
+    pub fn get_client(self, io: Io) -> ClientConnection {
         match self {
-            NetConfig::Netcode { auth, config, io } => {
+            NetConfig::Netcode { auth, config } => {
                 let config_clone = config.clone();
                 let token = auth
                     .clone()
@@ -76,7 +88,8 @@ impl NetConfig {
                 // let (steam_client, _) = steamworks::Client::init().unwrap();
                 // Box::new(super::steam::Client::new(steam_client))
             }
-            NetConfig::Rivet { config, io } => {
+            #[cfg(feature = "rivet")]
+            NetConfig::Rivet { config } => {
                 let netcode = super::rivet::client::RivetClient {
                     netcode_config: config,
                     io: Some(io),
@@ -100,18 +113,22 @@ impl NetClient for ClientConnection {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        todo!()
+        self.client.try_update(delta_ms)
     }
 
     fn recv(&mut self) -> Option<ReadWordBuffer> {
-        todo!()
+        self.client.recv()
     }
 
     fn send(&mut self, buf: &[u8]) -> Result<()> {
-        todo!()
+        self.client.send(buf)
     }
 
     fn id(&self) -> ClientId {
-        todo!()
+        self.client.id()
+    }
+
+    fn local_addr(&self) -> SocketAddr {
+        self.client.local_addr()
     }
 }

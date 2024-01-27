@@ -35,14 +35,16 @@ use super::systems::{receive, send};
 
 pub struct PluginConfig<P: Protocol> {
     server_config: ServerConfig,
+    io: Io,
     protocol: P,
 }
 
 // TODO: put all this in ClientConfig?
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(server_config: ServerConfig, protocol: P) -> Self {
+    pub fn new(server_config: ServerConfig, io: Io, protocol: P) -> Self {
         PluginConfig {
             server_config,
+            io,
             protocol,
         }
     }
@@ -65,7 +67,7 @@ impl<P: Protocol> ServerPlugin<P> {
 impl<P: Protocol> PluginType for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let netserver = config.server_config.net.get_server();
+        let netserver = config.server_config.net.clone().get_server(config.io);
 
         let tick_duration = config.server_config.shared.tick.tick_duration;
         // TODO: have better constants for clean_interval?

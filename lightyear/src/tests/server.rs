@@ -23,11 +23,10 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
             config: NetcodeConfig::default()
                 .with_protocol_id(protocol_id)
                 .with_key(private_key),
-            io,
         },
         ping: PingConfig::default(),
     };
-    let plugin_config = PluginConfig::new(config, protocol());
+    let plugin_config = PluginConfig::new(config, io, protocol());
     let plugin = ServerPlugin::new(plugin_config);
     app.add_plugins(plugin);
 }

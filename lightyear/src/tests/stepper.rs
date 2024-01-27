@@ -76,25 +76,24 @@ impl BevyStepper {
         // Setup server
         let mut server_app = App::new();
         server_app.add_plugins(MinimalPlugins.build());
-        let net_config = crate::server::config::NetConfig::Netcode {
+        let net_config = server::NetConfig::Netcode {
             config: NetcodeConfig::default()
                 .with_protocol_id(protocol_id)
                 .with_key(private_key),
-            io: server_io,
         };
         let config = ServerConfig {
             shared: shared_config.clone(),
             net: net_config,
             ping: PingConfig::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
+        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
         // Setup client
         let mut client_app = App::new();
         client_app.add_plugins(MinimalPlugins.build());
-        let net_config = crate::client::config::NetConfig::Netcode {
+        let net_config = client::NetConfig::Netcode {
             auth: Authentication::Manual {
                 server_addr: addr,
                 protocol_id,
@@ -102,7 +101,6 @@ impl BevyStepper {
                 client_id,
             },
             config: Default::default(),
-            io: client_io,
         };
         let config = ClientConfig {
             shared: shared_config.clone(),
@@ -113,7 +111,7 @@ impl BevyStepper {
             prediction: prediction_config,
             interpolation: interpolation_config,
         };
-        let plugin_config = client::PluginConfig::new(config, protocol());
+        let plugin_config = client::PluginConfig::new(config, client_io, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
@@ -159,7 +157,8 @@ impl BevyStepper {
         self.client_app
             .world
             .resource_mut::<ClientConnection>()
-            .connect();
+            .connect()
+            .expect("could not connect");
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {

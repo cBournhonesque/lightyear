@@ -24,7 +24,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager<P>>| {
         world.resource_scope(
             |world: &mut World, mut netcode: Mut<crate::connection::netcode::Server>| {
-                world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
                     world.resource_scope(
                         |world: &mut World, mut time_manager: Mut<TimeManager>| {
                             world.resource_scope(
@@ -133,8 +132,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                 });
                         });
                 });
-            },
-        );
     });
 }
 
@@ -142,7 +139,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 pub(crate) fn send<P: Protocol>(
     change_tick: SystemChangeTick,
     mut netserver: ResMut<crate::connection::netcode::Server>,
-    mut io: ResMut<Io>,
     mut connection_manager: ResMut<ConnectionManager<P>>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,

@@ -35,13 +35,15 @@ use super::config::ClientConfig;
 
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
+    io: Io,
     protocol: P,
 }
 
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, protocol: P) -> Self {
+    pub fn new(client_config: ClientConfig, io: Io, protocol: P) -> Self {
         PluginConfig {
             client_config,
+            io,
             protocol,
         }
     }
@@ -129,7 +131,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
 
-        let netclient = config.client_config.net.get_client();
+        let netclient = config.client_config.net.clone().get_client(config.io);
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
         let clean_interval = fixed_timestep * (i16::MAX as u32 / 3);
 
@@ -160,7 +162,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // RESOURCES //
             // .insert_resource(config.auth.clone())
             .insert_resource(config.client_config.clone())
-            .insert_resource(netcode)
+            .insert_resource(netclient)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),
                 config.client_config.sync,
