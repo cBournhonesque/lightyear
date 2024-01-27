@@ -34,10 +34,7 @@ impl NetClient for RivetClient {
         // 2. call the backend to get a connect token
         let client = reqwest::blocking::Client::new();
         let token_bytes = client
-            .post(format!(
-                "{}/matchmaker/lobbies/ready",
-                backend_addr.to_string()
-            ))
+            .post(format!("{}/connect", backend_addr.to_string()))
             .json(&rivet_server_data)
             .send()?
             .error_for_status()?
