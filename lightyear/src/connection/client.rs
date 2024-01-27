@@ -31,6 +31,10 @@ pub trait NetClient: Send + Sync {
     fn id(&self) -> ClientId;
 
     fn local_addr(&self) -> SocketAddr;
+
+    fn io(&self) -> &Io;
+
+    fn io_mut(&mut self) -> &mut Io;
 }
 
 #[derive(Resource)]
@@ -45,6 +49,7 @@ pub enum NetConfig {
         config: NetcodeConfig,
     },
     // TODO: add steam-specific config
+    // TODO: for steam, we can use a pass-through io that just computes stats?
     Steam,
     #[cfg(feature = "rivet")]
     Rivet {
@@ -130,5 +135,13 @@ impl NetClient for ClientConnection {
 
     fn local_addr(&self) -> SocketAddr {
         self.client.local_addr()
+    }
+
+    fn io(&self) -> &Io {
+        self.client.io()
+    }
+
+    fn io_mut(&mut self) -> &mut Io {
+        self.client.io_mut()
     }
 }

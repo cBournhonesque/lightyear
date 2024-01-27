@@ -7,14 +7,13 @@ use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::resource::ClientMut;
-use crate::connection::server::NetServer;
+use crate::connection::server::{NetServer, ServerConnection};
 use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
-use crate::server::resource::{Server, ServerMut};
 use crate::server::room::RoomManager;
 use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
@@ -23,7 +22,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");
     world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager<P>>| {
         world.resource_scope(
-            |world: &mut World, mut netcode: Mut<crate::connection::netcode::Server>| {
+            |world: &mut World, mut netcode: Mut<ServerConnection>| {
                     world.resource_scope(
                         |world: &mut World, mut time_manager: Mut<TimeManager>| {
                             world.resource_scope(
@@ -138,7 +137,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 // or do additional send stuff here
 pub(crate) fn send<P: Protocol>(
     change_tick: SystemChangeTick,
-    mut netserver: ResMut<crate::connection::netcode::Server>,
+    mut netserver: ResMut<ServerConnection>,
     mut connection_manager: ResMut<ConnectionManager<P>>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,

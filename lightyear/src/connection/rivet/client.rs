@@ -79,4 +79,12 @@ impl NetClient for RivetClient {
     fn local_addr(&self) -> SocketAddr {
         self.io.unwrap().local_addr()
     }
+
+    fn io(&self) -> &Io {
+        &self.io.unwrap()
+    }
+
+    fn io_mut(&mut self) -> &mut Io {
+        &mut self.io.unwrap()
+    }
 }

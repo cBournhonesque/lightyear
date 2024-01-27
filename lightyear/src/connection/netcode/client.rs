@@ -670,4 +670,12 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     fn local_addr(&self) -> SocketAddr {
         self.io.local_addr()
     }
+
+    fn io(&self) -> &Io {
+        &self.io
+    }
+
+    fn io_mut(&mut self) -> &mut Io {
+        &mut self.io
+    }
 }

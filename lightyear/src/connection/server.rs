@@ -77,26 +77,26 @@ impl NetConfig {
 
 impl NetServer for ServerConnection {
     fn connected_client_ids(&self) -> Vec<ClientId> {
-        todo!()
+        self.server.connected_client_ids()
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        todo!()
+        self.server.try_update(delta_ms)
     }
 
     fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)> {
-        todo!()
+        self.server.recv()
     }
 
     fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()> {
-        todo!()
+        self.server.send(buf, client_id)
     }
 
     fn new_connections(&self) -> Vec<ClientId> {
-        todo!()
+        self.server.new_connections()
     }
 
     fn new_disconnections(&self) -> Vec<ClientId> {
-        todo!()
+        self.server.new_disconnections()
     }
 }
