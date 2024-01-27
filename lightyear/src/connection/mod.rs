@@ -1,6 +1,8 @@
 /*!  A connection is an abstraction over an unreliable transport of a connection between a client and server
 */
 mod backend;
-mod client;
+pub(crate) mod client;
+mod config;
+pub mod netcode;
 mod rivet;
-mod server;
+pub(crate) mod server;

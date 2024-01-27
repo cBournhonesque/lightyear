@@ -11,9 +11,10 @@ use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;
+use crate::connection::client::ClientConnection;
+use crate::connection::netcode::{Client as NetcodeClient, ClientId};
+use crate::connection::netcode::{ConnectToken, Key};
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::netcode::{Client as NetcodeClient, ClientId};
-use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
 use crate::prelude::NetworkTarget;
 use crate::protocol::channel::ChannelKind;
@@ -33,12 +34,10 @@ use super::connection::ConnectionManager;
 
 #[derive(SystemParam)]
 pub struct Client<'w, 's, P: Protocol> {
-    // Io
-    pub(crate) io: Res<'w, Io>,
     //config
     config: Res<'w, ClientConfig>,
     // netcode
-    netcode: Res<'w, crate::netcode::Client>,
+    netcode: Res<'w, ClientConnection>,
     // connection
     pub(crate) connection: Res<'w, ConnectionManager<P>>,
     // protocol
@@ -58,7 +57,7 @@ pub struct ClientMut<'w, 's, P: Protocol> {
     //config
     config: ResMut<'w, ClientConfig>,
     // netcode
-    netcode: ResMut<'w, crate::netcode::Client>,
+    netcode: ResMut<'w, ClientConnection>,
     // connection
     pub(crate) connection: ResMut<'w, ConnectionManager<P>>,
     // protocol

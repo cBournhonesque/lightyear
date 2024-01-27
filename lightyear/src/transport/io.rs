@@ -31,6 +31,12 @@ cfg_if::cfg_if! {
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocket;
 
+// #[derive(Clone)]
+// pub struct IoConfig {
+//     transport: TransportConfig,
+//     conditioner: Option<LinkConditionerConfig>,
+// }
+
 #[derive(Clone)]
 pub enum TransportConfig {
     // TODO: should we have a features for UDP?
@@ -176,6 +182,12 @@ pub struct Io {
     sender: Box<dyn PacketSender>,
     receiver: Box<dyn PacketReceiver>,
     pub(crate) stats: IoStats,
+}
+
+impl Default for Io {
+    fn default() -> Self {
+        panic!("Io::default() is not implemented. Please provide an io");
+    }
 }
 
 #[derive(Default, Debug)]

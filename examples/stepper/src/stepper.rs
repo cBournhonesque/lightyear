@@ -8,7 +8,7 @@ use bevy::MinimalPlugins;
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use lightyear::client as lightyear_client;
-use lightyear::netcode::generate_key;
+use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::{
     Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };

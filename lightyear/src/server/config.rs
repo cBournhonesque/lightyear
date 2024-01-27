@@ -2,7 +2,8 @@
 use bevy::prelude::Resource;
 use bevy::utils::Duration;
 
-use crate::netcode::Key;
+use crate::connection::netcode::Key;
+use crate::connection::server::NetConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
@@ -70,6 +71,6 @@ impl PacketConfig {
 #[derive(Clone, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
-    pub netcode: NetcodeConfig,
+    pub net: NetConfig,
     pub ping: PingConfig,
 }

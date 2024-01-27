@@ -24,7 +24,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::client::MyClientPlugin;
 use crate::server::MyServerPlugin;
-use lightyear::netcode::{ClientId, Key};
+use lightyear::connection::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
 #[tokio::main]

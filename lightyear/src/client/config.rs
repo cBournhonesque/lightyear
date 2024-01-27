@@ -7,6 +7,7 @@ use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
+use crate::connection::client::NetConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
@@ -32,8 +33,8 @@ impl Default for NetcodeConfig {
 }
 
 impl NetcodeConfig {
-    pub(crate) fn build(&self) -> crate::netcode::ClientConfig<()> {
-        crate::netcode::ClientConfig::default()
+    pub(crate) fn build(&self) -> crate::connection::netcode::ClientConfig<()> {
+        crate::connection::netcode::ClientConfig::default()
             .num_disconnect_packets(self.num_disconnect_packets)
             .packet_send_rate(self.keepalive_packet_send_rate)
     }
@@ -64,7 +65,7 @@ impl PacketConfig {
 #[derive(Resource, Clone, Default)]
 pub struct ClientConfig {
     pub shared: SharedConfig,
-    pub netcode: NetcodeConfig,
+    pub net: NetConfig,
     pub input: InputConfig,
     pub ping: PingConfig,
     pub sync: SyncConfig,

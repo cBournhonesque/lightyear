@@ -14,7 +14,8 @@ use tracing::{debug, debug_span, error, info, trace, trace_span};
 
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
-use crate::netcode::{generate_key, ClientId, ConnectToken};
+use crate::connection::netcode::{generate_key, ClientId, ConnectToken};
+use crate::connection::server::{NetServer, ServerConnection};
 use crate::packet::message::Message;
 use crate::prelude::PreSpawnedPlayerObject;
 use crate::protocol::channel::ChannelKind;
@@ -40,7 +41,7 @@ pub struct Server<'w, 's, P: Protocol> {
     // Io
     io: Res<'w, Io>,
     // Netcode
-    netcode: Res<'w, crate::netcode::Server>,
+    netcode: Res<'w, crate::connection::netcode::Server>,
     // Connections
     pub(crate) connection_manager: Res<'w, ConnectionManager<P>>,
     // Protocol
@@ -57,10 +58,8 @@ pub struct Server<'w, 's, P: Protocol> {
 pub struct ServerMut<'w, 's, P: Protocol> {
     // Config
     config: ResMut<'w, ServerConfig>,
-    // Io
-    io: ResMut<'w, Io>,
     // Netcode
-    netcode: ResMut<'w, crate::netcode::Server>,
+    netcode: ResMut<'w, ServerConnection>,
     // Connections
     pub(crate) connection_manager: ResMut<'w, ConnectionManager<P>>,
     // Protocol
@@ -86,9 +85,8 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
         self.time_manager.update(delta);
 
         // update netcode server
-        let context = self
-            .netcode
-            .try_update(delta.as_secs_f64(), &mut self.io)
+        self.netcode
+            .try_update(delta.as_secs_f64())
             .context("Error updating netcode server")?;
 
         // update connections
@@ -96,14 +94,14 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
             .update(&self.time_manager, &self.tick_manager);
 
         // handle connection
-        for client_id in context.connections.iter().copied() {
+        for client_id in self.netcode.new_connections().iter().copied() {
             // let client_addr = self.netcode.client_addr(client_id).unwrap();
             // info!("New connection from {} (id: {})", client_addr, client_id);
             self.connection_manager.add(client_id, &self.config.ping);
         }
 
         // handle disconnections
-        for client_id in context.disconnections.iter().copied() {
+        for client_id in self.netcode.new_disconnections().iter().copied() {
             self.connection_manager.remove(client_id);
             self.room_manager.client_disconnect(client_id);
         }
@@ -179,45 +177,6 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
 }
 
 impl<'w, 's, P: Protocol> Server<'w, 's, P> {
-    // pub fn new(config: ServerConfig, io: Io, protocol: P) -> Self {
-    //     // create netcode server
-    //     let private_key = config.netcode.private_key.unwrap_or(generate_key());
-    //     let (connections_tx, connections_rx) = crossbeam_channel::unbounded();
-    //     let (disconnections_tx, disconnections_rx) = crossbeam_channel::unbounded();
-    //     let server_context = NetcodeServerContext {
-    //         connections: connections_tx,
-    //         disconnections: disconnections_tx,
-    //     };
-    //     let mut cfg = crate::netcode::ServerConfig::with_context(server_context)
-    //         .on_connect(|id, ctx| {
-    //             ctx.connections.send(id).unwrap();
-    //         })
-    //         .on_disconnect(|id, ctx| {
-    //             ctx.disconnections.send(id).unwrap();
-    //         });
-    //     cfg = cfg.keep_alive_send_rate(config.netcode.keep_alive_send_rate);
-    //     cfg = cfg.num_disconnect_packets(config.netcode.num_disconnect_packets);
-    //
-    //     let netcode =
-    //         crate::netcode::Server::with_config(config.netcode.protocol_id, private_key, cfg)
-    //             .expect("Could not create server netcode");
-    //     let context = ServerContext {
-    //         connections: connections_rx,
-    //         disconnections: disconnections_rx,
-    //     };
-    //     Self {
-    //         config: config.clone(),
-    //         io,
-    //         netcode,
-    //         context,
-    //         // TODO: avoid clone
-    //         connection_manager: ConnectionManager::new(protocol.channel_registry().clone()),
-    //         protocol,
-    //         room_manager: RoomManager::default(),
-    //         time_manager: TimeManager::new(config.shared.server_send_interval),
-    //         tick_manager: TickManager::from_config(config.shared.tick),
-    //     }
-
     // /// Generate a connect token for a client with id `client_id`
     // pub fn token(&mut self, client_id: ClientId) -> ConnectToken {
     //     self.netcode

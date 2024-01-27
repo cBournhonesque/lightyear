@@ -1,6 +1,8 @@
 //! Backend orchestrator that can be used to send ConnectToken to clients
 //! (as described in the [netcode](https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md) standard
 
+use crate::connection::netcode::{ConnectToken, USER_DATA_BYTES};
+
 // 1. client connects to Backend
 // 2. Backend gets the list of Dedicated Servers and finds the address of one server
 //    a. note: backend could do that by calling an external service, such as rivet

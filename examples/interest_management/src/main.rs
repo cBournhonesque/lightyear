@@ -25,7 +25,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use crate::client::MyClientPlugin;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::MyServerPlugin;
-use lightyear::netcode::{ClientId, Key};
+use lightyear::connection::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
 #[cfg(target_family = "wasm")]

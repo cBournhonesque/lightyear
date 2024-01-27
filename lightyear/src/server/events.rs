@@ -7,9 +7,9 @@ use tracing::trace;
 use crate::_reexport::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
+use crate::connection::netcode::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
-use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
 #[cfg(feature = "leafwing")]

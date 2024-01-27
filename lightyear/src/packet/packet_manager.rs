@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
 
-use crate::netcode::MAX_PACKET_SIZE;
+use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet::{

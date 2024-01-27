@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind, ShouldBeInterpolated};
 use crate::channel::builder::Channel;
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, ShouldBePredicted, Tick};
 use crate::protocol::Protocol;

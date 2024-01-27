@@ -5,7 +5,7 @@ use crate::{Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::_reexport::LinearInterpolator;
-use lightyear::netcode::NetcodeServer;
+use lightyear::connection::netcode::NetcodeServer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;

@@ -14,7 +14,7 @@
 
  The three main components of the netcode protocol are:
  * Dedicated [`Servers`](Server).
- * [`Clients`](Client).
+ * [`Clients`](NetcodeClient).
  * The web backend - a service that authenticates clients and generates [`ConnectTokens`](ConnectToken).
 
  The protocol does not specify how the web backend should be implemented, but it should probably be a typical HTTPS server
@@ -123,7 +123,7 @@ loop {
 ```
 */
 
-pub use client::{Client, ClientConfig, ClientState};
+pub use client::{Client, ClientConfig, ClientState, NetcodeClient};
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
 pub use server::{Callback, ClientId, NetcodeServer, Server, ServerConfig};

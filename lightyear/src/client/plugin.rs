@@ -18,7 +18,7 @@ use crate::client::prediction::plugin::{is_connected, is_in_rollback, Prediction
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{receive, send, sync_update};
-use crate::netcode::CONNECT_TOKEN_BYTES;
+use crate::connection::netcode::CONNECT_TOKEN_BYTES;
 use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -35,18 +35,14 @@ use super::config::ClientConfig;
 
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
-    io: Io,
     protocol: P,
-    auth: Authentication,
 }
 
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, io: Io, protocol: P, auth: Authentication) -> Self {
+    pub fn new(client_config: ClientConfig, protocol: P) -> Self {
         PluginConfig {
             client_config,
-            io,
             protocol,
-            auth,
         }
     }
 }
@@ -65,80 +61,75 @@ impl<P: Protocol> ClientPlugin<P> {
     }
 }
 
-fn init_netcode(
-    world: &mut World,
-    // config: Res<ClientConfig>,
-    // auth: Res<Authentication>,
-    // mut io: ResMut<Io>,
-    // task_pool: Res<IoTaskPool>,
-) {
-    world.resource_scope(|world: &mut World, config: Mut<ClientConfig>| {
-        world.resource_scope(|world: &mut World, auth: Mut<Authentication>| {
-            world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
-                // TODO: remove clone
-                let token_bytes = match auth.clone() {
-                    // we want to request the token directly from the server using the secure io
-                    // TODO: check that io is secure
-                    Authentication::RequestConnectToken { server_addr } => {
-                        let request_token = [u8::MAX].as_slice();
-                        let mut connect_token_bytes = [0; CONNECT_TOKEN_BYTES];
-                        let mut first = false;
-                        let mut second = false;
-                        loop {
-                            // sending token request
-                            let _ = io.send(request_token, &server_addr).map_err(|e| {
-                                error!("could not send request for connect token: {:?}", e)
-                            });
-                            // receive
-                            info!("waiting for connect token response");
-                            if let Ok(Some((data, addr))) = io.recv() {
-                                info!("received data from server {:?}", data.len());
-                                if addr == server_addr && data.len() == 1000 {
-                                    // TODO: this is so bad it makes me want to cry
-                                    connect_token_bytes[..1000].copy_from_slice(data);
-                                    first = true;
-                                }
-                                if addr == server_addr && data.len() == 1048 {
-                                    connect_token_bytes[1000..].copy_from_slice(data);
-                                    second = true;
-                                }
-                                if first && second {
-                                    info!("Received connect token from server");
-                                    break;
-                                }
-                            }
-                        }
-                        connect_token_bytes
-                    }
-                    _ => {
-                        let token = auth
-                            .clone()
-                            .get_token(config.netcode.client_timeout_secs)
-                            .expect("could not generate token");
-                        token.try_into_bytes().unwrap()
-                    }
-                };
-                let netcode =
-                    crate::netcode::Client::with_config(&token_bytes, config.netcode.build())
-                        .unwrap();
-                world.insert_resource(netcode);
-            });
-        });
-    });
-}
+// fn init_netcode(
+//     world: &mut World,
+//     // config: Res<ClientConfig>,
+//     // auth: Res<Authentication>,
+//     // mut io: ResMut<Io>,
+//     // task_pool: Res<IoTaskPool>,
+// ) {
+//     world.resource_scope(|world: &mut World, config: Mut<ClientConfig>| {
+//         world.resource_scope(|world: &mut World, auth: Mut<Authentication>| {
+//             world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
+//                 // TODO: remove clone
+//                 let token_bytes = match auth.clone() {
+//                     // we want to request the token directly from the server using the secure io
+//                     // TODO: check that io is secure
+//                     Authentication::RequestConnectToken { server_addr } => {
+//                         let request_token = [u8::MAX].as_slice();
+//                         let mut connect_token_bytes = [0; CONNECT_TOKEN_BYTES];
+//                         let mut first = false;
+//                         let mut second = false;
+//                         loop {
+//                             // sending token request
+//                             let _ = io.send(request_token, &server_addr).map_err(|e| {
+//                                 error!("could not send request for connect token: {:?}", e)
+//                             });
+//                             // receive
+//                             info!("waiting for connect token response");
+//                             if let Ok(Some((data, addr))) = io.recv() {
+//                                 info!("received data from server {:?}", data.len());
+//                                 if addr == server_addr && data.len() == 1000 {
+//                                     // TODO: this is so bad it makes me want to cry
+//                                     connect_token_bytes[..1000].copy_from_slice(data);
+//                                     first = true;
+//                                 }
+//                                 if addr == server_addr && data.len() == 1048 {
+//                                     connect_token_bytes[1000..].copy_from_slice(data);
+//                                     second = true;
+//                                 }
+//                                 if first && second {
+//                                     info!("Received connect token from server");
+//                                     break;
+//                                 }
+//                             }
+//                         }
+//                         connect_token_bytes
+//                     }
+//                     _ => {
+//                         let token = auth
+//                             .clone()
+//                             .get_token(config.netcode.client_timeout_secs)
+//                             .expect("could not generate token");
+//                         token.try_into_bytes().unwrap()
+//                     }
+//                 };
+//                 let netcode = crate::connection::netcode::Client::with_config(
+//                     &token_bytes,
+//                     config.netcode.build(),
+//                 )
+//                 .unwrap();
+//                 world.insert_resource(netcode);
+//             });
+//         });
+//     });
+// }
 
 impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
 
-        let token = config
-            .auth
-            .get_token(config.client_config.netcode.client_timeout_secs)
-            .expect("could not generate token");
-        let token_bytes = token.try_into_bytes().unwrap();
-        let netcode =
-            crate::netcode::Client::with_config(&token_bytes, config.client_config.netcode.build())
-                .expect("could not create netcode client");
+        let netclient = config.client_config.net.get_client();
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
         let clean_interval = fixed_timestep * (i16::MAX as u32 / 3);
 
@@ -169,7 +160,6 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // RESOURCES //
             // .insert_resource(config.auth.clone())
             .insert_resource(config.client_config.clone())
-            .insert_resource(config.io)
             .insert_resource(netcode)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),

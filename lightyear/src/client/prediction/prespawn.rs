@@ -7,7 +7,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::despawn::PredictionDespawnCommand;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 use crate::prelude::{ShouldBePredicted, Tick, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};

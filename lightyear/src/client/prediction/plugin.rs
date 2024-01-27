@@ -23,6 +23,7 @@ use crate::client::prediction::prespawn::{
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::resource::Client;
+use crate::connection::client::ClientConnection;
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -153,7 +154,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Returns true if the client is connected
-pub fn is_connected(netclient: Res<crate::netcode::Client>) -> bool {
+pub fn is_connected(netclient: Res<ClientConnection>) -> bool {
     netclient.is_connected()
 }
 
