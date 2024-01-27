@@ -8,10 +8,10 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 
 ## Running the example
 
-To start the server, run `cargo run --example simple_box server`
+To start the server, run `cargo run -- server`
 
 Then you can launch multiple clients with the commands:
 
-- `cargo run --example simple_box client -c 1`
+- `cargo run -- client -c 1`
 
-- `cargo run --example simple_box client -c 2 --client-port 2000`
+- `cargo run -- client -c 2 --client-port 2000`

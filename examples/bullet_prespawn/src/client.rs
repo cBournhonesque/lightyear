@@ -46,7 +46,7 @@ impl Plugin for MyClientPlugin {
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::Webtransport => TransportConfig::WebTransportClient {
+            Transports::WebTransport => TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
             },
