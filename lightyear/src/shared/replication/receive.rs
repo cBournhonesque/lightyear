@@ -319,7 +319,9 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     if let Ok(mut local_entity) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
-                        for component in components {
+                        for mut component in components {
+                            // map any entities inside the component
+                            component.map_entities(Box::new(&self.remote_entity_map));
                             events.push_update_component(
                                 local_entity.id(),
                                 (&component).into(),
