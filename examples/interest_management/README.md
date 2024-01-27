@@ -11,7 +11,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-89
 
 ## Running the example
 
-To start the server, run `cargo run --example interest_management -- server`
+To start the server, run `cargo run  -- server`
 
 Then you can launch multiple clients with the commands:
 
@@ -31,7 +31,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/4ee0685b-0ac6-42c8-84
 
 To test the example in wasm, you can run the following commands:
 - `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
-- `cargo run --example interest_management --features webtransport -- server --transport web-transport` to start the server
+- `cargo run --features webtransport -- server --transport web-transport` to start the server
 - You will then need to copy the certificate digest string that is outputted by the server in the logs and paste it in the `examples/interest_management/client.rs` file.
   Replace the certificate value like so:
 ```

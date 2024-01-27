@@ -45,7 +45,7 @@ pub const KEY: Key = [0; 32];
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Transports {
     Udp,
-    Webtransport,
+    WebTransport,
 }
 
 #[derive(Parser, PartialEq, Debug)]

@@ -217,6 +217,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         // TODO: optimization: spawn the bundle of insert components
                         let local_entity = world.spawn_empty();
                         self.remote_entity_map.insert(*entity, local_entity.id());
+                        trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
                         events.push_spawn(local_entity.id());

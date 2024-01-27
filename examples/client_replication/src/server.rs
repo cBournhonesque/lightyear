@@ -26,7 +26,7 @@ impl Plugin for MyServerPlugin {
         };
         let transport = match self.transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::Webtransport => TransportConfig::WebTransportServer {
+            Transports::WebTransport => TransportConfig::WebTransportServer {
                 server_addr,
                 certificate: Certificate::self_signed(&["localhost"]),
             },
