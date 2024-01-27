@@ -32,7 +32,7 @@ webtransport = [
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
-rivet = ["dep:serde_json", "dep:reqwest"]
+rivet = ["dep:serde_json", "dep:reqwest", "dep:clap", "dep:axum"]
 
 [dependencies]
 # utils
@@ -98,6 +98,8 @@ bevy = { version = "0.12", default-features = false }
 # rivet
 serde_json = {  version = "1.0.108", optional = true }
 reqwest = { version = "0.11.23", features = ["blocking", "json"], optional = true }
+clap = { version = "4.4.18", features = ["derive"], optional = true }
+axum = { version = "0.7.1", optional = true }
 
 # transport
 [target."cfg(not(target_family = \"wasm\"))".dependencies]

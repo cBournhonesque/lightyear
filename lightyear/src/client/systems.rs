@@ -12,11 +12,11 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::resource::{Client, ClientMut};
-use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::tick_manager::TickEvent;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {

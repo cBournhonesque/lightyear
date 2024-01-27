@@ -5,6 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::netcode::token::ConnectTokenPrivate;
 use tracing::{debug, error, info, trace};
 
 use crate::serialize::reader::ReadBuffer;

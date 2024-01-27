@@ -1,6 +1,6 @@
 //! Wrapper around [`ConnectionEvents`] that adds client-specific functionality
 //!
-use crate::connection::events::ConnectionEvents;
+use crate::shared::events::ConnectionEvents;
 
 pub type ConnectEvent = crate::shared::events::ConnectEvent<()>;
 pub type DisconnectEvent = crate::shared::events::DisconnectEvent<()>;

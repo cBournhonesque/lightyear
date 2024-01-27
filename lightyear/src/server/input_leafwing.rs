@@ -4,7 +4,6 @@ use std::ops::DerefMut;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::connection::events::IterInputMessageEvent;
 use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::{MainSet, TickManager};
@@ -12,6 +11,7 @@ use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
 use crate::server::resource::Server;
+use crate::shared::events::IterInputMessageEvent;
 use crate::shared::sets::FixedUpdateSet;
 
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {

@@ -31,9 +31,6 @@ pub mod _reexport {
     pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
     pub use crate::client::prediction::add_prediction_systems;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
-    pub use crate::connection::events::{
-        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    };
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
         FromType,
@@ -47,6 +44,9 @@ pub mod _reexport {
     pub use crate::serialize::writer::WriteBuffer;
     pub use crate::shared::events::{
         ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    };
+    pub use crate::shared::events::{
+        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;

@@ -10,8 +10,7 @@ use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
-use crate::connection::events::ConnectionEvents;
-use crate::connection::message::{ClientMessage, ServerMessage};
+use crate::client::message::ClientMessage;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
@@ -21,6 +20,8 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::events::ServerEvents;
+use crate::server::message::ServerMessage;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};

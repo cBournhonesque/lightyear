@@ -8,15 +8,15 @@ use crate::_reexport::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 #[cfg(feature = "leafwing")]
-use crate::connection::events::IterInputMessageEvent;
-use crate::connection::events::{
-    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
-};
-#[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::netcode::ClientId;
 use crate::packet::message::Message;
 use crate::protocol::Protocol;
+#[cfg(feature = "leafwing")]
+use crate::shared::events::IterInputMessageEvent;
+use crate::shared::events::{
+    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
+};
 
 #[derive(Debug)]
 pub struct ServerEvents<P: Protocol> {

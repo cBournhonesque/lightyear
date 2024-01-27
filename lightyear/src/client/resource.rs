@@ -11,7 +11,6 @@ use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;
-use crate::connection::events::ConnectionEvents;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::netcode::{Client as NetcodeClient, ClientId};
 use crate::netcode::{ConnectToken, Key};
@@ -19,6 +18,7 @@ use crate::packet::message::Message;
 use crate::prelude::NetworkTarget;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::replication::components::Replicate;
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;

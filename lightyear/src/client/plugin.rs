@@ -18,12 +18,12 @@ use crate::client::prediction::plugin::{is_connected, is_in_rollback, Prediction
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
 use crate::client::systems::{receive, send, sync_update};
-use crate::connection::events::ConnectionEvents;
 use crate::netcode::CONNECT_TOKEN_BYTES;
 use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};

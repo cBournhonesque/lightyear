@@ -7,7 +7,6 @@ use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::resource::ClientMut;
-use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -16,6 +15,7 @@ use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::resource::{Server, ServerMut};
 use crate::server::room::RoomManager;
+use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {

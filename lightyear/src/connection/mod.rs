@@ -1,7 +1,6 @@
-/*!  A connection is a wrapper that lets us send message and apply replication
+/*!  A connection is an abstraction over an unreliable transport of a connection between a client and server
 */
-// only public for proc macro
-pub mod events;
-
-pub(crate) mod message;
-mod send;
+mod backend;
+mod client;
+mod rivet;
+mod server;

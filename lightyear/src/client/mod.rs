@@ -25,4 +25,5 @@ mod diagnostics;
 mod easings;
 #[cfg(feature = "leafwing")]
 pub mod input_leafwing;
+pub(crate) mod message;
 pub mod systems;
