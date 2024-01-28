@@ -43,9 +43,11 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
                                         time_manager.update(delta);
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
-                                        netcode
+                                        let _ = netcode
                                             .try_update(delta.as_secs_f64())
-                                            .unwrap();
+                                            .map_err(|e| {
+                                                error!("Error updating netcode: {}", e);
+                                            });
 
                                         // only start the connection (sending messages, sending pings, starting sync, etc.)
                                         // once we are connected
@@ -149,7 +151,9 @@ pub fn send<P: Protocol>(
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())
         .unwrap();
     for packet_byte in packet_bytes {
-        netcode.send(packet_byte.as_slice()).unwrap();
+        let _ = netcode.send(packet_byte.as_slice()).map_err(|e| {
+            error!("Error sending packet: {}", e);
+        });
     }
 
     // no need to clear the connection, because we already std::mem::take it

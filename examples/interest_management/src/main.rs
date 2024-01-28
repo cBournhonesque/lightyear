@@ -3,8 +3,8 @@
 #![allow(dead_code)]
 
 //! Run with
-//! - `cargo run --example interest_management -- server`
-//! - `cargo run --example interest_management -- client -c 1`
+//! - `cargo run -- server`
+//! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
 #[cfg(not(target_family = "wasm"))]

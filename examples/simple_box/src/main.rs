@@ -3,8 +3,8 @@
 #![allow(dead_code)]
 
 //! Run with
-//! - `cargo run --example simple_box -- server`
-//! - `cargo run --example simple_box -- client -c 1`
+//! - `cargo run -- server`
+//! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
 mod rivet;

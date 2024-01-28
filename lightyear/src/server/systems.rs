@@ -44,18 +44,23 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             connection_manager
                                                 .update(time_manager.as_ref(), tick_manager.as_ref());
 
-                                            // handle connection
-                                            for client_id in netcode.new_connections().iter().copied() {
-                                                // let client_addr = self.netcode.client_addr(client_id).unwrap();
-                                                // info!("New connection from {} (id: {})", client_addr, client_id);
-                                                connection_manager.add(client_id, &world.resource::<ServerConfig>().ping);
+                                                // handle connection
+                                                for client_id in netcode.new_connections().iter().copied() {
+                                                    // let client_addr = self.netcode.client_addr(client_id).unwrap();
+                                                    // info!("New connection from {} (id: {})", client_addr, client_id);
+                                                    connection_manager.add(client_id, &world.resource::<ServerConfig>().ping);
+                                                }
+
+                                                // handle disconnections
+                                                for client_id in netcode.new_disconnections().iter().copied() {
+                                                    connection_manager.remove(client_id);
+                                                    room_manager.client_disconnect(client_id);
+                                                };
                                             }
 
-                                            // handle disconnections
-                                            for client_id in netcode.new_disconnections().iter().copied() {
-                                                connection_manager.remove(client_id);
-                                                room_manager.client_disconnect(client_id);
-                                            };
+                                            // update connections
+                                            connection_manager
+                                                .update(time_manager.as_ref(), tick_manager.as_ref());
 
                                             // RECV_PACKETS: buffer packets into message managers
                                             while let Some((mut reader, client_id)) = netcode.recv() {

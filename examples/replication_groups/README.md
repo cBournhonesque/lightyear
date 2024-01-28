@@ -19,10 +19,10 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/e7625286-a167-4f50-aa
 
 ## Running the example
 
-To start the server, run `cargo run --example replication_groups server`
+To start the server, run `cargo run -- server`
 
 Then you can launch multiple clients with the commands:
 
-- `cargo run --example replication_groups client -c 1`
+- `cargo run -- client -c 1`
 
-- `cargo run --example replication_groups client -c 2 --client-port 2000`
+- `cargo run -- client -c 2 --client-port 2000`
