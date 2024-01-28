@@ -107,6 +107,7 @@ impl WebTransportServerSocket {
         to_client_channels.lock().unwrap().remove(&client_addr);
         from_client_handle.abort();
         to_client_handle.abort();
+        // TODO: need to disconnect the client in netcode
     }
 }
 
