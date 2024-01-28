@@ -8,7 +8,9 @@ use bevy::prelude::{
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
-use crate::client::interpolation::interpolate::{interpolate, update_interpolate_status};
+use crate::client::interpolation::interpolate::{
+    insert_interpolated_component, interpolate, update_interpolate_status,
+};
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -164,6 +166,9 @@ where
                 (
                     apply_confirmed_update_mode_full::<C, P>,
                     update_interpolate_status::<C, P>,
+                    // TODO: that means we could insert the component twice, here and then in interpolate...
+                    //  need to optimize this
+                    insert_interpolated_component::<C, P>,
                 )
                     .chain()
                     .in_set(InterpolationSet::PrepareInterpolation),
@@ -180,8 +185,8 @@ where
     }
 }
 
-// We add the interpolate system in different function because we don't want the non
-// ComponentSyncMode::Full components to need the InterpolatedComponent bounds
+// We add the interpolate system in different function because we might not want to add them
+// in case there is custom interpolation logic.
 pub fn add_interpolation_systems<C: Component + Clone, P: Protocol>(app: &mut App)
 where
     P::Components: SyncMetadata<C>,
