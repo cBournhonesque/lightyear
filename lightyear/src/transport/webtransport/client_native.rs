@@ -50,8 +50,6 @@ impl Transport for WebTransportClientSocket {
         );
         let endpoint = wtransport::Endpoint::client(config).unwrap();
 
-        let (send, recv) = tokio::sync::oneshot::channel();
-        let (send2, recv2) = tokio::sync::oneshot::channel();
         // native wtransport must run in a tokio runtime
         tokio::spawn(async move {
             let connection = endpoint
@@ -62,41 +60,46 @@ impl Transport for WebTransportClientSocket {
                 })
                 .unwrap();
             let connection = Arc::new(connection);
-            send.send(connection.clone()).unwrap();
-            send2.send(connection.clone()).unwrap();
-        });
-        // NOTE (IMPORTANT!):
-        // - we spawn two different futures for receive and send datagrams
-        // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
-        // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
-        //   to poll the existing one. This is FAULTY behaviour
-        // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
-        //   cancelled
-        tokio::spawn(async move {
-            let connection = recv.await.expect("could not get connection");
-            loop {
-                match connection.receive_datagram().await {
-                    Ok(data) => {
-                        trace!("receive datagram from server: {:?}", &data);
-                        from_server_sender.send(data).unwrap();
-                    }
-                    Err(e) => {
-                        error!("receive_datagram connection error: {:?}", e);
+
+            // NOTE (IMPORTANT!):
+            // - we spawn two different futures for receive and send datagrams
+            // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
+            // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
+            //   to poll the existing one. This is FAULTY behaviour
+            // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
+            //   cancelled
+            let connection_recv = connection.clone();
+            let recv_handle = tokio::spawn(async move {
+                loop {
+                    match connection_recv.receive_datagram().await {
+                        Ok(data) => {
+                            trace!("receive datagram from server: {:?}", &data);
+                            from_server_sender.send(data).unwrap();
+                        }
+                        Err(e) => {
+                            error!("receive_datagram connection error: {:?}", e);
+                        }
                     }
                 }
-            }
-        });
-        tokio::spawn(async move {
-            let connection = recv2.await.expect("could not get connection");
-            loop {
-                if let Some(msg) = to_server_receiver.recv().await {
-                    trace!("send datagram to server: {:?}", &msg);
-                    connection.send_datagram(msg).unwrap_or_else(|e| {
-                        error!("send_datagram error: {:?}", e);
-                    });
+            });
+            let connection_send = connection.clone();
+            let send_handle = tokio::spawn(async move {
+                loop {
+                    if let Some(msg) = to_server_receiver.recv().await {
+                        trace!("send datagram to server: {:?}", &msg);
+                        connection_send.send_datagram(msg).unwrap_or_else(|e| {
+                            error!("send_datagram error: {:?}", e);
+                        });
+                    }
                 }
-            }
+            });
+
+            connection.closed().await;
+            info!("WebTransport connection closed.");
+            recv_handle.abort();
+            send_handle.abort();
         });
+
         let packet_sender = WebTransportClientPacketSender { to_server_sender };
         let packet_receiver = WebTransportClientPacketReceiver {
             server_addr,

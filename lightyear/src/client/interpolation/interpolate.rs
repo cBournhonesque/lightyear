@@ -1,6 +1,6 @@
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::{Commands, Component, Entity, Mut, Query, Res, ResMut};
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
@@ -200,6 +200,7 @@ pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
     };
 
     for (entity, component, status) in query.iter_mut() {
+        trace!("checking if we do interpolation");
         let entity_commands = commands.entity(entity);
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
