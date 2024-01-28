@@ -50,6 +50,7 @@ impl WebTransportServerSocket {
                 error!("failed to accept new client: {:?}", e);
             })
             .unwrap();
+        let connection = std::sync::Arc::new(connection);
         let client_addr = connection.remote_address();
 
         info!(
@@ -65,37 +66,47 @@ impl WebTransportServerSocket {
             .insert(client_addr, to_client_sender);
 
         // connection established, waiting for data from client
-        loop {
-            tokio::select! {
+        let connection_recv = connection.clone();
+        let from_client_handle = tokio::spawn(async move {
+            loop {
                 // receive messages from client
-                x = connection.receive_datagram() => {
-                    match x {
-                        Ok(data) => {
-                            trace!("received datagram from client!: {:?} {:?}", &data, data.len());
-                            from_client_sender.send((data, client_addr)).unwrap();
-                        }
-                        Err(e) => {
-                            error!("receive_datagram connection error: {:?}", e);
-                            // to_client_channels.lock().unwrap().remove(&client_addr);
-                            // break;
-                        }
+                match connection_recv.receive_datagram().await {
+                    Ok(data) => {
+                        trace!(
+                            "received datagram from client!: {:?} {:?}",
+                            &data,
+                            data.len()
+                        );
+                        from_client_sender.send((data, client_addr)).unwrap();
+                    }
+                    Err(e) => {
+                        error!("receive_datagram connection error: {:?}", e);
+                        // to_client_channels.lock().unwrap().remove(&client_addr);
+                        // break;
                     }
                 }
-                // send messages to client
-                Some(msg) = to_client_receiver.recv() => {
+            }
+        });
+        let connection_send = connection.clone();
+        let to_client_handle = tokio::spawn(async move {
+            loop {
+                if let Some(msg) = to_client_receiver.recv().await {
                     trace!("sending datagram to client!: {:?}", &msg);
-                    connection.send_datagram(msg.as_ref()).unwrap_or_else(|e| {
-                        error!("send_datagram error: {:?}", e);
-                    });
-                }
-                // client disconnected
-                _ = connection.closed() => {
-                    info!("Connection closed");
-                    to_client_channels.lock().unwrap().remove(&client_addr);
-                    return;
+                    connection_send
+                        .send_datagram(msg.as_ref())
+                        .unwrap_or_else(|e| {
+                            error!("send_datagram error: {:?}", e);
+                        });
                 }
             }
-        }
+        });
+
+        // await for the quip connection to be closed for any reason
+        connection.closed().await;
+        info!("Connection closed");
+        to_client_channels.lock().unwrap().remove(&client_addr);
+        from_client_handle.abort();
+        to_client_handle.abort();
     }
 }
 

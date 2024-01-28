@@ -6,7 +6,7 @@ use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 
 // Player
 #[derive(Bundle)]
@@ -34,9 +34,9 @@ impl PlayerBundle {
             color: PlayerColor(color),
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(vec![id]),
+                prediction_target: NetworkTarget::Single(id),
                 // interpolation_target: NetworkTarget::None,
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                interpolation_target: NetworkTarget::AllExceptSingle(id),
                 // this is the default: the replication group id is a u64 value generated from the entity (`entity.to_bits()`)
                 replication_group: ReplicationGroup::FromEntity,
                 ..default()
@@ -57,9 +57,9 @@ impl TailBundle {
             length: TailLength(length),
             replicate: Replicate {
                 // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(vec![id]),
+                prediction_target: NetworkTarget::Single(id),
                 // interpolation_target: NetworkTarget::None,
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
+                interpolation_target: NetworkTarget::AllExceptSingle(id),
                 // replicate this entity within the same replication group as the parent
                 replication_group: ReplicationGroup::Group(parent.to_bits()),
                 ..default()
@@ -187,9 +187,9 @@ pub struct PlayerParent(pub(crate) Entity);
 
 impl<'a> MapEntities<'a> for PlayerParent {
     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        info!("mapping parent entity {:?}", self.0);
+        debug!("mapping parent entity {:?}", self.0);
         self.0.map_entities(entity_mapper);
-        info!("After mapping: {:?}", self.0);
+        debug!("After mapping: {:?}", self.0);
     }
 
     fn entities(&self) -> EntityHashSet<Entity> {
