@@ -86,7 +86,6 @@ pub(crate) fn create_plugin(
             auth,
             config: NetcodeConfig::default(),
         },
-        #[cfg(feature = "lightyear/rivet")]
         Connections::Rivet => NetConfig::Rivet {
             config: NetcodeConfig::default(),
         },

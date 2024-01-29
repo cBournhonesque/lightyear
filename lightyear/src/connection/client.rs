@@ -7,6 +7,7 @@ use crate::connection::netcode::ClientId;
 use crate::prelude::client::Authentication;
 use anyhow::Result;
 use bevy::prelude::Resource;
+use tracing::info;
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {

@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Connections, Transports, KEY, PROTOCOL_ID};
+use crate::{Connections, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::prelude::server::*;
@@ -16,7 +16,7 @@ pub struct MyServerPlugin {
 impl MyServerPlugin {
     pub fn build(self, app: &mut App) {
         app.add_plugins(self.plugin);
-        app.add_plugins(shared::SharedPlugin);
+        app.add_plugins(crate::shared::SharedPlugin);
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
@@ -28,8 +28,7 @@ impl MyServerPlugin {
 
         // tell rivet that the server is ready
         // TODO: this should be done by the server plugin!
-        #[cfg(feature = "lightyear/rivet")]
-        crate::rivet::server::lobby_ready().expect("rivet::lobby_ready");
+        lightyear::connection::rivet::matchmaker::lobby_ready().expect("rivet::lobby_ready");
     }
 }
 
@@ -59,11 +58,10 @@ pub(crate) fn create_plugin(
         Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
     let netconfig = match connection {
         Connections::Netcode => NetConfig::Netcode {
-            config: NetcodeConfig::default(),
+            config: netcode_config,
         },
-        #[cfg(feature = "lightyear/rivet")]
         Connections::Rivet => NetConfig::Rivet {
-            config: NetcodeConfig::default(),
+            config: netcode_config,
         },
     };
     let config = ServerConfig {

@@ -8,7 +8,6 @@
 mod client;
 mod protocol;
 
-#[cfg(feature = "lightyear/rivet")]
 mod rivet;
 mod server;
 mod shared;
@@ -56,7 +55,6 @@ pub enum Transports {
 pub enum Connections {
     /// the default connection type: the netcode protocol
     Netcode,
-    #[cfg(feature = "lightyear/rivet")]
     /// the connection will talk to the rivet service to find the server
     Rivet,
 }
