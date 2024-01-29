@@ -1,4 +1,2 @@
-#![cfg(feature = "rivet")]
-
-pub(crate) mod client;
-pub(crate) mod server;
+#![cfg(feature = "lightyear/rivet")]
+mod backend;

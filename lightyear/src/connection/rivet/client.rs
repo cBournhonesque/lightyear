@@ -5,13 +5,18 @@
 //! 2. call the backend to get a connect token
 //! 3. connect to the dedicated server using netcode with the connect token
 
-use crate::_reexport::ReadWordBuffer;
-use crate::client::config::{ClientConfig, NetcodeConfig};
-use crate::connection::client::NetClient;
-use crate::connection::netcode::{Client, ClientId, ConnectToken, NetcodeClient};
-use crate::connection::rivet::matchmaker;
-use crate::prelude::{Io, IoConfig};
 use std::net::SocketAddr;
+use std::str::FromStr;
+
+use anyhow::Context;
+use tracing::info;
+
+use crate::_reexport::ReadWordBuffer;
+use crate::client::config::NetcodeConfig;
+use crate::connection::client::NetClient;
+use crate::connection::netcode::{Client, ClientId, NetcodeClient};
+use crate::connection::rivet::matchmaker;
+use crate::prelude::Io;
 
 /// Wrapper around the netcode client that uses Rivet to get the server address
 /// and calls a http backend server to get a `ConnectToken`
@@ -25,11 +30,15 @@ impl NetClient for RivetClient {
     fn connect(&mut self) -> anyhow::Result<()> {
         // 1. call the Rivet matchmaker to get a player token, and the server and backend's address
         let rivet_server_data = matchmaker::find_lobby()?;
-        println!("rivet_server_data: {:?}", rivet_server_data);
+        info!("rivet_server_data: {:?}", rivet_server_data);
 
-        let backend_host = rivet_server_data["backend"]["host"].as_str()?;
-        let backend_port = rivet_server_data["backend"]["port"].as_u64()? as u16;
-        let backend_addr = SocketAddr::new(backend_host.into(), backend_port);
+        let backend_host = rivet_server_data["backend"]["host"]
+            .as_str()
+            .context("could not parse the backend host")?;
+        let backend_port = rivet_server_data["backend"]["port"]
+            .as_u64()
+            .context("could not parse the backend port")? as u16;
+        let backend_addr = SocketAddr::from_str(&*format!("{}:{}", backend_host, backend_port))?;
 
         // 2. call the backend to get a connect token
         let client = reqwest::blocking::Client::new();
@@ -44,44 +53,47 @@ impl NetClient for RivetClient {
         let netcode_client =
             NetcodeClient::with_config(token_bytes.as_ref(), self.netcode_config.build())?;
         let io = std::mem::take(&mut self.io).unwrap();
-        self.netcode_client = Some(Client {
+        let mut netcode_client = Client {
             client: netcode_client,
             io,
-        });
+        };
 
         // 4. connect to the dedicated server
-        self.netcode_client.unwrap().connect()
+        netcode_client.connect()?;
+        self.netcode_client = Some(netcode_client);
+
+        Ok(())
     }
 
     fn is_connected(&self) -> bool {
-        self.netcode_client.unwrap().is_connected()
+        self.netcode_client.as_ref().unwrap().is_connected()
     }
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
-        self.netcode_client.unwrap().try_update(delta_ms)
+        self.netcode_client.as_mut().unwrap().try_update(delta_ms)
     }
 
     fn recv(&mut self) -> Option<ReadWordBuffer> {
-        self.netcode_client.unwrap().recv()
+        self.netcode_client.as_mut().unwrap().recv()
     }
 
     fn send(&mut self, buf: &[u8]) -> anyhow::Result<()> {
-        self.netcode_client.unwrap().send(buf)
+        self.netcode_client.as_mut().unwrap().send(buf)
     }
 
     fn id(&self) -> ClientId {
-        self.netcode_client.unwrap().id()
+        self.netcode_client.as_ref().unwrap().id()
     }
 
     fn local_addr(&self) -> SocketAddr {
-        self.io.unwrap().local_addr()
+        self.io.as_ref().unwrap().local_addr()
     }
 
     fn io(&self) -> &Io {
-        &self.io.unwrap()
+        self.io.as_ref().unwrap()
     }
 
     fn io_mut(&mut self) -> &mut Io {
-        &mut self.io.unwrap()
+        self.io.as_mut().unwrap()
     }
 }

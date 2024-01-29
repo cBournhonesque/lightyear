@@ -52,8 +52,6 @@ pub struct Client<'w, 's, P: Protocol> {
 
 #[derive(SystemParam)]
 pub struct ClientMut<'w, 's, P: Protocol> {
-    // Io
-    pub(crate) io: ResMut<'w, Io>,
     //config
     config: ResMut<'w, ClientConfig>,
     // netcode

@@ -1,7 +1,7 @@
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{Transports, KEY, PROTOCOL_ID};
+use crate::{Connections, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::prelude::client::*;
@@ -9,70 +9,25 @@ use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
-#[derive(Resource, Clone)]
 pub struct MyClientPlugin {
     pub(crate) client_id: ClientId,
-    pub(crate) auth: Authentication,
-    pub(crate) transport_config: TransportConfig,
+    pub(crate) plugin: ClientPlugin<MyProtocol>,
 }
 
-pub(crate) fn create_plugin(
-    client_id: u64,
-    client_port: u16,
-    server_addr: SocketAddr,
-    transport: Transports,
-) -> MyClientPlugin {
-    let rivet_lobby_data = crate::rivet::client::find_lobby().expect("rivet::find_lobby");
-    dbg!("rivet_lobby_data: {:?}", rivet_lobby_data);
-    let player_token = &rivet_lobby_data["player"]["token"];
-
-    let auth = Authentication::Manual {
-        server_addr,
-        client_id,
-        private_key: KEY,
-        protocol_id: PROTOCOL_ID,
-    };
-
-    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-    let certificate_digest =
-        String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819");
-    let transport_config = match transport {
-        #[cfg(not(target_family = "wasm"))]
-        Transports::Udp => TransportConfig::UdpSocket(client_addr),
-        Transports::WebTransport => TransportConfig::WebTransportClient {
-            client_addr,
-            server_addr,
-            #[cfg(target_family = "wasm")]
-            certificate_digest,
-        },
-    };
-
-    MyClientPlugin {
-        client_id,
-        auth,
-        transport_config,
-    }
+/// Resource that keeps track of the client id
+#[derive(Resource)]
+pub struct ClientIdResource {
+    client_id: ClientId,
 }
 
-impl Plugin for MyClientPlugin {
-    fn build(&self, app: &mut App) {
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
-        };
-        let io = Io::from_config(
-            IoConfig::from_transport(self.transport_config.clone())
-                .with_conditioner(link_conditioner),
-        );
-        let config = ClientConfig {
-            shared: shared_config().clone(),
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, io, protocol(), self.auth.clone());
-        app.add_plugins(ClientPlugin::new(plugin_config));
+impl MyClientPlugin {
+    /// Add all the plugins that make up the Client
+    pub(crate) fn build(self, app: &mut App) {
+        app.add_plugins(self.plugin);
         app.add_plugins(crate::shared::SharedPlugin);
-        app.insert_resource(self.clone());
+        app.insert_resource(ClientIdResource {
+            client_id: self.client_id,
+        });
         app.add_systems(Startup, init);
         app.add_systems(
             FixedUpdate,
@@ -92,8 +47,61 @@ impl Plugin for MyClientPlugin {
     }
 }
 
+pub(crate) fn create_plugin(
+    client_id: u64,
+    client_port: u16,
+    server_addr: SocketAddr,
+    transport: Transports,
+    connection: Connections,
+) -> MyClientPlugin {
+    let auth = Authentication::Manual {
+        server_addr,
+        client_id,
+        private_key: KEY,
+        protocol_id: PROTOCOL_ID,
+    };
+    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+    let certificate_digest =
+        String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819");
+    let transport_config = match transport {
+        #[cfg(not(target_family = "wasm"))]
+        Transports::Udp => TransportConfig::UdpSocket(client_addr),
+        Transports::WebTransport => TransportConfig::WebTransportClient {
+            client_addr,
+            server_addr,
+            #[cfg(target_family = "wasm")]
+            certificate_digest,
+        },
+    };
+    let link_conditioner = LinkConditionerConfig {
+        incoming_latency: Duration::from_millis(200),
+        incoming_jitter: Duration::from_millis(20),
+        incoming_loss: 0.05,
+    };
+    let io = Io::from_config(
+        IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+    );
+    let netconfig = match connection {
+        Connections::Netcode => NetConfig::Netcode {
+            auth,
+            config: NetcodeConfig::default(),
+        },
+        #[cfg(feature = "lightyear/rivet")]
+        Connections::Rivet => NetConfig::Rivet {
+            config: NetcodeConfig::default(),
+        },
+    };
+    let config = ClientConfig {
+        shared: shared_config().clone(),
+        net: netconfig,
+        ..default()
+    };
+    let plugin = ClientPlugin::new(PluginConfig::new(config, io, protocol()));
+    MyClientPlugin { client_id, plugin }
+}
+
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<ClientIdResource>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         format!("Client {}", plugin.client_id),
@@ -103,8 +111,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<My
             ..default()
         },
     ));
-    client.connect();
-    // client.set_base_relative_speed(0.001);
+    let _ = client.connect();
 }
 
 // System that reads from peripherals and adds inputs to the buffer

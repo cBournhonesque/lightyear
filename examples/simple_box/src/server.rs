@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, Connections, Transports, KEY, PROTOCOL_ID};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::prelude::server::*;
@@ -9,38 +9,13 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
 pub struct MyServerPlugin {
-    pub(crate) headless: bool,
-    pub(crate) port: u16,
-    pub(crate) transport: Transports,
+    headless: bool,
+    plugin: ServerPlugin<MyProtocol>,
 }
 
-impl Plugin for MyServerPlugin {
-    fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.port);
-        let netcode_config = NetcodeConfig::default()
-            .with_protocol_id(PROTOCOL_ID)
-            .with_key(KEY);
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
-        };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::WebTransport => TransportConfig::WebTransportServer {
-                server_addr,
-                certificate: Certificate::self_signed(&["localhost"]),
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
-        let config = ServerConfig {
-            shared: shared_config().clone(),
-            netcode: netcode_config,
-            ping: PingConfig::default(),
-        };
-        let plugin_config = PluginConfig::new(config, io, protocol());
-        app.add_plugins(server::ServerPlugin::new(plugin_config));
+impl MyServerPlugin {
+    pub fn build(self, app: &mut App) {
+        app.add_plugins(self.plugin);
         app.add_plugins(shared::SharedPlugin);
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
@@ -50,6 +25,56 @@ impl Plugin for MyServerPlugin {
             app.add_systems(Update, send_message);
         }
         app.add_systems(Update, handle_connections);
+
+        // tell rivet that the server is ready
+        // TODO: this should be done by the server plugin!
+        #[cfg(feature = "lightyear/rivet")]
+        crate::rivet::server::lobby_ready().expect("rivet::lobby_ready");
+    }
+}
+
+pub(crate) fn create_plugin(
+    headless: bool,
+    port: u16,
+    transport: Transports,
+    connection: Connections,
+) -> MyServerPlugin {
+    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
+    let netcode_config = NetcodeConfig::default()
+        .with_protocol_id(PROTOCOL_ID)
+        .with_key(KEY);
+    let link_conditioner = LinkConditionerConfig {
+        incoming_latency: Duration::from_millis(200),
+        incoming_jitter: Duration::from_millis(20),
+        incoming_loss: 0.05,
+    };
+    let transport = match transport {
+        Transports::Udp => TransportConfig::UdpSocket(server_addr),
+        Transports::WebTransport => TransportConfig::WebTransportServer {
+            server_addr,
+            certificate: Certificate::self_signed(&["localhost"]),
+        },
+    };
+    let io =
+        Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+    let netconfig = match connection {
+        Connections::Netcode => NetConfig::Netcode {
+            config: NetcodeConfig::default(),
+        },
+        #[cfg(feature = "lightyear/rivet")]
+        Connections::Rivet => NetConfig::Rivet {
+            config: NetcodeConfig::default(),
+        },
+    };
+    let config = ServerConfig {
+        shared: shared_config().clone(),
+        net: netconfig,
+        ..default()
+    };
+    let plugin_config = PluginConfig::new(config, io, protocol());
+    MyServerPlugin {
+        headless,
+        plugin: ServerPlugin::new(plugin_config),
     }
 }
 

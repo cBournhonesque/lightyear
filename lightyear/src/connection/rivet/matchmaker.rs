@@ -1,11 +1,11 @@
 //! Helper functions used by the server to interact with the Rivet API.
 use serde_json::{json, Value};
 
-fn endpoint() -> String {
+pub fn endpoint() -> String {
     std::env::var("RIVET_API_ENDPOINT").expect("missing RIVET_API_ENDPOINT")
 }
 
-fn token() -> String {
+pub fn token() -> String {
     std::env::var("RIVET_TOKEN").expect("missing RIVET_TOKEN")
 }
 

@@ -7,6 +7,8 @@
 //! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
+
+#[cfg(feature = "lightyear/rivet")]
 mod rivet;
 mod server;
 mod shared;
@@ -49,6 +51,16 @@ pub enum Transports {
     WebTransport,
 }
 
+/// The type of the connection
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum Connections {
+    /// the default connection type: the netcode protocol
+    Netcode,
+    #[cfg(feature = "lightyear/rivet")]
+    /// the connection will talk to the rivet service to find the server
+    Rivet,
+}
+
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
     SinglePlayer,
@@ -61,6 +73,9 @@ enum Cli {
 
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
+
+        #[arg(long, value_enum, default_value_t = Connections::Netcode)]
+        connection: Connections,
 
         #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
         transport: Transports,
@@ -81,6 +96,9 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
+        #[arg(long, value_enum, default_value_t = Connections::Netcode)]
+        connection: Connections,
+
         #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
         transport: Transports,
     },
@@ -93,13 +111,10 @@ fn setup(app: &mut App, cli: Cli) {
             headless,
             inspector,
             port,
+            connection,
             transport,
         } => {
-            let server_plugin = MyServerPlugin {
-                headless,
-                port,
-                transport,
-            };
+            let server_plugin = server::create_plugin(headless, port, transport, connection);
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
@@ -108,11 +123,7 @@ fn setup(app: &mut App, cli: Cli) {
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            app.add_plugins(server_plugin);
-
-            // tell rivet that the server is ready
-            #[cfg(feature = "rivet")]
-            crate::rivet::server::lobby_ready().expect("rivet::lobby_ready");
+            server_plugin.build(app);
         }
         Cli::Client {
             inspector,
@@ -120,17 +131,18 @@ fn setup(app: &mut App, cli: Cli) {
             client_port,
             server_addr,
             server_port,
+            connection,
             transport,
         } => {
             let server_addr = SocketAddr::new(server_addr.into(), server_port);
             let client_plugin =
-                client::create_plugin(client_id, client_port, server_addr, transport);
+                client::create_plugin(client_id, client_port, server_addr, transport, connection);
 
             app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            app.add_plugins(client_plugin);
+            client_plugin.build(app);
         }
     }
 }

@@ -127,6 +127,8 @@ impl<P: Protocol> ClientPlugin<P> {
 //     });
 // }
 
+// TODO: override `ready` and `finish` to make sure that the transport/backend is connected
+//  before the plugin is ready
 impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
