@@ -23,8 +23,6 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/ee547c32-1f14-4bdc-9e
 
 ### Running in wasm
 
-https://github.com/cBournhonesque/lightyear/assets/8112632/4ee0685b-0ac6-42c8-849a-28896a158508
-
 NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
 
 To test the example in wasm, you can run the following commands:

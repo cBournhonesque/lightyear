@@ -50,12 +50,11 @@ jobs:
         run: |
           tar \
           --dereference --hard-dereference \
-          -cvf "$RUNNER_TEMP/artifact.tar" \
-          book/book \
-          examples/bullet_prespawn/dist \
           --exclude=.git \
           --exclude=.github \
-          .
+          -cvf "$RUNNER_TEMP/artifact.tar" \
+          book/book \
+          examples/bullet_prespawn/dist
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
