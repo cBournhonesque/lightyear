@@ -3,9 +3,9 @@ on:
   push:
     paths:
       - "book/**"
-      # - "examples/**"
+      - "examples/**"
     branches:
-      - main
+      - website
 
 jobs:
   deploy:
@@ -33,13 +33,33 @@ jobs:
         run: |
           cd book
           mdbook build
+          cd ..
+      - name: Install trunk
+        run: |
+          cargo install --git https://github.com/trunk-rs/trunk trunk
+      - name: Build Examples
+        run: |
+          cd examples/bullet_prespawn
+          trunk build --release
+          cd ../..
       - name: Setup Pages
         uses: actions/configure-pages@v4
+      - name: Tar artifact
+        shell: sh
+        run: |
+          tar \
+          --dereference --hard-dereference \
+          -cvf "$RUNNER_TEMP/artifact.tar" \
+          book/book \
+          examples/bullet_prespawn/dist \
+          --exclude=.git \
+          --exclude=.github \
+          .
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          # Upload entire repository
-          path: book
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
