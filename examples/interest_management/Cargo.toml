@@ -46,22 +46,7 @@ tokio = { version = "1.34", features = [
 ]}
 
 [target."cfg(target_family = \"wasm\")".dependencies]
-console_error_panic_hook = { version = "0.1.7" }
-ring = { version = "0.16", optional = true }
-web-sys = { version = "0.3", features = [
-  "console",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-] }
 # tokio multi-threaded runtime is not supported on wasm
 tokio = { version = "1.34", features = [
   "rt",
 ]}
-wasm-bindgen-test = "0.3.39"

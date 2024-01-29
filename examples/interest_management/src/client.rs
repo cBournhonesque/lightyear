@@ -9,7 +9,6 @@ use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 use lightyear::_reexport::ShouldBeInterpolated;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::Certificate;
 use lightyear::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
@@ -36,6 +35,7 @@ impl ClientPluginGroup {
         let certificate_digest =
             String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
                 .replace(":", "");
+        println!("certificate digest: {:?}", certificate_digest);
         let transport_config = match transport {
             #[cfg(not(target_family = "wasm"))]
             Transports::Udp => TransportConfig::UdpSocket(client_addr),
@@ -92,14 +92,14 @@ pub struct ExampleClientPlugin {
 }
 
 #[derive(Resource)]
-pub struct ClientIdResource {
+pub struct Global {
     client_id: ClientId,
 }
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionState<Inputs>>();
-        app.insert_resource(ClientIdResource {
+        app.insert_resource(Global {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
@@ -117,10 +117,10 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<ClientIdResource>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
-        format!("Client {}", plugin.client_id),
+        format!("Client {}", global.client_id),
         TextStyle {
             font_size: 30.0,
             color: Color::WHITE,

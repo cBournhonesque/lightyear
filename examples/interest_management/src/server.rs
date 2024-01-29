@@ -36,7 +36,7 @@ impl ServerPluginGroup {
                         .await
                         .unwrap();
                 let digest = certificate.hashes()[0].fmt_as_dotted_hex();
-                dbg!(
+                println!(
                     "Generated self-signed certificate with digest: {:?}",
                     digest
                 );
