@@ -1,7 +1,10 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-
+//! Example showcasing interest-management: only the entities that are in the same room as the player are sent to the client.
+//!
+//! This example is compatible with WASM.
+//!
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
@@ -22,9 +25,9 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use crate::client::MyClientPlugin;
+use crate::client::ClientPluginGroup;
 #[cfg(not(target_family = "wasm"))]
-use crate::server::MyServerPlugin;
+use crate::server::ServerPluginGroup;
 use lightyear::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
@@ -59,7 +62,6 @@ cfg_if::cfg_if! {
             setup(&mut app, cli).await;
             app.run();
         }
-
     }
 }
 
@@ -125,7 +127,7 @@ async fn setup(app: &mut App, cli: Cli) {
             port,
             transport,
         } => {
-            let server_plugin = server::create_plugin(port, transport).await;
+            let server_plugin_group = ServerPluginGroup::new(port, transport).await;
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
@@ -134,7 +136,7 @@ async fn setup(app: &mut App, cli: Cli) {
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            app.add_plugins(server_plugin);
+            app.add_plugins(server_plugin_group.build());
         }
         Cli::Client { .. } => {
             setup_client(app, cli);
@@ -155,7 +157,8 @@ fn setup_client(app: &mut App, cli: Cli) {
         return;
     };
     let server_addr = SocketAddr::new(server_addr.into(), server_port);
-    let client_plugin = client::create_plugin(client_id, client_port, server_addr, transport);
+    let client_plugin_group =
+        ClientPluginGroup::new(client_id, client_port, server_addr, transport);
 
     // use the default bevy logger for now
     // (the lightyear logger doesn't handle wasm)
@@ -167,5 +170,5 @@ fn setup_client(app: &mut App, cli: Cli) {
     if inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
-    app.add_plugins(client_plugin);
+    app.add_plugins(client_plugin_group.build());
 }

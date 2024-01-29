@@ -14,7 +14,6 @@ publish = false
 
 [features]
 metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-webtransport = ["lightyear/webtransport", "dep:tokio"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
@@ -44,7 +43,7 @@ tokio = { version = "1.34", features = [
   "rt-multi-thread",
   "net",
   "time",
-], optional = true }
+]}
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7" }
@@ -64,7 +63,5 @@ web-sys = { version = "0.3", features = [
 # tokio multi-threaded runtime is not supported on wasm
 tokio = { version = "1.34", features = [
   "rt",
-  #  "net",
-  #  "time",
-], optional = true }
+]}
 wasm-bindgen-test = "0.3.39"

@@ -7,10 +7,12 @@
 //! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
+
+#[cfg(not(target_family = "wasm"))]
 mod server;
 mod shared;
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
 use bevy::log::LogPlugin;
@@ -21,8 +23,9 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use crate::client::MyClientPlugin;
-use crate::server::MyServerPlugin;
+use crate::client::ClientPluginGroup;
+#[cfg(not(target_family = "wasm"))]
+use crate::server::ServerPluginGroup;
 use lightyear::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
@@ -30,7 +33,7 @@ use lightyear::prelude::TransportConfig;
 async fn main() {
     let cli = Cli::parse();
     let mut app = App::new();
-    setup(&mut app, cli);
+    setup(&mut app, cli).await;
 
     app.run();
 }
@@ -44,6 +47,7 @@ pub const KEY: Key = [0; 32];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Transports {
+    #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport,
 }
@@ -51,6 +55,7 @@ pub enum Transports {
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
     SinglePlayer,
+    #[cfg(not(target_family = "wasm"))]
     Server {
         #[arg(long, default_value = "false")]
         headless: bool,
@@ -61,7 +66,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
     Client {
@@ -69,7 +74,7 @@ enum Cli {
         inspector: bool,
 
         #[arg(short, long, default_value_t = 0)]
-        client_id: u16,
+        client_id: u64,
 
         #[arg(long, default_value_t = CLIENT_PORT)]
         client_port: u16,
@@ -80,25 +85,22 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
 }
 
-fn setup(app: &mut App, cli: Cli) {
+async fn setup(app: &mut App, cli: Cli) {
     match cli {
         Cli::SinglePlayer => {}
+        #[cfg(not(target_family = "wasm"))]
         Cli::Server {
             headless,
             inspector,
             port,
             transport,
         } => {
-            let server_plugin = MyServerPlugin {
-                headless,
-                port,
-                transport,
-            };
+            let server_plugin_group = ServerPluginGroup::new(port, transport, headless).await;
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
@@ -107,7 +109,7 @@ fn setup(app: &mut App, cli: Cli) {
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            app.add_plugins(server_plugin);
+            app.add_plugins(server_plugin_group.build());
         }
         Cli::Client {
             inspector,
@@ -117,18 +119,14 @@ fn setup(app: &mut App, cli: Cli) {
             server_port,
             transport,
         } => {
-            let client_plugin = MyClientPlugin {
-                client_id: client_id as ClientId,
-                client_port,
-                server_addr,
-                server_port,
-                transport,
-            };
+            let server_addr = SocketAddr::new(server_addr.into(), server_port);
+            let client_plugin_group =
+                ClientPluginGroup::new(client_id, client_port, server_addr, transport);
             app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            app.add_plugins(client_plugin);
+            app.add_plugins(client_plugin_group.build());
         }
     }
 }
