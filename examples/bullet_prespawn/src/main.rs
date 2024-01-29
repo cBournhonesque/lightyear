@@ -31,7 +31,7 @@ use lightyear::prelude::TransportConfig;
 pub const CLIENT_PORT: u16 = 0;
 pub const SERVER_PORT: u16 = 5000;
 pub const PROTOCOL_ID: u64 = 0;
-pub const DEMO_SERVER_ADDR: Ipv4Addr = Ipv4Addr::from_str("212.2.246.18").unwrap();
+pub const DEMO_SERVER_ADDR: Ipv4Addr = Ipv4Addr::new(212, 2, 246, 18);
 
 pub const KEY: Key = [0; 32];
 
