@@ -9,6 +9,7 @@ use axum::routing::post;
 use axum::{response::IntoResponse, Router};
 use axum_macros::debug_handler;
 use clap::Parser;
+use tower::ServiceExt;
 use tracing::{error, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::EnvFilter;
@@ -28,10 +29,10 @@ pub const CLIENT_TIMEOUT_SECS: i32 = 10;
 impl RivetBackend {
     pub async fn serve(&self) {
         // build our application with a route
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::INFO)
-            .init();
-        let args = Args::parse();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
+        // let args = Args::parse();
 
         // let app = Router::new().route(
         //     "/connect",
@@ -42,7 +43,7 @@ impl RivetBackend {
         // );
         let app = Router::new().route("/connect", post(connect));
         // run it
-        let backend_addr = format!("0.0.0.0:{:?}", args.port);
+        let backend_addr = format!("0.0.0.0:{:?}", 4000);
         info!("Starting backend at: {:?}", backend_addr);
         let listener = tokio::net::TcpListener::bind(backend_addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
@@ -137,7 +138,6 @@ struct Args {
 async fn connect(
     Json(payload): Json<serde_json::Value>,
 ) -> Result<(StatusCode, [u8; CONNECT_TOKEN_BYTES]), AppError> {
-    // ) -> anyhow::Result<(StatusCode, [u8; CONNECT_TOKEN_BYTES])> {
     info!(?payload, "Received connection request from client!");
     // get the player token
     let player_token = payload["player"]["token"]
@@ -145,11 +145,13 @@ async fn connect(
         .context("could not find player token")?;
 
     // call the matchmaker to verify the player token
-    let _ = matchmaker::player_connected(player_token.to_string()).map_err(|e| {
-        error!("Error connecting player: {}", e);
-        // invalid player token
-        e
-    })?;
+    let _ = matchmaker::player_connected(player_token.to_string())
+        .await
+        .map_err(|e| {
+            error!("Error connecting player: {}", e);
+            // invalid player token
+            e
+        })?;
 
     let server_host = payload["ports"]["http"]["host"]
         .as_str()

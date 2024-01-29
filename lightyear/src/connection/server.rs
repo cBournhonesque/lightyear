@@ -1,12 +1,16 @@
 use crate::_reexport::ReadWordBuffer;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::netcode::ClientId;
+use crate::connection::rivet::backend::RivetBackend;
 use crate::prelude::Io;
 use crate::server::config::NetcodeConfig;
 use anyhow::Result;
 use bevy::prelude::Resource;
 
 pub trait NetServer: Send + Sync {
+    /// Start the server
+    fn start(&mut self);
+
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
 
@@ -66,6 +70,7 @@ impl NetConfig {
             NetConfig::Rivet { config } => {
                 let server = super::rivet::server::RivetServer {
                     netcode_server: super::netcode::Server::new(config, io),
+                    backend: Some(RivetBackend),
                 };
                 ServerConnection {
                     server: Box::new(server),
@@ -76,6 +81,10 @@ impl NetConfig {
 }
 
 impl NetServer for ServerConnection {
+    fn start(&mut self) {
+        self.server.start()
+    }
+
     fn connected_client_ids(&self) -> Vec<ClientId> {
         self.server.connected_client_ids()
     }

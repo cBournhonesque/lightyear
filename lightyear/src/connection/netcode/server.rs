@@ -1017,6 +1017,8 @@ pub struct Server {
 }
 
 impl NetServer for Server {
+    fn start(&mut self) {}
+
     fn connected_client_ids(&self) -> Vec<ClientId> {
         self.server.connected_client_ids()
     }

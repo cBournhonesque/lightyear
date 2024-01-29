@@ -7,8 +7,6 @@
 //! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
-
-mod rivet;
 mod server;
 mod shared;
 

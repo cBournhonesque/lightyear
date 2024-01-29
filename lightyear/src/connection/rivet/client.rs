@@ -28,41 +28,50 @@ pub struct RivetClient {
 
 impl NetClient for RivetClient {
     fn connect(&mut self) -> anyhow::Result<()> {
-        // 1. call the Rivet matchmaker to get a player token, and the server and backend's address
-        let rivet_server_data = matchmaker::find_lobby()?;
-        info!("rivet_server_data: {:?}", rivet_server_data);
+        // SAFETY: this is safe because the task pool has already been initialized in the TaskPoolPlugin
+        let mut task = bevy::tasks::IoTaskPool::get().scope(|scope| {
+            scope.spawn(async move {
+                // 1. call the Rivet matchmaker to get a player token, and the server and backend's address
+                let rivet_server_data = matchmaker::find_lobby().await?;
+                info!("rivet_server_data: {:?}", rivet_server_data);
 
-        let backend_host = rivet_server_data["backend"]["host"]
-            .as_str()
-            .context("could not parse the backend host")?;
-        let backend_port = rivet_server_data["backend"]["port"]
-            .as_u64()
-            .context("could not parse the backend port")? as u16;
-        let backend_addr = SocketAddr::from_str(&*format!("{}:{}", backend_host, backend_port))?;
+                let backend_host = rivet_server_data["backend"]["host"]
+                    .as_str()
+                    .context("could not parse the backend host")?;
+                let backend_port = rivet_server_data["backend"]["port"]
+                    .as_u64()
+                    .context("could not parse the backend port")?
+                    as u16;
+                let backend_addr =
+                    SocketAddr::from_str(&*format!("{}:{}", backend_host, backend_port))?;
 
-        // 2. call the backend to get a connect token
-        let client = reqwest::blocking::Client::new();
-        let token_bytes = client
-            .post(format!("{}/connect", backend_addr.to_string()))
-            .json(&rivet_server_data)
-            .send()?
-            .error_for_status()?
-            .bytes()?;
+                // 2. call the backend to get a connect token
+                let client = reqwest::Client::new();
+                let token_bytes = client
+                    .post(format!("{}/connect", backend_addr.to_string()))
+                    .json(&rivet_server_data)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .bytes()
+                    .await?;
 
-        // 3. create a Netcode client from the connect token
-        let netcode_client =
-            NetcodeClient::with_config(token_bytes.as_ref(), self.netcode_config.build())?;
-        let io = std::mem::take(&mut self.io).unwrap();
-        let mut netcode_client = Client {
-            client: netcode_client,
-            io,
-        };
+                // 3. create a Netcode client from the connect token
+                let netcode_client =
+                    NetcodeClient::with_config(token_bytes.as_ref(), self.netcode_config.build())?;
+                let io = std::mem::take(&mut self.io).unwrap();
+                let mut netcode_client = Client {
+                    client: netcode_client,
+                    io,
+                };
 
-        // 4. connect to the dedicated server
-        netcode_client.connect()?;
-        self.netcode_client = Some(netcode_client);
-
-        Ok(())
+                // 4. connect to the dedicated server
+                netcode_client.connect()?;
+                self.netcode_client = Some(netcode_client);
+                Ok(())
+            });
+        });
+        task.pop().unwrap()
     }
 
     fn is_connected(&self) -> bool {

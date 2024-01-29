@@ -13,7 +13,7 @@ WORKDIR /app/examples/simple_box
 #     cargo build --release
 # COPY src ./src
 # RUN touch src/main.rs && cargo build --release && cargo build --features lightyear/rivet --release --bin rivet_backend
-RUN cargo build --release && cargo build --features lightyear/rivet --release --bin rivet_backend
+RUN cargo build --release
 
 # expose udp port for server
 EXPOSE 5000/udp
@@ -21,6 +21,6 @@ EXPOSE 5000/udp
 EXPOSE 4000/tcp
 
 FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libssl-dev ca-certificates
 COPY --from=builder /app/target/release/simple_box /usr/local/bin/simple_box
-CMD ["simple_box -- server & rivet_backend"]
+CMD ["simple_box -- server --connection=rivet"]

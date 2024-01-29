@@ -25,10 +25,6 @@ impl MyServerPlugin {
             app.add_systems(Update, send_message);
         }
         app.add_systems(Update, handle_connections);
-
-        // tell rivet that the server is ready
-        // TODO: this should be done by the server plugin!
-        lightyear::connection::rivet::matchmaker::lobby_ready().expect("rivet::lobby_ready");
     }
 }
 
