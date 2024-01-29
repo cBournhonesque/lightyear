@@ -1,7 +1,10 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-
+//! Example showcasing interest-management: only the entities that are in the same room as the player are sent to the client.
+//!
+//! This example is compatible with WASM.
+//!
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
@@ -20,48 +23,12 @@ use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::fmt::format::FmtSpan;
 
-use crate::client::MyClientPlugin;
+use crate::client::ClientPluginGroup;
 #[cfg(not(target_family = "wasm"))]
-use crate::server::MyServerPlugin;
+use crate::server::ServerPluginGroup;
 use lightyear::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
-
-#[cfg(target_family = "wasm")]
-use wasm_bindgen_test::*;
-#[cfg(target_family = "wasm")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-cfg_if::cfg_if! {
-    if #[cfg(target_family = "wasm")] {
-        #[wasm_bindgen_test]
-        fn wasm_client() {
-            // NOTE: clap argument parsing does not work on WASM
-            let client_id = rand::random::<u64>();
-            let cli = Cli::Client {
-                inspector: false,
-                client_id,
-                client_port: CLIENT_PORT,
-                server_addr: Ipv4Addr::LOCALHOST,
-                server_port: SERVER_PORT,
-                transport: Transports::WebTransport,
-            };
-            let mut app = App::new();
-            setup_client(&mut app, cli);
-            app.run();
-        }
-    } else {
-        #[tokio::main]
-        async fn main() {
-            let cli = Cli::parse();
-            let mut app = App::new();
-            setup(&mut app, cli).await;
-            app.run();
-        }
-
-    }
-}
 
 // Use a port of 0 to automatically select a port
 pub const CLIENT_PORT: u16 = 0;
@@ -90,7 +57,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
     Client {
@@ -109,10 +76,37 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
-        #[cfg_attr(not(target_family = "wasm"), arg(short, long, value_enum, default_value_t = Transports::Udp))]
-        #[cfg_attr(target_family = "wasm", arg(short, long, value_enum, default_value_t = Transports::WebTransport))]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(target_family = "wasm")] {
+        fn main() {
+            // NOTE: clap argument parsing does not work on WASM
+            let client_id = rand::random::<u64>();
+            let cli = Cli::Client {
+                inspector: false,
+                client_id,
+                client_port: CLIENT_PORT,
+                server_addr: Ipv4Addr::LOCALHOST,
+                server_port: SERVER_PORT,
+                transport: Transports::WebTransport,
+            };
+            let mut app = App::new();
+            setup_client(&mut app, cli);
+            app.run();
+        }
+    } else {
+        #[tokio::main]
+        async fn main() {
+            let cli = Cli::parse();
+            let mut app = App::new();
+            setup(&mut app, cli).await;
+            app.run();
+        }
+    }
 }
 
 // the function is async because the server needs to load the certificates from a file
@@ -125,7 +119,7 @@ async fn setup(app: &mut App, cli: Cli) {
             port,
             transport,
         } => {
-            let server_plugin = server::create_plugin(port, transport).await;
+            let server_plugin_group = ServerPluginGroup::new(port, transport).await;
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
@@ -134,7 +128,7 @@ async fn setup(app: &mut App, cli: Cli) {
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            app.add_plugins(server_plugin);
+            app.add_plugins(server_plugin_group.build());
         }
         Cli::Client { .. } => {
             setup_client(app, cli);
@@ -154,9 +148,7 @@ fn setup_client(app: &mut App, cli: Cli) {
     else {
         return;
     };
-    let server_addr = SocketAddr::new(server_addr.into(), server_port);
-    let client_plugin = client::create_plugin(client_id, client_port, server_addr, transport);
-
+    // NOTE: create the default plugins first so that the async task pools are initialized
     // use the default bevy logger for now
     // (the lightyear logger doesn't handle wasm)
     app.add_plugins(DefaultPlugins.set(LogPlugin {
@@ -167,5 +159,8 @@ fn setup_client(app: &mut App, cli: Cli) {
     if inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
-    app.add_plugins(client_plugin);
+    let server_addr = SocketAddr::new(server_addr.into(), server_port);
+    let client_plugin_group =
+        ClientPluginGroup::new(client_id, client_port, server_addr, transport);
+    app.add_plugins(client_plugin_group.build());
 }

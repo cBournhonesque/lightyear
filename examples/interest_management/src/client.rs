@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{Transports, KEY, PROTOCOL_ID};
+use crate::{shared, Cli, Transports, KEY, PROTOCOL_ID};
+use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -12,80 +13,95 @@ use lightyear::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
-#[derive(Resource, Clone)]
-pub struct MyClientPlugin {
-    pub(crate) client_id: ClientId,
-    pub(crate) auth: Authentication,
-    pub(crate) transport_config: TransportConfig,
+pub struct ClientPluginGroup {
+    client_id: ClientId,
+    lightyear: ClientPlugin<MyProtocol>,
 }
 
-pub(crate) fn create_plugin(
-    client_id: u64,
-    client_port: u16,
-    server_addr: SocketAddr,
-    transport: Transports,
-) -> MyClientPlugin {
-    let auth = Authentication::Manual {
-        server_addr,
-        client_id,
-        private_key: KEY,
-        protocol_id: PROTOCOL_ID,
-    };
-    // let auth = Authentication::RequestConnectToken { server_addr };
-    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-    let certificate_digest =
-        String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819");
-    let transport_config = match transport {
-        #[cfg(not(target_family = "wasm"))]
-        Transports::Udp => TransportConfig::UdpSocket(client_addr),
-        Transports::WebTransport => TransportConfig::WebTransportClient {
-            client_addr,
+impl ClientPluginGroup {
+    pub(crate) fn new(
+        client_id: u64,
+        client_port: u16,
+        server_addr: SocketAddr,
+        transport: Transports,
+    ) -> ClientPluginGroup {
+        let auth = Authentication::Manual {
             server_addr,
-            #[cfg(target_family = "wasm")]
-            certificate_digest,
-        },
-    };
-
-    MyClientPlugin {
-        client_id,
-        auth,
-        transport_config,
-    }
-}
-
-impl Plugin for MyClientPlugin {
-    fn build(&self, app: &mut App) {
+            client_id,
+            private_key: KEY,
+            protocol_id: PROTOCOL_ID,
+        };
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+        let certificate_digest =
+            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+                .replace(":", "");
+        println!("certificate digest: {:?}", certificate_digest);
+        let transport_config = match transport {
+            #[cfg(not(target_family = "wasm"))]
+            Transports::Udp => TransportConfig::UdpSocket(client_addr),
+            Transports::WebTransport => TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                #[cfg(target_family = "wasm")]
+                certificate_digest,
+            },
+        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.00,
         };
         let io = Io::from_config(
-            IoConfig::from_transport(self.transport_config.clone())
-                .with_conditioner(link_conditioner),
+            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
         );
         let config = ClientConfig {
-            shared: shared_config().clone(),
+            shared: shared_config(),
             input: InputConfig::default(),
             netcode: Default::default(),
             ping: PingConfig::default(),
             sync: SyncConfig::default(),
             prediction: PredictionConfig::default(),
-            // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default().with_delay(
                 InterpolationDelay::default()
                     .with_min_delay(Duration::from_millis(50))
                     .with_send_interval_ratio(2.0),
             ),
-            // .with_delay(InterpolationDelay::Ratio(2.0)),
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), self.auth.clone());
-        app.add_plugins(ClientPlugin::new(plugin_config));
-        app.add_plugins(crate::shared::SharedPlugin);
-        // input-handling plugin from leafwing
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
+        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        ClientPluginGroup {
+            client_id,
+            lightyear: ClientPlugin::new(plugin_config),
+        }
+    }
+}
+
+impl PluginGroup for ClientPluginGroup {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(self.lightyear)
+            .add(ExampleClientPlugin {
+                client_id: self.client_id,
+            })
+            .add(shared::SharedPlugin)
+            .add(LeafwingInputPlugin::<MyProtocol, Inputs>::default())
+    }
+}
+
+pub struct ExampleClientPlugin {
+    client_id: ClientId,
+}
+
+#[derive(Resource)]
+pub struct Global {
+    client_id: ClientId,
+}
+
+impl Plugin for ExampleClientPlugin {
+    fn build(&self, app: &mut App) {
         app.init_resource::<ActionState<Inputs>>();
-        app.insert_resource(self.clone());
+        app.insert_resource(Global {
+            client_id: self.client_id,
+        });
         app.add_systems(Startup, init);
         app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
         app.add_systems(
@@ -101,10 +117,10 @@ impl Plugin for MyClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
-        format!("Client {}", plugin.client_id),
+        format!("Client {}", global.client_id),
         TextStyle {
             font_size: 30.0,
             color: Color::WHITE,
