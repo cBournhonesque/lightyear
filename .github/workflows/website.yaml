@@ -39,6 +39,7 @@ jobs:
           cargo install --git https://github.com/trunk-rs/trunk trunk
       - name: Build Examples
         run: |
+          rustup target add wasm32-unknown-unknown
           cd examples/bullet_prespawn
           trunk build --release
           cd ../..
