@@ -29,7 +29,7 @@ use lightyear::prelude::TransportConfig;
 
 // Use a port of 0 to automatically select a port
 pub const CLIENT_PORT: u16 = 0;
-pub const SERVER_PORT: u16 = 5000;
+pub const SERVER_PORT: u16 = 4001;
 pub const PROTOCOL_ID: u64 = 0;
 
 pub const KEY: Key = [0; 32];

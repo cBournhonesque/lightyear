@@ -1,3 +1,3 @@
 [build]
 release = true
-public_url = "lightyear/examples/leafwing_inputs/dist/"
+public_url = "/lightyear/examples/leafwing_inputs/dist/"
