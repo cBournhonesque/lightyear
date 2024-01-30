@@ -93,7 +93,7 @@ impl Plugin for ExampleServerPlugin {
 
 #[derive(Resource, Default)]
 pub(crate) struct Global {
-    pub client_id_to_entity_id: HashMap<ClientId, Entity>,
+    pub client_id_to_entity_id: HashMap<ClientId, (Entity, Entity)>,
 }
 
 pub(crate) fn init(mut commands: Commands) {
@@ -130,22 +130,25 @@ pub(crate) fn handle_connections(
             ))
             .id();
         let tail_length = 300.0;
-        let tail_entity = commands.spawn(TailBundle::new(
-            *client_id,
-            player_entity,
-            player_position,
-            tail_length,
-        ));
+        let tail_entity = commands
+            .spawn(TailBundle::new(
+                *client_id,
+                player_entity,
+                player_position,
+                tail_length,
+            ))
+            .id();
         // Add a mapping from client id to entity id
         global
             .client_id_to_entity_id
-            .insert(*client_id, player_entity);
+            .insert(*client_id, (player_entity, tail_entity));
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
-        if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            // TODO: also despawn tail, maybe by emitting an event?
-            commands.entity(entity).despawn();
+        if let Some((player_entity, tail_entity)) = global.client_id_to_entity_id.remove(client_id)
+        {
+            commands.entity(player_entity).despawn();
+            commands.entity(tail_entity).despawn();
         }
     }
 }
@@ -166,7 +169,7 @@ pub(crate) fn movement(
                 client_id,
                 tick_manager.tick()
             );
-            if let Some(player_entity) = global.client_id_to_entity_id.get(client_id) {
+            if let Some((player_entity, _)) = global.client_id_to_entity_id.get(client_id) {
                 if let Ok(mut position) = position_query.get_mut(*player_entity) {
                     shared_movement_behaviour(&mut position, input);
                 }
