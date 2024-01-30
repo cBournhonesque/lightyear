@@ -53,8 +53,8 @@ jobs:
           --exclude=.git \
           --exclude=.github \
           -cvf "$RUNNER_TEMP/artifact.tar" \
-          book/book \
-          examples/bullet_prespawn/dist
+          ./book/book \
+          ./examples/bullet_prespawn/dist
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
