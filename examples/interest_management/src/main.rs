@@ -35,6 +35,8 @@ pub const CLIENT_PORT: u16 = 0;
 pub const SERVER_PORT: u16 = 4002;
 pub const PROTOCOL_ID: u64 = 0;
 
+pub const DEMO_SERVER_ADDR: Ipv4Addr = Ipv4Addr::new(212, 2, 246, 18);
+
 pub const KEY: Key = [0; 32];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -90,7 +92,7 @@ cfg_if::cfg_if! {
                 inspector: false,
                 client_id,
                 client_port: CLIENT_PORT,
-                server_addr: Ipv4Addr::LOCALHOST,
+                server_addr: DEMO_SERVER_ADDR,
                 server_port: SERVER_PORT,
                 transport: Transports::WebTransport,
             };
