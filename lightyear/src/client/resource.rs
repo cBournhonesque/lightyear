@@ -186,33 +186,6 @@ impl Authentication {
 }
 
 impl<'w, 's, P: Protocol> Client<'w, 's, P> {
-    // pub fn new(config: ClientConfig, io: Io, auth: Authentication, protocol: P) -> Self {
-    //     let config_clone = config.clone();
-    //     let token = auth
-    //         .get_token(config.netcode.client_timeout_secs)
-    //         .expect("could not generate token");
-    //     let token_bytes = token.try_into_bytes().unwrap();
-    //     let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
-    //         .expect("could not create netcode client");
-    //
-    //     let connection = Connection::new(
-    //         protocol.channel_registry(),
-    //         config.sync,
-    //         &config.ping,
-    //         config.prediction.input_delay_ticks,
-    //     );
-    //     Self {
-    //         io,
-    //         config: config_clone,
-    //         protocol,
-    //         netcode,
-    //         connection,
-    //         events: ConnectionEvents::new(),
-    //         time_manager: TimeManager::new(config.shared.client_send_interval),
-    //         tick_manager: TickManager::from_config(config.shared.tick),
-    //     }
-    // }
-
     pub fn config(&self) -> &ClientConfig {
         &self.config
     }
