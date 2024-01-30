@@ -43,6 +43,21 @@ jobs:
           cd examples/bullet_prespawn
           trunk build --release
           cd ../..
+          cd examples/client_replication
+          trunk build --release
+          cd ../..
+          cd examples/interest_management
+          trunk build --release
+          cd ../..
+          cd examples/leafwing_inputs
+          trunk build --release
+          cd ../..
+          cd examples/replication_groups
+          trunk build --release
+          cd ../..
+          cd examples/simple_box
+          trunk build --release
+          cd ../..
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Tar artifact
@@ -53,8 +68,8 @@ jobs:
           --exclude=.git \
           --exclude=.github \
           -cvf "$RUNNER_TEMP/artifact.tar" \
-          ./book/book \
-          ./examples/bullet_prespawn/dist
+          ./examples/**/dist \
+          -C book ./book
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
