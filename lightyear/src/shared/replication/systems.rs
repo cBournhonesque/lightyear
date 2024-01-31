@@ -7,7 +7,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, ResMut, Without,
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::_reexport::{FromType, ShouldBeInterpolated};
 use crate::prelude::{MainSet, NetworkTarget, ShouldBePredicted};
@@ -195,7 +195,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 
                 // only try to replicate if the replicate component was just added
                 if replicate.is_added() {
-                    trace!(?entity, "send entity spawn");
+                    debug!(?entity, "send entity spawn");
                     sender
                         .get_mut_replicate_component_cache()
                         .insert(entity, replicate.clone());

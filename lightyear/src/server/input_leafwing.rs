@@ -137,9 +137,9 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
                 // for pre-predicted entities, we already did the mapping on server side upon receiving the message
                 // for non-pre predicted entities, the mapping was already done on client side
                 InputTarget::Entity(entity) | InputTarget::PrePredictedEntity(entity) => {
-                    debug!("received input for entity: {:?}", entity);
+                    info!("received input for entity: {:?}", entity);
                     if let Ok(mut buffer) = query.get_mut(entity) {
-                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
+                        info!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
                         buffer.update_from_message(message.end_tick, diffs);
                     } else {
                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs

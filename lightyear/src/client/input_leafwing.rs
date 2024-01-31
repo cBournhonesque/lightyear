@@ -144,6 +144,7 @@ where
             (
                 MainSet::Sync,
                 // handle tick events from sync before sending the message
+                // because sending the message might also modify the tick (when popping to interpolation tick)
                 InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
                 InputSystemSet::SendInputMessage
                     .run_if(client_is_synced::<P>)
@@ -176,7 +177,8 @@ where
                 (
                     (
                         (write_action_diffs::<A>, buffer_action_state::<P, A>),
-                        // get the non-delayed action-state, for the user to act on the current tick's actions
+                        // get the action-state corresponding to the current tick (which we need to get from the buffer
+                        //  because it was added to the buffer input_delay ticks ago)
                         get_non_rollback_action_state::<A>.run_if(is_input_delay),
                     )
                         .chain()
@@ -217,8 +219,7 @@ where
         app.add_systems(
             PostUpdate,
             (
-                receive_tick_events::<A>
-                    .in_set(crate::client::input::InputSystemSet::ReceiveTickEvents),
+                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
                 prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
                 add_action_state_buffer_added_input_map::<A>,
             ),
@@ -452,7 +453,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
     for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
             if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
-                debug!(?entity, ?tick, ?delay, "write action diff");
+                trace!(?entity, ?tick, ?delay, "write action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         } else {
@@ -510,8 +511,9 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     for (entity, predicted, mut action_diff_buffer, pre_predicted) in
         action_diff_buffer_query.iter_mut()
     {
-        trace!(
+        info!(
             ?tick,
+            ?interpolation_tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
             action_diff_buffer.as_ref()
@@ -524,9 +526,9 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         //   on their end?
 
         if pre_predicted.is_some() {
-            debug!(
-                "sending inputs for pre-predicted entity! Local client entity: {:?}",
-                entity
+            info!(
+                ?tick,
+                "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
             );
             // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
             //  to receive the inputs until it receives the pre-predicted spawn message.
@@ -590,7 +592,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        debug!(
+        info!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
@@ -615,6 +617,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
     mut action_diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
     mut input_buffer_query: Query<&mut InputBuffer<A>>,
 ) {
+    info!("receive tick event");
     for tick_event in tick_events.read() {
         match tick_event {
             TickEvent::TickSnap { old_tick, new_tick } => {
@@ -639,7 +642,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
                 for mut action_diff_buffer in action_diff_buffer_query.iter_mut() {
                     if let Some(start_tick) = action_diff_buffer.start_tick {
                         action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        debug!(
+                        info!(
                             "Receive tick snap event {:?}. Updating action diff buffer start_tick to {:?}!",
                             tick_event, action_diff_buffer.start_tick
                         );
@@ -648,7 +651,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
                 for mut input_buffer in input_buffer_query.iter_mut() {
                     if let Some(start_tick) = input_buffer.start_tick {
                         input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        debug!(
+                        info!(
                             "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                             tick_event, input_buffer.start_tick
                         );

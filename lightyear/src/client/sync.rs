@@ -516,7 +516,7 @@ impl SyncManager {
         let delta_tick = client_ideal_tick - tick_manager.tick();
         // Update client ticks
         if rtt != Duration::default() {
-            debug!(
+            info!(
                 buffer_len = ?ping_manager.sync_stats.len(),
                 ?rtt,
                 ?jitter,

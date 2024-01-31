@@ -118,6 +118,12 @@ pub struct ClientIdResource {
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         // To send global inputs, insert the ActionState and the InputMap as Resources
+        app.edit_schedule(Main, |schedule| {
+            schedule.set_build_settings(ScheduleBuildSettings {
+                ambiguity_detection: LogLevel::Warn,
+                ..default()
+            });
+        });
         app.init_resource::<ActionState<AdminActions>>();
         app.insert_resource(InputMap::<AdminActions>::new([
             (KeyCode::M, AdminActions::SendMessage),
@@ -157,6 +163,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
         }),
     );
     let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
+    info!("spawn pre-predicted player");
     commands.spawn(PlayerBundle::new(
         plugin.client_id,
         Vec2::new(-50.0, y),

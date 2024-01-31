@@ -17,6 +17,8 @@ use tracing::Level;
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
+const EPS: f32 = 0.0001;
+
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
         enable_replication: true,
@@ -133,7 +135,10 @@ pub(crate) fn shared_player_movement(
     // warn!(?mouse_position);
     let angle =
         Vec2::new(0.0, 1.0).angle_between(mouse_position - transform.translation.truncate());
-    transform.rotation = Quat::from_rotation_z(angle);
+    // careful to only activate change detection if there was an actual change
+    if (angle - transform.rotation.to_euler(EulerRot::XYZ).2).abs() > EPS {
+        transform.rotation = Quat::from_rotation_z(angle);
+    }
     // TODO: look_at should work
     // transform.look_at(Vec3::new(mouse_position.x, mouse_position.y, 0.0), Vec3::Y);
     if action.pressed(PlayerActions::Up) {

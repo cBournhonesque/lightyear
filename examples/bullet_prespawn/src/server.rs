@@ -158,16 +158,15 @@ pub(crate) fn replicate_players(
                 prediction_target: NetworkTarget::Single(*client_id),
                 // we want the other clients to apply interpolation for the player
                 interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
-                // make sure that all entities that are predicted are part of the same replication group
-                replication_group: REPLICATION_GROUP,
+                // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
+                replication_group: ReplicationGroup::Group(*client_id),
                 ..default()
             };
             // We don't want to replicate the ActionState to the original client, since they are updating it with
             // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
             // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExcept(vec![
-                *client_id,
-            ]));
+            // We also don't need the inputs of the other clients, because we are not predicting them
+            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::None);
             e.insert(replicate);
         }
     }
