@@ -511,7 +511,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     for (entity, predicted, mut action_diff_buffer, pre_predicted) in
         action_diff_buffer_query.iter_mut()
     {
-        info!(
+        debug!(
             ?tick,
             ?interpolation_tick,
             ?entity,
@@ -526,7 +526,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         //   on their end?
 
         if pre_predicted.is_some() {
-            info!(
+            debug!(
                 ?tick,
                 "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
             );
@@ -592,7 +592,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     // TODO: should we provide variants of each user-facing function, so that it pushes the error
     //  to the ConnectionEvents?
     if !message.is_empty() {
-        info!(
+        debug!(
             action = ?A::short_type_path(),
             ?tick,
             "sending input message: {:?}",
@@ -617,7 +617,6 @@ fn receive_tick_events<A: LeafwingUserAction>(
     mut action_diff_buffer_query: Query<&mut ActionDiffBuffer<A>>,
     mut input_buffer_query: Query<&mut InputBuffer<A>>,
 ) {
-    info!("receive tick event");
     for tick_event in tick_events.read() {
         match tick_event {
             TickEvent::TickSnap { old_tick, new_tick } => {
@@ -642,7 +641,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
                 for mut action_diff_buffer in action_diff_buffer_query.iter_mut() {
                     if let Some(start_tick) = action_diff_buffer.start_tick {
                         action_diff_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        info!(
+                        debug!(
                             "Receive tick snap event {:?}. Updating action diff buffer start_tick to {:?}!",
                             tick_event, action_diff_buffer.start_tick
                         );
@@ -651,7 +650,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
                 for mut input_buffer in input_buffer_query.iter_mut() {
                     if let Some(start_tick) = input_buffer.start_tick {
                         input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
-                        info!(
+                        debug!(
                             "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                             tick_event, input_buffer.start_tick
                         );

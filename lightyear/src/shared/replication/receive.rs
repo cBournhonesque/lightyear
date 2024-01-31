@@ -53,7 +53,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         message: ReplicationMessage<P::Components, P::ComponentKinds>,
         remote_tick: Tick,
     ) {
-        info!(?message, ?remote_tick, "Received replication message");
+        debug!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
             ReplicationMessageData::Actions(m) => {
@@ -196,7 +196,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
             ReplicationMessageData::Actions(m) => {
-                info!(?tick, ?m, "Received replication actions");
+                debug!(?tick, ?m, "Received replication actions");
                 // NOTE: order matters here, because some components can depend on other entities.
                 // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
                 // Our solution is to first handle spawn for all entities separately.

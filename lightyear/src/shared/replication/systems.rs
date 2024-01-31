@@ -195,7 +195,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 
                 // only try to replicate if the replicate component was just added
                 if replicate.is_added() {
-                    debug!(?entity, "send entity spawn");
+                    trace!(?entity, "send entity spawn");
                     sender
                         .get_mut_replicate_component_cache()
                         .insert(entity, replicate.clone());
