@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use crate::shared::shared_config;
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use bevy::app::PluginGroupBuilder;
 use bevy::ecs::archetype::Archetype;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
@@ -11,34 +12,44 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::time::Duration;
 
-pub struct MyServerPlugin {
-    pub(crate) port: u16,
-    pub(crate) transport: Transports,
+// Plugin group to add all server-related plugins
+pub struct ServerPluginGroup {
+    pub(crate) lightyear: ServerPlugin<MyProtocol>,
 }
 
-const GRID_SIZE: f32 = 20.0;
-const NUM_CIRCLES: i32 = 10;
-
-impl Plugin for MyServerPlugin {
-    fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.port);
-        let netcode_config = NetcodeConfig::default()
-            .with_protocol_id(PROTOCOL_ID)
-            .with_key(KEY);
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.00,
-        };
-        let transport = match self.transport {
+impl ServerPluginGroup {
+    pub(crate) async fn new(port: u16, transport: Transports) -> ServerPluginGroup {
+        // Step 1: create the io (transport + link conditioner)
+        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
+        let transport_config = match transport {
             Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::Webtransport => TransportConfig::WebTransportServer {
-                server_addr,
-                certificate: Certificate::self_signed(&["localhost"]),
-            },
+            // if using webtransport, we load the certificate keys
+            Transports::WebTransport => {
+                let certificate =
+                    Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
+                        .await
+                        .unwrap();
+                let digest = certificate.hashes()[0].fmt_as_dotted_hex();
+                dbg!(
+                    "Generated self-signed certificate with digest: {:?}",
+                    digest
+                );
+                TransportConfig::WebTransportServer {
+                    server_addr,
+                    certificate,
+                }
+            }
         };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(200),
+            incoming_jitter: Duration::from_millis(40),
+            incoming_loss: 0.05,
+        };
+        let io = Io::from_config(
+            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+        );
+
+        // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
             packet: PacketConfig::default()
@@ -46,12 +57,34 @@ impl Plugin for MyServerPlugin {
                 .enable_bandwidth_cap()
                 // we can set the max bandwidth to 56 KB/s
                 .with_send_bandwidth_bytes_per_second_cap(56000),
-            netcode: netcode_config,
-            ..default()
+            netcode: NetcodeConfig::default()
+                .with_protocol_id(PROTOCOL_ID)
+                .with_key(KEY),
+            ping: PingConfig::default(),
         };
+
+        // Step 3: create the plugin
         let plugin_config = PluginConfig::new(config, io, protocol());
-        app.add_plugins(ServerPlugin::new(plugin_config));
-        app.add_plugins(shared::SharedPlugin);
+        ServerPluginGroup {
+            lightyear: ServerPlugin::new(plugin_config),
+        }
+    }
+}
+
+impl PluginGroup for ServerPluginGroup {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(self.lightyear)
+            .add(ExampleServerPlugin)
+            .add(shared::SharedPlugin)
+    }
+}
+
+// Plugin for server-specific logic
+pub struct ExampleServerPlugin;
+
+impl Plugin for ExampleServerPlugin {
+    fn build(&self, app: &mut App) {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
@@ -62,6 +95,9 @@ impl Plugin for MyServerPlugin {
         );
     }
 }
+
+const GRID_SIZE: f32 = 20.0;
+const NUM_CIRCLES: i32 = 10;
 
 #[derive(Resource, Default)]
 pub(crate) struct Global {
