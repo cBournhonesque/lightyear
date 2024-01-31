@@ -398,9 +398,9 @@ mod tests {
         let manager = PacketBuilder::new();
         let mut packet = SinglePacket::new();
 
-        packet.add_message(0, SingleData::new(None, Bytes::from("hello")));
-        packet.add_message(0, SingleData::new(None, Bytes::from("world")));
-        packet.add_message(1, SingleData::new(None, Bytes::from("!")));
+        packet.add_message(0, SingleData::new(None, Bytes::from("hello"), 1.0));
+        packet.add_message(0, SingleData::new(None, Bytes::from("world"), 1.0));
+        packet.add_message(1, SingleData::new(None, Bytes::from("!"), 1.0));
 
         assert_eq!(packet.num_messages(), 3);
     }
@@ -412,9 +412,9 @@ mod tests {
         let mut packet = SinglePacket::new();
 
         let mut write_buffer = WriteWordBuffer::with_capacity(50);
-        let message1 = SingleData::new(None, Bytes::from("hello"));
-        let message2 = SingleData::new(None, Bytes::from("world"));
-        let message3 = SingleData::new(None, Bytes::from("!"));
+        let message1 = SingleData::new(None, Bytes::from("hello"), 1.0);
+        let message2 = SingleData::new(None, Bytes::from("world"), 1.0);
+        let message3 = SingleData::new(None, Bytes::from("!"), 1.0);
 
         packet.add_message(0, message1.clone());
         packet.add_message(0, message2.clone());
@@ -477,13 +477,14 @@ mod tests {
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
+            priority: 1.0,
         };
         let mut packet = FragmentedPacket::new(*channel_id, fragment.clone());
 
         let mut write_buffer = WriteWordBuffer::with_capacity(100);
-        let message1 = SingleData::new(None, Bytes::from("hello"));
-        let message2 = SingleData::new(None, Bytes::from("world"));
-        let message3 = SingleData::new(None, Bytes::from("!"));
+        let message1 = SingleData::new(None, Bytes::from("hello"), 1.0);
+        let message2 = SingleData::new(None, Bytes::from("world"), 1.0);
+        let message3 = SingleData::new(None, Bytes::from("!"), 1.0);
 
         packet.packet.add_message(0, message1.clone());
         packet.packet.add_message(0, message2.clone());
@@ -515,6 +516,7 @@ mod tests {
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
+            priority: 1.0,
         };
         let packet = FragmentedPacket::new(*channel_id, fragment.clone());
 

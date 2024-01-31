@@ -1,4 +1,5 @@
 use crate::_reexport::EntityUpdatesChannel;
+use crate::client::config::PacketConfig;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
 use crate::protocol::registry::NetId;
@@ -37,20 +38,20 @@ impl Default for PriorityConfig {
     }
 }
 
-impl Into<PriorityConfig> for crate::client::config::PacketConfig {
-    fn into(self) -> PriorityConfig {
-        PriorityConfig {
-            bandwidth_quota: self.send_bandwidth_cap,
-            enabled: self.bandwidth_cap_enabled,
+impl From<crate::client::config::PacketConfig> for PriorityConfig {
+    fn from(value: crate::client::config::PacketConfig) -> Self {
+        Self {
+            bandwidth_quota: value.send_bandwidth_cap,
+            enabled: value.bandwidth_cap_enabled,
         }
     }
 }
 
-impl Into<PriorityConfig> for crate::server::config::PacketConfig {
-    fn into(self) -> PriorityConfig {
-        PriorityConfig {
-            bandwidth_quota: self.per_client_send_bandwidth_cap,
-            enabled: self.bandwidth_cap_enabled,
+impl From<crate::server::config::PacketConfig> for PriorityConfig {
+    fn from(value: crate::server::config::PacketConfig) -> Self {
+        Self {
+            bandwidth_quota: value.per_client_send_bandwidth_cap,
+            enabled: value.bandwidth_cap_enabled,
         }
     }
 }

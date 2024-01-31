@@ -541,7 +541,8 @@ mod tests {
                         entity_3,
                         vec![MyComponentsProtocol::Component3(Component3(5.0))]
                     )],
-                })
+                }),
+                1.0
             )
         );
         assert_eq!(
