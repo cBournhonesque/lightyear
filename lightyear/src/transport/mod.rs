@@ -10,14 +10,18 @@ pub mod io;
 pub(crate) mod local;
 
 /// The transport is a UDP socket
+#[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
+
+#[cfg(target_family = "wasm")]
+mod certificate;
 
 /// The transport is a map of channels (used for server, during testing)
 pub(crate) mod channels;
 
 /// The transport is using WebTransport
 #[cfg(feature = "webtransport")]
-pub mod webtransport;
+pub(crate) mod webtransport;
 
 use std::io::Result;
 use std::net::SocketAddr;

@@ -423,7 +423,7 @@ impl GroupChannel {
         // the bevy_tick passed is either at receive or send, and is always more recent
         // than the previous bevy_tick
 
-        trace!(?bevy_tick, "Update acked update tick");
+        debug!(?bevy_tick, "Update acked update tick");
         // if bevy_tick is bigger than current tick, set current_tick to bevy_tick
         // if bevy_tick.is_newer_than(self.collect_changes_since_this_tick, BevyTick::MAX) {
         self.collect_changes_since_this_tick = Some(bevy_tick);

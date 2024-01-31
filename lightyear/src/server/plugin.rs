@@ -67,7 +67,10 @@ impl<P: Protocol> ServerPlugin<P> {
 impl<P: Protocol> PluginType for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let netserver = crate::netcode::Server::new(config.server_config.netcode.clone());
+        let netserver = crate::netcode::Server::new(
+            config.io.local_addr(),
+            config.server_config.netcode.clone(),
+        );
 
         let tick_duration = config.server_config.shared.tick.tick_duration;
         // TODO: have better constants for clean_interval?

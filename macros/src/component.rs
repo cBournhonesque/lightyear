@@ -184,6 +184,7 @@ pub fn component_protocol_impl(
     let delegate_method = delegate_method(&input, &enum_kind_name);
     let insert_method = insert_method(&input, &fields);
     let update_method = update_method(&input, &fields);
+    let type_ids_method = type_ids_method(&fields, &enum_kind_name);
 
     // EnumKind methods
     let enum_kind = get_enum_kind(&input, &enum_kind_name);
@@ -199,7 +200,8 @@ pub fn component_protocol_impl(
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
             use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
-            use bevy::utils::{EntityHashMap, EntityHashSet};
+            use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
+            use std::any::TypeId;
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
             #[cfg(feature = "leafwing")]
             use leafwing_input_manager::prelude::*;
@@ -212,12 +214,14 @@ pub fn component_protocol_impl(
             impl ComponentProtocol for #enum_name {
                 type Protocol = #protocol;
 
+                #type_ids_method
                 #insert_method
                 #update_method
                 #add_systems_method
                 #add_events_method
                 #push_component_events_method
                 #add_sync_systems_method
+
                 // #mode_method
             }
 
@@ -244,7 +248,8 @@ pub fn component_protocol_impl(
             #sync_component_impl
             #delegate_method
 
-            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+            #[repr(C)]
             #enum_kind
 
             impl ComponentProtocolKind for #enum_kind_name {
@@ -710,6 +715,25 @@ fn update_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
             match self {
                 #body
             }
+        }
+    }
+}
+
+fn type_ids_method(fields: &Vec<Field>, enum_kind_name: &Ident) -> TokenStream {
+    let mut body = quote! {
+        let mut res = HashMap::default();
+    };
+    for field in fields {
+        let component_type = &field.ty;
+        body = quote! {
+            #body
+            res.insert(TypeId::of::<#component_type>(), <#enum_kind_name as FromType<#component_type>>::from_type());
+        };
+    }
+    quote! {
+        fn type_ids() -> HashMap<TypeId, #enum_kind_name> {
+            #body
+            res
         }
     }
 }

@@ -1,58 +1,109 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
 
-#[derive(Resource, Clone, Copy)]
-pub struct MyServerPlugin {
-    pub(crate) port: u16,
-    pub(crate) transport: Transports,
+// Plugin group to add all server-related plugins
+pub struct ServerPluginGroup {
     /// If this is true, we will predict the client's entities, but also the ball and other clients' entities!
     /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
     ///
     /// If this is false, we will predict the client's entites but simple interpolate everything else.
     pub(crate) predict_all: bool,
+    pub(crate) lightyear: ServerPlugin<MyProtocol>,
 }
 
-impl Plugin for MyServerPlugin {
-    fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.port);
-        let netcode_config = NetcodeConfig::default()
-            .with_protocol_id(PROTOCOL_ID)
-            .with_key(KEY);
+impl ServerPluginGroup {
+    pub(crate) async fn new(
+        port: u16,
+        transport: Transports,
+        predict_all: bool,
+    ) -> ServerPluginGroup {
+        // Step 1: create the io (transport + link conditioner)
+        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
+        let transport_config = match transport {
+            Transports::Udp => TransportConfig::UdpSocket(server_addr),
+            // if using webtransport, we load the certificate keys
+            Transports::WebTransport => {
+                let certificate =
+                    Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
+                        .await
+                        .unwrap();
+                let digest = certificate.hashes()[0].fmt_as_dotted_hex();
+                dbg!(
+                    "Generated self-signed certificate with digest: {:?}",
+                    digest
+                );
+                TransportConfig::WebTransportServer {
+                    server_addr,
+                    certificate,
+                }
+            }
+        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            Transports::Webtransport => TransportConfig::WebTransportServer {
-                server_addr,
-                certificate: Certificate::self_signed(&["localhost"]),
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let io = Io::from_config(
+            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+        );
+
+        // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
-            netcode: netcode_config,
+            netcode: NetcodeConfig::default()
+                .with_protocol_id(PROTOCOL_ID)
+                .with_key(KEY),
             ping: PingConfig::default(),
         };
+
+        // Step 3: create the plugin
         let plugin_config = PluginConfig::new(config, io, protocol());
-        app.add_plugins(server::ServerPlugin::new(plugin_config));
-        app.add_plugins(shared::SharedPlugin);
+        ServerPluginGroup {
+            predict_all,
+            lightyear: ServerPlugin::new(plugin_config),
+        }
+    }
+}
+
+impl PluginGroup for ServerPluginGroup {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(self.lightyear)
+            .add(ExampleServerPlugin {
+                predict_all: self.predict_all,
+            })
+            .add(shared::SharedPlugin)
+            .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default())
+            .add(LeafwingInputPlugin::<MyProtocol, AdminActions>::default())
+    }
+}
+
+// Plugin for server-specific logic
+pub struct ExampleServerPlugin {
+    predict_all: bool,
+}
+
+#[derive(Resource)]
+pub struct Global {
+    predict_all: bool,
+}
+
+impl Plugin for ExampleServerPlugin {
+    fn build(&self, app: &mut App) {
         // add leafwing plugins to handle inputs
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default());
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::default());
-        app.insert_resource(self.clone());
+        app.insert_resource(Global {
+            predict_all: self.predict_all,
+        });
         app.add_systems(Startup, init);
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
@@ -70,7 +121,7 @@ impl Plugin for MyServerPlugin {
     }
 }
 
-pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
+pub(crate) fn init(mut commands: Commands, global: Res<Global>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(
         TextBundle::from_section(
@@ -92,7 +143,7 @@ pub(crate) fn init(mut commands: Commands, plugin: Res<MyServerPlugin>) {
         Vec2::new(0.0, 0.0),
         Color::AZURE,
         // if true, we predict the ball on clients
-        plugin.predict_all,
+        global.predict_all,
     ));
 }
 
@@ -134,7 +185,7 @@ pub(crate) fn movement(
 // Replicate the pre-spawned entities back to the client
 
 pub(crate) fn replicate_players(
-    plugin: Res<MyServerPlugin>,
+    global: Res<Global>,
     mut commands: Commands,
     mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerId>>,
 ) {
@@ -160,7 +211,7 @@ pub(crate) fn replicate_players(
             replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExcept(vec![
                 *client_id,
             ]));
-            if plugin.predict_all {
+            if global.predict_all {
                 replicate.prediction_target = NetworkTarget::All;
                 // // if we predict other players, we need to replicate their actions to all clients other than the original one
                 // // (the original client will apply the actions locally)

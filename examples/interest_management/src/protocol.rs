@@ -57,7 +57,6 @@ impl PlayerBundle {
             (KeyCode::S, Inputs::Down),
             (KeyCode::Delete, Inputs::Delete),
             (KeyCode::Space, Inputs::Spawn),
-            (KeyCode::M, Inputs::Message),
         ])
     }
 }
@@ -129,9 +128,7 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(
-    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
-)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike)]
 pub enum Inputs {
     Up,
     Down,
@@ -139,9 +136,6 @@ pub enum Inputs {
     Right,
     Delete,
     Spawn,
-    Message,
-    #[default]
-    None,
 }
 
 impl LeafwingUserAction for Inputs {}

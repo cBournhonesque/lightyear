@@ -1,6 +1,8 @@
 //! Defines the server bevy resource
+use bevy::utils::Duration;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
@@ -456,7 +458,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
-            trace!(
+            debug!(
                 ?kind,
                 change_tick = ?component_change_tick,
                 ?collect_changes_since_this_tick,

@@ -1,6 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
 use bevy::prelude::Res;
@@ -543,7 +543,7 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::prelude::*;
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     fn press_input(
         mut connection: ResMut<ClientConnectionManager>,

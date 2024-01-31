@@ -8,4 +8,4 @@ Let's list them from the bottom up (closer to the wire):
 - channels/reliability: how do you add ordering and reliability to packets
 - replication: how do you replicate components between the client and server
 - advanced replication: prediction, interpolation, etc.
-- bevy integration:
+- bevy integration: 

@@ -1,11 +1,13 @@
 //! Helpers to setup a bevy app where I can just step the world easily.
 //! Uses crossbeam channels to mock the network
 use bevy::core::TaskPoolThreadAssignmentPolicy;
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
-use bevy::prelude::{default, App, Mut, PluginGroup, Real, TaskPoolOptions, TaskPoolPlugin, Time};
+use bevy::prelude::{
+    default, App, Mut, PluginGroup, Real, Resource, TaskPoolOptions, TaskPoolPlugin, Time,
+};
 use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
 use bevy::utils::HashMap;
@@ -14,7 +16,8 @@ use bevy::MinimalPlugins;
 use lightyear::client as lightyear_client;
 use lightyear::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, InputConfig, InterpolationConfig, NetClient, PredictionConfig,
+    SyncConfig,
 };
 use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
@@ -37,7 +40,7 @@ pub struct LocalBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: std::time::Instant,
+    pub current_time: bevy::utils::Instant,
 }
 
 // Do not forget to use --features mock_time when using the LinkConditioner
@@ -50,7 +53,7 @@ impl LocalBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = std::time::Instant::now();
+        let now = bevy::utils::Instant::now();
         // Local channels transport only works with server socket = LOCAL_SOCKET
         let server_addr = LOCAL_SOCKET;
 
@@ -165,29 +168,25 @@ impl LocalBevyStepper {
         }
     }
 
-    pub fn client(&self, client_id: ClientId) -> &Client {
+    pub fn client_resource<R: Resource>(&self, client_id: ClientId) -> &R {
         self.client_apps
             .get(&client_id)
             .unwrap()
             .world
-            .resource::<Client>()
+            .resource::<R>()
     }
 
-    pub fn client_mut(&mut self, client_id: ClientId) -> Mut<Client> {
+    pub fn client_resource_mut<R: Resource>(&mut self, client_id: ClientId) -> Mut<R> {
         self.client_apps
             .get_mut(&client_id)
             .unwrap()
             .world
-            .resource_mut::<Client>()
-    }
-
-    fn server(&self) -> &Server {
-        self.server_app.world.resource::<Server>()
+            .resource_mut::<R>()
     }
 
     pub fn init(&mut self) {
         self.client_apps.values_mut().for_each(|client_app| {
-            client_app.world.resource_mut::<Client>().connect();
+            client_app.world.resource_mut::<NetClient>().connect();
         });
 
         // Advance the world to let the connection process complete
@@ -195,7 +194,7 @@ impl LocalBevyStepper {
             if self
                 .client_apps
                 .values()
-                .all(|c| c.world.resource::<Client>().is_synced())
+                .all(|c| c.world.resource::<ClientConnectionManager>().is_synced())
             {
                 return;
             }

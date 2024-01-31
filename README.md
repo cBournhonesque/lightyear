@@ -6,7 +6,7 @@
 
 A library for writing server-authoritative multiplayer games with [Bevy](https://bevyengine.org/).
 
-Heavily inspired by [naia](https://github.com/naia-lib/naia).
+Compatibly with wasm via WebTransport.
 
 
 https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a16f-f991a394c852
@@ -37,7 +37,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 - Transport-agnostic: *Lightyear* uses a very general [Transport](https://github.com/cBournhonesque/lightyear/blob/main/lightyear/src/transport/mod.rs) trait to send raw data on the network.
   The trait currently has two implementations:
   - UDP sockets
-  - WebTransport (using QUIC): not compatible with wasm yet.
+  - WebTransport (using QUIC): available on both native and wasm!
 - Serialization
   - *Lightyear* uses [bitcode](https://github.com/SoftbearStudios/bitcode/tree/main) for serialization, which supports very compact serialization. It uses bit-packing (a bool will be serialized as a single bit).
 - Message passing

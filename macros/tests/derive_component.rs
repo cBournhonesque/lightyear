@@ -3,7 +3,7 @@ pub mod some_component {
     use derive_more::{Add, Mul};
     use serde::{Deserialize, Serialize};
 
-    use lightyear::prelude::client::{InterpFn, LerpFn};
+    use lightyear::prelude::client::LerpFn;
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 

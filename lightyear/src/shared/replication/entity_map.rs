@@ -3,6 +3,7 @@ use anyhow::Context;
 use bevy::prelude::{Entity, EntityWorldMut, World};
 use bevy::utils::hashbrown::hash_map::Entry;
 use bevy::utils::{EntityHashMap, EntityHashSet};
+use tracing::error;
 
 pub trait EntityMapper {
     /// Map an entity
@@ -163,7 +164,7 @@ impl<'a> MapEntities<'a> for Entity {
         if let Some(local) = entity_mapper.map(*self) {
             *self = local;
         } else {
-            panic!(
+            error!(
                 "cannot map entity {:?} because it doesn't exist in the entity map!",
                 self
             );
@@ -178,7 +179,7 @@ impl<'a> MapEntities<'a> for Entity {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use crate::prelude::client::*;
     use crate::prelude::*;

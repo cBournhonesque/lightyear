@@ -1,59 +1,94 @@
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
-use crate::{Transports, KEY, PROTOCOL_ID};
+use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::time::Duration;
 
-#[derive(Resource, Clone, Copy)]
-pub struct MyClientPlugin {
-    pub(crate) client_id: ClientId,
-    pub(crate) client_port: u16,
-    pub(crate) server_addr: Ipv4Addr,
-    pub(crate) server_port: u16,
-    pub(crate) transport: Transports,
+pub struct ClientPluginGroup {
+    client_id: ClientId,
+    lightyear: ClientPlugin<MyProtocol>,
 }
 
-impl Plugin for MyClientPlugin {
-    fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
+impl ClientPluginGroup {
+    pub(crate) fn new(
+        client_id: u64,
+        client_port: u16,
+        server_addr: SocketAddr,
+        transport: Transports,
+    ) -> ClientPluginGroup {
         let auth = Authentication::Manual {
             server_addr,
-            client_id: self.client_id,
+            client_id,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+        let certificate_digest =
+            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+                .replace(":", "");
+        let transport_config = match transport {
+            #[cfg(not(target_family = "wasm"))]
+            Transports::Udp => TransportConfig::UdpSocket(client_addr),
+            Transports::WebTransport => TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                #[cfg(target_family = "wasm")]
+                certificate_digest,
+            },
+        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
             incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
+            incoming_loss: 0.00,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::Webtransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let io = Io::from_config(
+            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+        );
         let config = ClientConfig {
-            shared: shared_config().clone(),
-            prediction: PredictionConfig::default(),
-            // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
+            shared: shared_config(),
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
             ..default()
         };
         let plugin_config = PluginConfig::new(config, io, protocol(), auth);
-        app.add_plugins(ClientPlugin::new(plugin_config));
-        app.add_plugins(crate::shared::SharedPlugin);
-        app.insert_resource(self.clone());
+        ClientPluginGroup {
+            client_id,
+            lightyear: ClientPlugin::new(plugin_config),
+        }
+    }
+}
+
+impl PluginGroup for ClientPluginGroup {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(self.lightyear)
+            .add(ExampleClientPlugin {
+                client_id: self.client_id,
+            })
+            .add(shared::SharedPlugin)
+    }
+}
+
+pub struct ExampleClientPlugin {
+    client_id: ClientId,
+}
+
+#[derive(Resource)]
+pub struct ClientIdResource {
+    client_id: ClientId,
+}
+
+impl Plugin for ExampleClientPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(ClientIdResource {
+            client_id: self.client_id,
+        });
         app.add_systems(Startup, init);
         app.add_systems(
             FixedUpdate,
@@ -79,7 +114,7 @@ impl Plugin for MyClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<ClientIdResource>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         format!("Client {}", plugin.client_id),
@@ -158,7 +193,7 @@ fn player_movement(
 fn spawn_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    plugin: Res<MyClientPlugin>,
+    plugin: Res<ClientIdResource>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
     // do not spawn a new player if we already have one
@@ -194,7 +229,7 @@ fn spawn_player(
 fn delete_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    plugin: Res<MyClientPlugin>,
+    plugin: Res<ClientIdResource>,
     players: Query<
         (Entity, &PlayerId),
         (
@@ -228,7 +263,7 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    plugin: Res<MyClientPlugin>,
+    plugin: Res<ClientIdResource>,
     window_query: Query<&Window>,
     mut cursor_query: Query<(&mut CursorPosition, &PlayerId)>,
 ) {

@@ -1,9 +1,9 @@
 //! Defines client-specific configuration options
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::Resource;
+use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
-use std::time::Duration;
 
 use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;

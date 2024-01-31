@@ -11,28 +11,39 @@ use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
-#[cfg(feature = "webtransport")]
-use wtransport::tls::Certificate;
 
+use super::LOCAL_SOCKET;
 use crate::transport::channels::Channels;
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::local::LocalChannel;
+use crate::transport::{PacketReceiver, PacketSender, Transport};
+
+#[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocket;
+
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "webtransport", not(target_family = "wasm")))] {
+        use wtransport::tls::Certificate;
+        use crate::transport::webtransport::server::WebTransportServerSocket;
+    }
+}
+
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocket;
-#[cfg(feature = "webtransport")]
-use crate::transport::webtransport::server::WebTransportServerSocket;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 #[derive(Clone)]
 pub enum TransportConfig {
+    // TODO: should we have a features for UDP?
+    #[cfg(not(target_family = "wasm"))]
     UdpSocket(SocketAddr),
     #[cfg(feature = "webtransport")]
     WebTransportClient {
         client_addr: SocketAddr,
         server_addr: SocketAddr,
+        #[cfg(target_family = "wasm")]
+        certificate_digest: String,
     },
-    #[cfg(feature = "webtransport")]
+    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     WebTransportServer {
         server_addr: SocketAddr,
         certificate: Certificate,
@@ -51,13 +62,14 @@ impl TransportConfig {
         // we don't use `dyn Transport` and instead repeat the code for `transport.listen()` because that function is not
         // object-safe (we would get "the size of `dyn Transport` cannot be statically determined")
         match self {
+            #[cfg(not(target_family = "wasm"))]
             TransportConfig::UdpSocket(addr) => {
                 let transport = UdpSocket::new(addr).unwrap();
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
-            #[cfg(feature = "webtransport")]
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
@@ -67,7 +79,19 @@ impl TransportConfig {
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
-            #[cfg(feature = "webtransport")]
+            #[cfg(all(feature = "webtransport", target_family = "wasm"))]
+            TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                certificate_digest,
+            } => {
+                let transport =
+                    WebTransportClientSocket::new(client_addr, server_addr, certificate_digest);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportServer {
                 server_addr,
                 certificate,
@@ -103,9 +127,19 @@ pub struct IoConfig {
 }
 
 impl Default for IoConfig {
+    #[cfg(not(target_family = "wasm"))]
     fn default() -> Self {
         Self {
             transport: TransportConfig::UdpSocket(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 0)),
+            conditioner: None,
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn default() -> Self {
+        let (send, recv) = crossbeam_channel::unbounded();
+        Self {
+            transport: TransportConfig::LocalChannel { recv, send },
             conditioner: None,
         }
     }

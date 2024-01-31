@@ -6,12 +6,13 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error};
+use tracing::{debug, error, info, trace};
 use wtransport;
 use wtransport::datagram::Datagram;
 use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Certificate;
 use wtransport::ServerConfig;
+use wtransport::{Connection, Endpoint};
 
 use crate::transport::webtransport::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -35,11 +36,24 @@ impl WebTransportServerSocket {
         from_client_sender: UnboundedSender<(Datagram, SocketAddr)>,
         to_client_channels: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Box<[u8]>>>>>,
     ) {
-        let session_request = incoming_session.await.unwrap();
-        let connection = session_request.accept().await.unwrap();
+        let session_request = incoming_session
+            .await
+            .map_err(|e| {
+                error!("failed to accept new client: {:?}", e);
+            })
+            .unwrap();
+
+        let connection = session_request
+            .accept()
+            .await
+            .map_err(|e| {
+                error!("failed to accept new client: {:?}", e);
+            })
+            .unwrap();
+        let connection = std::sync::Arc::new(connection);
         let client_addr = connection.remote_address();
 
-        debug!(
+        info!(
             "Spawning new task to create connection with client: {}",
             client_addr
         );
@@ -52,27 +66,48 @@ impl WebTransportServerSocket {
             .insert(client_addr, to_client_sender);
 
         // connection established, waiting for data from client
-        loop {
-            tokio::select! {
+        let connection_recv = connection.clone();
+        let from_client_handle = tokio::spawn(async move {
+            loop {
                 // receive messages from client
-                x = connection.receive_datagram() => {
-                    match x {
-                        Ok(data) => {
-                            from_client_sender.send((data, client_addr)).unwrap();
-                        }
-                        Err(e) => {
-                            error!("receive_datagram error: {:?}", e);
-                        }
+                match connection_recv.receive_datagram().await {
+                    Ok(data) => {
+                        trace!(
+                            "received datagram from client!: {:?} {:?}",
+                            &data,
+                            data.len()
+                        );
+                        from_client_sender.send((data, client_addr)).unwrap();
+                    }
+                    Err(e) => {
+                        error!("receive_datagram connection error: {:?}", e);
+                        // to_client_channels.lock().unwrap().remove(&client_addr);
+                        // break;
                     }
                 }
-                // send messages to client
-                Some(msg) = to_client_receiver.recv() => {
-                    connection.send_datagram(msg.as_ref()).unwrap_or_else(|e| {
-                        error!("send_datagram error: {:?}", e);
-                    });
+            }
+        });
+        let connection_send = connection.clone();
+        let to_client_handle = tokio::spawn(async move {
+            loop {
+                if let Some(msg) = to_client_receiver.recv().await {
+                    trace!("sending datagram to client!: {:?}", &msg);
+                    connection_send
+                        .send_datagram(msg.as_ref())
+                        .unwrap_or_else(|e| {
+                            error!("send_datagram error: {:?}", e);
+                        });
                 }
             }
-        }
+        });
+
+        // await for the quip connection to be closed for any reason
+        connection.closed().await;
+        info!("Connection closed");
+        to_client_channels.lock().unwrap().remove(&client_addr);
+        from_client_handle.abort();
+        to_client_handle.abort();
+        // TODO: need to disconnect the client in netcode
     }
 }
 
@@ -100,13 +135,14 @@ impl Transport for WebTransportServerSocket {
             from_client_receiver,
         };
 
+        let config = ServerConfig::builder()
+            .with_bind_address(server_addr)
+            .with_certificate(certificate)
+            .build();
+        let endpoint = wtransport::Endpoint::server(config).unwrap();
+
         tokio::spawn(async move {
-            debug!("Starting server webtransport task");
-            let config = ServerConfig::builder()
-                .with_bind_address(server_addr)
-                .with_certificate(certificate)
-                .build();
-            let server = wtransport::Endpoint::server(config).unwrap();
+            info!("Starting server webtransport task");
 
             loop {
                 // clone the channel for each client
@@ -114,7 +150,7 @@ impl Transport for WebTransportServerSocket {
                 let to_client_senders = to_client_senders.clone();
 
                 // new client connecting
-                let incoming_session = server.accept().await;
+                let incoming_session = endpoint.accept().await;
 
                 tokio::spawn(Self::handle_client(
                     incoming_session,

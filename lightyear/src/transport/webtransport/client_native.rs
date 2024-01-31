@@ -1,12 +1,14 @@
+#![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
-use crate::transport::webtransport::server::WebTransportServerSocket;
-use crate::transport::webtransport::MTU;
+use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
+
 use wtransport;
 use wtransport::datagram::Datagram;
 use wtransport::ClientConfig;
@@ -37,47 +39,67 @@ impl Transport for WebTransportClientSocket {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
 
+        let config = ClientConfig::builder()
+            .with_bind_address(client_addr)
+            .with_no_cert_validation()
+            .build();
+        let server_url = format!("https://{}", server_addr);
+        debug!(
+            "Starting client webtransport task with server url: {}",
+            &server_url
+        );
+        let endpoint = wtransport::Endpoint::client(config).unwrap();
+
+        // native wtransport must run in a tokio runtime
         tokio::spawn(async move {
-            let config = ClientConfig::builder()
-                .with_bind_address(client_addr)
-                .with_no_cert_validation()
-                .build();
-            let server_url = format!("https://{}", server_addr);
-            debug!(
-                "Starting client webtransport task with server url: {}",
-                &server_url
-            );
-            let Ok(connection) = wtransport::Endpoint::client(config)
-                .unwrap()
-                .connect(server_url)
+            let connection = endpoint
+                .connect(&server_url)
                 .await
-            else {
-                error!("failed to connect to server");
-                return;
-            };
-            loop {
-                tokio::select! {
-                    // receive messages from server
-                    x = connection.receive_datagram() => {
-                        match x {
-                            Ok(data) => {
-                                from_server_sender.send(data).unwrap();
-                            }
-                            Err(e) => {
-                                error!("receive_datagram error: {:?}", e);
-                            }
+                .map_err(|e| {
+                    error!("failed to connect to server: {:?}", e);
+                })
+                .unwrap();
+            let connection = Arc::new(connection);
+
+            // NOTE (IMPORTANT!):
+            // - we spawn two different futures for receive and send datagrams
+            // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
+            // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
+            //   to poll the existing one. This is FAULTY behaviour
+            // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
+            //   cancelled
+            let connection_recv = connection.clone();
+            let recv_handle = tokio::spawn(async move {
+                loop {
+                    match connection_recv.receive_datagram().await {
+                        Ok(data) => {
+                            trace!("receive datagram from server: {:?}", &data);
+                            from_server_sender.send(data).unwrap();
+                        }
+                        Err(e) => {
+                            error!("receive_datagram connection error: {:?}", e);
                         }
                     }
-
-                    // send messages to server
-                    Some(msg) = to_server_receiver.recv() => {
-                        connection.send_datagram(msg).unwrap_or_else(|e| {
+                }
+            });
+            let connection_send = connection.clone();
+            let send_handle = tokio::spawn(async move {
+                loop {
+                    if let Some(msg) = to_server_receiver.recv().await {
+                        trace!("send datagram to server: {:?}", &msg);
+                        connection_send.send_datagram(msg).unwrap_or_else(|e| {
                             error!("send_datagram error: {:?}", e);
                         });
                     }
                 }
-            }
+            });
+
+            connection.closed().await;
+            info!("WebTransport connection closed.");
+            recv_handle.abort();
+            send_handle.abort();
         });
+
         let packet_sender = WebTransportClientPacketSender { to_server_sender };
         let packet_receiver = WebTransportClientPacketReceiver {
             server_addr,
@@ -111,6 +133,7 @@ impl PacketReceiver for WebTransportClientPacketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_server_receiver.try_recv() {
             Ok(data) => {
+                // convert from datagram to payload via xwt
                 self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
                 Ok(Some((&mut self.buffer[..data.len()], self.server_addr)))
             }

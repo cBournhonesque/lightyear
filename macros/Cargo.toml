@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_macros"
-version = "0.7.0"
+version = "0.8.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"

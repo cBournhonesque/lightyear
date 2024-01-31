@@ -53,7 +53,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         message: ReplicationMessage<P::Components, P::ComponentKinds>,
         remote_tick: Tick,
     ) {
-        trace!(?message, ?remote_tick, "Received replication message");
+        debug!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
             ReplicationMessageData::Actions(m) => {
@@ -217,6 +217,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                         // TODO: optimization: spawn the bundle of insert components
                         let local_entity = world.spawn_empty();
                         self.remote_entity_map.insert(*entity, local_entity.id());
+                        trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
                         events.push_spawn(local_entity.id());
@@ -318,7 +319,9 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     if let Ok(mut local_entity) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
-                        for component in components {
+                        for mut component in components {
+                            // map any entities inside the component
+                            component.map_entities(Box::new(&self.remote_entity_map));
                             events.push_update_component(
                                 local_entity.id(),
                                 (&component).into(),

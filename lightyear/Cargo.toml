@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.7.0"
+version = "0.8.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -18,27 +18,32 @@ metrics = [
   "metrics-util",
   "metrics-tracing-context",
   "metrics-exporter-prometheus",
-  "tokio",
+  "dep:tokio",
 ]
 mock_time = ["dep:mock_instant"]
 render = ["bevy/bevy_render"]
 webtransport = [
   "dep:wtransport",
-  "tokio/sync",
-  "wtransport/dangerous-configuration",
+  "dep:xwt-core",
+  "dep:xwt-web-sys",
+  "dep:web-sys",
+  "dep:tokio",
+  "dep:ring",
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
 
-
 [dependencies]
 # utils
 anyhow = "1.0"
+base64 = "0.21.5"
 chrono = "0.4.31"
 cfg-if = "1.0"
 derive_more = "0.99.17"
 enum_delegate = "0.2"
 enum_dispatch = "0.3"
+# used to have the same instant in wasm and native. (maybe can be replaced by bevy_utils in 0.13)
+instant = "0.1.12"
 governor = "0.6.0"
 mock_instant = { version = "0.3.1", optional = true }
 nonzero_ext = "0.3.0"
@@ -46,6 +51,7 @@ paste = "1.0"
 rand = "0.8"
 ringbuffer = "0.15"
 thiserror = "1.0.50"
+seahash = "4.1.0"
 
 # input
 leafwing-input-manager = { version = "0.11.2", optional = true }
@@ -53,23 +59,20 @@ leafwing-input-manager = { version = "0.11.2", optional = true }
 # physics
 bevy_xpbd_2d = { version = "0.3.3", optional = true }
 
-# transport
-wtransport = { version = "0.1.9", optional = true }
-
 # serialization
 bitcode = { version = "0.4.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [
   "serde",
 ] }
 bytes = { version = "1.5", features = ["serde"] }
 self_cell = "1.0"
-serde = { version = "1.0.188", features = ["derive"] }
+serde = { version = "1.0.193", features = ["derive"] }
 
 # netcode
 chacha20poly1305 = { version = "0.10", features = ["std"] }
 byteorder = "1.5.0"
 
 # derive
-lightyear_macros = { version = "0.7.0", path = "../macros" }
+lightyear_macros = { version = "0.8.1", path = "../macros" }
 
 # tracing
 tracing = "0.1.40"
@@ -89,17 +92,55 @@ metrics-tracing-context = { version = "0.15", optional = true }
 metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-features = false, features = [
   "http-listener",
 ] }
+
+
+# bevy
+bevy = { version = "0.12", default-features = false }
+
+[target."cfg(not(target_family = \"wasm\"))".dependencies]
+wtransport = { version = "0.1.10", optional = true, features = [
+  "self-signed",
+  "dangerous-configuration",
+] }
 tokio = { version = "1.34", features = [
+  "macros",
   "rt",
+  # "rt-multi-thread" is only valid in native.
   "rt-multi-thread",
-  "net",
+  "sync",
   "time",
 ], optional = true }
 
-bevy = { version = "0.12", default-features = false }
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook = { version = "0.1.7" }
+ring = { version = "0.17.7", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+  "WebTransport",
+  "WebTransportHash",
+  "WebTransportOptions",
+  "WebTransportBidirectionalStream",
+  "WebTransportSendStream",
+  "WebTransportReceiveStream",
+  "ReadableStreamDefaultReader",
+  "WritableStreamDefaultWriter",
+  "WebTransportDatagramDuplexStream",
+] }
+futures-lite = { version = "2.1.0", optional = true }
+getrandom = { version = "0.2.11", features = [
+  "js",
+] } # feature 'js' is required for wasm
+xwt-core = { version = "0.2", optional = true }
+xwt-web-sys = { version = "0.3.1", optional = true }
+tokio = { version = "1.34", features = [
+  "macros",
+  "rt",
+  "sync",
+  "time",
+], optional = true }
 
 
 [dev-dependencies]
+wasm-bindgen-test = "0.3.39"
 derive_more = { version = "0.99", features = ["add", "mul"] }
 mock_instant = { version = "0.3.1" }
 tracing-subscriber = "0.3.17"

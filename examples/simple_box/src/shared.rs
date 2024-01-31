@@ -2,10 +2,10 @@ use crate::protocol::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use std::time::Duration;
 use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {

@@ -1,8 +1,8 @@
 //! Defines server-specific configuration options
 use bevy::prelude::Resource;
+use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
-use std::time::Duration;
 
 use crate::netcode::Key;
 use crate::shared::config::SharedConfig;
@@ -24,7 +24,7 @@ impl Default for NetcodeConfig {
         Self {
             num_disconnect_packets: 10,
             keep_alive_send_rate: 1.0 / 10.0,
-            client_timeout_secs: 10,
+            client_timeout_secs: 3,
             protocol_id: 0,
             private_key: None,
         }

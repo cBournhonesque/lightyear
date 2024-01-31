@@ -1,6 +1,6 @@
 use bevy::ecs::system::EntityCommands;
-use bevy::prelude::{Commands, Component, Entity, Mut, Query, Res, ResMut};
-use tracing::{info, trace};
+use bevy::prelude::{Commands, Component, Entity, Mut, Query, Res, ResMut, Without};
+use tracing::{debug, info, trace};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
@@ -165,7 +165,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
             }
         }
 
-        trace!(
+        debug!(
             ?entity,
             component = ?kind,
             ?current_interpolate_tick,
@@ -185,42 +185,74 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     }
 }
 
-pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
+/// Only sync the component from the Confirmed to the Interpolated entity
+/// after we have at least 2 confirmed updates, otherwise if the server send rate is low
+/// the component could be stuck at the 'start_tick' value until we have another update to interpolate towards
+pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
     mut commands: Commands,
-    mut query: Query<(Entity, Option<&mut C>, &InterpolateStatus<C>)>,
+    mut query: Query<(Entity, &InterpolateStatus<C>), Without<C>>,
 ) where
     P::Components: SyncMetadata<C>,
 {
-    let set_value = |mut commands: EntityCommands, component: Option<Mut<C>>, value: C| {
-        if let Some(mut component) = component {
-            *component = value;
-        } else {
-            commands.insert(value);
-        }
-    };
-
-    for (entity, component, status) in query.iter_mut() {
-        let entity_commands = commands.entity(entity);
+    for (entity, status) in query.iter_mut() {
+        debug!("checking if we do interpolation");
+        let mut entity_commands = commands.entity(entity);
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
+            // TODO: maybe that's not correct? we only want to insert the component if we are interpolating
+            //  between two values!
             if status.current == *start_tick {
-                trace!(?entity, ?start_tick, "setting component to start value");
-                set_value(entity_commands, component, start_value.clone());
+                debug!(?entity, ?start_tick, "setting component to start value");
+                entity_commands.insert(start_value.clone());
                 continue;
             }
             if let Some((end_tick, end_value)) = &status.end {
-                trace!(?entity, ?start_tick, interpolate_tick=?status.current, ?end_tick, "doing interpolation!");
+                debug!(?entity, ?start_tick, interpolate_tick=?status.current, ?end_tick, "doing interpolation!");
                 if status.current == *end_tick {
-                    set_value(entity_commands, component, end_value.clone());
+                    entity_commands.insert(end_value.clone());
                     continue;
                 }
                 if start_tick != end_tick {
                     let t =
                         (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
                     let value = P::Components::lerp(start_value.clone(), end_value.clone(), t);
-                    set_value(entity_commands, component, value);
+                    entity_commands.insert(value);
                 } else {
-                    set_value(entity_commands, component, start_value.clone());
+                    entity_commands.insert(start_value.clone());
+                }
+            }
+        }
+    }
+}
+
+/// Update the component value on the Interpolate entity
+pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
+    mut query: Query<(&mut C, &InterpolateStatus<C>)>,
+) where
+    P::Components: SyncMetadata<C>,
+{
+    for (mut component, status) in query.iter_mut() {
+        debug!("checking if we do interpolation");
+        // NOTE: it is possible that we reach start_tick when end_tick is not set
+        if let Some((start_tick, start_value)) = &status.start {
+            if status.current == *start_tick {
+                debug!(?start_tick, "setting component to start value");
+                *component = start_value.clone();
+                continue;
+            }
+            if let Some((end_tick, end_value)) = &status.end {
+                debug!(?start_tick, interpolate_tick=?status.current, ?end_tick, "doing interpolation!");
+                if status.current == *end_tick {
+                    *component = end_value.clone();
+                    continue;
+                }
+                if start_tick != end_tick {
+                    let t =
+                        (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
+                    let value = P::Components::lerp(start_value.clone(), end_value.clone(), t);
+                    *component = value;
+                } else {
+                    *component = start_value.clone();
                 }
             }
         }
@@ -235,7 +267,7 @@ pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
 //
 //     use std::net::SocketAddr;
 //     use std::str::FromStr;
-//     use std::time::{Duration, Instant};
+//     use bevy::utils::{Duration, Instant};
 //
 //     use bevy::log::LogPlugin;
 //     use bevy::prelude::*;

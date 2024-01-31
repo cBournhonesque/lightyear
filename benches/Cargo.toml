@@ -13,12 +13,12 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-lightyear = { version = "0.7.0", path = "../lightyear" }
+lightyear = { path = "../lightyear" }
 crossbeam-channel = "0.5.10"
 anyhow = { version = "1.0.75", features = [] }
 bevy = { version = "0.12", features = ["bevy_core_pipeline"] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
-divan = "0.1.8"
+divan = "0.1.11"
 serde = { version = "1.0.188", features = ["derive"] }
 
 [[bench]]

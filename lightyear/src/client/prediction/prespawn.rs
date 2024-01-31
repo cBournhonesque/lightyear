@@ -1,5 +1,6 @@
 //! Handles spawning entities that are predicted
 
+use crate::_reexport::ComponentProtocol;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -119,8 +120,13 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                 || {
                     // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
                     // TODO: should I create the hasher once outside?
-                    let mut hasher =
-                        bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+                    // let mut hasher =
+                    //     bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+
+                    let mut hasher = seahash::SeaHasher::new();
+                    // let mut hasher = xxhash_rust::xxh3::Xxh3Builder::new()
+                    //     .with_seed(1)
+                    //     .build_hasher();
                     // TODO: the default hasher doesn't seem to be deterministic across processes
                     // let mut hasher = bevy::utils::AHasher::default();
 
@@ -130,39 +136,45 @@ pub(crate) fn compute_prespawn_hash<P: Protocol>(world: &mut World) {
                     //  run compute_hash in post-update as well
                     // we include the spawn tick in the hash
                     tick.hash(&mut hasher);
+                    //
+                    // // TODO: we only want to use components from the protocol, because server/client might use a lot of different stuff...
+                    // entity_ref.contains_type_id()
+
+                    let protocol_component_types = P::Components::type_ids();
 
                     // NOTE: we cannot call hash() multiple times because the components in the archetype
                     //  might get iterated in any order!
                     //  Instead we will get the sorted list of types to hash first, sorted by type_id
-                    let mut types_to_hash = entity_ref
+                    let mut kinds_to_hash = entity_ref
                         .archetype()
                         .components()
                         .filter_map(|component_id| {
                             if let Some(type_id) =
                                 world.components().get_info(component_id).unwrap().type_id()
                             {
+                                // TODO: maybe exclude PreSpawnedPlayerObject as well?
                                 // ignore some book-keeping components
                                 if type_id != TypeId::of::<Replicate<P>>()
                                     && type_id != TypeId::of::<ShouldBePredicted>()
                                     && type_id != TypeId::of::<DespawnTracker>()
                                 {
-                                    return Some(type_id);
+                                    return protocol_component_types.get(&type_id).copied();
                                 }
                             }
                             None
                         })
                         .collect::<Vec<_>>();
-                    types_to_hash.sort();
-                    types_to_hash.into_iter().for_each(|type_id| {
-                        trace!(?type_id, "using type id for hash");
-                        type_id.hash(&mut hasher)
+                    kinds_to_hash.sort();
+                    kinds_to_hash.into_iter().for_each(|kind| {
+                        trace!(?kind, "using kind for hash");
+                        kind.hash(&mut hasher)
                     });
 
                     // No need to set the value on the component here, we only need the value in the resource!
                     // prespawn.hash = Some(hasher.finish());
 
                     let new_hash = hasher.finish();
-                    debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                    trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                     new_hash
                 },
                 |hash| {
@@ -365,9 +377,14 @@ mod tests {
     use bevy::prelude::Entity;
     use bevy::utils::{Duration, EntityHashMap};
     use std::collections::BinaryHeap;
+    use tracing_subscriber::fmt::format::FmtSpan;
 
     #[test]
     fn test_compute_hash() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_span_events(FmtSpan::ENTER)
+            .with_max_level(tracing::Level::INFO)
+            .init();
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -406,7 +423,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 15229898589394663362;
+        let expected_hash: u64 = 11844036307541615334;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             EntityHashMap::from_iter(vec![(

@@ -933,9 +933,9 @@ impl_tuples! {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
+    use bevy::utils::Duration;
     use paste::paste;
     use std::net::*;
-    use std::time::Duration;
     use test::{black_box, Bencher};
 
     macro_rules! bench {

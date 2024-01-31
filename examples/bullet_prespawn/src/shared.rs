@@ -2,6 +2,7 @@ use crate::protocol::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
@@ -11,11 +12,12 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use std::time::Duration;
 use tracing::Level;
 
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
+
+const EPS: f32 = 0.0001;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
@@ -112,7 +114,7 @@ fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = ((client_id * 90) % 360) as f32;
+    let h = (((client_id.wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
@@ -133,7 +135,10 @@ pub(crate) fn shared_player_movement(
     // warn!(?mouse_position);
     let angle =
         Vec2::new(0.0, 1.0).angle_between(mouse_position - transform.translation.truncate());
-    transform.rotation = Quat::from_rotation_z(angle);
+    // careful to only activate change detection if there was an actual change
+    if (angle - transform.rotation.to_euler(EulerRot::XYZ).2).abs() > EPS {
+        transform.rotation = Quat::from_rotation_z(angle);
+    }
     // TODO: look_at should work
     // transform.look_at(Vec3::new(mouse_position.x, mouse_position.y, 0.0), Vec3::Y);
     if action.pressed(PlayerActions::Up) {

@@ -1,5 +1,5 @@
 //! Specify how a Client sends/receives messages with a Server
-use std::time::Duration;
+use bevy::utils::Duration;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
@@ -119,7 +119,7 @@ impl<P: Protocol> ConnectionManager<P> {
         }
     }
 
-    pub(crate) fn is_synced(&self) -> bool {
+    pub fn is_synced(&self) -> bool {
         self.sync_manager.is_synced()
     }
 

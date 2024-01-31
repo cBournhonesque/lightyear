@@ -1,9 +1,9 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
-use std::time::Duration;
 use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {
@@ -35,7 +35,7 @@ impl Plugin for SharedPlugin {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = ((client_id * 90) % 360) as f32;
+    let h = (((client_id.wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)

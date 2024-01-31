@@ -166,7 +166,7 @@ impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use bevy::utils::Duration;
 
     use mock_instant::Instant;
     use mock_instant::MockClock;

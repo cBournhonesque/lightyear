@@ -6,6 +6,7 @@ use crate::_reexport::ShouldBeInterpolated;
 use crate::client::connection::{replication_clean, ConnectionManager};
 use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 use bevy::time::common_conditions::on_timer;
 use bevy::transform::TransformSystem;
 use bevy::utils::Duration;
@@ -16,8 +17,10 @@ use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_connected, is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
+use crate::client::sync::client_is_synced;
 use crate::client::systems::{receive, send, sync_update};
 use crate::connection::events::ConnectionEvents;
+use crate::netcode::CONNECT_TOKEN_BYTES;
 use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -27,6 +30,7 @@ use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
+use crate::transport::{PacketReceiver, PacketSender};
 
 use super::config::ClientConfig;
 
@@ -60,6 +64,68 @@ impl<P: Protocol> ClientPlugin<P> {
             config: Mutex::new(Some(config)),
         }
     }
+}
+
+fn init_netcode(
+    world: &mut World,
+    // config: Res<ClientConfig>,
+    // auth: Res<Authentication>,
+    // mut io: ResMut<Io>,
+    // task_pool: Res<IoTaskPool>,
+) {
+    world.resource_scope(|world: &mut World, config: Mut<ClientConfig>| {
+        world.resource_scope(|world: &mut World, auth: Mut<Authentication>| {
+            world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
+                // TODO: remove clone
+                let token_bytes = match auth.clone() {
+                    // we want to request the token directly from the server using the secure io
+                    // TODO: check that io is secure
+                    Authentication::RequestConnectToken { server_addr } => {
+                        let request_token = [u8::MAX].as_slice();
+                        let mut connect_token_bytes = [0; CONNECT_TOKEN_BYTES];
+                        let mut first = false;
+                        let mut second = false;
+                        loop {
+                            // sending token request
+                            let _ = io.send(request_token, &server_addr).map_err(|e| {
+                                error!("could not send request for connect token: {:?}", e)
+                            });
+                            // receive
+                            info!("waiting for connect token response");
+                            if let Ok(Some((data, addr))) = io.recv() {
+                                info!("received data from server {:?}", data.len());
+                                if addr == server_addr && data.len() == 1000 {
+                                    // TODO: this is so bad it makes me want to cry
+                                    connect_token_bytes[..1000].copy_from_slice(data);
+                                    first = true;
+                                }
+                                if addr == server_addr && data.len() == 1048 {
+                                    connect_token_bytes[1000..].copy_from_slice(data);
+                                    second = true;
+                                }
+                                if first && second {
+                                    info!("Received connect token from server");
+                                    break;
+                                }
+                            }
+                        }
+                        connect_token_bytes
+                    }
+                    _ => {
+                        let token = auth
+                            .clone()
+                            .get_token(config.netcode.client_timeout_secs)
+                            .expect("could not generate token");
+                        token.try_into_bytes().unwrap()
+                    }
+                };
+                let netcode =
+                    crate::netcode::Client::with_config(&token_bytes, config.netcode.build())
+                        .unwrap();
+                world.insert_resource(netcode);
+            });
+        });
+    });
 }
 
 impl<P: Protocol> Plugin for ClientPlugin<P> {
@@ -102,6 +168,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             })
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // RESOURCES //
+            // .insert_resource(config.auth.clone())
             .insert_resource(config.client_config.clone())
             .insert_resource(config.io)
             .insert_resource(netcode)
@@ -149,12 +216,14 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                     )
                         .in_set(MainSet::Send)
                         .after(TransformSystem::TransformPropagate),
-                    // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
+                    // ReplicationSet::All runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
-                    // only replicate entities once client is connected
-                    // TODO: should it be only when the client is synced? because before that the ticks might be incorrect!
-                    ReplicationSet::All.run_if(is_connected),
+                    // only replicate entities once client is synced
+                    // NOTE: we need is_synced, and not connected. Otherwise the ticks associated with the messages might be incorrect
+                    //  and the message might ignored by the server
+                    //  But then pre-predicted entities that are spawned right away will not be replicated?
+                    ReplicationSet::All.run_if(client_is_synced::<P>),
                 ),
             )
             .configure_sets(
@@ -168,6 +237,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .add_event::<EntitySpawnEvent>()
             .add_event::<EntityDespawnEvent>()
             // SYSTEMS //
+            // .add_systems(Startup, init_netcode)
             .add_systems(
                 PreUpdate,
                 (

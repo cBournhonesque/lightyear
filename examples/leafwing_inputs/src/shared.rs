@@ -2,6 +2,7 @@ use crate::protocol::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use bevy_xpbd_2d::parry::shape::Ball;
 use bevy_xpbd_2d::prelude::*;
@@ -12,7 +13,6 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use std::time::Duration;
 use tracing::Level;
 
 const FRAME_HZ: f64 = 60.0;
@@ -112,7 +112,7 @@ fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = ((client_id * 90) % 360) as f32;
+    let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)

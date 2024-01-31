@@ -47,7 +47,7 @@ The various system-sets for prespawning are:
 
 - FixedUpdate schedule:
   - FixedUpdate::Main: prespawn the entity
-  - FixedUpdate::SetPreSpawnedHash: we compute the hash of the prespawned entity based on its archetype + spawn tick.
+  - FixedUpdate::SetPreSpawnedHash: we compute the hash of the prespawned entity based on its archetype (only the components that are present in the ComponentProtocol) + spawn tick.
      We store the hash and the spawn tick in the `PredictionManager` (not in the `PreSpawnedPlayerObject` component).
   - FixedUpdate::SpawnHistory: add a PredictionHistory for each component of the pre-spawned entity. We need this to:
     - not rollback immediately when we get the corresponding server entity

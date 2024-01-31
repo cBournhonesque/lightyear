@@ -2,11 +2,12 @@ use crate::protocol::*;
 use bevy::prelude::*;
 
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 use std::ops::Deref;
-use std::time::Duration;
 use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {

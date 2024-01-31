@@ -5,6 +5,7 @@ use bevy::log::info;
 use bevy::prelude::default;
 use bevy::utils::tracing;
 use bevy::utils::tracing::Level;
+use bevy::utils::Duration;
 use divan::{AllocProfiler, Bencher};
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
@@ -12,7 +13,6 @@ use lightyear::prelude::{ClientId, LogConfig, NetworkTarget, SharedConfig, TickC
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 use lightyear_benches::stepper::{BevyStepper, Step};
-use std::time::Duration;
 
 fn main() {
     divan::main()
@@ -27,9 +27,9 @@ const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 /// Replicating N entity spawn from server to channel, with a local io
 #[divan::bench(
     sample_count = 100,
-    consts = NUM_ENTITIES,
+    args = NUM_ENTITIES,
 )]
-fn spawn_local<const N: usize>(bencher: Bencher) {
+fn spawn_local(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| {
             let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
@@ -60,7 +60,7 @@ fn spawn_local<const N: usize>(bencher: Bencher) {
                         ..default()
                     },
                 );
-                N
+                n
             ];
 
             stepper.server_app.world.spawn_batch(entities);
@@ -79,9 +79,9 @@ fn spawn_local<const N: usize>(bencher: Bencher) {
                     .world
                     .entities()
                     .len(),
-                N as u32
+                n as u32
             );
-            // assert_eq!(stepper.client_app.world.entities().len(), N as u32);
+            // assert_eq!(stepper.client_app.world.entities().len(), n as u32);
             // dbg!(stepper.client().io().stats());
         });
 }
@@ -91,9 +91,9 @@ const FIXED_NUM_ENTITIES: usize = 10;
 /// Replicating entity spawns from server to N clients, with a socket io
 #[divan::bench(
     sample_count = 100,
-    consts = NUM_CLIENTS,
+    args = NUM_CLIENTS,
 )]
-fn spawn<const N: usize>(bencher: Bencher) {
+fn spawn(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| {
             let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
@@ -107,7 +107,7 @@ fn spawn<const N: usize>(bencher: Bencher) {
                 ..default()
             };
             let mut stepper = LocalBevyStepper::new(
-                N,
+                n,
                 shared_config,
                 SyncConfig::default(),
                 PredictionConfig::default(),
@@ -134,7 +134,7 @@ fn spawn<const N: usize>(bencher: Bencher) {
             stepper.frame_step();
             stepper.frame_step();
 
-            for i in 0..N {
+            for i in 0..n {
                 let client_id = i as ClientId;
                 assert_eq!(
                     stepper

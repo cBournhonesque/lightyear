@@ -4,6 +4,7 @@ use std::{
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
 };
 
+use crate::netcode::packet::RequestPacket;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
 use thiserror::Error;
@@ -13,12 +14,12 @@ use super::{
     crypto::{self, Key},
     error::Error,
     free_list::{FreeList, FreeListIter},
-    CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
+    utils, CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
 };
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;
-const TOKEN_EXPIRE_SEC: i32 = 30;
+pub(crate) const TOKEN_EXPIRE_SEC: i32 = 30;
 
 /// An error that can occur when de-serializing a connect token from bytes.
 #[derive(Error, Debug)]
@@ -376,9 +377,8 @@ impl<A: ToSocketAddrs> ConnectTokenBuilder<A> {
     }
     /// Generates the token and consumes the builder.
     pub fn generate(self) -> Result<ConnectToken, Error> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        // number of seconds since unix epoch
+        let now = utils::now();
         let expire_timestamp = if self.expire_seconds < 0 {
             u64::MAX
         } else {

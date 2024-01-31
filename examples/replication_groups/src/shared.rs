@@ -2,10 +2,10 @@ use crate::protocol::Direction;
 use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::utils::Duration;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::client::{Confirmed, Interpolated};
 use lightyear::prelude::*;
-use std::time::Duration;
 use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {
@@ -18,7 +18,7 @@ pub fn shared_config() -> SharedConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
         log: LogConfig {
-            level: Level::WARN,
+            level: Level::INFO,
             filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
                 .to_string(),
         },

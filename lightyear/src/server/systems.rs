@@ -1,8 +1,8 @@
 //! Defines the server bevy systems and run conditions
 use bevy::ecs::system::{SystemChangeTick, SystemState};
 use bevy::prelude::{Events, Fixed, Mut, ParamSet, Res, ResMut, Time, Virtual, World};
+use bevy::utils::Duration;
 use std::ops::DerefMut;
-use std::time::Duration;
 use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
@@ -37,26 +37,27 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
                                             // update netcode server
-                                            let context = netcode
+                                            if let Ok(context) = netcode
                                                 .try_update(delta.as_secs_f64(), io.deref_mut())
-                                                .expect("Error updating netcode server");
+                                                .map_err(|e| error!("Error updating netcode server: {:?}", e)) {
+
+                                                // handle connection
+                                                for client_id in context.connections.iter().copied() {
+                                                    // let client_addr = self.netcode.client_addr(client_id).unwrap();
+                                                    // info!("New connection from {} (id: {})", client_addr, client_id);
+                                                    connection_manager.add(client_id);
+                                                }
+
+                                                // handle disconnections
+                                                for client_id in context.disconnections.iter().copied() {
+                                                    connection_manager.remove(client_id);
+                                                    room_manager.client_disconnect(client_id);
+                                                };
+                                            }
 
                                             // update connections
                                             connection_manager
                                                 .update(time_manager.as_ref(), tick_manager.as_ref());
-
-                                            // handle connection
-                                            for client_id in context.connections.iter().copied() {
-                                                // let client_addr = self.netcode.client_addr(client_id).unwrap();
-                                                // info!("New connection from {} (id: {})", client_addr, client_id);
-                                                connection_manager.add(client_id);
-                                            }
-
-                                            // handle disconnections
-                                            for client_id in context.disconnections.iter().copied() {
-                                                connection_manager.remove(client_id);
-                                                room_manager.client_disconnect(client_id);
-                                            };
 
                                             // RECV_PACKETS: buffer packets into message managers
                                             while let Some((mut reader, client_id)) = netcode.recv() {

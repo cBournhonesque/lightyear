@@ -1,8 +1,9 @@
-name: Update Book
+name: Deploy website
 on:
   push:
     paths:
       - "book/**"
+      # - "examples/**"
     branches:
       - main
 
@@ -38,7 +39,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload entire repository
-          path: 'book'
+          path: book
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

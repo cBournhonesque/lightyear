@@ -1,2 +1,7 @@
+[build]
+#target = "wasm32-unknown-unknown"
+#target = "aarch64-apple-darwin"
+rustflags = ["--cfg", "web_sys_unstable_apis"]
+
 [target.wasm32-unknown-unknown]
 runner = "wasm-server-runner"
