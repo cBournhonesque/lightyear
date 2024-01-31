@@ -53,7 +53,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         message: ReplicationMessage<P::Components, P::ComponentKinds>,
         remote_tick: Tick,
     ) {
-        trace!(?message, ?remote_tick, "Received replication message");
+        debug!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
             ReplicationMessageData::Actions(m) => {

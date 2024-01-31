@@ -438,7 +438,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 .or_default()
                 .collect_changes_since_this_tick;
             // send the update for all changes newer than the last ack bevy tick for the group
-            trace!(
+            debug!(
                 ?kind,
                 change_tick = ?component_change_tick,
                 ?collect_changes_since_this_tick,

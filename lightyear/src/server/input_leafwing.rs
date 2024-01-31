@@ -143,7 +143,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
                         buffer.update_from_message(message.end_tick, diffs);
                     } else {
                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                        info!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
                 InputTarget::Global => {
