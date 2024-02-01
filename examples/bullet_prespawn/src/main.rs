@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::client::ClientPluginGroup;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerPluginGroup;
-use lightyear::netcode::{ClientId, Key};
+use lightyear::connection::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 
 // Use a port of 0 to automatically select a port

@@ -52,11 +52,15 @@ impl ClientPluginGroup {
         );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+            },
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -130,8 +134,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
         Vec2::ZERO,
         color_from_id(plugin.client_id),
     ));
-    client.connect();
-    // client.set_base_relative_speed(0.001);
+    let _ = client.connect();
 }
 
 // System that reads from peripherals and adds inputs to the buffer

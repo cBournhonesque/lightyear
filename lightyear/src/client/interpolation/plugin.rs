@@ -1,10 +1,10 @@
-use bevy::utils::Duration;
 use std::marker::PhantomData;
 
 use bevy::prelude::{
     apply_deferred, App, Component, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, SystemSet,
     Update,
 };
+use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};

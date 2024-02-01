@@ -22,7 +22,6 @@ use crate::client::prediction::prespawn::{
     compute_prespawn_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
 };
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::ReplicationSet;

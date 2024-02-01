@@ -3,7 +3,7 @@ use std::ops::Deref;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent};
 use crate::client::components::{Confirmed, SyncMetadata};
@@ -11,7 +11,6 @@ use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::client::resource::Client;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;

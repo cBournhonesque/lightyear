@@ -4,7 +4,6 @@ use std::{
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
 };
 
-use crate::connection::netcode::packet::RequestPacket;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
 use thiserror::Error;

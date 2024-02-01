@@ -1,14 +1,12 @@
 /*! Handles syncing the time between the client and the server
 */
+use bevy::prelude::Res;
 use bevy::utils::Duration;
+use chrono::Duration as ChronoDuration;
+use tracing::{debug, trace};
 
 use crate::client::connection::ConnectionManager;
-use bevy::prelude::Res;
-use chrono::Duration as ChronoDuration;
-use tracing::{debug, info, trace, warn};
-
 use crate::client::interpolation::plugin::InterpolationDelay;
-use crate::client::resource::Client;
 use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::shared::ping::manager::PingManager;
@@ -536,14 +534,16 @@ impl SyncManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
+
     use crate::client::input::InputSystemSet;
     use crate::prelude::*;
     use crate::server::events::InputEvent;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::*;
-    use bevy::utils::Duration;
+
+    use super::*;
 
     fn press_input(
         mut connection: ResMut<ClientConnectionManager>,

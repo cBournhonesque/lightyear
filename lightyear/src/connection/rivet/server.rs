@@ -1,7 +1,8 @@
+use tracing::error;
+
 use crate::_reexport::ReadWordBuffer;
 use crate::connection::server::NetServer;
 use crate::prelude::ClientId;
-use tracing::error;
 
 pub struct RivetServer {
     pub(crate) netcode_server: crate::connection::netcode::Server,

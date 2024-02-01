@@ -1,18 +1,18 @@
 //! Defines the client bevy resource
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Entity, Res, ResMut, Resource, World};
+use bevy::utils::Duration;
 use bevy::utils::EntityHashMap;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::connection::netcode::{Client as NetcodeClient, ClientId};
+use crate::connection::netcode::ClientId;
 use crate::connection::netcode::{ConnectToken, Key};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message::Message;
@@ -26,8 +26,7 @@ use crate::shared::replication::send::ReplicationSender;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
-use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 use super::connection::ConnectionManager;

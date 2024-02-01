@@ -1,19 +1,19 @@
 //! Defines the client bevy systems and run conditions
-use bevy::ecs::system::{SystemChangeTick, SystemState};
+use std::ops::DerefMut;
+
+use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 #[cfg(feature = "xpbd_2d")]
 use bevy_xpbd_2d::prelude::PhysicsTime;
-use std::ops::DerefMut;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::_reexport::ReplicationSend;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
-use crate::client::resource::{Client, ClientMut};
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{Io, TickManager, TimeManager};
+use crate::prelude::{TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;

@@ -1,7 +1,7 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
+use tracing::{error, info};
 
 use anyhow::Context;
+
 use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -10,12 +10,12 @@ use axum::{response::IntoResponse, Router};
 use axum_macros::debug_handler;
 use clap::Parser;
 use tower::ServiceExt;
-use tracing::{error, info};
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::EnvFilter;
 
-use crate::connection::netcode::{ConnectToken, Key, CONNECT_TOKEN_BYTES};
-use crate::connection::rivet::matchmaker;
+use std::net::SocketAddr;
+use std::str::FromStr;
+
+use crate::connection::netcode::Key;
+use crate::connection::netcode::{ConnectToken, CONNECT_TOKEN_BYTES};
 
 pub struct RivetBackend;
 
@@ -145,7 +145,7 @@ async fn connect(
         .context("could not find player token")?;
 
     // call the matchmaker to verify the player token
-    let _ = matchmaker::player_connected(player_token.to_string())
+    let _ = super::matchmaker::player_connected(player_token.to_string())
         .await
         .map_err(|e| {
             error!("Error connecting player: {}", e);

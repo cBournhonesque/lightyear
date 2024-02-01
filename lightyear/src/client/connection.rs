@@ -1,12 +1,11 @@
 //! Specify how a Client sends/receives messages with a Server
-use bevy::utils::Duration;
-
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Res, ResMut, Resource, World};
 use bevy::reflect::Reflect;
+use bevy::utils::Duration;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;

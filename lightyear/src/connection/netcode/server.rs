@@ -1,15 +1,13 @@
-use anyhow::Context;
-use bevy::prelude::Resource;
-use crossbeam_channel::Sender;
 use std::collections::{HashMap, VecDeque};
-use std::env::set_var;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow::Context;
+use bevy::prelude::Resource;
+use tracing::{debug, error, trace};
+
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::NetServer;
-use tracing::{debug, error, info, trace};
-
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::server::config::NetcodeConfig;

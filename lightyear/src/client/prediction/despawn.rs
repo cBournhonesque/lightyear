@@ -9,7 +9,6 @@ use tracing::{debug, error, trace};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::client::resource::Client;
 use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;

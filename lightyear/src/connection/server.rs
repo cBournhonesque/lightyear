@@ -1,11 +1,10 @@
-use crate::_reexport::ReadWordBuffer;
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::connection::netcode::ClientId;
-use crate::connection::rivet::backend::RivetBackend;
-use crate::prelude::Io;
-use crate::server::config::NetcodeConfig;
 use anyhow::Result;
 use bevy::prelude::Resource;
+
+use crate::_reexport::ReadWordBuffer;
+use crate::connection::netcode::ClientId;
+use crate::prelude::Io;
+use crate::server::config::NetcodeConfig;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
@@ -33,7 +32,7 @@ pub struct ServerConnection {
     server: Box<dyn NetServer>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum NetConfig {
     Netcode {
         config: NetcodeConfig,
@@ -70,7 +69,7 @@ impl NetConfig {
             NetConfig::Rivet { config } => {
                 let server = super::rivet::server::RivetServer {
                     netcode_server: super::netcode::Server::new(config, io),
-                    backend: Some(RivetBackend),
+                    backend: Some(crate::connection::rivet::backend::RivetBackend),
                 };
                 ServerConnection {
                     server: Box::new(server),

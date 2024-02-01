@@ -1,13 +1,13 @@
-use crate::_reexport::ReadWordBuffer;
-use crate::prelude::{Io, IoConfig, TransportConfig};
 use std::net::SocketAddr;
 
+use anyhow::Result;
+use bevy::prelude::Resource;
+
+use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::ClientId;
 use crate::prelude::client::Authentication;
-use anyhow::Result;
-use bevy::prelude::Resource;
-use tracing::info;
+use crate::prelude::Io;
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {
@@ -31,10 +31,13 @@ pub trait NetClient: Send + Sync {
     /// Get the id of the client
     fn id(&self) -> ClientId;
 
+    /// Get the local address of the client
     fn local_addr(&self) -> SocketAddr;
 
+    /// Get immutable access to the inner io
     fn io(&self) -> &Io;
 
+    /// Get mutable access to the inner io
     fn io_mut(&mut self) -> &mut Io;
 }
 

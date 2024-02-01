@@ -2,25 +2,19 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use crate::_reexport::ShouldBeInterpolated;
-use crate::client::connection::{replication_clean, ConnectionManager};
-use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use bevy::prelude::*;
-use bevy::tasks::IoTaskPool;
 use bevy::time::common_conditions::on_timer;
 use bevy::transform::TransformSystem;
-use bevy::utils::Duration;
 
+use crate::client::connection::{replication_clean, ConnectionManager};
+use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
-use crate::client::prediction::plugin::{is_connected, is_in_rollback, PredictionPlugin};
-use crate::client::prediction::Rollback;
-use crate::client::resource::{Authentication, Client};
+use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::sync::client_is_synced;
 use crate::client::systems::{receive, send, sync_update};
-use crate::connection::netcode::CONNECT_TOKEN_BYTES;
-use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
+use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -30,7 +24,7 @@ use crate::shared::replication::systems::add_replication_send_systems;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::time_manager::{is_ready_to_send, TimePlugin};
 use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender};
+use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 

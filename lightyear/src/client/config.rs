@@ -1,7 +1,5 @@
 //! Defines client-specific configuration options
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::Resource;
-use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
@@ -29,7 +27,7 @@ impl Default for NetcodeConfig {
         Self {
             num_disconnect_packets: 10,
             keepalive_packet_send_rate: 1.0 / 10.0,
-            client_timeout_secs: 10,
+            client_timeout_secs: 3,
         }
     }
 }

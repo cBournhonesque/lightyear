@@ -1,17 +1,10 @@
+use std::{collections::VecDeque, net::SocketAddr};
+
 use anyhow::Context;
 use bevy::prelude::Resource;
-use std::{
-    collections::VecDeque,
-    net::SocketAddr,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use crate::client::config::NetcodeConfig;
-use crate::connection::client::NetClient;
-use crate::connection::netcode::token::ConnectTokenPrivate;
-use crate::prelude::TransportConfig;
 use tracing::{debug, error, info, trace};
 
+use crate::connection::client::NetClient;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::transport::io::Io;

@@ -1,6 +1,7 @@
 //! Helper functions used by the server to interact with the Rivet API.
-use serde_json::{json, Value};
 use tracing::trace;
+
+use serde_json::{json, Value};
 
 pub fn endpoint() -> String {
     std::env::var("RIVET_API_ENDPOINT").expect("missing RIVET_API_ENDPOINT")

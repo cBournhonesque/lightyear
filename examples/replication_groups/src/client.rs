@@ -55,6 +55,10 @@ impl ClientPluginGroup {
         );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+            },
             interpolation: InterpolationConfig {
                 delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
                 // do not do linear interpolation per component, instead we provide our own interpolation logic
@@ -62,7 +66,7 @@ impl ClientPluginGroup {
             },
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -133,7 +137,11 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<NetClient>, global: Res<Global>) {
+pub(crate) fn init(
+    mut commands: Commands,
+    mut client: ResMut<ClientConnection>,
+    global: Res<Global>,
+) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         format!("Client {}", global.client_id),
@@ -143,8 +151,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ResMut<NetClient>, global
             ..default()
         },
     ));
-    client.connect();
-    // client.set_base_relative_speed(0.001);
+    let _ = client.connect();
 }
 
 // System that reads from peripherals and adds inputs to the buffer

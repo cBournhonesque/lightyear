@@ -57,9 +57,11 @@ impl ServerPluginGroup {
                 .enable_bandwidth_cap()
                 // we can set the max bandwidth to 56 KB/s
                 .with_send_bandwidth_bytes_per_second_cap(1500),
-            netcode: NetcodeConfig::default()
-                .with_protocol_id(PROTOCOL_ID)
-                .with_key(KEY),
+            net: NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(PROTOCOL_ID)
+                    .with_key(KEY),
+            },
             ping: PingConfig::default(),
         };
 

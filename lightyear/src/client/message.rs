@@ -1,10 +1,9 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use anyhow::Context;
+use tracing::{info_span, trace};
+
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use tracing::{info_span, trace};
 
 use crate::_reexport::{BitSerializable, MessageProtocol, ReadBuffer, WriteBuffer};
 use crate::prelude::{ChannelKind, NetworkTarget};
