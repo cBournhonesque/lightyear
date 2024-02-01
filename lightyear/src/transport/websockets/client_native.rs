@@ -3,11 +3,18 @@ use std::{future::Future, io::BufReader, net::SocketAddr, sync::Arc};
 use anyhow::Result;
 use bevy::utils::hashbrown::HashMap;
 use fastwebsockets::{
-    handshake::{client, generate_key}, upgrade::{upgrade, UpgradeFut}, FragmentCollector, Frame, OpCode, Payload, WebSocket
+    handshake::{client, generate_key},
+    upgrade::{upgrade, UpgradeFut},
+    FragmentCollector, Frame, OpCode, Payload, WebSocket,
 };
 use http_body_util::Empty;
 use hyper::{
-    body::{Bytes, Incoming}, header::{CONNECTION, HOST, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION, UPGRADE}, server::conn::http1, service::service_fn, upgrade::Upgraded, Request, Response
+    body::{Bytes, Incoming},
+    header::{CONNECTION, HOST, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION, UPGRADE},
+    server::conn::http1,
+    service::service_fn,
+    upgrade::Upgraded,
+    Request, Response,
 };
 use hyper_util::rt::TokioIo;
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -18,7 +25,10 @@ use tokio::{
         Mutex,
     },
 };
-use tokio_rustls::{rustls::{pki_types::ServerName, ClientConfig, RootCertStore, ServerConfig}, TlsAcceptor, TlsConnector};
+use tokio_rustls::{
+    rustls::{pki_types::ServerName, ClientConfig, RootCertStore, ServerConfig},
+    TlsAcceptor, TlsConnector,
+};
 use tracing::{info, trace};
 use tracing_log::log::error;
 
@@ -33,40 +43,43 @@ pub struct WebSocketClientSocketTLSConfig {
 pub struct WebSocketClientSocket {
     client_addr: SocketAddr,
     server_addr: SocketAddr,
-    tls_config: Option<WebSocketClientSocketTLSConfig>
+    tls_config: Option<WebSocketClientSocketTLSConfig>,
 }
 
 pub enum WebSocketMessage {
     Binary(Vec<u8>),
-    Close(Option<u16>, Option<String>)
+    Close(Option<u16>, Option<String>),
 }
 
 struct SpawnExecutor;
 
 impl<Fut> hyper::rt::Executor<Fut> for SpawnExecutor
 where
-  Fut: Future + Send + 'static,
-  Fut::Output: Send + 'static,
+    Fut: Future + Send + 'static,
+    Fut::Output: Send + 'static,
 {
-  fn execute(&self, fut: Fut) {
-    tokio::task::spawn(fut);
-  }
+    fn execute(&self, fut: Fut) {
+        tokio::task::spawn(fut);
+    }
 }
 
-
 impl WebSocketClientSocket {
-    pub(crate) fn new(client_addr: SocketAddr, server_addr: SocketAddr, tls_config: Option<WebSocketClientSocketTLSConfig>) -> Self {
+    pub(crate) fn new(
+        client_addr: SocketAddr,
+        server_addr: SocketAddr,
+        tls_config: Option<WebSocketClientSocketTLSConfig>,
+    ) -> Self {
         Self {
             client_addr,
             server_addr,
-            tls_config
+            tls_config,
         }
     }
 
     pub async fn handle_connection(
         mut ws: WebSocket<TokioIo<Upgraded>>,
         from_server_sender: UnboundedSender<WebSocketMessage>,
-        mut to_server_receiver: UnboundedReceiver<WebSocketMessage>
+        mut to_server_receiver: UnboundedReceiver<WebSocketMessage>,
     ) {
         ws.set_writev(false);
 
@@ -133,13 +146,13 @@ impl WebSocketClientSocket {
 
     fn get_tls_connector(&self) -> TlsConnector {
         let root_store = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec()
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };
-    
+
         let config = ClientConfig::builder()
-          .with_root_certificates(root_store)
-          .with_no_client_auth();
-      
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
         TlsConnector::from(Arc::new(config))
     }
 }
@@ -169,12 +182,20 @@ impl Transport for WebSocketClientSocket {
             let (protocol, host) = if let Some(tls_config) = &self.tls_config {
                 ("wss", tls_config.server_name)
             } else {
-                ("ws", format!("{}:{}", self.server_addr.ip(), self.server_addr.port()))
+                (
+                    "ws",
+                    format!("{}:{}", self.server_addr.ip(), self.server_addr.port()),
+                )
             };
 
             let req = Request::builder()
                 .method("GET")
-                .uri(format!("{}://{}:{}/", protocol, self.server_addr.ip(), self.server_addr.port()))
+                .uri(format!(
+                    "{}://{}:{}/",
+                    protocol,
+                    self.server_addr.ip(),
+                    self.server_addr.port()
+                ))
                 .header(HOST, host)
                 .header(UPGRADE, "websocket")
                 .header(CONNECTION, "upgrade")
@@ -184,7 +205,14 @@ impl Transport for WebSocketClientSocket {
                 .unwrap();
 
             let ws = if let Some(tls_config) = &self.tls_config {
-                let tls_stream = self.get_tls_connector().connect(ServerName::try_from(tls_config.server_name).unwrap(), tcp_stream).await.unwrap();
+                let tls_stream = self
+                    .get_tls_connector()
+                    .connect(
+                        ServerName::try_from(tls_config.server_name).unwrap(),
+                        tcp_stream,
+                    )
+                    .await
+                    .unwrap();
                 client(&SpawnExecutor, req, tls_stream).await.unwrap().0
             } else {
                 client(&SpawnExecutor, req, tcp_stream).await.unwrap().0
