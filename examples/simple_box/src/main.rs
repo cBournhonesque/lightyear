@@ -7,33 +7,26 @@
 //! - `cargo run -- client -c 1`
 mod client;
 mod protocol;
+
+#[cfg(not(target_family = "wasm"))]
 mod server;
 mod shared;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
-use bevy::log::LogPlugin;
+use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::fmt::format::FmtSpan;
 
-use crate::client::MyClientPlugin;
-use crate::server::MyServerPlugin;
-use lightyear::connection::netcode::{ClientId, Key};
+use crate::client::ClientPluginGroup;
+#[cfg(not(target_family = "wasm"))]
+use crate::server::ServerPluginGroup;
+use lightyear::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
-
-#[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
-    let mut app = App::new();
-    setup(&mut app, cli);
-
-    app.run();
-}
 
 // Use a port of 0 to automatically select a port
 pub const CLIENT_PORT: u16 = 0;
@@ -44,22 +37,15 @@ pub const KEY: Key = [0; 32];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Transports {
+    #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport,
-}
-
-/// The type of the connection
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-pub enum Connections {
-    /// the default connection type: the netcode protocol
-    Netcode,
-    /// the connection will talk to the rivet service to find the server
-    Rivet,
 }
 
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
     SinglePlayer,
+    #[cfg(not(target_family = "wasm"))]
     Server {
         #[arg(long, default_value = "false")]
         headless: bool,
@@ -70,10 +56,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
-        #[arg(long, value_enum, default_value_t = Connections::Netcode)]
-        connection: Connections,
-
-        #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
     Client {
@@ -92,25 +75,50 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
-        #[arg(long, value_enum, default_value_t = Connections::Netcode)]
-        connection: Connections,
-
-        #[arg(short, long, value_enum, default_value_t = Transports::Udp)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
 }
 
-fn setup(app: &mut App, cli: Cli) {
+cfg_if::cfg_if! {
+    if #[cfg(target_family = "wasm")] {
+        fn main() {
+            // NOTE: clap argument parsing does not work on WASM
+            let client_id = rand::random::<u64>();
+            let cli = Cli::Client {
+                inspector: false,
+                client_id,
+                client_port: CLIENT_PORT,
+                server_addr: Ipv4Addr::LOCALHOST,
+                server_port: SERVER_PORT,
+                transport: Transports::WebTransport,
+            };
+            let mut app = App::new();
+            setup_client(&mut app, cli);
+            app.run();
+        }
+    } else {
+        #[tokio::main]
+        async fn main() {
+            let cli = Cli::parse();
+            let mut app = App::new();
+            setup(&mut app, cli).await;
+            app.run();
+        }
+    }
+}
+
+async fn setup(app: &mut App, cli: Cli) {
     match cli {
         Cli::SinglePlayer => {}
+        #[cfg(not(target_family = "wasm"))]
         Cli::Server {
             headless,
             inspector,
             port,
-            connection,
             transport,
         } => {
-            let server_plugin = server::create_plugin(headless, port, transport, connection);
+            let server_plugin_group = ServerPluginGroup::new(port, transport, headless).await;
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
@@ -119,26 +127,39 @@ fn setup(app: &mut App, cli: Cli) {
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
-            server_plugin.build(app);
+            app.add_plugins(server_plugin_group.build());
         }
-        Cli::Client {
-            inspector,
-            client_id,
-            client_port,
-            server_addr,
-            server_port,
-            connection,
-            transport,
-        } => {
-            let server_addr = SocketAddr::new(server_addr.into(), server_port);
-            let client_plugin =
-                client::create_plugin(client_id, client_port, server_addr, transport, connection);
-
-            app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
-            if inspector {
-                app.add_plugins(WorldInspectorPlugin::new());
-            }
-            client_plugin.build(app);
+        Cli::Client { .. } => {
+            setup_client(app, cli);
         }
     }
+}
+
+fn setup_client(app: &mut App, cli: Cli) {
+    let Cli::Client {
+        inspector,
+        client_id,
+        client_port,
+        server_addr,
+        server_port,
+        transport,
+    } = cli
+    else {
+        return;
+    };
+    // NOTE: create the default plugins first so that the async task pools are initialized
+    // use the default bevy logger for now
+    // (the lightyear logger doesn't handle wasm)
+    app.add_plugins(DefaultPlugins.set(LogPlugin {
+        level: Level::INFO,
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+    }));
+
+    if inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
+    let server_addr = SocketAddr::new(server_addr.into(), server_port);
+    let client_plugin_group =
+        ClientPluginGroup::new(client_id, client_port, server_addr, transport);
+    app.add_plugins(client_plugin_group.build());
 }

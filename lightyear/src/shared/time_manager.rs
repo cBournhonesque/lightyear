@@ -163,6 +163,7 @@ mod wrapped_time {
     use crate::_reexport::{ReadBuffer, WriteBuffer};
     use crate::protocol::BitSerializable;
     use anyhow::Context;
+    use bevy::prelude::Reflect;
     use bitcode::encoding::{Encoding, Fixed};
     use bitcode::read::Read;
     use bitcode::write::Write;

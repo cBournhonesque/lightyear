@@ -85,6 +85,7 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: net_config,
             ping: PingConfig::default(),
+            packet: Default::default(),
         };
         let plugin_config = server::PluginConfig::new(config, server_io, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
@@ -110,6 +111,7 @@ impl BevyStepper {
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
+            packet: Default::default(),
         };
         let plugin_config = client::PluginConfig::new(config, client_io, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);

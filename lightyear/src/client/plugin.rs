@@ -17,6 +17,7 @@ use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::{is_connected, is_in_rollback, PredictionPlugin};
 use crate::client::prediction::Rollback;
 use crate::client::resource::{Authentication, Client};
+use crate::client::sync::client_is_synced;
 use crate::client::systems::{receive, send, sync_update};
 use crate::connection::netcode::CONNECT_TOKEN_BYTES;
 use crate::prelude::{ReplicationSet, ShouldBePredicted, TimeManager};
@@ -167,8 +168,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .insert_resource(netclient)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),
+                config.client_config.packet,
                 config.client_config.sync,
-                &config.client_config.ping,
+                config.client_config.ping,
                 config.client_config.prediction.input_delay_ticks,
             ))
             .insert_resource(ConnectionEvents::<P>::new())
@@ -208,12 +210,14 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                     )
                         .in_set(MainSet::Send)
                         .after(TransformSystem::TransformPropagate),
-                    // ReplicationSystems runs once per frame, so we cannot put it in the `Send` set
+                    // ReplicationSet::All runs once per frame, so we cannot put it in the `Send` set
                     // which runs every send_interval
                     (ReplicationSet::All, MainSet::SendPackets).chain(),
-                    // only replicate entities once client is connected
-                    // TODO: should it be only when the client is synced? because before that the ticks might be incorrect!
-                    ReplicationSet::All.run_if(is_connected),
+                    // only replicate entities once client is synced
+                    // NOTE: we need is_synced, and not connected. Otherwise the ticks associated with the messages might be incorrect
+                    //  and the message might ignored by the server
+                    //  But then pre-predicted entities that are spawned right away will not be replicated?
+                    ReplicationSet::All.run_if(client_is_synced::<P>),
                 ),
             )
             .configure_sets(

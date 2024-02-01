@@ -7,9 +7,8 @@ pub mod some_channel {
 
 #[cfg(test)]
 mod tests {
-    use lightyear::prelude::{
-        Channel, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-    };
+    use bevy::prelude::default;
+    use lightyear::prelude::{Channel, ChannelContainer, ChannelMode, ChannelSettings};
 
     use super::some_channel::*;
 
@@ -17,7 +16,7 @@ mod tests {
     fn test_channel_derive() {
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            ..default()
         };
         let builder = SomeChannel::get_builder(settings);
         let channel_container: ChannelContainer = builder.build();

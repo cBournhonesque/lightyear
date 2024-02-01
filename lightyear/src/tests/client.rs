@@ -28,6 +28,7 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
         sync: SyncConfig::default(),
         prediction: PredictionConfig::default(),
         interpolation: InterpolationConfig::default(),
+        packet: Default::default(),
     };
     let plugin_config = PluginConfig::new(config, io, protocol());
     let plugin = ClientPlugin::new(plugin_config);

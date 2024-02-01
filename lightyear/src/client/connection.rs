@@ -4,11 +4,13 @@ use bevy::utils::Duration;
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Res, ResMut, Resource, World};
+use bevy::reflect::Reflect;
 use serde::Serialize;
 use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
+use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
 use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
@@ -88,12 +90,13 @@ pub(crate) fn replication_clean<P: Protocol>(
 impl<P: Protocol> ConnectionManager<P> {
     pub fn new(
         channel_registry: &ChannelRegistry,
+        packet_config: PacketConfig,
         sync_config: SyncConfig,
-        ping_config: &PingConfig,
+        ping_config: PingConfig,
         input_delay_ticks: u16,
     ) -> Self {
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry);
+        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
         // get the acks-tracker for entity updates
         let update_acks_tracker = message_manager
             .channels
@@ -101,7 +104,11 @@ impl<P: Protocol> ConnectionManager<P> {
             .unwrap()
             .sender
             .subscribe_acks();
-        let replication_sender = ReplicationSender::new(update_acks_tracker);
+        // get a channel to get notified when a replication update message gets actually send (to update priority)
+        let replication_update_send_receiver =
+            message_manager.get_replication_update_send_receiver();
+        let replication_sender =
+            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
         let replication_receiver = ReplicationReceiver::new();
         Self {
             message_manager,
@@ -206,7 +213,7 @@ impl<P: Protocol> ConnectionManager<P> {
         self.replication_sender
             .finalize(tick)
             .into_iter()
-            .try_for_each(|(channel, group_id, message_data)| {
+            .try_for_each(|(channel, group_id, message_data, priority)| {
                 let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
                 let channel_name = self
                     .message_manager
@@ -222,9 +229,10 @@ impl<P: Protocol> ConnectionManager<P> {
                 message.emit_send_logs(&channel_name);
                 let message_id = self
                     .message_manager
-                    .buffer_send(message, channel)?
+                    .buffer_send_with_priority(message, channel, priority)?
                     .expect("The EntityUpdatesChannel should always return a message_id");
 
+                // TODO: if should_track_ack OR bandwidth_cap is enabled
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
                     self.replication_sender
@@ -272,7 +280,11 @@ impl<P: Protocol> ConnectionManager<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager.send_packets(tick_manager.tick())
+        let payloads = self.message_manager.send_packets(tick_manager.tick());
+
+        // update the replication sender about which messages were actually sent, and accumulate priority
+        self.replication_sender.recv_send_notification();
+        payloads
     }
 
     pub fn receive(
@@ -343,26 +355,30 @@ impl<P: Protocol> ConnectionManager<P> {
                         }
                     }
                 }
-                // Check if we have any replication messages we can apply to the World (and emit events)
-                if self.sync_manager.is_synced() {
-                    for (group, replication_list) in
-                        self.replication_receiver.read_messages(tick_manager.tick())
-                    {
-                        trace!(?group, ?replication_list, "read replication messages");
-                        replication_list
-                            .into_iter()
-                            .for_each(|(tick, replication)| {
-                                // TODO: we could include the server tick when this replication_message was sent.
-                                self.replication_receiver.apply_world(
-                                    world,
-                                    tick,
-                                    replication,
-                                    group,
-                                    &mut self.events,
-                                );
-                            });
-                    }
-                }
+            }
+        }
+
+        // NOTE: we run this outside of is_empty() because we could have received an update for a future tick that we can
+        //  now apply. Also we can read from out buffers even if we didn't receive any messages.
+        //
+        // Check if we have any replication messages we can apply to the World (and emit events)
+        if self.sync_manager.is_synced() {
+            for (group, replication_list) in
+                self.replication_receiver.read_messages(tick_manager.tick())
+            {
+                trace!(?group, ?replication_list, "read replication messages");
+                replication_list
+                    .into_iter()
+                    .for_each(|(tick, replication)| {
+                        // TODO: we could include the server tick when this replication_message was sent.
+                        self.replication_receiver.apply_world(
+                            world,
+                            tick,
+                            replication,
+                            group,
+                            &mut self.events,
+                        );
+                    });
             }
         }
 
@@ -377,8 +393,7 @@ impl<P: Protocol> ConnectionManager<P> {
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks();
-
+        // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(reader)?;
         debug!("Received server packet with tick: {:?}", tick);
         if self
@@ -399,6 +414,8 @@ impl<P: Protocol> ConnectionManager<P> {
             );
         }
         trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
+        // notify the replication sender that some sent messages were received
+        self.replication_sender.recv_update_acks();
         Ok(())
     }
 }

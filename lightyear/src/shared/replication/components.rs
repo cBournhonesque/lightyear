@@ -72,12 +72,7 @@ impl Default for PerComponentReplicationMetadata {
 
 impl<P: Protocol> Replicate<P> {
     pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
-        match self.replication_group {
-            ReplicationGroup::FromEntity => {
-                ReplicationGroupId(entity.expect("need to provide an entity").to_bits())
-            }
-            ReplicationGroup::Group(id) => ReplicationGroupId(id),
-        }
+        self.replication_group.group_id(entity)
     }
 
     /// Returns true if we don't want to replicate the component
@@ -195,14 +190,71 @@ impl<P: Protocol> Replicate<P> {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-pub enum ReplicationGroup {
+pub enum ReplicationGroupIdBuilder {
     // the group id is the entity id
     #[default]
     FromEntity,
     // choose a different group id
     // note: it must not be the same as any entity id!
-    // TODO: how can i generate one that doesn't conflict? maybe take u32 as input, and apply generation = u32::MAX - 1?
+    // TODO: how can i generate one that doesn't conflict with an existing entity? maybe take u32 as input, and apply generation = u32::MAX - 1?
+    //  or reserver some entities on the sender world?
     Group(u64),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ReplicationGroup {
+    id_builder: ReplicationGroupIdBuilder,
+    /// the priority of the accumulation group
+    /// (priority will get reset to this value every time a message gets sent successfully)
+    base_priority: f32,
+}
+
+impl Default for ReplicationGroup {
+    fn default() -> Self {
+        Self {
+            id_builder: ReplicationGroupIdBuilder::FromEntity,
+            base_priority: 1.0,
+        }
+    }
+}
+
+impl ReplicationGroup {
+    pub const fn new_from_entity() -> Self {
+        Self {
+            id_builder: ReplicationGroupIdBuilder::FromEntity,
+            base_priority: 1.0,
+        }
+    }
+
+    pub const fn new_id(id: u64) -> Self {
+        Self {
+            id_builder: ReplicationGroupIdBuilder::Group(id),
+            base_priority: 1.0,
+        }
+    }
+
+    pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
+        match self.id_builder {
+            ReplicationGroupIdBuilder::FromEntity => {
+                ReplicationGroupId(entity.expect("need to provide an entity").to_bits())
+            }
+            ReplicationGroupIdBuilder::Group(id) => ReplicationGroupId(id),
+        }
+    }
+
+    pub(crate) fn priority(&self) -> f32 {
+        self.base_priority
+    }
+
+    pub fn set_priority(mut self, priority: f32) -> Self {
+        self.base_priority = priority;
+        self
+    }
+
+    pub fn set_id(mut self, id: u64) -> Self {
+        self.id_builder = ReplicationGroupIdBuilder::Group(id);
+        self
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

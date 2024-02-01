@@ -62,7 +62,7 @@ pub(crate) fn clean_pre_predicted_entity<P: Protocol>(
     pre_predicted_entities: Query<Entity, (With<ShouldBePredicted>, Without<Confirmed>)>,
 ) {
     for entity in pre_predicted_entities.iter() {
-        debug!(
+        info!(
             ?entity,
             "removing replicate from pre-spawned player-controlled entity"
         );

@@ -1,7 +1,8 @@
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{Connections, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::prelude::client::*;
@@ -9,23 +10,85 @@ use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
-pub struct MyClientPlugin {
-    pub(crate) client_id: ClientId,
-    pub(crate) plugin: ClientPlugin<MyProtocol>,
+pub struct ClientPluginGroup {
+    client_id: ClientId,
+    lightyear: ClientPlugin<MyProtocol>,
 }
 
-/// Resource that keeps track of the client id
-#[derive(Resource)]
-pub struct ClientIdResource {
+impl ClientPluginGroup {
+    pub(crate) fn new(
+        client_id: u64,
+        client_port: u16,
+        server_addr: SocketAddr,
+        transport: Transports,
+    ) -> ClientPluginGroup {
+        let auth = Authentication::Manual {
+            server_addr,
+            client_id,
+            private_key: KEY,
+            protocol_id: PROTOCOL_ID,
+        };
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+        let certificate_digest =
+            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+                .replace(":", "");
+        let transport_config = match transport {
+            #[cfg(not(target_family = "wasm"))]
+            Transports::Udp => TransportConfig::UdpSocket(client_addr),
+            Transports::WebTransport => TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                #[cfg(target_family = "wasm")]
+                certificate_digest,
+            },
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(200),
+            incoming_jitter: Duration::from_millis(20),
+            incoming_loss: 0.05,
+        };
+        let io = Io::from_config(
+            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+        );
+        let config = ClientConfig {
+            shared: shared_config(),
+            interpolation: InterpolationConfig {
+                delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
+                custom_interpolation_logic: false,
+            },
+            ..default()
+        };
+        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        ClientPluginGroup {
+            client_id,
+            lightyear: ClientPlugin::new(plugin_config),
+        }
+    }
+}
+
+impl PluginGroup for ClientPluginGroup {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(self.lightyear)
+            .add(ExampleClientPlugin {
+                client_id: self.client_id,
+            })
+            .add(shared::SharedPlugin)
+    }
+}
+
+pub struct ExampleClientPlugin {
     client_id: ClientId,
 }
 
-impl MyClientPlugin {
-    /// Add all the plugins that make up the Client
-    pub(crate) fn build(self, app: &mut App) {
-        app.add_plugins(self.plugin);
-        app.add_plugins(crate::shared::SharedPlugin);
-        app.insert_resource(ClientIdResource {
+#[derive(Resource)]
+pub struct Global {
+    client_id: ClientId,
+}
+
+impl Plugin for ExampleClientPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(Global {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
@@ -47,70 +110,19 @@ impl MyClientPlugin {
     }
 }
 
-pub(crate) fn create_plugin(
-    client_id: u64,
-    client_port: u16,
-    server_addr: SocketAddr,
-    transport: Transports,
-    connection: Connections,
-) -> MyClientPlugin {
-    let auth = Authentication::Manual {
-        server_addr,
-        client_id,
-        private_key: KEY,
-        protocol_id: PROTOCOL_ID,
-    };
-    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-    let certificate_digest =
-        String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819");
-    let transport_config = match transport {
-        #[cfg(not(target_family = "wasm"))]
-        Transports::Udp => TransportConfig::UdpSocket(client_addr),
-        Transports::WebTransport => TransportConfig::WebTransportClient {
-            client_addr,
-            server_addr,
-            #[cfg(target_family = "wasm")]
-            certificate_digest,
-        },
-    };
-    let link_conditioner = LinkConditionerConfig {
-        incoming_latency: Duration::from_millis(200),
-        incoming_jitter: Duration::from_millis(20),
-        incoming_loss: 0.05,
-    };
-    let io = Io::from_config(
-        IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-    );
-    let netconfig = match connection {
-        Connections::Netcode => NetConfig::Netcode {
-            auth,
-            config: NetcodeConfig::default(),
-        },
-        Connections::Rivet => NetConfig::Rivet {
-            config: NetcodeConfig::default(),
-        },
-    };
-    let config = ClientConfig {
-        shared: shared_config().clone(),
-        net: netconfig,
-        ..default()
-    };
-    let plugin = ClientPlugin::new(PluginConfig::new(config, io, protocol()));
-    MyClientPlugin { client_id, plugin }
-}
-
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<ClientIdResource>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
-        format!("Client {}", plugin.client_id),
+        format!("Client {}", global.client_id),
         TextStyle {
             font_size: 30.0,
             color: Color::WHITE,
             ..default()
         },
     ));
-    let _ = client.connect();
+    client.connect();
+    // client.set_base_relative_speed(0.001);
 }
 
 // System that reads from peripherals and adds inputs to the buffer

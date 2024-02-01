@@ -48,7 +48,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             for client_id in netcode.new_connections().iter().copied() {
                                                 // let client_addr = self.netcode.client_addr(client_id).unwrap();
                                                 // info!("New connection from {} (id: {})", client_addr, client_id);
-                                                connection_manager.add(client_id, &world.resource::<ServerConfig>().ping);
+                                                connection_manager.add(client_id);
                                             }
 
                                             // handle disconnections

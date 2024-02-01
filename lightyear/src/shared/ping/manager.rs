@@ -79,7 +79,7 @@ pub struct SyncStats {
 pub type SyncStatsBuffer = ReadyBuffer<WrappedTime, SyncStats>;
 
 impl PingManager {
-    pub fn new(config: &PingConfig) -> Self {
+    pub fn new(config: PingConfig) -> Self {
         Self {
             config: config.clone(),
             // pings
@@ -298,7 +298,7 @@ mod tests {
             ping_interval: Duration::from_millis(100),
             stats_buffer_duration: Duration::from_secs(4),
         };
-        let mut ping_manager = PingManager::new(&config);
+        let mut ping_manager = PingManager::new(config);
         let mut time_manager = TimeManager::new(Duration::default());
 
         assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);

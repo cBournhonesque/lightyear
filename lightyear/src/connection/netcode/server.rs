@@ -831,9 +831,9 @@ impl<Ctx> NetcodeServer<Ctx> {
         self.time += delta_ms;
         self.conn_cache.update(delta_ms);
         let (sender, receiver) = io.split();
+        self.check_for_timeouts();
         self.recv_packets(sender, receiver)?;
         self.send_packets(io)?;
-        self.check_for_timeouts();
         Ok(())
     }
     /// Receives a packet from a client, if one is available in the queue.

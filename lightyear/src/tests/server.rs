@@ -25,6 +25,7 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
                 .with_key(private_key),
         },
         ping: PingConfig::default(),
+        packet: Default::default(),
     };
     let plugin_config = PluginConfig::new(config, io, protocol());
     let plugin = ServerPlugin::new(plugin_config);
