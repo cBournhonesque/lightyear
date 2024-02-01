@@ -32,7 +32,14 @@ webtransport = [
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
-rivet = ["dep:serde_json", "dep:reqwest", "dep:clap", "dep:axum", "dep:tokio", "dep:tower"]
+rivet = [
+  "dep:serde_json",
+  "dep:reqwest",
+  "dep:clap",
+  "dep:axum",
+  "dep:tokio",
+  "dep:tower",
+]
 
 [dependencies]
 # utils
