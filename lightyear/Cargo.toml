@@ -13,6 +13,7 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
+default = []
 metrics = [
   "dep:metrics",
   "metrics-util",
@@ -32,6 +33,7 @@ webtransport = [
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
+xpbd_3d = ["dep:bevy_xpbd_3d"]
 
 [dependencies]
 # utils
@@ -58,6 +60,7 @@ leafwing-input-manager = { version = "0.11.2", optional = true }
 
 # physics
 bevy_xpbd_2d = { version = "0.3.3", optional = true }
+bevy_xpbd_3d = { version = "0.3.3", features = ["serialize", "3d", "f32", "parallel"], default-features = false, optional = true }
 
 # serialization
 bitcode = { version = "0.4.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [

@@ -8,7 +8,10 @@ pub(crate) mod sequence_buffer;
 
 pub mod bevy;
 
-#[cfg(feature = "xpbd_2d")]
+#[cfg(all(feature = "xpbd_2d", not(feature = "xpbd_3d")))]
 pub mod bevy_xpbd_2d;
+
+#[cfg(all(feature = "xpbd_3d", not(feature = "xpbd_2d")))]
+pub mod bevy_xpbd_3d;
 
 pub mod wrapping_id;
