@@ -45,19 +45,20 @@ impl ChannelSend for TickUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments(
                 self.next_send_fragmented_message_id,
                 Some(self.current_tick),
                 message,
+                priority,
             ) {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
             self.next_send_fragmented_message_id += 1;
             Some(self.next_send_fragmented_message_id - 1)
         } else {
-            let mut single_data = SingleData::new(None, message);
+            let mut single_data = SingleData::new(None, message, priority);
             single_data.tick = Some(self.current_tick);
             self.single_messages_to_send.push_back(single_data);
             None

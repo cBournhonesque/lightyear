@@ -95,11 +95,13 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 send_interval: config.server_config.shared.server_send_interval,
             })
             // RESOURCES //
-            .insert_resource(config.server_config)
+            .insert_resource(config.server_config.clone())
             .insert_resource(config.io)
             .insert_resource(netserver)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry().clone(),
+                config.server_config.packet,
+                config.server_config.ping,
             ))
             .insert_resource(config.protocol)
             // .insert_resource(server)

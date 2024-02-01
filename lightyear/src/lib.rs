@@ -97,8 +97,7 @@ pub mod prelude {
         pub use crate::client::components::{
             ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
         };
-        pub use crate::client::config::ClientConfig;
-        pub use crate::client::config::NetcodeConfig;
+        pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
@@ -123,8 +122,7 @@ pub mod prelude {
         pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
     }
     pub mod server {
-        pub use crate::server::config::NetcodeConfig;
-        pub use crate::server::config::ServerConfig;
+        pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,

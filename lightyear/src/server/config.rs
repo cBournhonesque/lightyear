@@ -1,12 +1,14 @@
 //! Defines server-specific configuration options
 use bevy::prelude::Resource;
 use bevy::utils::Duration;
+use governor::Quota;
+use nonzero_ext::nonzero;
 
 use crate::netcode::Key;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
     pub keep_alive_send_rate: f64,
@@ -45,31 +47,46 @@ impl NetcodeConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PacketConfig {
-    /// how often do we send packets to the each client?
-    /// (the minimum is once per frame)
-    pub(crate) packet_send_interval: Duration,
+    /// Number of bytes per second that can be sent to each client
+    pub per_client_send_bandwidth_cap: Quota,
+    /// If false, there is no bandwidth cap and all messages are sent as soon as possible
+    pub bandwidth_cap_enabled: bool,
 }
 
 impl Default for PacketConfig {
     fn default() -> Self {
         Self {
-            packet_send_interval: Duration::from_millis(100),
+            // 56 KB/s bandwidth cap
+            per_client_send_bandwidth_cap: Quota::per_second(nonzero!(56000u32)),
+            bandwidth_cap_enabled: false,
         }
     }
 }
 
 impl PacketConfig {
-    pub fn with_packet_send_interval(mut self, packet_send_interval: Duration) -> Self {
-        self.packet_send_interval = packet_send_interval;
+    pub fn with_send_bandwidth_cap(mut self, send_bandwidth_cap: Quota) -> Self {
+        self.per_client_send_bandwidth_cap = send_bandwidth_cap;
+        self
+    }
+
+    pub fn with_send_bandwidth_bytes_per_second_cap(mut self, send_bandwidth_cap: u32) -> Self {
+        let cap = send_bandwidth_cap.try_into().unwrap();
+        self.per_client_send_bandwidth_cap = Quota::per_second(cap).allow_burst(cap);
+        self
+    }
+
+    pub fn enable_bandwidth_cap(mut self) -> Self {
+        self.bandwidth_cap_enabled = true;
         self
     }
 }
 
-#[derive(Clone, Default, Resource)]
+#[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
     pub netcode: NetcodeConfig,
+    pub packet: PacketConfig,
     pub ping: PingConfig,
 }

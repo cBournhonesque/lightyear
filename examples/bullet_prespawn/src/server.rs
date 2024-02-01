@@ -8,6 +8,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::client::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::server::config::PacketConfig;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -54,7 +55,8 @@ impl ServerPluginGroup {
             netcode: NetcodeConfig::default()
                 .with_protocol_id(PROTOCOL_ID)
                 .with_key(KEY),
-            ping: PingConfig::default(),
+            packet: PacketConfig::default().enable_bandwidth_cap(),
+            ..default()
         };
 
         // Step 3: create the plugin

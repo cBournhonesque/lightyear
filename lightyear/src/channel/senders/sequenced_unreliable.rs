@@ -40,17 +40,17 @@ impl ChannelSend for SequencedUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self
                 .fragment_sender
-                .build_fragments(message_id, None, message)
+                .build_fragments(message_id, None, message, priority)
             {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
         } else {
-            let single_data = SingleData::new(Some(message_id), message);
+            let single_data = SingleData::new(Some(message_id), message, priority);
             self.single_messages_to_send.push_back(single_data);
         }
         self.next_send_message_id += 1;

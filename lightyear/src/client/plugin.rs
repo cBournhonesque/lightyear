@@ -174,8 +174,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .insert_resource(netcode)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),
+                config.client_config.packet,
                 config.client_config.sync,
-                &config.client_config.ping,
+                config.client_config.ping,
                 config.client_config.prediction.input_delay_ticks,
             ))
             .insert_resource(ConnectionEvents::<P>::new())
