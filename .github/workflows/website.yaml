@@ -5,7 +5,7 @@ on:
       - "book/**"
       # - "examples/**"
     branches:
-      - main
+      - website
 
 jobs:
   deploy:
