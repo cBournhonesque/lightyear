@@ -180,7 +180,7 @@ impl Transport for WebSocketClientSocket {
             let tcp_stream = TcpStream::connect(self.server_addr).await.unwrap();
 
             let (protocol, host) = if let Some(tls_config) = &self.tls_config {
-                ("wss", tls_config.server_name)
+                ("wss", tls_config.server_name.to_owned())
             } else {
                 (
                     "ws",
@@ -208,7 +208,7 @@ impl Transport for WebSocketClientSocket {
                 let tls_stream = self
                     .get_tls_connector()
                     .connect(
-                        ServerName::try_from(tls_config.server_name).unwrap(),
+                        ServerName::try_from(tls_config.server_name.to_owned()).unwrap(),
                         tcp_stream,
                     )
                     .await

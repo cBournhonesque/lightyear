@@ -198,15 +198,15 @@ impl Transport for WebSocketServerSocket {
                             .serve_connection(
                                 io,
                                 service_fn(|mut req: Request<Incoming>| async move {
-                                    let to_client_senders = to_client_senders.clone();
+                                    let to_client_senders = to_client_senders.clone(); // Clone to avoid moving
                                     let from_client_sender = from_client_sender.clone(); // Clone to avoid moving
                                     let (response, fut) = upgrade(&mut req)?;
-                                    tokio::spawn(Self::handle_client(
+                                    /*tokio::spawn(Self::handle_client(
                                         fut,
                                         client_addr,
                                         from_client_sender,
                                         to_client_senders,
-                                    ));
+                                    ));*/
                                     anyhow::Ok(response)
                                 }),
                             )
