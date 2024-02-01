@@ -91,7 +91,7 @@ cfg_if::cfg_if! {
                 inspector: false,
                 client_id,
                 client_port: CLIENT_PORT,
-                server_addr: Ipv4Addr::LOCALHOST,
+                server_addr: DEMO_SERVER_ADDR,
                 server_port: SERVER_PORT,
                 transport: Transports::WebTransport,
             };
