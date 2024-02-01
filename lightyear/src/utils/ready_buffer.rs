@@ -1,4 +1,5 @@
 //! Wrapper around a min-heap
+use bevy::reflect::Reflect;
 use std::{cmp::Ordering, collections::BinaryHeap};
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)

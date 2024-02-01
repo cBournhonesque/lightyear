@@ -59,19 +59,19 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, None, message, priority);
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
                 self.fragmented_messages_to_send.push_back(fragment);
             }
         } else {
-            let single_data = SingleData::new(Some(message_id), message);
+            let single_data = SingleData::new(Some(message_id), message, priority);
             self.single_messages_to_send.push_back(single_data);
         }
         self.next_send_message_id += 1;
@@ -141,7 +141,7 @@ mod tests {
         let receiver = sender.subscribe_acks();
 
         // single message
-        let message_id = sender.buffer_send(Bytes::from("hello")).unwrap();
+        let message_id = sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
         assert_eq!(message_id, MessageId(0));
         assert_eq!(sender.next_send_message_id, MessageId(1));
 
@@ -155,7 +155,7 @@ mod tests {
         // fragment message
         const NUM_BYTES: usize = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let bytes = Bytes::from(vec![0; NUM_BYTES]);
-        let message_id = sender.buffer_send(bytes).unwrap();
+        let message_id = sender.buffer_send(bytes, 1.0).unwrap();
         assert_eq!(message_id, MessageId(1));
         let mut expected = FragmentAckReceiver::new();
         expected.add_new_fragment_to_wait_for(message_id, 2);

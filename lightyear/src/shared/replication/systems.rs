@@ -7,7 +7,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, ResMut, Without,
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::_reexport::{FromType, ShouldBeInterpolated};
 use crate::prelude::{MainSet, NetworkTarget, ShouldBePredicted};

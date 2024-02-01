@@ -101,7 +101,7 @@ impl WebTransportServerSocket {
             }
         });
 
-        // await for the quip connection to be closed for any reason
+        // await for the quic connection to be closed for any reason
         connection.closed().await;
         info!("Connection closed");
         to_client_channels.lock().unwrap().remove(&client_addr);

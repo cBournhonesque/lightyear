@@ -1,5 +1,6 @@
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
+use bevy::prelude::Reflect;
 use bevy::utils::Duration;
 use derive_more::{AddAssign, SubAssign};
 use tracing::{info, trace};

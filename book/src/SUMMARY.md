@@ -30,6 +30,7 @@
     - [Server](./concepts/bevy_integration/server.md)
     - [Events](./concepts/bevy_integration/events.md)
   - [Advanced Replication](./concepts/advanced_replication/title.md)
+    - [Bandwidth Management](./concepts/advanced_replication/bandwidth_management.md)
     - [Replication Logic](./concepts/advanced_replication/replication_logic.md)
     - [Inputs](./concepts/advanced_replication/inputs.md)
     - [Interpolation](./concepts/advanced_replication/interpolation.md)

@@ -12,7 +12,6 @@ mock_time = ["lightyear/mock_time"]
 
 [dependencies]
 bevy_framepace = "0.14.1"
-bevy-fps-counter = "0.3.0"
 bevy_screen_diagnostics = "0.4.0"
 leafwing-input-manager = "0.11.2"
 lightyear = { path = "../../lightyear", features = [
@@ -39,10 +38,8 @@ tokio = { version = "1.34", features = [
   "rt-multi-thread",
   "net",
   "time",
-]}
+] }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 # tokio multi-threaded runtime is not supported on wasm
-tokio = { version = "1.34", features = [
-  "rt",
-]}
+tokio = { version = "1.34", features = ["rt"] }

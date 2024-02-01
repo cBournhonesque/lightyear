@@ -63,10 +63,6 @@ impl ClientPluginGroup {
         );
         let config = ClientConfig {
             shared: shared_config(),
-            input: InputConfig::default(),
-            netcode: Default::default(),
-            ping: PingConfig::default(),
-            sync: SyncConfig::default(),
             prediction: PredictionConfig {
                 input_delay_ticks: INPUT_DELAY_TICKS,
                 correction_ticks_factor: CORRECTION_TICKS_FACTOR,
@@ -74,6 +70,7 @@ impl ClientPluginGroup {
             },
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
+            ..default()
         };
         let plugin_config = PluginConfig::new(config, io, protocol(), auth);
         ClientPluginGroup {

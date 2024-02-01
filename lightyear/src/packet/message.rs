@@ -1,3 +1,4 @@
+use bevy::reflect::Reflect;
 use std::fmt::Debug;
 
 use bytes::Bytes;
@@ -41,76 +42,11 @@ pub(crate) struct MessageAck {
 ///
 /// In the message container, we already store the serialized representation of the message.
 /// The main reason is so that we can avoid copies, by directly serializing references into raw bits
-// #[derive(Serialize, Deserialize)]
-// #[derive(Clone, PartialEq, Debug)]
-// pub struct MessageContainer<P: BitSerializable> {
-//     pub(crate) id: Option<MessageId>,
-//     // we use bytes so we can cheaply copy the message container (for example in reliable sender)
-//     pub(crate) message: Bytes,
-//     // TODO: we use num_bits to avoid padding each message to a full byte when serializing
-//     // num_bits: usize,
-//     // message: P,
-//     marker: PhantomData<P>,
-// }
-//
-// impl<P: BitSerializable> MessageContainer<P> {
-//     /// Serialize the message into a bytes buffer
-//     /// Returns the number of bits written
-//     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
-//         let num_bits_before = writer.num_bits_written();
-//         writer.serialize(&self.id)?;
-//         // TODO: only serialize the bits that matter (without padding!)
-//         self.message.as_ref().encode(writer)?;
-//         let num_bits_written = writer.num_bits_written() - num_bits_before;
-//         Ok(num_bits_written)
-//     }
-//
-//     /// Deserialize from the bytes buffer into a Message
-//     pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
-//         let id = reader.deserialize::<Option<MessageId>>()?;
-//         let raw_bytes = <[u8]>::decode(reader)?;
-//         let message = Bytes::from(raw_bytes);
-//         Ok(Self {
-//             id,
-//             message,
-//             marker: Default::default(),
-//         })
-//     }
-//
-//     pub fn new<P: BitSerializable>(message: &P) -> Self {
-//         // TODO: reuse the same buffer for writing message containers
-//         let mut buffer = WriteWordBuffer::with_capacity(1024);
-//         buffer.start_write();
-//         message.encode(&mut buffer).unwrap();
-//         let bytes = buffer.finish_write();
-//         // let num_bits_written = buffer.num_bits_written();
-//         MessageContainer {
-//             id: None,
-//             message: Bytes::from(bytes),
-//             marker: Default::default(),
-//         }
-//     }
-//
-//     pub fn set_id(&mut self, id: MessageId) {
-//         self.id = Some(id);
-//     }
-//
-//     pub fn inner(self) -> P {
-//         // TODO: have a way to do this without any copy?
-//         let mut reader = ReadWordBuffer::start_read(self.message.as_ref());
-//         P::decode(&mut reader).unwrap()
-//     }
-// }
-
 // TODO: we could just store Bytes in MessageContainer to serialize very early
 //  important thing is to re-use the Writer to allocate only once?
 //  pros: we might not require messages/components to be clone anymore if we serialize them very early!
 //  also we know the size of the message early, which is useful for fragmentation
-// #[derive(Clone, PartialEq, Debug)]
-// pub struct MessageContainer<P> {
-//     pub(crate) id: Option<MessageId>,
-//     message: P,
-// }
+
 #[derive(Debug, PartialEq)]
 pub enum MessageContainer {
     Single(SingleData),
@@ -129,7 +65,7 @@ impl From<SingleData> for MessageContainer {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 /// This structure contains the bytes for a single 'logical' message
 ///
 /// We store the bytes instead of the message directly.
@@ -142,24 +78,25 @@ pub struct SingleData {
     //  for optimizing size later, we want the tick channels to use a different SingleData type that contains tick
     //  basically each channel should have either SingleData or TickData as associated type ?
     // NOTE: This is only used for tick buffered receiver, so that the message is read at the same exact tick it was sent
+    /// This tick is used to track the tick of the sender when they intended to send the message.
+    /// (before priority, it was guaranteed that this tick would be same as the packet send tick, but now it's not,
+    /// because you could intend to send a message on tick 7 (i.e. containing your local world update at tick 7),
+    /// but the message only gets sent on tick 10 because of priority buffering).
     pub tick: Option<Tick>,
     pub bytes: Bytes,
+    // we do not encode the priority in the packet
+    pub priority: f32,
 }
 
 impl SingleData {
-    pub fn new(id: Option<MessageId>, bytes: Bytes) -> Self {
+    pub fn new(id: Option<MessageId>, bytes: Bytes, priority: f32) -> Self {
         Self {
             id,
             tick: None,
             bytes,
+            priority,
         }
     }
-
-    // pub(crate) fn num_bits(&self) -> usize {
-    //     let bytes_bits = self.bytes.len() * (u8::BITS as usize);
-    //     let id_bits = self.id.map_or(1, |_| (u16::BITS as usize) + 1);
-    //     bytes_bits + id_bits
-    // }
 
     pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
@@ -211,6 +148,7 @@ impl SingleData {
             id,
             tick,
             bytes: Bytes::from(read_bytes),
+            priority: 1.0,
             // bytes: Bytes::copy_from_slice(read_bytes),
         })
     }
@@ -220,12 +158,16 @@ impl SingleData {
 pub struct FragmentData {
     // we always need a message_id for fragment messages, for re-assembly
     pub message_id: MessageId,
-    // TODO: separate this out?
+    /// This tick is used to track the tick of the sender when they intended to send the message.
+    /// (before priority, it was guaranteed that this tick would be same as the packet send tick, but now it's not,
+    /// because you could intend to send a message on tick 7 (i.e. containing your local world update at tick 7),
+    /// but the message only gets sent on tick 10 because of priority buffering).
     pub tick: Option<Tick>,
     pub fragment_id: FragmentIndex,
     pub num_fragments: FragmentIndex,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
+    pub priority: f32,
 }
 
 impl FragmentData {
@@ -282,6 +224,8 @@ impl FragmentData {
             fragment_id,
             num_fragments,
             bytes,
+            // we can assign a random priority on the reader side
+            priority: 1.0,
         })
     }
 
@@ -317,8 +261,8 @@ impl MessageContainer {
     /// Set the tick of the remote when this message was sent
     ///
     /// Note that in some cases the tick can be already set (for example for tick-buffered channel,
-    /// or for reliable channels, since the tick set in the packet header might not correspond to the tick
-    /// where the message was initially set)
+    /// for reliable channels, or for priority-related buffering, since the tick set in the packet header might not
+    /// correspond to the tick when the message was initially set)
     /// In those cases we don't override the tick
     pub fn set_tick(&mut self, tick: Tick) {
         match self {
@@ -354,18 +298,9 @@ mod tests {
 
     use super::*;
 
-    // #[test]
-    // fn test_single_data_num_bits() {
-    //     let bytes = Bytes::from(vec![5; 10]);
-    //     let data = SingleData::new(None, bytes.clone());
-    //     let mut writer = WriteWordBuffer::with_capacity(10);
-    //     let num_bits = data.encode(&mut writer).unwrap();
-    //     assert_eq!(num_bits, data.num_bits());
-    // }
-
     #[test]
     fn test_serde_single_data() {
-        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into());
+        let data = SingleData::new(Some(MessageId(1)), vec![9, 3].into(), 1.0);
         let mut writer = WriteWordBuffer::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();
         // dbg!(a);
@@ -393,6 +328,7 @@ mod tests {
             fragment_id: 2,
             num_fragments: 3,
             bytes: bytes.clone(),
+            priority: 1.0,
         };
         let mut writer = WriteWordBuffer::with_capacity(10);
         let _a = data.encode(&mut writer).unwrap();

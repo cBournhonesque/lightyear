@@ -1,4 +1,4 @@
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{default, Component, Entity, Reflect};
 use bevy::utils::EntityHashSet;
 use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
@@ -111,11 +111,11 @@ pub fn protocol() -> MyProtocol {
     let mut p = MyProtocol::default();
     p.add_channel::<Channel1>(ChannelSettings {
         mode: ChannelMode::UnorderedUnreliable,
-        direction: ChannelDirection::Bidirectional,
+        ..default()
     });
     p.add_channel::<Channel2>(ChannelSettings {
         mode: ChannelMode::UnorderedUnreliableWithAcks,
-        direction: ChannelDirection::Bidirectional,
+        ..default()
     });
     p
 }

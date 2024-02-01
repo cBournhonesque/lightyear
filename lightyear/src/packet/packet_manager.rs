@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
@@ -614,6 +615,7 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::default;
     use bevy::utils::Duration;
     use std::collections::{BTreeMap, VecDeque};
 
@@ -640,7 +642,7 @@ mod tests {
     fn get_channel_registry() -> ChannelRegistry {
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            ..default()
         };
         let mut c = ChannelRegistry::new();
         c.add::<Channel1>(settings.clone());
@@ -661,11 +663,17 @@ mod tests {
         assert!(manager.can_add_channel_to_packet(channel_id, &mut packet)?,);
 
         assert!(manager.can_add_bits(small_message.len() * (u8::BITS as usize)),);
-        packet.add_message(*channel_id, SingleData::new(None, small_message.clone()));
+        packet.add_message(
+            *channel_id,
+            SingleData::new(None, small_message.clone(), 1.0),
+        );
         assert_eq!(packet.num_messages(), 1);
 
         assert!(manager.can_add_bits(small_message.len() * (u8::BITS as usize)),);
-        packet.add_message(*channel_id, SingleData::new(None, small_message.clone()));
+        packet.add_message(
+            *channel_id,
+            SingleData::new(None, small_message.clone(), 1.0),
+        );
         assert_eq!(packet.num_messages(), 2);
         Ok(())
     }
@@ -700,10 +708,10 @@ mod tests {
         let num_big_bytes = (2.5 * MTU_PAYLOAD_BYTES as f32) as usize;
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
-        let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone());
+        let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone(), 1.0);
 
         let small_bytes = Bytes::from(vec![0u8; 10]);
-        let small_message = SingleData::new(None, small_bytes.clone());
+        let small_message = SingleData::new(None, small_bytes.clone(), 1.0);
 
         let mut data = BTreeMap::new();
         data.insert(
