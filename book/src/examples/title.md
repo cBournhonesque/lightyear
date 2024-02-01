@@ -57,3 +57,14 @@ This example showcases several things:
       there should be no mispredictions at all, but the game will feel more laggy.
     - `correction_ticks`: when there is a misprediction, we don't immediately snapback to the corrected state, but instead we visually interpolate
       from the current state to the corrected state. This parameter helps make mispredictions less jittery.
+
+### [Priority](https://cbournhonesque.github.io/lightyear/examples/priority/dist/))
+
+This examples shows how `lightyear` can help with bandwidth management.
+See this [chapter](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/bandwidth_management.html) of the book.
+
+Lightyear can limit the bandwidth used by the client or the server, for example to limit server traffic costs, or because the client's connection cannot handle a very high bandwidth.
+You can then assign a **priority** score to indicate which entities/messages are important and should be sent first.
+
+In this example, the middle row has a priority of 1.0, and the priority increases by 1.0 for each row further away from the center.
+(i.e. the edge rows have a priority of 7.0 and are updated 7 times more frequently than the center row)

@@ -52,6 +52,9 @@ jobs:
           cd examples/leafwing_inputs
           trunk build --release
           cd ../..
+          cd examples/priority
+          trunk build --release
+          cd ../..
           cd examples/replication_groups
           trunk build --release
           cd ../..

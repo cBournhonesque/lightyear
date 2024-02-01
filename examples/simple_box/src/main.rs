@@ -30,7 +30,7 @@ use lightyear::prelude::TransportConfig;
 
 // Use a port of 0 to automatically select a port
 pub const CLIENT_PORT: u16 = 0;
-pub const SERVER_PORT: u16 = 4005;
+pub const SERVER_PORT: u16 = 4006;
 pub const PROTOCOL_ID: u64 = 0;
 
 pub const DEMO_SERVER_ADDR: Ipv4Addr = Ipv4Addr::new(212, 2, 246, 18);
