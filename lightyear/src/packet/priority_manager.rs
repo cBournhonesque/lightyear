@@ -3,6 +3,7 @@ use crate::client::config::PacketConfig;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
 use crate::protocol::registry::NetId;
+use bevy::prelude::Reflect;
 use crossbeam_channel::{Receiver, Sender};
 use governor::prelude::*;
 use governor::state::StateStore;
@@ -10,7 +11,7 @@ use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::*;
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU32;
-use tracing::{error, info};
+use tracing::{debug, error, info, trace};
 
 #[derive(Debug)]
 pub struct BufferedMessage {
@@ -117,6 +118,7 @@ impl PriorityManager {
                     .unwrap()
                     .settings
                     .priority;
+                trace!(?channel_priority, num_single=?single.len(), "channel priority");
                 single
                     .into_iter()
                     .map(move |mut single| {
@@ -154,8 +156,8 @@ impl PriorityManager {
 
         // sort from highest priority to lower
         // self.buffered_data
-        all_messages.sort_by(|a, b| b.priority.partial_cmp(&a.priority).unwrap());
-        info!(
+        all_messages.sort_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap());
+        trace!(
             "all messages to send, sorted by priority: {:?}",
             all_messages
         );
@@ -165,6 +167,7 @@ impl PriorityManager {
             BTreeMap::new();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {
+            trace!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
             // we don't use the exact size of the message, but the size of the bytes
             // we will adjust for this later
             let message_bytes = buffered_message.message_container.bytes().len() as u32;
@@ -174,7 +177,7 @@ impl PriorityManager {
                 break;
             };
             let Ok(()) = result else {
-                info!("Bandwidth quota reached, no more messages can be sent this tick");
+                debug!("Bandwidth quota reached, no more messages can be sent this tick");
                 break;
             };
 
@@ -187,14 +190,19 @@ impl PriorityManager {
                 .or_insert((VecDeque::new(), VecDeque::new()));
 
             // notify the replication sender that the message was actually sent
-            if channel_registry
+            let channel_kind = channel_registry
                 .get_kind_from_net_id(buffered_message.channel_net_id)
-                .unwrap()
-                == &ChannelKind::of::<EntityUpdatesChannel>()
+                .unwrap();
+            if channel_kind == &ChannelKind::of::<EntityUpdatesChannel>()
+                || channel_kind == &ChannelKind::of::<EntityUpdatesChannel>()
             {
                 // SAFETY: we are guaranteed in this situation to have a message id (because we use the unreliable with acks sender)
                 let message_id = buffered_message.message_container.message_id().unwrap();
                 for sender in self.replication_update_senders.iter() {
+                    trace!(
+                        ?message_id,
+                        "notifying replication sender that a message was actually sent."
+                    );
                     let _ = sender.send(message_id).map_err(|e| {
                         error!("error notifying replication sender that a message was actually sent: {:?}", e)
                     });
@@ -221,7 +229,7 @@ impl PriorityManager {
             .values()
             .map(|(single, fragment)| single.len() + fragment.len())
             .sum::<usize>();
-        info!(
+        debug!(
             bytes_sent = ?bytes_used,
             ?num_messages_sent,
             num_messages_discarded = ?all_messages.len(),

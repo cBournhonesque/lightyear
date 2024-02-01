@@ -145,7 +145,7 @@ macro_rules! protocolize {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
                         // we want to send the entity actions as soon as possible
-                        priority: 2.0,
+                        priority: 10.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliableWithAcks,
@@ -246,7 +246,7 @@ macro_rules! protocolize {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
                         direction: ChannelDirection::Bidirectional,
                         // we want to send the entity actions as soon as possible
-                        priority: 2.0,
+                        priority: 10.0,
                     });
                     protocol.add_channel::<EntityUpdatesChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedUnreliableWithAcks,

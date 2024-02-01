@@ -440,6 +440,8 @@ impl<P: Protocol> Connection<P> {
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
+
+        // no need to check if `time_manager.is_ready_to_send()` since we only send packets when we are ready to send
         if time_manager.is_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
@@ -465,7 +467,11 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager.send_packets(tick_manager.tick())
+        let payloads = self.message_manager.send_packets(tick_manager.tick());
+
+        // update the replication sender about which messages were actually sent, and accumulate priority
+        self.replication_sender.recv_send_notification();
+        payloads
     }
 
     pub fn receive(
@@ -531,6 +537,7 @@ impl<P: Protocol> Connection<P> {
                                     // prepare a pong in response (but do not send yet, because we need
                                     // to set the correct send time)
                                     self.ping_manager.buffer_pending_pong(ping, time_manager);
+                                    trace!("buffer pong");
                                 }
                                 SyncMessage::Pong(pong) => {
                                     // process the pong
@@ -541,25 +548,26 @@ impl<P: Protocol> Connection<P> {
                     }
                 }
             }
-            // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
-            // Check if we have any replication messages we can apply to the World (and emit events)
-            for (group, replication_list) in
-                self.replication_receiver.read_messages(tick_manager.tick())
-            {
-                trace!(?group, ?replication_list, "read replication messages");
-                replication_list
-                    .into_iter()
-                    .for_each(|(tick, replication)| {
-                        // TODO: we could include the server tick when this replication_message was sent.
-                        self.replication_receiver.apply_world(
-                            world,
-                            tick,
-                            replication,
-                            group,
-                            &mut self.events,
-                        );
-                    });
-            }
+        }
+
+        // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
+        // Check if we have any replication messages we can apply to the World (and emit events)
+        for (group, replication_list) in
+            self.replication_receiver.read_messages(tick_manager.tick())
+        {
+            trace!(?group, ?replication_list, "read replication messages");
+            replication_list
+                .into_iter()
+                .for_each(|(tick, replication)| {
+                    // TODO: we could include the server tick when this replication_message was sent.
+                    self.replication_receiver.apply_world(
+                        world,
+                        tick,
+                        replication,
+                        group,
+                        &mut self.events,
+                    );
+                });
         }
 
         // TODO: do i really need this? I could just create events in this function directly?

@@ -121,7 +121,9 @@ impl ChannelSend for ReliableSender {
         let unacked_message_with_priority = UnackedMessageWithPriority {
             unacked_message,
             base_priority: priority,
-            accumulated_priority: priority,
+            // store with 0.0 accumulated priority because priority gets accumulated when we collect the messages
+            // for sending (even the first time the message is sent)
+            accumulated_priority: 0.0,
         };
         self.unacked_messages
             .insert(message_id, unacked_message_with_priority);
@@ -221,12 +223,14 @@ impl ChannelSend for ReliableSender {
                 }
             }
 
+            // TODO: only accumulate for messages that weren't sent immediately!!
             // accumulate the priority for the messages that we might send again later
             unacked_message_with_priority.accumulated_priority +=
                 unacked_message_with_priority.base_priority;
-            info!(
+            trace!(
                 "Accumulating priority for reliable message {:?} to {:?}",
-                message_id, unacked_message_with_priority.accumulated_priority
+                message_id,
+                unacked_message_with_priority.accumulated_priority
             );
         }
     }

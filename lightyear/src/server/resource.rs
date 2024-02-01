@@ -259,7 +259,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         client_id: ClientId,
         priority: f32,
     ) -> Result<()> {
-        info!(
+        debug!(
             ?client_id,
             ?replication_group_id,
             "Set priority to {:?}",

@@ -41,9 +41,9 @@ impl ServerPluginGroup {
             }
         };
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(40),
-            incoming_loss: 0.05,
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
         };
         let io = Io::from_config(
             IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
@@ -56,7 +56,7 @@ impl ServerPluginGroup {
                 // by default there is no bandwidth limit so we need to enable it
                 .enable_bandwidth_cap()
                 // we can set the max bandwidth to 56 KB/s
-                .with_send_bandwidth_bytes_per_second_cap(56000),
+                .with_send_bandwidth_bytes_per_second_cap(1500),
             netcode: NetcodeConfig::default()
                 .with_protocol_id(PROTOCOL_ID)
                 .with_key(KEY),
@@ -97,7 +97,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 const GRID_SIZE: f32 = 20.0;
-const NUM_CIRCLES: i32 = 10;
+const NUM_CIRCLES: i32 = 6;
 
 #[derive(Resource, Default)]
 pub(crate) struct Global {
@@ -122,7 +122,7 @@ pub(crate) fn init(mut commands: Commands) {
             commands.spawn((
                 Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
                 Shape::Circle,
-                ShapeChangeTimer(Timer::from_seconds(0.2, TimerMode::Repeating)),
+                ShapeChangeTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
                 Replicate {
                     // A ReplicationGroup is replicated together as a single message, so the priority should
                     // be set on the group.
@@ -131,7 +131,8 @@ pub(crate) fn init(mut commands: Commands) {
                     // The priority can be sent when the entity is spawned; if multiple entities in the same group have
                     // different priorities, the latest set priority will be used.
                     // After the entity is spawned, you can update the priority using the ConnectionManager::upate_priority method.
-                    replication_group: ReplicationGroup::default().set_priority(y.abs() as f32),
+                    replication_group: ReplicationGroup::default()
+                        .set_priority(1.0 + y.abs() as f32),
                     ..default()
                 },
             ));
@@ -154,7 +155,7 @@ pub(crate) fn handle_connections(
         let l = 0.5;
         let entity = commands.spawn(PlayerBundle::new(
             *client_id,
-            Vec2::ZERO,
+            Vec2::splat(300.0),
             Color::hsl(h, s, l),
         ));
         // Add a mapping from client id to entity id (so that when we receive an input from a client,

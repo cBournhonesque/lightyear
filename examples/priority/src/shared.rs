@@ -18,7 +18,6 @@ pub fn shared_config() -> SharedConfig {
     SharedConfig {
         enable_replication: true,
         client_send_interval: Duration::default(),
-        // server_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(100),
         tick: TickConfig {
             // right now, we NEED the tick_duration to be smaller than the send_interval

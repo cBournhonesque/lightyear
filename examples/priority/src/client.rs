@@ -46,9 +46,9 @@ impl ClientPluginGroup {
             },
         };
         let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(40),
-            incoming_loss: 0.05,
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
         };
         let io = Io::from_config(
             IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),

@@ -3,7 +3,7 @@ use std::iter::Extend;
 
 use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::Entity;
+use bevy::prelude::{Entity, Reflect};
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashMap, HashSet};
 use crossbeam_channel::Receiver;
@@ -78,20 +78,24 @@ impl<P: Protocol> ReplicationSender<P> {
     /// Then all replication_group_ids, we accumulate the priority.
     ///
     /// This should be call after the Send SystemSet.
-    pub(crate) fn recv_update_send(&mut self) {
+    pub(crate) fn recv_send_notification(&mut self) {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.message_send_receiver.try_recv() {
             if let Some((group_id, _)) = self.updates_message_id_to_group_id.get(&message_id) {
                 if let Some(channel) = self.group_channels.get_mut(group_id) {
                     // TODO: think about we reset the priority, or how it should be accumulated
                     // reset the priority
-                    info!("successfully sent message for replication group! Resetting priority");
+                    debug!(
+                        ?message_id,
+                        ?group_id,
+                        "successfully sent message for replication group! Resetting priority"
+                    );
                     channel.accumulated_priority = Some(0.0);
                 } else {
-                    error!("Received a send message-id notification but the corresponding group channel does not exist");
+                    error!(?message_id, ?group_id, "Received a send message-id notification but the corresponding group channel does not exist");
                 }
             } else {
-                error!(
+                error!(?message_id,
                     "Received an send message-id notification but we know the corresponding group id"
                 );
             }

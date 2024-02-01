@@ -19,7 +19,6 @@ use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 pub mod components;
 
 pub mod entity_map;
-mod priority;
 pub(crate) mod receive;
 pub(crate) mod send;
 pub mod systems;

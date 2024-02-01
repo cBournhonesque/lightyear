@@ -4,6 +4,7 @@ use bevy::utils::Duration;
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Res, ResMut, Resource, World};
+use bevy::reflect::Reflect;
 use serde::Serialize;
 use tracing::{debug, info, trace, trace_span};
 
@@ -281,7 +282,7 @@ impl<P: Protocol> ConnectionManager<P> {
         let payloads = self.message_manager.send_packets(tick_manager.tick());
 
         // update the replication sender about which messages were actually sent, and accumulate priority
-        self.replication_sender.recv_update_send();
+        self.replication_sender.recv_send_notification();
         payloads
     }
 
@@ -353,26 +354,30 @@ impl<P: Protocol> ConnectionManager<P> {
                         }
                     }
                 }
-                // Check if we have any replication messages we can apply to the World (and emit events)
-                if self.sync_manager.is_synced() {
-                    for (group, replication_list) in
-                        self.replication_receiver.read_messages(tick_manager.tick())
-                    {
-                        trace!(?group, ?replication_list, "read replication messages");
-                        replication_list
-                            .into_iter()
-                            .for_each(|(tick, replication)| {
-                                // TODO: we could include the server tick when this replication_message was sent.
-                                self.replication_receiver.apply_world(
-                                    world,
-                                    tick,
-                                    replication,
-                                    group,
-                                    &mut self.events,
-                                );
-                            });
-                    }
-                }
+            }
+        }
+
+        // NOTE: we run this outside of is_empty() because we could have received an update for a future tick that we can
+        //  now apply. Also we can read from out buffers even if we didn't receive any messages.
+        //
+        // Check if we have any replication messages we can apply to the World (and emit events)
+        if self.sync_manager.is_synced() {
+            for (group, replication_list) in
+                self.replication_receiver.read_messages(tick_manager.tick())
+            {
+                trace!(?group, ?replication_list, "read replication messages");
+                replication_list
+                    .into_iter()
+                    .for_each(|(tick, replication)| {
+                        // TODO: we could include the server tick when this replication_message was sent.
+                        self.replication_receiver.apply_world(
+                            world,
+                            tick,
+                            replication,
+                            group,
+                            &mut self.events,
+                        );
+                    });
             }
         }
 
