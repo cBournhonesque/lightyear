@@ -61,7 +61,7 @@ impl ServerPluginGroup {
             netcode: NetcodeConfig::default()
                 .with_protocol_id(PROTOCOL_ID)
                 .with_key(KEY),
-            ping: PingConfig::default(),
+            ..default()
         };
 
         // Step 3: create the plugin
