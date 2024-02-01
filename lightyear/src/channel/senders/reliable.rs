@@ -178,6 +178,15 @@ impl ChannelSend for ReliableSender {
 
         // Iterate through all unacked messages, oldest message ids first
         for (message_id, unacked_message_with_priority) in self.unacked_messages.iter_mut() {
+            // accumulate the priority for all messages (including the ones that were just added, since we set the accumulated priority to 0.0)
+            unacked_message_with_priority.accumulated_priority +=
+                unacked_message_with_priority.base_priority;
+            trace!(
+                "Accumulating priority for reliable message {:?} to {:?}",
+                message_id,
+                unacked_message_with_priority.accumulated_priority
+            );
+
             match &mut unacked_message_with_priority.unacked_message {
                 UnackedMessage::Single {
                     bytes,
@@ -222,16 +231,6 @@ impl ChannelSend for ReliableSender {
                         })
                 }
             }
-
-            // TODO: only accumulate for messages that weren't sent immediately!!
-            // accumulate the priority for the messages that we might send again later
-            unacked_message_with_priority.accumulated_priority +=
-                unacked_message_with_priority.base_priority;
-            trace!(
-                "Accumulating priority for reliable message {:?} to {:?}",
-                message_id,
-                unacked_message_with_priority.accumulated_priority
-            );
         }
     }
 
