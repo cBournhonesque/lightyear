@@ -23,6 +23,9 @@ pub(crate) mod channels;
 #[cfg(feature = "webtransport")]
 pub(crate) mod webtransport;
 
+#[cfg(feature = "websockets")]
+pub(crate) mod websockets;
+
 use std::io::Result;
 use std::net::SocketAddr;
 
