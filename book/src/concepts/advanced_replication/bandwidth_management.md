@@ -28,10 +28,12 @@ NOTE: Currently `lightyear` expects `send_interval` to be 0 on the client (i.e. 
 This will also reduce the CPU usage of the server as it runs the replication-send logic less often.
 
 
-## Updating the replication rate per replication group
+## TODO: Updating the replication rate per replication group
 
 You can also override the replication rate per replication group. 
 For some entities it might not be important to run replication at a very high rate, so you can reduce the rate for those entities.
+
+NOTE: this is currently not possible
 
 
 ## Prioritizing replication groups
@@ -52,5 +54,5 @@ Only the relative priority values matter, not their absolute value: an entity wi
 
 To avoid having some replication groups entities be starved of updates (because their priority is always too low), we do **priority accumulation**:
 - every send_interval, we accumulate the priority of all messages: `accumulated_priority += priority`
-- if a replication groups successfully sends an update, we reset the accumulated priority to 0
+- if a replication groups successfully sends an update or an action, we reset the accumulated priority to 0. (note that it's not guaranteed that the message was received by the remote, just that the message was sent)
 - for reliable channels, we also keep accumulating the priority until we receive an ack from the remote that the message was successfully received
