@@ -29,7 +29,7 @@ use tokio_rustls::{
     rustls::{pki_types::ServerName, ClientConfig, RootCertStore, ServerConfig},
     TlsAcceptor, TlsConnector,
 };
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -128,7 +128,9 @@ impl WebSocketClientSocket {
                                     code.unwrap_or(1000),
                                     reason.unwrap_or("".to_string()).as_bytes(),
                                 ))
-                                .await;
+                                .await
+                                .map_err(|e| error!("WebSocket send close frame error: {:?}", e))
+                                .unwrap();
                             break;
                         }
                         WebSocketMessage::Binary(data) => {
@@ -136,7 +138,9 @@ impl WebSocketClientSocket {
                             send.lock()
                                 .await
                                 .write_frame(Frame::binary(Payload::Owned(data)))
-                                .await;
+                                .await
+                                .map_err(|e| error!("WebSocket send binary frame error: {:?}", e))
+                                .unwrap();
                         }
                     }
                 }
@@ -175,7 +179,7 @@ impl Transport for WebSocketClientSocket {
         };
 
         tokio::spawn(async move {
-            info!("Starting server websocket task");
+            info!("Starting client websocket task");
 
             let tcp_stream = TcpStream::connect(self.server_addr).await.unwrap();
 
@@ -187,6 +191,8 @@ impl Transport for WebSocketClientSocket {
                     format!("{}:{}", self.server_addr.ip(), self.server_addr.port()),
                 )
             };
+
+            info!("client connected {} {} {}", self.server_addr, protocol, host);
 
             let req = Request::builder()
                 .method("GET")
@@ -218,7 +224,7 @@ impl Transport for WebSocketClientSocket {
                 client(&SpawnExecutor, req, tcp_stream).await.unwrap().0
             };
 
-            Self::handle_connection(ws, from_server_sender, to_server_receiver);
+            Self::handle_connection(ws, from_server_sender, to_server_receiver).await;
         });
 
         (Box::new(packet_sender), Box::new(packet_receiver))

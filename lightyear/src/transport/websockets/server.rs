@@ -121,7 +121,9 @@ impl WebSocketServerSocket {
                                     code.unwrap_or(1000),
                                     reason.unwrap_or("".to_string()).as_bytes(),
                                 ))
-                                .await;
+                                .await
+                                .map_err(|e| error!("WebSocket send close frame error: {:?}", e))
+                                .unwrap();
                             break;
                         }
                         WebSocketMessage::Binary(data) => {
@@ -129,7 +131,9 @@ impl WebSocketServerSocket {
                             send.lock()
                                 .await
                                 .write_frame(Frame::binary(Payload::Owned(data)))
-                                .await;
+                                .await
+                                .map_err(|e| error!("WebSocket send binary frame error: {:?}", e))
+                                .unwrap();
                         }
                     }
                 }
@@ -185,30 +189,34 @@ impl Transport for WebSocketServerSocket {
             let acceptor = self.get_tls_acceptor();
             let listener = TcpListener::bind(self.server_addr).await.unwrap();
             loop {
+                let to_client_senders = to_client_senders.clone();
+                let from_client_sender = from_client_sender.clone();
                 let (stream, client_addr) = listener.accept().await.unwrap();
+                info!("got client");
                 let acceptor = acceptor.clone();
-                let to_client_senders = to_client_senders.clone(); // Clone to avoid moving
-                let from_client_sender = from_client_sender.clone(); // Clone to avoid moving
                 tokio::spawn(async move {
                     let to_client_senders = to_client_senders.clone();
+                    let from_client_sender = from_client_sender.clone();
                     if let Some(acceptor) = acceptor {
                         let stream = acceptor.accept(stream).await.unwrap();
                         let io = TokioIo::new(stream);
                         let conn_fut = http1::Builder::new()
                             .serve_connection(
                                 io,
-                                service_fn(|mut req: Request<Incoming>| async move {
-                                    let to_client_senders = to_client_senders.clone(); // Clone to avoid moving
-                                    let from_client_sender = from_client_sender.clone(); // Clone to avoid moving
-                                    let (response, fut) = upgrade(&mut req)?;
-                                    /*tokio::spawn(Self::handle_client(
-                                        fut,
-                                        client_addr,
-                                        from_client_sender,
-                                        to_client_senders,
-                                    ));*/
-                                    anyhow::Ok(response)
-                                }),
+                                service_fn(move |mut req: Request<Incoming>| {
+                                    let to_client_senders = to_client_senders.clone();
+                                    let from_client_sender = from_client_sender.clone();
+                                    async move {
+                                        let (response, fut) = upgrade(&mut req)?;
+                                        tokio::spawn(Self::handle_client(
+                                            fut,
+                                            client_addr,
+                                            from_client_sender,
+                                            to_client_senders,
+                                        ));
+                                        anyhow::Ok(response)
+                                    }
+                                })
                             )
                             .with_upgrades()
                             .await;
