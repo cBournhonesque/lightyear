@@ -1,29 +1,27 @@
 //! Handles spawning entities that are predicted
 
+use std::any::{Any, TypeId};
+use std::hash::{BuildHasher, Hash, Hasher};
+
+use bevy::ecs::system::Command;
+use bevy::prelude::{
+    Commands, Component, DespawnRecursiveExt, DetectChanges, EntityRef, EventReader, Mut, Query,
+    Ref, Res, ResMut, Without, World,
+};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, trace, warn};
+
+use lightyear_macros::MessageInternal;
+
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::prediction::despawn::PredictionDespawnCommand;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
-use crate::netcode::ClientId;
-use crate::prelude::{ShouldBePredicted, Tick, TickManager};
+use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
-use bevy::ecs::archetype::Archetype;
-use bevy::ecs::component::Components;
-use bevy::ecs::system::{Command, EntityCommands};
-use bevy::prelude::{
-    Added, Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, EntityRef,
-    EntityWorldMut, EventReader, Mut, ParamSet, Query, Ref, Res, ResMut, With, Without, World,
-};
-use lightyear_macros::MessageInternal;
-use serde::{Deserialize, Serialize};
-use std::any::{Any, TypeId};
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::marker::PhantomData;
-use tracing::{debug, error, info, trace, warn};
 
 #[derive(
     MessageInternal, Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq,
@@ -367,17 +365,16 @@ pub(crate) fn spawn_pre_spawned_player_object<P: Protocol>(
 
 #[cfg(test)]
 mod tests {
-    use crate::_reexport::{ItemWithReadyKey, ReadyBuffer};
+    use bevy::prelude::Entity;
+    use bevy::utils::{Duration, EntityHashMap};
+    use tracing_subscriber::fmt::format::FmtSpan;
+
+    use crate::_reexport::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
-    use crate::client::prediction::{Rollback, RollbackState};
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::Entity;
-    use bevy::utils::{Duration, EntityHashMap};
-    use std::collections::BinaryHeap;
-    use tracing_subscriber::fmt::format::FmtSpan;
 
     #[test]
     fn test_compute_hash() {

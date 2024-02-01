@@ -1,22 +1,23 @@
 //! Defines the client bevy systems and run conditions
-use bevy::ecs::system::{SystemChangeTick, SystemState};
+use std::ops::DerefMut;
+
+use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 #[cfg(feature = "xpbd_2d")]
 use bevy_xpbd_2d::prelude::PhysicsTime;
-use std::ops::DerefMut;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::_reexport::ReplicationSend;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
-use crate::client::resource::{Client, ClientMut};
-use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
-use crate::prelude::{Io, TickManager, TimeManager};
+use crate::connection::client::{ClientConnection, NetClient};
+use crate::prelude::{TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::tick_manager::TickEvent;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
@@ -27,13 +28,12 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     //  WE SHOULD BE CALLING UPDATE INSIDE THOSE AS WELL SO THAT WE CAN SEND UPDATES
     //  IN THE MIDDLE OF THE FIXED UPDATE LOOPS
     //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
-    //  FIXED-UPDATE.expend() updates the clock by the fixed update interval
+    //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
     //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
-                |world: &mut World, mut netcode: Mut<crate::netcode::Client>| {
-                    world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
+                |world: &mut World, mut netcode: Mut<ClientConnection>| {
                         world.resource_scope(
                             |world: &mut World, mut time_manager: Mut<TimeManager>| {
                                 world.resource_scope(
@@ -44,7 +44,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         time_manager.update(delta);
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
                                         let _ = netcode
-                                            .try_update(delta.as_secs_f64(), io.deref_mut())
+                                            .try_update(delta.as_secs_f64())
                                             .map_err(|e| {
                                                 error!("Error updating netcode: {}", e);
                                             });
@@ -105,8 +105,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             // DespawnEntity event
                                             if events.has_entity_despawn() {
                                                 let mut entity_despawn_event_writer = world
-                                                    .get_resource_mut::<Events<EntityDespawnEvent>>(
-                                                    )
+                                                    .get_resource_mut::<Events<EntityDespawnEvent>>()
                                                     .unwrap();
                                                 for (entity, _) in events.into_iter_entity_despawn()
                                                 {
@@ -124,19 +123,17 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         trace!("finished recv");
                                     },
                                 )
-                            },
-                        );
-                    });
-                },
+                            }
+                    );
+                }
             );
             trace!("finished recv");
-        },
+        }
     );
 }
 
 pub fn send<P: Protocol>(
-    mut io: ResMut<Io>,
-    mut netcode: ResMut<crate::netcode::Client>,
+    mut netcode: ResMut<ClientConnection>,
     system_change_tick: SystemChangeTick,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
@@ -154,11 +151,9 @@ pub fn send<P: Protocol>(
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())
         .unwrap();
     for packet_byte in packet_bytes {
-        let _ = netcode
-            .send(packet_byte.as_slice(), io.deref_mut())
-            .map_err(|e| {
-                error!("Error sending packet: {}", e);
-            });
+        let _ = netcode.send(packet_byte.as_slice()).map_err(|e| {
+            error!("Error sending packet: {}", e);
+        });
     }
 
     // no need to clear the connection, because we already std::mem::take it
@@ -173,7 +168,7 @@ pub fn send<P: Protocol>(
 /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
 pub(crate) fn sync_update<P: Protocol>(
     config: Res<ClientConfig>,
-    netclient: Res<crate::netcode::Client>,
+    netclient: Res<ClientConnection>,
     connection: ResMut<ConnectionManager<P>>,
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,

@@ -2,7 +2,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
-use tracing::{debug, info, trace};
+use tracing::trace;
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
@@ -11,7 +11,6 @@ pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::components::{Confirmed, LerpFn, SyncComponent};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::ShouldBeInterpolated;
 

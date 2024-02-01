@@ -4,12 +4,10 @@ use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
     Without,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::client::components::{SyncComponent, SyncMetadata};
-use crate::client::connection::ConnectionManager;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::resource::Client;
 use crate::prelude::{Named, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;

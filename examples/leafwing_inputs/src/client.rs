@@ -61,6 +61,10 @@ impl ClientPluginGroup {
         );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+            },
             prediction: PredictionConfig {
                 input_delay_ticks: INPUT_DELAY_TICKS,
                 correction_ticks_factor: CORRECTION_TICKS_FACTOR,
@@ -70,7 +74,7 @@ impl ClientPluginGroup {
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -186,7 +190,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
             (KeyCode::Right, PlayerActions::Right),
         ]),
     ));
-    client.connect();
+    let _ = client.connect();
 }
 
 /// Blueprint pattern: when the ball gets replicated from the server, add all the components

@@ -4,7 +4,8 @@ use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
-use crate::netcode::Key;
+use crate::connection::netcode::Key;
+use crate::connection::server::NetConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
@@ -86,7 +87,7 @@ impl PacketConfig {
 #[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
-    pub netcode: NetcodeConfig,
+    pub net: NetConfig,
     pub packet: PacketConfig,
     pub ping: PingConfig,
 }

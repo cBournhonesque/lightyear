@@ -11,11 +11,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
-use crate::connection::events::{
-    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-};
 use crate::prelude::{EntityMapper, MapEntities, Message, Named, PreSpawnedPlayerObject};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::shared::events::{
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+};
 use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::ReplicationSend;

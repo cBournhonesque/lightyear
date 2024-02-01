@@ -5,7 +5,6 @@ use bevy::prelude::{App, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::connection::events::IterMessageEvent;
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::MapEntities;
@@ -13,6 +12,7 @@ use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 #[cfg(feature = "leafwing")]
 use crate::shared::events::InputMessageEvent;
+use crate::shared::events::IterMessageEvent;
 use crate::utils::named::Named;
 
 // client writes an Enum containing all their message type

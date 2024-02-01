@@ -1,4 +1,8 @@
 //! Configuration that has to be the same between the server and the client.
+use crate::client::config::NetcodeConfig;
+use crate::client::resource::Authentication;
+use crate::connection::client::ClientConnection;
+use crate::prelude::IoConfig;
 use bevy::utils::Duration;
 
 use crate::shared::log::LogConfig;

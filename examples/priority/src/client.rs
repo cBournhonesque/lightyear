@@ -55,6 +55,10 @@ impl ClientPluginGroup {
         );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+            },
             packet: PacketConfig::default()
                 // by default there is no bandwidth limit so we need to enable it
                 .enable_bandwidth_cap()
@@ -67,7 +71,7 @@ impl ClientPluginGroup {
             },
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),

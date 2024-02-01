@@ -5,7 +5,7 @@ use bevy::prelude::{
 };
 use bevy::utils::{HashMap, HashSet};
 
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
 use crate::server::resource::Server;

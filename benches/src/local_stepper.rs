@@ -14,7 +14,7 @@ use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::client as lightyear_client;
-use lightyear::netcode::generate_key;
+use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::{
     Authentication, ClientConfig, InputConfig, InterpolationConfig, NetClient, PredictionConfig,
     SyncConfig,

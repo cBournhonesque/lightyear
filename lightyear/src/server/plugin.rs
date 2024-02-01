@@ -10,7 +10,8 @@ use bevy::prelude::{
 };
 use bevy::time::common_conditions::on_timer;
 
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
+use crate::connection::server::NetServer;
 use crate::prelude::{ShouldBePredicted, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -67,10 +68,9 @@ impl<P: Protocol> ServerPlugin<P> {
 impl<P: Protocol> PluginType for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let netserver = crate::netcode::Server::new(
-            config.io.local_addr(),
-            config.server_config.netcode.clone(),
-        );
+        let mut netserver = config.server_config.net.clone().get_server(config.io);
+        // start the server
+        netserver.start();
 
         let tick_duration = config.server_config.shared.tick.tick_duration;
         // TODO: have better constants for clean_interval?
@@ -96,7 +96,6 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             })
             // RESOURCES //
             .insert_resource(config.server_config.clone())
-            .insert_resource(config.io)
             .insert_resource(netserver)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry().clone(),

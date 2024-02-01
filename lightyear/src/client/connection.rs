@@ -1,19 +1,17 @@
 //! Specify how a Client sends/receives messages with a Server
-use bevy::utils::Duration;
-
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Res, ResMut, Resource, World};
 use bevy::reflect::Reflect;
+use bevy::utils::Duration;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
+use crate::client::message::ClientMessage;
 use crate::client::sync::SyncConfig;
-use crate::connection::events::ConnectionEvents;
-use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
@@ -21,6 +19,8 @@ use crate::prelude::{Channel, ChannelKind, MapEntities, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
+use crate::server::message::ServerMessage;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::receive::ReplicationReceiver;

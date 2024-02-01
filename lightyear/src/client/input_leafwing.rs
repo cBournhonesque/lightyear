@@ -1,26 +1,23 @@
 //! Handles client-generated inputs
-use bevy::input::common_conditions::input_just_released;
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use bevy::utils::petgraph::dot::Config;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
-use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{MapEntities, TickManager};
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};

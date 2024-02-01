@@ -4,8 +4,8 @@ use bevy::prelude::{
     Commands, DespawnRecursiveExt, DetectChanges, Entity, FixedUpdate, Query, Ref, Res, ResMut,
     With, Without, World,
 };
-use bevy::utils::{EntityHashSet, HashSet};
-use tracing::{debug, error, info, trace, trace_span};
+use bevy::utils::EntityHashSet;
+use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
@@ -14,7 +14,6 @@ use crate::client::connection::ConnectionManager;
 use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::resource::Client;
 use crate::prelude::client::SyncMetadata;
 use crate::prelude::{PreSpawnedPlayerObject, TickManager};
 use crate::protocol::Protocol;

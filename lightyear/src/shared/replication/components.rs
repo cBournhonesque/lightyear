@@ -10,7 +10,7 @@ use lightyear_macros::MessageInternal;
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 use crate::prelude::{EntityMapper, MapEntities};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;

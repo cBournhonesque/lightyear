@@ -49,10 +49,12 @@ impl ServerPluginGroup {
         // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
-            netcode: NetcodeConfig::default()
-                .with_protocol_id(PROTOCOL_ID)
-                .with_key(KEY),
-            ping: PingConfig::default(),
+            net: NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(PROTOCOL_ID)
+                    .with_key(KEY),
+            },
+            ..default()
         };
 
         // Step 3: create the plugin

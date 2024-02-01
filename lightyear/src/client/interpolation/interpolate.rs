@@ -1,13 +1,11 @@
-use bevy::ecs::system::EntityCommands;
-use bevy::prelude::{Commands, Component, Entity, Mut, Query, Res, ResMut, Without};
-use tracing::{debug, info, trace};
+use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
+use tracing::{debug, trace};
 
 use crate::_reexport::ComponentProtocol;
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::client::resource::Client;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;

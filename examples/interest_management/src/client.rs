@@ -56,6 +56,10 @@ impl ClientPluginGroup {
         );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+            },
             prediction: PredictionConfig::default(),
             interpolation: InterpolationConfig::default().with_delay(
                 InterpolationDelay::default()
@@ -64,7 +68,7 @@ impl ClientPluginGroup {
             ),
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, io, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -124,8 +128,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
             ..default()
         },
     ));
-    client.connect();
-    // client.set_base_relative_speed(0.001);
+    let _ = client.connect();
 }
 
 // The client input only gets applied to predicted entities that we own
