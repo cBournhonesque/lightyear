@@ -219,6 +219,20 @@ impl Default for ReplicationGroup {
 }
 
 impl ReplicationGroup {
+    pub const fn new_from_entity() -> Self {
+        Self {
+            id_builder: ReplicationGroupIdBuilder::FromEntity,
+            base_priority: 1.0,
+        }
+    }
+
+    pub const fn new_id(id: u64) -> Self {
+        Self {
+            id_builder: ReplicationGroupIdBuilder::Group(id),
+            base_priority: 1.0,
+        }
+    }
+
     pub(crate) fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
         match self.id_builder {
             ReplicationGroupIdBuilder::FromEntity => {
