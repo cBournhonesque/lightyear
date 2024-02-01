@@ -4,9 +4,9 @@
 [![docs.rs](https://docs.rs/lightyear/badge.svg)](https://docs.rs/lightyear)
 [![codecov](https://codecov.io/gh/cBournhonesque/lightyear/branch/main/graph/badge.svg?token=N1G28NQB1L)](https://codecov.io/gh/cBournhonesque/lightyear)
 
-A library for writing server-authoritative multiplayer games with [Bevy](https://bevyengine.org/).
+A library for writing server-authoritative multiplayer games with [Bevy](https://bevyengine.org/). Compatibly with wasm via WebTransport.
 
-Compatibly with wasm via WebTransport.
+Try the [examples](https://cbournhonesque.github.io/lightyear/book/examples/title.html) online!
 
 
 https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a16f-f991a394c852
