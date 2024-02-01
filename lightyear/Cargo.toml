@@ -40,6 +40,14 @@ rivet = [
   "dep:tokio",
   "dep:tower",
 ]
+edgegap = [
+  "dep:serde_json",
+  "dep:reqwest",
+  "dep:clap",
+  "dep:axum",
+  "dep:tokio",
+  "dep:tower",
+]
 
 [dependencies]
 # utils
