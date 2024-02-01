@@ -287,7 +287,7 @@ pub(crate) fn shoot_bullet(
                             // the bullet is interpolated for other clients
                             interpolation_target: NetworkTarget::AllExceptSingle(id.0),
                             // NOTE: all predicted entities need to have the same replication group
-                            replication_group: ReplicationGroup::Group(id.0),
+                            replication_group: ReplicationGroup::new_id(id.0),
                             ..default()
                         },
                     ));
