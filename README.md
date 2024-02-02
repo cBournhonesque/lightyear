@@ -59,6 +59,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
   - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other entities. The entities will be mapped from the local World to the remote World.
   - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest management is made flexible by the use of `Rooms`
   - **Input Delay**: you can add a custom amount of input-delay as a trade-off between having a more responsive game or more mis-predictions
+  - **Bandwidth Management**: you can set a cap to the bandwidth for the connection. Then messages will be sent in decreasing order of priority (that you can set yourself).
 - Configurable
   - *Lightyear* is highly configurable: you can configure the size of the input buffer, the amount of interpolation-delay, the packet send rate, etc.
     All the configurations are accessible through the `ClientConfig` and `ServerConfig` structs.
@@ -72,11 +73,6 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 
 - Metrics
     - Improve the metrics/logs
-- Packet
-    - Add support channel bandwidth limiting. If we reach the limit, only replicate priority entities
 - Serialization
     - Improve the serialization code to be more ergonomic, and to have fewer copies.
 - Correctness: add more unit tests for replication edge-cases
-
-Long-term:
-- Delta compression: only send the difference between the current state and the previous state
