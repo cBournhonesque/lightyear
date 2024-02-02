@@ -25,15 +25,10 @@ mod tests {
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
     async fn test_websocket_native() -> anyhow::Result<()> {
-        // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_span_events(FmtSpan::ENTER)
-        //     .with_max_level(tracing::Level::INFO)
-        //     .init();
         let server_addr = "127.0.0.1:7000".parse().unwrap();
-        let client_addr = "127.0.0.1:8000".parse().unwrap();
-
-        let client_socket = WebSocketClientSocket::new(client_addr, server_addr, None);
-        let server_socket = WebSocketServerSocket::new(server_addr, None);
+        
+        let client_socket = WebSocketClientSocket::new(server_addr);
+        let server_socket = WebSocketServerSocket::new(server_addr);
 
         let (mut server_send, mut server_recv) = server_socket.listen();
         let (mut client_send, mut client_recv) = client_socket.listen();
@@ -46,14 +41,14 @@ mod tests {
         // sleep a little to give time to the message to arrive in the socket
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        let Some((recv_msg, address)) = server_recv.recv()? else {
+        if let Some((recv_msg, address)) = server_recv.recv()? {
+            assert_eq!(recv_msg, msg);
+
+            // server to client
+            server_send.send(msg, &address)?;
+        } else {
             panic!("server expected to receive a packet from client");
         };
-        assert_eq!(address, client_addr);
-        assert_eq!(recv_msg, msg);
-
-        // server to client
-        server_send.send(msg, &client_addr)?;
 
         // sleep a little to give time to the message to arrive in the socket
         tokio::time::sleep(Duration::from_millis(20)).await;

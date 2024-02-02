@@ -1,147 +1,39 @@
-use std::{io::BufReader, net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use bevy::utils::hashbrown::HashMap;
-use fastwebsockets::{
-    upgrade::{upgrade, UpgradeFut},
-    FragmentCollector, Frame, OpCode, Payload,
-};
-use http_body_util::Empty;
-use hyper::{
-    body::{Bytes, Incoming},
-    server::conn::http1,
-    service::service_fn,
-    Request, Response,
-};
-use hyper_util::rt::TokioIo;
-use rustls_pemfile::{certs, rsa_private_keys};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::{
-        mpsc::{self, error::TryRecvError, UnboundedReceiver, UnboundedSender},
-        Mutex,
-    },
-};
-use tokio_rustls::{rustls::ServerConfig, TlsAcceptor};
+
 use tracing::{info, trace};
 use tracing_log::log::error;
+
+use futures_util::{
+    future, pin_mut,
+    stream::{SplitSink, TryStreamExt},
+    SinkExt, StreamExt, TryFutureExt,
+};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+};
+use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::MTU;
 
-pub struct WebSocketServerSocketTLSConfig {
-    pub keys: Box<[u8]>,
-    pub certs: Box<[u8]>,
-}
-
 pub struct WebSocketServerSocket {
     server_addr: SocketAddr,
-    tls_config: Option<WebSocketServerSocketTLSConfig>,
-}
-
-pub enum WebSocketMessage {
-    Binary(Vec<u8>),
-    Close(Option<u16>, Option<String>),
 }
 
 impl WebSocketServerSocket {
-    pub(crate) fn new(
-        server_addr: SocketAddr,
-        tls_config: Option<WebSocketServerSocketTLSConfig>,
-    ) -> Self {
-        Self {
-            server_addr,
-            tls_config,
-        }
+    pub(crate) fn new(server_addr: SocketAddr) -> Self {
+        Self { server_addr }
     }
 
-    pub async fn handle_client(
-        fut: UpgradeFut,
-        client_addr: SocketAddr,
-        from_client_sender: UnboundedSender<(WebSocketMessage, SocketAddr)>,
-        to_client_channels: Arc<
-            std::sync::Mutex<HashMap<SocketAddr, UnboundedSender<WebSocketMessage>>>,
-        >,
-    ) {
-        let mut ws = fut.await.unwrap();
-        ws.set_writev(false); // TODO understand this
-        let ws = Arc::new(Mutex::new(FragmentCollector::new(ws)));
-
-        let (to_client_sender, mut to_client_receiver) =
-            mpsc::unbounded_channel::<WebSocketMessage>();
-
-        let abort_sender = to_client_sender.clone();
-
-        to_client_channels
-            .lock()
-            .unwrap()
-            .insert(client_addr, to_client_sender);
-
-        let recv = ws.clone();
-        tokio::spawn(async move {
-            loop {
-                // receive messages from client
-                match recv.lock().await.read_frame().await {
-                    Ok(frame) => match frame.opcode {
-                        OpCode::Close => {
-                            trace!("received close frame from client!");
-                            from_client_sender
-                                .send((WebSocketMessage::Close(None, None), client_addr))
-                                .unwrap();
-                            to_client_channels.lock().unwrap().remove(&client_addr);
-                            break;
-                        }
-                        OpCode::Binary => {
-                            trace!("received packet from client!: {:?}", &frame.payload);
-                            from_client_sender
-                                .send((WebSocketMessage::Binary(frame.payload.into()), client_addr))
-                                .unwrap();
-                        }
-                        _ => {}
-                    },
-                    Err(e) => {
-                        error!("WebSocket read_frame error: {:?}", e);
-                    }
-                }
-            }
-        });
-
-        let send = ws.clone();
-        tokio::spawn(async move {
-            loop {
-                if let Some(msg) = to_client_receiver.recv().await {
-                    match msg {
-                        WebSocketMessage::Close(code, reason) => {
-                            trace!("sending close frame to client!");
-                            // codes: https://www.rfc-editor.org/rfc/rfc6455.html#section-7.1.5
-                            send.lock()
-                                .await
-                                .write_frame(Frame::close(
-                                    code.unwrap_or(1000),
-                                    reason.unwrap_or("".to_string()).as_bytes(),
-                                ))
-                                .await
-                                .map_err(|e| error!("WebSocket send close frame error: {:?}", e))
-                                .unwrap();
-                            break;
-                        }
-                        WebSocketMessage::Binary(data) => {
-                            trace!("sending packet to client!: {:?}", &data);
-                            send.lock()
-                                .await
-                                .write_frame(Frame::binary(Payload::Owned(data)))
-                                .await
-                                .map_err(|e| error!("WebSocket send binary frame error: {:?}", e))
-                                .unwrap();
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    fn get_tls_acceptor(&self) -> Option<TlsAcceptor> {
+    /*fn get_tls_acceptor(&self) -> Option<TlsAcceptor> {
         if let Some(config) = &self.tls_config {
             let server_config = ServerConfig::builder()
                 .with_no_client_auth()
@@ -159,8 +51,10 @@ impl WebSocketServerSocket {
         } else {
             None
         }
-    }
+    }*/
 }
+
+type ClientBoundTxMap = Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Message>>>>;
 
 impl Transport for WebSocketServerSocket {
     fn local_addr(&self) -> SocketAddr {
@@ -168,59 +62,68 @@ impl Transport for WebSocketServerSocket {
     }
 
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let (to_client_sender, to_client_receiver) =
-            mpsc::unbounded_channel::<(WebSocketMessage, SocketAddr)>();
-        let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
-        let to_client_senders = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
+
+        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
 
         let packet_sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,
-            to_client_senders: to_client_senders.clone(),
+            addr_to_clientbound_tx: clientbound_tx_map.clone(),
         };
 
         let packet_receiver = WebSocketServerSocketReceiver {
             buffer: [0; MTU],
             server_addr: self.server_addr,
-            from_client_receiver,
+            serverbound_rx,
         };
 
         tokio::spawn(async move {
             info!("Starting server websocket task");
-            let acceptor = self.get_tls_acceptor();
             let listener = TcpListener::bind(self.server_addr).await.unwrap();
-            loop {
-                let to_client_senders = to_client_senders.clone();
-                let from_client_sender = from_client_sender.clone();
-                let (stream, client_addr) = listener.accept().await.unwrap();
-                info!("got client");
-                let acceptor = acceptor.clone();
+            while let Ok((stream, addr)) = listener.accept().await {
+                let clientbound_tx_map = clientbound_tx_map.clone();
+                let serverbound_tx = serverbound_tx.clone();
                 tokio::spawn(async move {
-                    let to_client_senders = to_client_senders.clone();
-                    let from_client_sender = from_client_sender.clone();
-                    if let Some(acceptor) = acceptor {
-                        let stream = acceptor.accept(stream).await.unwrap();
-                        let io = TokioIo::new(stream);
-                        let conn_fut = http1::Builder::new()
-                            .serve_connection(
-                                io,
-                                service_fn(move |mut req: Request<Incoming>| {
-                                    let to_client_senders = to_client_senders.clone();
-                                    let from_client_sender = from_client_sender.clone();
-                                    async move {
-                                        let (response, fut) = upgrade(&mut req)?;
-                                        tokio::spawn(Self::handle_client(
-                                            fut,
-                                            client_addr,
-                                            from_client_sender,
-                                            to_client_senders,
-                                        ));
-                                        anyhow::Ok(response)
-                                    }
+                    let ws_stream = tokio_tungstenite::accept_async(stream)
+                        .await
+                        .expect("Error during the websocket handshake occurred");
+
+                    info!("New WebSocket connection: {}", addr);
+
+                    let (clientbound_tx, mut clientbound_rx) = unbounded_channel::<Message>();
+                    let (mut write, mut read) = ws_stream.split();
+
+                    clientbound_tx_map
+                        .lock()
+                        .unwrap()
+                        .insert(addr, clientbound_tx);
+
+                    let serverbound_tx = serverbound_tx.clone();
+                    tokio::spawn(async move {
+                        while let Some(msg) = read.next().await {
+                            let msg = msg
+                                .map_err(|e| {
+                                    error!("Error while receiving websocket msg: {}", e);
                                 })
-                            )
-                            .with_upgrades()
-                            .await;
-                    }
+                                .unwrap();
+
+                            serverbound_tx.send((addr, msg)).expect(
+                                "Unable to propagate the read websocket message to the receiver",
+                            );
+                        }
+                    });
+
+                    tokio::spawn(async move {
+                        while let Some(msg) = clientbound_rx.recv().await {
+                            write
+                                .send(msg)
+                                .await
+                                .map_err(|e| {
+                                    error!("Encountered error while sending websocket msg: {}", e);
+                                })
+                                .unwrap();
+                        }
+                    });
                 });
             }
         });
@@ -231,15 +134,14 @@ impl Transport for WebSocketServerSocket {
 
 struct WebSocketServerSocketSender {
     server_addr: SocketAddr,
-    to_client_senders:
-        Arc<std::sync::Mutex<HashMap<SocketAddr, UnboundedSender<WebSocketMessage>>>>,
+    addr_to_clientbound_tx: ClientBoundTxMap,
 }
 
 impl PacketSender for WebSocketServerSocketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
-        if let Some(to_client_sender) = self.to_client_senders.lock().unwrap().get(address) {
-            to_client_sender
-                .send(WebSocketMessage::Binary(payload.into()))
+        if let Some(clientbound_tx) = self.addr_to_clientbound_tx.lock().unwrap().get(address) {
+            clientbound_tx
+                .send(Message::Binary(payload.to_vec()))
                 .map_err(|e| {
                     std::io::Error::other(format!("unable to send message to client: {}", e))
                 })
@@ -255,16 +157,20 @@ impl PacketSender for WebSocketServerSocketSender {
 struct WebSocketServerSocketReceiver {
     buffer: [u8; MTU],
     server_addr: SocketAddr,
-    from_client_receiver: UnboundedReceiver<(WebSocketMessage, SocketAddr)>,
+    serverbound_rx: UnboundedReceiver<(SocketAddr, Message)>,
 }
 
 impl PacketReceiver for WebSocketServerSocketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
-        match self.from_client_receiver.try_recv() {
-            Ok((data, addr)) => match data {
-                WebSocketMessage::Binary(buf) => {
+        match self.serverbound_rx.try_recv() {
+            Ok((addr, msg)) => match msg {
+                Message::Binary(buf) => {
                     self.buffer[..buf.len()].copy_from_slice(&buf);
-                    Ok(Some((&mut self.buffer[..buf.len()], self.server_addr)))
+                    Ok(Some((&mut self.buffer[..buf.len()], addr)))
+                }
+                Message::Close(frame) => {
+                    info!("WebSocket connection closed (Frame: {:?})", frame);
+                    Ok(None)
                 }
                 _ => Ok(None),
             },
