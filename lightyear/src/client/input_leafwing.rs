@@ -1,26 +1,23 @@
 //! Handles client-generated inputs
-use bevy::input::common_conditions::input_just_released;
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use bevy::utils::petgraph::dot::Config;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
-use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{MapEntities, TickManager};
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
@@ -144,6 +141,7 @@ where
             (
                 MainSet::Sync,
                 // handle tick events from sync before sending the message
+                // because sending the message might also modify the tick (when popping to interpolation tick)
                 InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
                 InputSystemSet::SendInputMessage
                     .run_if(client_is_synced::<P>)
@@ -176,7 +174,8 @@ where
                 (
                     (
                         (write_action_diffs::<A>, buffer_action_state::<P, A>),
-                        // get the non-delayed action-state, for the user to act on the current tick's actions
+                        // get the action-state corresponding to the current tick (which we need to get from the buffer
+                        //  because it was added to the buffer input_delay ticks ago)
                         get_non_rollback_action_state::<A>.run_if(is_input_delay),
                     )
                         .chain()
@@ -217,8 +216,7 @@ where
         app.add_systems(
             PostUpdate,
             (
-                receive_tick_events::<A>
-                    .in_set(crate::client::input::InputSystemSet::ReceiveTickEvents),
+                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
                 prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
                 add_action_state_buffer_added_input_map::<A>,
             ),
@@ -452,7 +450,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
     for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
             if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
-                debug!(?entity, ?tick, ?delay, "write action diff");
+                trace!(?entity, ?tick, ?delay, "write action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         } else {
@@ -510,8 +508,9 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     for (entity, predicted, mut action_diff_buffer, pre_predicted) in
         action_diff_buffer_query.iter_mut()
     {
-        trace!(
+        debug!(
             ?tick,
+            ?interpolation_tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
             action_diff_buffer.as_ref()
@@ -525,8 +524,8 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
 
         if pre_predicted.is_some() {
             debug!(
-                "sending inputs for pre-predicted entity! Local client entity: {:?}",
-                entity
+                ?tick,
+                "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
             );
             // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
             //  to receive the inputs until it receives the pre-predicted spawn message.

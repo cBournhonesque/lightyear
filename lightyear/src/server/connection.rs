@@ -10,17 +10,19 @@ use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
-use crate::connection::events::ConnectionEvents;
-use crate::connection::message::{ClientMessage, ServerMessage};
+use crate::client::message::ClientMessage;
+use crate::connection::netcode::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
+use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
+use crate::server::message::ServerMessage;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
@@ -46,6 +48,9 @@ pub struct ConnectionManager<P: Protocol> {
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
+
+    packet_config: PacketConfig,
+    ping_config: PingConfig,
 }
 
 /// Do some regular cleanup on the internals of replication:
@@ -90,13 +95,19 @@ pub(crate) fn replication_clean<P: Protocol>(
 }
 
 impl<P: Protocol> ConnectionManager<P> {
-    pub fn new(channel_registry: ChannelRegistry) -> Self {
+    pub fn new(
+        channel_registry: ChannelRegistry,
+        packet_config: PacketConfig,
+        ping_config: PingConfig,
+    ) -> Self {
         Self {
             connections: HashMap::default(),
             channel_registry,
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
+            packet_config,
+            ping_config,
         }
     }
 
@@ -159,13 +170,17 @@ impl<P: Protocol> ConnectionManager<P> {
         });
     }
 
-    pub(crate) fn add(&mut self, client_id: ClientId, ping_config: &PingConfig) {
+    pub(crate) fn add(&mut self, client_id: ClientId) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
             metrics::increment_gauge!("connected_clients", 1.0);
 
             info!("New connection from id: {}", client_id);
-            let mut connection = Connection::new(&self.channel_registry, ping_config);
+            let mut connection = Connection::new(
+                &self.channel_registry,
+                self.packet_config.clone(),
+                self.ping_config.clone(),
+            );
             connection.events.push_connection();
             self.new_clients.push(client_id);
             e.insert(connection);
@@ -323,9 +338,13 @@ pub struct Connection<P: Protocol> {
 }
 
 impl<P: Protocol> Connection<P> {
-    pub(crate) fn new(channel_registry: &ChannelRegistry, ping_config: &PingConfig) -> Self {
+    pub(crate) fn new(
+        channel_registry: &ChannelRegistry,
+        packet_config: PacketConfig,
+        ping_config: PingConfig,
+    ) -> Self {
         // create the message manager and the channels
-        let mut message_manager = MessageManager::new(channel_registry);
+        let mut message_manager = MessageManager::new(channel_registry, packet_config.into());
         // get the acks-tracker for entity updates
         let update_acks_tracker = message_manager
             .channels
@@ -333,7 +352,11 @@ impl<P: Protocol> Connection<P> {
             .unwrap()
             .sender
             .subscribe_acks();
-        let replication_sender = ReplicationSender::new(update_acks_tracker);
+        // get a channel to get notified when a replication update message gets actually send (to update priority)
+        let replication_update_send_receiver =
+            message_manager.get_replication_update_send_receiver();
+        let replication_sender =
+            ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
         let replication_receiver = ReplicationReceiver::new();
         Self {
             message_manager,
@@ -380,7 +403,7 @@ impl<P: Protocol> Connection<P> {
         self.replication_sender
             .finalize(tick)
             .into_iter()
-            .try_for_each(|(channel, group_id, message_data)| {
+            .try_for_each(|(channel, group_id, message_data, priority)| {
                 let should_track_ack = matches!(message_data, ReplicationMessageData::Updates(_));
                 let channel_name = self
                     .message_manager
@@ -395,8 +418,8 @@ impl<P: Protocol> Connection<P> {
                 message.emit_send_logs(&channel_name);
                 let message_id = self
                     .message_manager
-                    .buffer_send(message, channel)?
-                    .expect("The EntityUpdatesChannel should always return a message_id");
+                    .buffer_send_with_priority(message, channel, priority)?
+                    .expect("The replication channels should always return a message_id");
 
                 // keep track of the group associated with the message, so we can handle receiving an ACK for that message_id later
                 if should_track_ack {
@@ -418,6 +441,8 @@ impl<P: Protocol> Connection<P> {
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
+
+        // no need to check if `time_manager.is_ready_to_send()` since we only send packets when we are ready to send
         if time_manager.is_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
@@ -443,7 +468,11 @@ impl<P: Protocol> Connection<P> {
                     Ok::<(), anyhow::Error>(())
                 })?;
         }
-        self.message_manager.send_packets(tick_manager.tick())
+        let payloads = self.message_manager.send_packets(tick_manager.tick());
+
+        // update the replication sender about which messages were actually sent, and accumulate priority
+        self.replication_sender.recv_send_notification();
+        payloads
     }
 
     pub fn receive(
@@ -509,6 +538,7 @@ impl<P: Protocol> Connection<P> {
                                     // prepare a pong in response (but do not send yet, because we need
                                     // to set the correct send time)
                                     self.ping_manager.buffer_pending_pong(ping, time_manager);
+                                    trace!("buffer pong");
                                 }
                                 SyncMessage::Pong(pong) => {
                                     // process the pong
@@ -519,25 +549,26 @@ impl<P: Protocol> Connection<P> {
                     }
                 }
             }
-            // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
-            // Check if we have any replication messages we can apply to the World (and emit events)
-            for (group, replication_list) in
-                self.replication_receiver.read_messages(tick_manager.tick())
-            {
-                trace!(?group, ?replication_list, "read replication messages");
-                replication_list
-                    .into_iter()
-                    .for_each(|(tick, replication)| {
-                        // TODO: we could include the server tick when this replication_message was sent.
-                        self.replication_receiver.apply_world(
-                            world,
-                            tick,
-                            replication,
-                            group,
-                            &mut self.events,
-                        );
-                    });
-            }
+        }
+
+        // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
+        // Check if we have any replication messages we can apply to the World (and emit events)
+        for (group, replication_list) in
+            self.replication_receiver.read_messages(tick_manager.tick())
+        {
+            trace!(?group, ?replication_list, "read replication messages");
+            replication_list
+                .into_iter()
+                .for_each(|(tick, replication)| {
+                    // TODO: we could include the server tick when this replication_message was sent.
+                    self.replication_receiver.apply_world(
+                        world,
+                        tick,
+                        replication,
+                        group,
+                        &mut self.events,
+                    );
+                });
         }
 
         // TODO: do i really need this? I could just create events in this function directly?
@@ -551,8 +582,10 @@ impl<P: Protocol> Connection<P> {
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,
     ) -> Result<()> {
-        self.replication_sender.recv_update_acks();
+        // receive the packets, buffer them, update any sender that were waiting for their sent messages to be acked
         let tick = self.message_manager.recv_packet(reader)?;
+        // notify the replication sender that some sent messages were received
+        self.replication_sender.recv_update_acks();
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
     }

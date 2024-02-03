@@ -22,7 +22,8 @@ use crate::client::prediction::prespawn::{
     compute_prespawn_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
 };
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::resource::Client;
+use crate::client::sync::client_is_synced;
+use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -153,7 +154,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Returns true if the client is connected
-pub fn is_connected(netclient: Res<crate::netcode::Client>) -> bool {
+pub fn is_connected(netclient: Res<ClientConnection>) -> bool {
     netclient.is_connected()
 }
 
@@ -351,7 +352,9 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 // fill in the client_entity and client_id for pre-predicted entities
                 handle_pre_prediction.before(ReplicationSet::All),
                 // clean-up the ShouldBePredicted components after we've sent them
-                clean_pre_predicted_entity::<P>.after(ReplicationSet::All),
+                clean_pre_predicted_entity::<P>
+                    .after(ReplicationSet::All)
+                    .run_if(client_is_synced::<P>),
                 // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
                 //  tick to compute the hash
                 // compute hashes for all pre-spawned player objects

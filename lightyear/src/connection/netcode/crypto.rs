@@ -31,7 +31,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::netcode::generate_key;
+/// use crate::lightyear::connection::netcode::generate_key;
 ///
 /// let key = generate_key();
 /// assert_eq!(key.len(), 32);
@@ -48,7 +48,7 @@ pub fn generate_key() -> Key {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::netcode::try_generate_key;
+/// use crate::lightyear::connection::netcode::try_generate_key;
 ///
 /// let key = try_generate_key().unwrap();
 /// assert_eq!(key.len(), 32);

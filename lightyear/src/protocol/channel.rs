@@ -1,3 +1,4 @@
+use bevy::reflect::Reflect;
 use serde::Deserialize;
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -96,6 +97,7 @@ impl ChannelRegistry {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::default;
     use lightyear_macros::ChannelInternal;
 
     use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
@@ -111,7 +113,7 @@ mod tests {
 
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            direction: ChannelDirection::Bidirectional,
+            ..default()
         };
         registry.add::<MyChannel>(settings.clone());
         assert_eq!(registry.len(), 1);

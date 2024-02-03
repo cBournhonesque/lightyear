@@ -1,9 +1,10 @@
-use crate::client::resource::Client;
-use crate::prelude::{Io, Protocol};
-use crate::transport::io::{IoDiagnosticsPlugin, IoStats};
 use bevy::app::{App, Plugin, PostUpdate};
-use bevy::diagnostic::{Diagnostic, Diagnostics, RegisterDiagnostic};
+use bevy::diagnostic::Diagnostics;
 use bevy::prelude::{Real, Res, ResMut, Time};
+
+use crate::connection::client::{ClientConnection, NetClient};
+use crate::prelude::Protocol;
+use crate::transport::io::IoDiagnosticsPlugin;
 
 pub struct ClientDiagnosticsPlugin<P> {
     _marker: std::marker::PhantomData<P>,
@@ -17,7 +18,12 @@ impl<P> Default for ClientDiagnosticsPlugin<P> {
     }
 }
 
-fn io_diagnostics_system(mut io: ResMut<Io>, time: Res<Time<Real>>, mut diagnostics: Diagnostics) {
+fn io_diagnostics_system(
+    mut netclient: ResMut<ClientConnection>,
+    time: Res<Time<Real>>,
+    mut diagnostics: Diagnostics,
+) {
+    let io = netclient.io_mut();
     IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {

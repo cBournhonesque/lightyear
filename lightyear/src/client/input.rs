@@ -3,7 +3,7 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
     Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
@@ -11,7 +11,6 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::{Rollback, RollbackState};
-use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::native::UserAction;
 use crate::prelude::TickManager;

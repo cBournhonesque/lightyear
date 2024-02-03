@@ -9,7 +9,6 @@ use std::io::Result;
 use std::net::{IpAddr, SocketAddr};
 
 use crate::_reexport::ComponentBehaviour;
-use crate::prelude::TransportConfig::WebSocketClient;
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
@@ -113,18 +112,14 @@ impl TransportConfig {
                 Io::new(addr, sender, receiver)
             }
             #[cfg(feature = "websocket")]
-            WebSocketClient {
-                server_addr: SocketAddr,
-            } => {
+            TransportConfig::WebSocketClient { server_addr } => {
                 let transport = WebSocketClientSocket::new(server_addr);
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
             #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-            WebSocketServer {
-                server_addr: SocketAddr,
-            } => {
+            TransportConfig::WebSocketServer { server_addr } => {
                 let transport = WebSocketServerSocket::new(server_addr);
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
@@ -205,6 +200,12 @@ pub struct Io {
     sender: Box<dyn PacketSender>,
     receiver: Box<dyn PacketReceiver>,
     pub(crate) stats: IoStats,
+}
+
+impl Default for Io {
+    fn default() -> Self {
+        panic!("Io::default() is not implemented. Please provide an io");
+    }
 }
 
 #[derive(Default, Debug)]
@@ -319,9 +320,11 @@ impl IoDiagnosticsPlugin {
             return;
         }
         diagnostics.add_measurement(Self::BYTES_IN, || {
-            stats.bytes_received as f64 / delta_seconds
+            (stats.bytes_received as f64 / 1000.0) / delta_seconds
         });
-        diagnostics.add_measurement(Self::BYTES_OUT, || stats.bytes_sent as f64 / delta_seconds);
+        diagnostics.add_measurement(Self::BYTES_OUT, || {
+            (stats.bytes_sent as f64 / 1000.0) / delta_seconds
+        });
         diagnostics.add_measurement(Self::PACKETS_IN, || {
             stats.packets_received as f64 / delta_seconds
         });
@@ -336,12 +339,12 @@ impl Plugin for IoDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
         app.register_diagnostic(Diagnostic::new(
             IoDiagnosticsPlugin::BYTES_IN,
-            "bytes received per second",
+            "KB received per second",
             IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
         ));
         app.register_diagnostic(Diagnostic::new(
             IoDiagnosticsPlugin::BYTES_OUT,
-            "bytes sent per second",
+            "KB sent per second",
             IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
         ));
         app.register_diagnostic(Diagnostic::new(

@@ -11,35 +11,35 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-89
 
 ## Running the example
 
-To start the server, run `cargo run  -- server`
+To start the server, run `cargo run  -- server -t udp`
 
 Then you can launch multiple clients with the commands:
 
-- `cargo run  -- client -c 1`
-- `cargo run  -- client -c 2 --client-port 2000`
+- `cargo run  -- client -c 1 -t udp`
+- `cargo run  -- client -c 2 --client-port 2000 -t udp`
 
 ### Testing webtransport
 
-- `cargo run  -- server --transport web-transport`
-- `cargo run  -- client -c 1 --transport web-transport`
+- `cargo run  -- server`
+- `cargo run  -- client -c 1`
+
 
 ### Testing webtransport in wasm
 
-
 https://github.com/cBournhonesque/lightyear/assets/8112632/4ee0685b-0ac6-42c8-849a-28896a158508
 
+NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
 
 To test the example in wasm, you can run the following commands:
 - `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
-- `cargo run --features webtransport -- server --transport web-transport` to start the server
+- `cargo run -- server` to start the server
 - You will then need to copy the certificate digest string that is outputted by the server in the logs and paste it in the `examples/interest_management/client.rs` file.
   Replace the certificate value like so:
 ```
 let certificate_digest =
 String::from("09945594ec0978bb76891fb5de82106d7928191152777c9fc81bec0406055159");
 ```
-- then start the client wasm test with
-  `RUSTFLAGS=--cfg=web_sys_unstable_apis wasm-pack test --chrome --features webtransport --target wasm32-unknown-unknown`
+- then start the client wasm test with `trunk serve`
 
 NOTE:
 - the wasm example seems to work better in release mode!

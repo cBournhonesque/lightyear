@@ -94,8 +94,8 @@ mod tests {
     fn test_ordered_reliable_receiver_internals() -> anyhow::Result<()> {
         let mut receiver = OrderedReliableReceiver::new();
 
-        let mut single1 = SingleData::new(None, Bytes::from("hello"));
-        let mut single2 = SingleData::new(None, Bytes::from("world"));
+        let mut single1 = SingleData::new(None, Bytes::from("hello"), 1.0);
+        let mut single2 = SingleData::new(None, Bytes::from("world"), 1.0);
 
         // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
         single2.id = Some(MessageId(60000));

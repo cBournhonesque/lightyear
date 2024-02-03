@@ -4,19 +4,20 @@ use std::iter::Extend;
 
 use anyhow::Context;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
+use bevy::reflect::Reflect;
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashSet};
 use tracing::{debug, error, info, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-use crate::connection::events::ConnectionEvents;
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::{MapEntities, Tick};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::replication::components::ReplicationGroupId;
 
 use super::entity_map::RemoteEntityMap;
@@ -59,6 +60,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
             ReplicationMessageData::Actions(m) => {
                 // if the message is too old, ignore it
                 if m.sequence_id < channel.actions_pending_recv_message_id {
+                    trace!(message_id= ?m.sequence_id, pending_message_id = ?channel.actions_pending_recv_message_id, "message is too old, ignored");
                     return;
                 }
                 // update the list of entities in the group
@@ -127,6 +129,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
             ReplicationMessageData<P::Components, P::ComponentKinds>,
         )>,
     )> {
+        trace!(?current_tick, ?self.group_channels, "reading replication messages");
         self.group_channels
             .iter_mut()
             .filter_map(|(group_id, channel)| {
@@ -408,7 +411,6 @@ impl<P: Protocol> GroupChannel<P> {
         current_tick: Tick,
     ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
-
         let Some(message) = self
             .actions_recv_message_buffer
             .get(&self.actions_pending_recv_message_id)
@@ -417,7 +419,7 @@ impl<P: Protocol> GroupChannel<P> {
         };
         // if the message is from the future, keep it there
         if message.0 > current_tick {
-            debug!("message tick is from the future compared to our tick");
+            trace!("message tick is from the future compared to our tick");
             return None;
         }
 

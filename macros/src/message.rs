@@ -167,9 +167,8 @@ pub fn message_protocol_impl(
             use bevy::utils::{EntityHashMap, EntityHashSet};
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
-            use #shared_crate_name::connection::events::{IterMessageEvent};
             use #shared_crate_name::shared::systems::events::push_message_events;
-            use #shared_crate_name::shared::events::MessageEvent;
+            use #shared_crate_name::shared::events::{IterMessageEvent, MessageEvent};
 
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]

@@ -114,19 +114,21 @@ impl Transport for WebSocketServerSocket {
                     });
                     tokio::spawn(async move {
                         while let Some(msg) = read.next().await {
-                            let msg = msg
-                                .map_err(|e| {
-                                    error!("Error while receiving websocket msg: {}", e);
-                                })
-                                .unwrap();
-
-                            serverbound_tx.send((addr, msg)).expect(
-                                "Unable to propagate the read websocket message to the receiver",
-                            );
+                            match msg {
+                                Ok(msg) => {
+                                    serverbound_tx.send((addr, msg)).unwrap_or_else(|e| {
+                                        error!("receive websocket error: {:?}", e)
+                                    });
+                                }
+                                Err(e) => {
+                                    error!("receive websocket error: {:?}", e);
+                                }
+                            }
                         }
 
                         // stream has been closed: cleanup the tasks
-                        assert!(ws_stream.is_terminated());
+                        info!("Connection with {} closed", addr);
+                        // assert!(ws_stream.is_terminated());
                         clientbound_tx_map.lock().unwrap().remove(&addr);
                         clientbound_handle.abort();
                     });
@@ -152,10 +154,12 @@ impl PacketSender for WebSocketServerSocketSender {
                     std::io::Error::other(format!("unable to send message to client: {}", e))
                 })
         } else {
-            Err(std::io::Error::other(format!(
-                "unable to find channel for client: {}",
-                address
-            )))
+            // consider that if the channel doesn't exist, it's because the connection was closed
+            Ok(())
+            // Err(std::io::Error::other(format!(
+            //     "unable to find channel for client: {}",
+            //     address
+            // )))
         }
     }
 }

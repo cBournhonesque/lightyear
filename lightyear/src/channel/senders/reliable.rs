@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
@@ -31,13 +31,19 @@ pub enum UnackedMessage {
     Fragmented(Vec<FragmentAck>),
 }
 
+pub struct UnackedMessageWithPriority {
+    pub unacked_message: UnackedMessage,
+    pub base_priority: f32,
+    pub accumulated_priority: f32,
+}
+
 /// A sender that makes sure to resend messages until it receives an ack
 pub struct ReliableSender {
     /// Settings for reliability
     reliable_settings: ReliableSettings,
     // TODO: maybe optimize by using a RingBuffer
     /// Ordered map of the messages that haven't been acked yet
-    unacked_messages: BTreeMap<MessageId, UnackedMessage>,
+    unacked_messages: BTreeMap<MessageId, UnackedMessageWithPriority>,
     /// Message id to use for the next message to be sent
     next_send_message_id: MessageId,
 
@@ -90,12 +96,12 @@ impl ChannelSend for ReliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, None, message, priority);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -112,7 +118,15 @@ impl ChannelSend for ReliableSender {
                 last_sent: None,
             }
         };
-        self.unacked_messages.insert(message_id, unacked_message);
+        let unacked_message_with_priority = UnackedMessageWithPriority {
+            unacked_message,
+            base_priority: priority,
+            // store with 0.0 accumulated priority because priority gets accumulated when we collect the messages
+            // for sending (even the first time the message is sent)
+            accumulated_priority: 0.0,
+        };
+        self.unacked_messages
+            .insert(message_id, unacked_message_with_priority);
         self.next_send_message_id += 1;
         Some(message_id)
     }
@@ -163,8 +177,17 @@ impl ChannelSend for ReliableSender {
         };
 
         // Iterate through all unacked messages, oldest message ids first
-        for (message_id, unacked_message) in self.unacked_messages.iter_mut() {
-            match unacked_message {
+        for (message_id, unacked_message_with_priority) in self.unacked_messages.iter_mut() {
+            // accumulate the priority for all messages (including the ones that were just added, since we set the accumulated priority to 0.0)
+            unacked_message_with_priority.accumulated_priority +=
+                unacked_message_with_priority.base_priority;
+            trace!(
+                "Accumulating priority for reliable message {:?} to {:?}",
+                message_id,
+                unacked_message_with_priority.accumulated_priority
+            );
+
+            match &mut unacked_message_with_priority.unacked_message {
                 UnackedMessage::Single {
                     bytes,
                     ref mut last_sent,
@@ -177,7 +200,11 @@ impl ChannelSend for ReliableSender {
                             fragment_id: None,
                         };
                         if !self.message_ids_to_send.contains(&message_info) {
-                            let message = SingleData::new(Some(*message_id), bytes.clone());
+                            let message = SingleData::new(
+                                Some(*message_id),
+                                bytes.clone(),
+                                unacked_message_with_priority.accumulated_priority,
+                            );
                             self.single_messages_to_send.push_back(message);
                             self.message_ids_to_send.insert(message_info);
                             *last_sent = Some(self.current_time);
@@ -209,7 +236,7 @@ impl ChannelSend for ReliableSender {
 
     fn notify_message_delivered(&mut self, message_ack: &MessageAck) {
         if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
-            match unacked_message {
+            match &mut unacked_message.unacked_message {
                 UnackedMessage::Single { .. } => {
                     if message_ack.fragment_id.is_some() {
                         panic!(
@@ -266,7 +293,7 @@ mod tests {
 
         // Buffer a new message
         let message1 = Bytes::from("hello");
-        sender.buffer_send(message1.clone());
+        sender.buffer_send(message1.clone(), 1.0);
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent
@@ -284,7 +311,7 @@ mod tests {
         assert_eq!(sender.single_messages_to_send.len(), 1);
         assert_eq!(
             sender.single_messages_to_send.front().unwrap(),
-            &SingleData::new(Some(MessageId(0)), message1.clone())
+            &SingleData::new(Some(MessageId(0)), message1.clone(), 1.0)
         );
 
         // Ack the first message

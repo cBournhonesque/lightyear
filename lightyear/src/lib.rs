@@ -31,9 +31,6 @@ pub mod _reexport {
     pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
     pub use crate::client::prediction::add_prediction_systems;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
-    pub use crate::connection::events::{
-        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    };
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
         FromType,
@@ -47,6 +44,9 @@ pub mod _reexport {
     pub use crate::serialize::writer::WriteBuffer;
     pub use crate::shared::events::{
         ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    };
+    pub use crate::shared::events::{
+        IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
@@ -69,10 +69,10 @@ pub mod prelude {
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
+    pub use crate::connection::netcode::{generate_key, ClientId, Key};
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::LeafwingUserAction;
     pub use crate::inputs::native::UserAction;
-    pub use crate::netcode::{generate_key, ClientId, Key};
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
     pub use crate::protocol::Protocol;
@@ -97,8 +97,7 @@ pub mod prelude {
         pub use crate::client::components::{
             ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
         };
-        pub use crate::client::config::ClientConfig;
-        pub use crate::client::config::NetcodeConfig;
+        pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
@@ -117,14 +116,13 @@ pub mod prelude {
         pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
-        pub use crate::netcode::Client as NetClient;
+        pub use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 
         #[cfg(feature = "leafwing")]
         pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
     }
     pub mod server {
-        pub use crate::server::config::NetcodeConfig;
-        pub use crate::server::config::ServerConfig;
+        pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
@@ -132,12 +130,11 @@ pub mod prelude {
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
+        pub use crate::connection::server::{NetConfig, NetServer, ServerConnection};
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use wtransport::tls::Certificate;
-
-        pub use crate::netcode::Server as NetServer;
     }
 }
 
@@ -148,9 +145,6 @@ pub mod client;
 pub mod connection;
 
 pub mod inputs;
-
-pub mod netcode;
-
 pub mod packet;
 
 pub mod protocol;
@@ -166,6 +160,5 @@ pub(crate) mod tests;
 
 /// Provides an abstraction over an unreliable transport
 pub mod transport;
-
 /// Extra utilities
 pub mod utils;

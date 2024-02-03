@@ -30,9 +30,11 @@ pub trait ChannelSend {
         tick_manager: &TickManager,
     );
 
-    /// Queues a message to be transmitted
+    /// Queues a message to be transmitted.
+    /// The priority of the message needs to be specified
+    ///
     /// Returns the MessageId of the message that was queued, if there is one
-    fn buffer_send(&mut self, message: Bytes) -> Option<MessageId>;
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId>;
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel

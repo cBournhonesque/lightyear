@@ -1,6 +1,7 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
-use crate::{Transports, KEY, PROTOCOL_ID};
+use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -18,70 +19,103 @@ use std::str::FromStr;
 pub const INPUT_DELAY_TICKS: u16 = 0;
 pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;
 
-#[derive(Resource, Clone, Copy)]
-pub struct MyClientPlugin {
-    pub(crate) client_id: ClientId,
-    pub(crate) client_port: u16,
-    pub(crate) server_addr: Ipv4Addr,
-    pub(crate) server_port: u16,
-    pub(crate) transport: Transports,
+pub struct ClientPluginGroup {
+    client_id: ClientId,
+    lightyear: ClientPlugin<MyProtocol>,
 }
 
-impl Plugin for MyClientPlugin {
-    fn build(&self, app: &mut App) {
-        let server_addr = SocketAddr::new(self.server_addr.into(), self.server_port);
+impl ClientPluginGroup {
+    pub(crate) fn new(
+        client_id: u64,
+        client_port: u16,
+        server_addr: SocketAddr,
+        transport: Transports,
+    ) -> ClientPluginGroup {
         let auth = Authentication::Manual {
             server_addr,
-            client_id: self.client_id,
+            client_id,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), self.client_port);
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+        let certificate_digest =
+            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+                .replace(":", "");
+        let transport_config = match transport {
+            #[cfg(not(target_family = "wasm"))]
+            Transports::Udp => TransportConfig::UdpSocket(client_addr),
+            Transports::WebTransport => TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                #[cfg(target_family = "wasm")]
+                certificate_digest,
+            },
+        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(75),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.02,
         };
-        let transport = match self.transport {
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-            },
-        };
-        let io =
-            Io::from_config(IoConfig::from_transport(transport).with_conditioner(link_conditioner));
+        let io = Io::from_config(
+            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+        );
         let config = ClientConfig {
-            shared: shared_config().clone(),
-            input: InputConfig::default(),
-            netcode: Default::default(),
-            ping: PingConfig::default(),
-            sync: SyncConfig::default(),
+            shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+            },
             prediction: PredictionConfig {
                 input_delay_ticks: INPUT_DELAY_TICKS,
                 correction_ticks_factor: CORRECTION_TICKS_FACTOR,
                 ..default()
             },
-            // we are sending updates every frame (60fps), let's add a delay of 6 network-ticks
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
+            ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
-        app.add_plugins(ClientPlugin::new(plugin_config));
-        app.add_plugins(crate::shared::SharedPlugin);
-        // add leafwing input plugins, to handle synchronizing leafwing action states correctly
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
-            LeafwingInputConfig::<PlayerActions> {
-                send_diffs_only: true,
-                ..default()
-            },
-        ));
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
-            LeafwingInputConfig::<AdminActions> {
-                send_diffs_only: true,
-                ..default()
-            },
-        ));
+        let plugin_config = PluginConfig::new(config, io, protocol());
+        ClientPluginGroup {
+            client_id,
+            lightyear: ClientPlugin::new(plugin_config),
+        }
+    }
+}
+
+impl PluginGroup for ClientPluginGroup {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(self.lightyear)
+            .add(ExampleClientPlugin {
+                client_id: self.client_id,
+            })
+            .add(shared::SharedPlugin)
+            .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
+                LeafwingInputConfig::<PlayerActions> {
+                    send_diffs_only: true,
+                    ..default()
+                },
+            ))
+            .add(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
+                LeafwingInputConfig::<AdminActions> {
+                    send_diffs_only: true,
+                    ..default()
+                },
+            ))
+    }
+}
+
+pub struct ExampleClientPlugin {
+    client_id: ClientId,
+}
+
+#[derive(Resource)]
+pub struct Global {
+    client_id: ClientId,
+}
+
+impl Plugin for ExampleClientPlugin {
+    fn build(&self, app: &mut App) {
         // To send global inputs, insert the ActionState and the InputMap as Resources
         app.init_resource::<ActionState<AdminActions>>();
         app.insert_resource(InputMap::<AdminActions>::new([
@@ -89,7 +123,9 @@ impl Plugin for MyClientPlugin {
             (KeyCode::R, AdminActions::Reset),
         ]));
 
-        app.insert_resource(self.clone());
+        app.insert_resource(Global {
+            client_id: self.client_id,
+        });
         app.add_systems(Startup, init);
         // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
         app.add_systems(
@@ -112,11 +148,11 @@ impl Plugin for MyClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<MyClientPlugin>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(
         TextBundle::from_section(
-            format!("Client {}", plugin.client_id),
+            format!("Client {}", global.client_id),
             TextStyle {
                 font_size: 30.0,
                 color: Color::WHITE,
@@ -128,13 +164,13 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<My
             ..default()
         }),
     );
-    let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
+    let y = (global.client_id as f32 * 50.0) % 500.0 - 250.0;
     // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
     // if plugin.client_id == 2 {
     commands.spawn(PlayerBundle::new(
-        plugin.client_id,
+        global.client_id,
         Vec2::new(-50.0, y),
-        color_from_id(plugin.client_id),
+        color_from_id(global.client_id),
         InputMap::new([
             (KeyCode::W, PlayerActions::Up),
             (KeyCode::S, PlayerActions::Down),
@@ -144,9 +180,9 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<My
     ));
     // }
     commands.spawn(PlayerBundle::new(
-        plugin.client_id,
+        global.client_id,
         Vec2::new(50.0, y),
-        color_from_id(plugin.client_id),
+        color_from_id(global.client_id),
         InputMap::new([
             (KeyCode::Up, PlayerActions::Up),
             (KeyCode::Down, PlayerActions::Down),
@@ -154,7 +190,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<My
             (KeyCode::Right, PlayerActions::Right),
         ]),
     ));
-    client.connect();
+    let _ = client.connect();
 }
 
 /// Blueprint pattern: when the ball gets replicated from the server, add all the components
@@ -186,7 +222,7 @@ fn add_ball_physics(
 /// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
 /// so that our predicted entities can predict collisions with them correctly
 fn add_player_physics(
-    plugin: Res<MyClientPlugin>,
+    global: Res<Global>,
     mut commands: Commands,
     mut player_query: Query<
         (Entity, &PlayerId),
@@ -198,7 +234,7 @@ fn add_player_physics(
     >,
 ) {
     for (entity, player_id) in player_query.iter_mut() {
-        if player_id.0 == plugin.client_id {
+        if player_id.0 == global.client_id {
             // only need to do this for other players' entities
             continue;
         }
@@ -211,7 +247,6 @@ fn add_player_physics(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    plugin: Res<MyClientPlugin>,
     tick_manager: Res<TickManager>,
     mut velocity_query: Query<
         (

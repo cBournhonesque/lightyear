@@ -2,6 +2,7 @@ use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use crate::connection::client::NetConfig;
 use bevy::app::App;
 
 use crate::prelude::client::*;
@@ -19,13 +20,17 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
             ..Default::default()
         },
         input: InputConfig::default(),
-        netcode: Default::default(),
+        net: NetConfig::Netcode {
+            auth,
+            config: Default::default(),
+        },
         ping: PingConfig::default(),
         sync: SyncConfig::default(),
         prediction: PredictionConfig::default(),
         interpolation: InterpolationConfig::default(),
+        packet: Default::default(),
     };
-    let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+    let plugin_config = PluginConfig::new(config, io, protocol());
     let plugin = ClientPlugin::new(plugin_config);
     app.add_plugins(plugin);
 }

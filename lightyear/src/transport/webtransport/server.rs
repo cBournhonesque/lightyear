@@ -101,9 +101,9 @@ impl WebTransportServerSocket {
             }
         });
 
-        // await for the quip connection to be closed for any reason
+        // await for the quic connection to be closed for any reason
         connection.closed().await;
-        info!("Connection closed");
+        info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
         from_client_handle.abort();
         to_client_handle.abort();
@@ -175,10 +175,12 @@ impl PacketSender for WebTransportServerSocketSender {
                 std::io::Error::other(format!("unable to send message to client: {}", e))
             })
         } else {
-            Err(std::io::Error::other(format!(
-                "unable to find channel for client: {}",
-                address
-            )))
+            // consider that if the channel doesn't exist, it's because the connection was closed
+            Ok(())
+            // Err(std::io::Error::other(format!(
+            //     "unable to find channel for client: {}",
+            //     address
+            // )))
         }
     }
 }

@@ -4,7 +4,6 @@ use std::ops::DerefMut;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::connection::events::IterInputMessageEvent;
 use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, InputTarget};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::{MainSet, TickManager};
@@ -12,6 +11,7 @@ use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
 use crate::server::resource::Server;
+use crate::shared::events::IterInputMessageEvent;
 use crate::shared::sets::FixedUpdateSet;
 
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
@@ -143,7 +143,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
                         buffer.update_from_message(message.end_tick, diffs);
                     } else {
                         // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                        info!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
                 InputTarget::Global => {

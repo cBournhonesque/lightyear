@@ -1,44 +1,42 @@
 //! Defines the client bevy resource
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Entity, Res, ResMut, Resource, World};
+use bevy::utils::Duration;
 use bevy::utils::EntityHashMap;
 use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;
-use crate::connection::events::ConnectionEvents;
+use crate::connection::client::{ClientConnection, NetClient};
+use crate::connection::netcode::ClientId;
+use crate::connection::netcode::{ConnectToken, Key};
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::netcode::{Client as NetcodeClient, ClientId};
-use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
 use crate::prelude::NetworkTarget;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::replication::components::Replicate;
+use crate::shared::events::ConnectionEvents;
+use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
-use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 use super::connection::ConnectionManager;
 
 #[derive(SystemParam)]
 pub struct Client<'w, 's, P: Protocol> {
-    // Io
-    pub(crate) io: Res<'w, Io>,
     //config
     config: Res<'w, ClientConfig>,
     // netcode
-    netcode: Res<'w, crate::netcode::Client>,
+    netcode: Res<'w, ClientConnection>,
     // connection
     pub(crate) connection: Res<'w, ConnectionManager<P>>,
     // protocol
@@ -53,12 +51,10 @@ pub struct Client<'w, 's, P: Protocol> {
 
 #[derive(SystemParam)]
 pub struct ClientMut<'w, 's, P: Protocol> {
-    // Io
-    pub(crate) io: ResMut<'w, Io>,
     //config
     config: ResMut<'w, ClientConfig>,
     // netcode
-    netcode: ResMut<'w, crate::netcode::Client>,
+    netcode: ResMut<'w, ClientConnection>,
     // connection
     pub(crate) connection: ResMut<'w, ConnectionManager<P>>,
     // protocol
@@ -75,7 +71,7 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     /// Maintain connection with server, queues up any packet received from the server
     pub(crate) fn update(&mut self, delta: Duration) -> Result<()> {
         self.time_manager.update(delta);
-        self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
+        self.netcode.try_update(delta.as_secs_f64())?;
 
         // only start the connection (sending messages, sending pings, starting sync, etc.)
         // once we are connected
@@ -106,8 +102,8 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     // NETCODE
 
     /// Start the connection process with the server
-    pub fn connect(&mut self) {
-        self.netcode.connect();
+    pub fn connect(&mut self) -> Result<()> {
+        self.netcode.connect()
     }
 
     // MESSAGES
@@ -150,7 +146,7 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     }
 }
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Default, Clone)]
 #[allow(clippy::large_enum_variant)]
 /// Struct used to authenticate with the server
 pub enum Authentication {
@@ -163,8 +159,9 @@ pub enum Authentication {
         private_key: Key,
         protocol_id: u64,
     },
-    /// Request a connect token directly to the server
-    RequestConnectToken { server_addr: SocketAddr },
+    #[default]
+    /// Request a connect token from the backend
+    RequestConnectToken,
 }
 
 impl Authentication {
@@ -186,39 +183,12 @@ impl Authentication {
 }
 
 impl<'w, 's, P: Protocol> Client<'w, 's, P> {
-    // pub fn new(config: ClientConfig, io: Io, auth: Authentication, protocol: P) -> Self {
-    //     let config_clone = config.clone();
-    //     let token = auth
-    //         .get_token(config.netcode.client_timeout_secs)
-    //         .expect("could not generate token");
-    //     let token_bytes = token.try_into_bytes().unwrap();
-    //     let netcode = NetcodeClient::with_config(&token_bytes, config.netcode.build())
-    //         .expect("could not create netcode client");
-    //
-    //     let connection = Connection::new(
-    //         protocol.channel_registry(),
-    //         config.sync,
-    //         &config.ping,
-    //         config.prediction.input_delay_ticks,
-    //     );
-    //     Self {
-    //         io,
-    //         config: config_clone,
-    //         protocol,
-    //         netcode,
-    //         connection,
-    //         events: ConnectionEvents::new(),
-    //         time_manager: TimeManager::new(config.shared.client_send_interval),
-    //         tick_manager: TickManager::from_config(config.shared.tick),
-    //     }
-    // }
-
     pub fn config(&self) -> &ClientConfig {
         &self.config
     }
 
     pub fn local_addr(&self) -> SocketAddr {
-        self.io.local_addr()
+        self.netcode.local_addr()
     }
 
     // NETCODE
@@ -239,9 +209,9 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
 
     // IO
 
-    pub fn io(&self) -> &Io {
-        &self.io
-    }
+    // pub fn io(&self) -> &Io {
+    //     &self.io
+    // }
 
     // REPLICATION
     pub(crate) fn replication_sender(&self) -> &ReplicationSender<P> {
@@ -280,6 +250,17 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
 }
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+    fn update_priority(
+        &mut self,
+        replication_group_id: ReplicationGroupId,
+        client_id: ClientId,
+        priority: f32,
+    ) -> Result<()> {
+        self.replication_sender
+            .update_base_priority(replication_group_id, priority);
+        Ok(())
+    }
+
     fn new_connected_clients(&self) -> Vec<ClientId> {
         vec![]
     }
@@ -291,8 +272,8 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group = replicate.group_id(Some(entity));
         // trace!(?entity, "Send entity spawn for tick {:?}", self.tick());
+        let group_id = replicate.replication_group.group_id(Some(entity));
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick
         // (we can collect changes only since the last actions because all updates will wait for that action to be spawned)
@@ -302,7 +283,15 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         //     .entry(group)
         //     .or_default()
         //     .update_collect_changes_since_this_tick(system_current_tick);
-        replication_sender.prepare_entity_spawn(entity, group);
+        replication_sender.prepare_entity_spawn(entity, group_id);
+
+        // also set the priority for the group when we spawn it
+        self.update_priority(
+            group_id,
+            // the client id argument is ignored on the client
+            0,
+            replicate.replication_group.priority(),
+        )?;
         // Prediction/interpolation
         Ok(())
     }
@@ -314,8 +303,8 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let group = replicate.group_id(Some(entity));
         // trace!(?entity, "Send entity despawn for tick {:?}", self.tick());
+        let group_id = replicate.replication_group.group_id(Some(entity));
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick
         // replication_sender
@@ -323,7 +312,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         //     .entry(group)
         //     .or_default()
         //     .update_collect_changes_since_this_tick(system_current_tick);
-        replication_sender.prepare_entity_despawn(entity, group);
+        replication_sender.prepare_entity_despawn(entity, group_id);
         // Prediction/interpolation
         Ok(())
     }
@@ -336,8 +325,8 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
+        let group_id = replicate.replication_group.group_id(Some(entity));
         let kind: P::ComponentKinds = (&component).into();
-        let group = replicate.group_id(Some(entity));
         // debug!(
         //     ?entity,
         //     component = ?kind,
@@ -351,7 +340,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         //     .or_default()
         //     .update_collect_changes_since_this_tick(system_current_tick);
         self.replication_sender
-            .prepare_component_insert(entity, group, component.clone());
+            .prepare_component_insert(entity, group_id, component.clone());
         Ok(())
     }
 
@@ -363,15 +352,15 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
+        let group_id = replicate.replication_group.group_id(Some(entity));
         debug!(?entity, ?component_kind, "Sending RemoveComponent");
-        let group = replicate.group_id(Some(entity));
         // self.replication_sender
         //     .group_channels
         //     .entry(group)
         //     .or_default()
         //     .update_collect_changes_since_this_tick(system_current_tick);
         self.replication_sender
-            .prepare_component_remove(entity, group, component_kind);
+            .prepare_component_remove(entity, group_id, component_kind);
         Ok(())
     }
 
@@ -385,12 +374,12 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let kind: P::ComponentKinds = (&component).into();
-        let group = replicate.group_id(Some(entity));
+        let group_id = replicate.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         let collect_changes_since_this_tick = self
             .replication_sender
             .group_channels
-            .entry(group)
+            .entry(group_id)
             .or_default()
             .collect_changes_since_this_tick;
         // send the update for all changes newer than the last ack bevy tick for the group
@@ -411,7 +400,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
             //     "Updating single component"
             // );
             self.replication_sender
-                .prepare_entity_update(entity, group, component.clone());
+                .prepare_entity_update(entity, group_id, component.clone());
         }
         Ok(())
     }
