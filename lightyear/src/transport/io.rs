@@ -8,6 +8,7 @@ use std::fmt::{Debug, Formatter};
 use std::io::Result;
 use std::net::{IpAddr, SocketAddr};
 
+use crate::_reexport::ComponentBehaviour;
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
@@ -31,11 +32,10 @@ cfg_if::cfg_if! {
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocket;
 
-// #[derive(Clone)]
-// pub struct IoConfig {
-//     transport: TransportConfig,
-//     conditioner: Option<LinkConditionerConfig>,
-// }
+#[cfg(feature = "websocket")]
+use crate::transport::websocket::client::WebSocketClientSocket;
+#[cfg(feature = "websocket")]
+use crate::transport::websocket::server::WebSocketServerSocket;
 
 #[derive(Clone)]
 pub enum TransportConfig {
@@ -54,6 +54,10 @@ pub enum TransportConfig {
         server_addr: SocketAddr,
         certificate: Certificate,
     },
+    #[cfg(feature = "websocket")]
+    WebSocketClient { server_addr: SocketAddr },
+    #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+    WebSocketServer { server_addr: SocketAddr },
     Channels {
         channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>,
     },
@@ -103,6 +107,20 @@ impl TransportConfig {
                 certificate,
             } => {
                 let transport = WebTransportServerSocket::new(server_addr, certificate);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+            #[cfg(feature = "websocket")]
+            TransportConfig::WebSocketClient { server_addr } => {
+                let transport = WebSocketClientSocket::new(server_addr);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+            #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+            TransportConfig::WebSocketServer { server_addr } => {
+                let transport = WebSocketServerSocket::new(server_addr);
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)

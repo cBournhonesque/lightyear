@@ -40,6 +40,8 @@ pub enum Transports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport,
+    #[cfg(not(target_family = "wasm"))]
+    WebSocket,
 }
 
 #[derive(Parser, PartialEq, Debug)]

@@ -36,6 +36,7 @@ impl ServerPluginGroup {
                     certificate,
                 }
             }
+            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),

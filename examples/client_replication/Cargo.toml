@@ -18,7 +18,11 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-lightyear = { path = "../../lightyear", features = ["webtransport", "render"] }
+lightyear = { path = "../../lightyear", features = [
+  "webtransport",
+  "websocket",
+  "render",
+] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
