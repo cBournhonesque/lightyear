@@ -44,6 +44,8 @@ impl ClientPluginGroup {
                 #[cfg(target_family = "wasm")]
                 certificate_digest,
             },
+            #[cfg(not(target_family = "wasm"))]
+            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),

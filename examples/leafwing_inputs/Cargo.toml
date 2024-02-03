@@ -18,6 +18,7 @@ leafwing-input-manager = "0.11.2"
 bevy_xpbd_2d = { version = "0.3.3", features = ["serialize"] }
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
+  "websocket",
   "render",
   "leafwing",
   "xpbd_2d",

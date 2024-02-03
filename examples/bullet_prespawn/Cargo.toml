@@ -16,6 +16,7 @@ bevy_screen_diagnostics = "0.4.0"
 leafwing-input-manager = "0.11.2"
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
+  "websocket",
   "render",
   "leafwing",
 ] }
