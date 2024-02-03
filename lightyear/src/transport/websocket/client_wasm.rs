@@ -6,9 +6,9 @@ use std::{
 };
 
 use anyhow::Result;
-use bevy::utils::hashbrown::HashMap;
+use bevy::{tasks::IoTaskPool, utils::hashbrown::HashMap};
 
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
@@ -56,7 +56,7 @@ impl Transport for WebSocketClientSocket {
 
         ws.set_binary_type(BinaryType::Arraybuffer);
 
-        let on_open_callback = Closure::<dyn FnMut(_)>::new(move || {
+        let on_open_callback = Closure::<dyn FnMut()>::new(move || {
             info!("WebSocket handshake has been successfully completed");
         });
 
@@ -90,7 +90,7 @@ impl Transport for WebSocketClientSocket {
         on_close_callback.forget();
         on_error_callback.forget();
 
-        tokio::spawn(async move {
+        IoTaskPool::get().spawn_local(async move {
             while let Some(msg) = serverbound_rx.recv().await {
                 ws.send_with_u8_array(&msg).unwrap();
             }
@@ -107,7 +107,7 @@ struct WebSocketClientSocketSender {
 impl PacketSender for WebSocketClientSocketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
         self.serverbound_tx
-            .send(Message::Binary(payload.to_vec()))
+            .send(payload.to_vec())
             .map_err(|e| {
                 std::io::Error::other(format!("unable to send message to server: {:?}", e))
             })
@@ -123,17 +123,10 @@ struct WebSocketClientSocketReceiver {
 impl PacketReceiver for WebSocketClientSocketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.clientbound_rx.try_recv() {
-            Ok(msg) => match msg {
-                Message::Binary(buf) => {
-                    self.buffer[..buf.len()].copy_from_slice(&buf);
-                    Ok(Some((&mut self.buffer[..buf.len()], self.server_addr)))
-                }
-                Message::Close(frame) => {
-                    info!("WebSocket connection closed (Frame: {:?})", frame);
-                    Ok(None)
-                }
-                _ => Ok(None),
-            },
+            Ok(msg) => {
+                self.buffer[..msg.len()].copy_from_slice(&msg);
+                Ok(Some((&mut self.buffer[..msg.len()], self.server_addr)))
+            }
             Err(e) => {
                 if e == TryRecvError::Empty {
                     Ok(None)
