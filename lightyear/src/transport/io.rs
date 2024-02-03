@@ -34,7 +34,7 @@ use crate::transport::webtransport::client::WebTransportClientSocket;
 
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::WebSocketClientSocket;
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocket;
 
 #[derive(Clone)]

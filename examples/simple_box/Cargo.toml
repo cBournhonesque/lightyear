@@ -21,7 +21,6 @@ lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "websocket",
   "render",
-  "rivet",
 ] }
 serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }

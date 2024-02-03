@@ -98,17 +98,6 @@ impl NetConfig {
                 // let (steam_client, _) = steamworks::Client::init().unwrap();
                 // Box::new(super::steam::Client::new(steam_client))
             }
-            #[cfg(feature = "rivet")]
-            NetConfig::Rivet { config } => {
-                let netcode = super::rivet::client::RivetClient {
-                    netcode_config: config,
-                    io: Some(io),
-                    netcode_client: None,
-                };
-                ClientConnection {
-                    client: Box::new(netcode),
-                }
-            }
         }
     }
 }

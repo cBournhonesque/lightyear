@@ -32,14 +32,6 @@ webtransport = [
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
-rivet = [
-  "dep:serde_json",
-  "dep:reqwest",
-  "dep:clap",
-  "dep:axum",
-  "dep:tokio",
-  "dep:tower",
-]
 websocket = [
   "dep:tokio",
   "dep:tokio-tungstenite",
@@ -111,29 +103,20 @@ metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-fea
 # bevy
 bevy = { version = "0.12", default-features = false }
 
-# rivet
-serde_json = { version = "1.0.108", optional = true }
-reqwest = { version = "0.11.23", features = [
-  "blocking",
-  "json",
-], optional = true }
-clap = { version = "4.4.18", features = ["derive"], optional = true }
-axum = { version = "0.7.1", optional = true }
-tower = { version = "0.4.13", optional = true }
-axum-macros = "0.4.1"
-
 # WebSocket
-tokio-tungstenite = { version = "0.21.0", optional = true, features = [
-  "connect",
-  "handshake",
-] }
 futures-util = { version = "0.3.30", optional = true }
 
 # transport
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
+# webtransport
 wtransport = { version = "0.1.10", optional = true, features = [
   "self-signed",
   "dangerous-configuration",
+] }
+# websocket
+tokio-tungstenite = { version = "0.21.0", optional = true, features = [
+  "connect",
+  "handshake",
 ] }
 tokio = { version = "1.34", features = [
   "macros",

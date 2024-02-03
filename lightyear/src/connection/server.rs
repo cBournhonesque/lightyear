@@ -65,16 +65,6 @@ impl NetConfig {
             NetConfig::Steam => {
                 unimplemented!()
             }
-            #[cfg(feature = "rivet")]
-            NetConfig::Rivet { config } => {
-                let server = super::rivet::server::RivetServer {
-                    netcode_server: super::netcode::Server::new(config, io),
-                    backend: Some(crate::connection::rivet::backend::RivetBackend),
-                };
-                ServerConnection {
-                    server: Box::new(server),
-                }
-            }
         }
     }
 }
