@@ -1,9 +1,9 @@
 //! Transport using the WebSocket protocol (based on TCP, HTTP)
 cfg_if::cfg_if! {
-    if #[cfg(all(feature = "websockets", target_family = "wasm"))] {
+    if #[cfg(all(feature = "websocket", target_family = "wasm"))] {
             pub mod client_wasm;
             pub use client_wasm as client;
-    } else if #[cfg(all(feature = "websockets", not(target_family = "wasm")))]{
+    } else if #[cfg(all(feature = "websocket", not(target_family = "wasm")))]{
             pub mod server;
             pub mod client_native;
             pub use client_native as client;
@@ -26,7 +26,7 @@ mod tests {
     #[tokio::test]
     async fn test_websocket_native() -> anyhow::Result<()> {
         let server_addr = "127.0.0.1:7000".parse().unwrap();
-        
+
         let client_socket = WebSocketClientSocket::new(server_addr);
         let server_socket = WebSocketServerSocket::new(server_addr);
 

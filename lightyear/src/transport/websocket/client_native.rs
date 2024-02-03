@@ -1,4 +1,10 @@
-use std::{future::Future, io::BufReader, net::{SocketAddr, SocketAddrV4}, sync::Arc};
+use std::ops::Deref;
+use std::{
+    future::Future,
+    io::BufReader,
+    net::{SocketAddr, SocketAddrV4},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use bevy::utils::hashbrown::HashMap;
@@ -17,7 +23,9 @@ use futures_util::{
     SinkExt, StreamExt, TryFutureExt,
 };
 
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async, connect_async_with_config, tungstenite::Message, MaybeTlsStream,
+};
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
@@ -31,9 +39,7 @@ pub struct WebSocketClientSocket {
 
 impl WebSocketClientSocket {
     pub(crate) fn new(server_addr: SocketAddr) -> Self {
-        Self {
-            server_addr,
-        }
+        Self { server_addr }
     }
 
     /*fn get_tls_connector(&self) -> TlsConnector {
@@ -51,6 +57,13 @@ impl WebSocketClientSocket {
 
 impl Transport for WebSocketClientSocket {
     fn local_addr(&self) -> SocketAddr {
+        // TODO: get the local_addr
+        // match ws_stream.get_ref() {
+        //     MaybeTlsStream::Plain(s) => {
+        //         s.local_addr()
+        //         info!("WebSocket connection is not encrypted");
+        //     }
+        // }
         LOCAL_SOCKET
     }
 
@@ -68,9 +81,10 @@ impl Transport for WebSocketClientSocket {
 
         tokio::spawn(async move {
             info!("Starting client websocket task");
-            let (ws_stream, _) = connect_async(format!("ws://{}/", self.server_addr))
-                .await
-                .expect("Unable to connect to websocket server");
+            let (ws_stream, _) =
+                connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
+                    .await
+                    .expect("Unable to connect to websocket server");
             info!("WebSocket handshake has been successfully completed");
 
             let (mut write, mut read) = ws_stream.split();

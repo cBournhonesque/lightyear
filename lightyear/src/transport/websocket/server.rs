@@ -9,6 +9,7 @@ use bevy::utils::hashbrown::HashMap;
 use tracing::{info, trace};
 use tracing_log::log::error;
 
+use futures_util::stream::FusedStream;
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},
@@ -99,6 +100,18 @@ impl Transport for WebSocketServerSocket {
                         .insert(addr, clientbound_tx);
 
                     let serverbound_tx = serverbound_tx.clone();
+
+                    let clientbound_handle = tokio::spawn(async move {
+                        while let Some(msg) = clientbound_rx.recv().await {
+                            write
+                                .send(msg)
+                                .await
+                                .map_err(|e| {
+                                    error!("Encountered error while sending websocket msg: {}", e);
+                                })
+                                .unwrap();
+                        }
+                    });
                     tokio::spawn(async move {
                         while let Some(msg) = read.next().await {
                             let msg = msg
@@ -111,18 +124,11 @@ impl Transport for WebSocketServerSocket {
                                 "Unable to propagate the read websocket message to the receiver",
                             );
                         }
-                    });
 
-                    tokio::spawn(async move {
-                        while let Some(msg) = clientbound_rx.recv().await {
-                            write
-                                .send(msg)
-                                .await
-                                .map_err(|e| {
-                                    error!("Encountered error while sending websocket msg: {}", e);
-                                })
-                                .unwrap();
-                        }
+                        // stream has been closed: cleanup the tasks
+                        assert!(ws_stream.is_terminated());
+                        clientbound_tx_map.lock().unwrap().remove(&addr);
+                        clientbound_handle.abort();
                     });
                 });
             }
