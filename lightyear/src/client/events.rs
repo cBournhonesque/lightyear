@@ -1,7 +1,7 @@
 //! Bevy [`Event`](bevy::prelude::Event) that are emitted when certain network events occur on the client
 //!
 //! You can use this to react to network events in your game systems.
-//! ```rust,no_run
+//! ```rust,ignore
 //! use bevy::ecs::event::EventId;
 //! fn handle_message(mut messages: EventReader<MessageEvent<MyMessage>>) {
 //!   for event in messages.read() {

@@ -37,7 +37,7 @@ use super::sync::SyncManager;
 ///
 /// This is the main [`Resource`] to use to interact with the server (send inputs, messages, etc.)
 ///
-/// ```no_run
+/// ```rust,ignore
 /// # use bevy::prelude::*;
 /// # use lightyear::client::connection::ConnectionManager as ClientConnectionManager;
 /// use lightyear::prelude::NetworkTarget;
