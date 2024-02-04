@@ -7,7 +7,7 @@
 //! In particular your inputs should implement the [`Actionlike`] trait.
 //! You will also need to implement the `LeafwingUserAction` trait
 //!
-//! ```no_run
+//! ```no_run,ignore
 //! # use lightyear::prelude::LeafwingUserAction;
 //! #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 //! pub enum PlayerActions {
@@ -824,11 +824,145 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
 
         if !diffs.is_empty() {
+            dbg!(&diffs);
             debug!(?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,
             });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::sync::SyncConfig;
+    use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
+    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
+    use crate::prelude::server::LeafwingInputPlugin;
+    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use bevy::asset::AsyncReadExt;
+    use bevy::input::InputPlugin;
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
+    use leafwing_input_manager::action_state::ActionState;
+    use leafwing_input_manager::input_map::InputMap;
+
+    fn setup() -> (BevyStepper, Entity, Entity) {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            enable_replication: true,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper
+            .client_app
+            .add_plugins((crate::client::input_leafwing::LeafwingInputPlugin::<
+                MyProtocol,
+                LeafwingInput1,
+            >::default(), InputPlugin));
+        // let press_action_id = stepper.client_app.world.register_system(press_action);
+        stepper.server_app.add_plugins((
+            LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
+            InputPlugin,
+        ));
+        stepper.init();
+
+        // create an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                InputMap::<LeafwingInput1>::new([(KeyCode::A, LeafwingInput1::Jump)]),
+                ActionState::<LeafwingInput1>::default(),
+                Replicate::default(),
+            ))
+            .id();
+        // we need to step twice because we run client before server
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the server entity got a ActionDiffBuffer added to it
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<ActionDiffBuffer<LeafwingInput1>>()
+            .is_some());
+
+        // check that the entity is replicated, including the ActionState component
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .unwrap();
+        stepper
+            .client_app
+            .world
+            .entity_mut(client_entity)
+            .insert(InputMap::<LeafwingInput1>::new([(
+                KeyCode::A,
+                LeafwingInput1::Jump,
+            )]));
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .is_some(),);
+        stepper.frame_step();
+        (stepper, server_entity, client_entity)
+    }
+
+    #[test]
+    fn test_generate_action_diffs() {
+        let (mut stepper, server_entity, client_entity) = setup();
+
+        // press the jump button on the client
+        stepper
+            .client_app
+            .world
+            .resource_mut::<Input<KeyCode>>()
+            .press(KeyCode::A);
+        stepper.frame_step();
+
+        // listen to the ActionDiff event
+        let action_diff_events = stepper
+            .client_app
+            .world
+            .get_resource_mut::<Events<ActionDiffEvent<LeafwingInput1>>>()
+            .unwrap();
+        for event in action_diff_events.get_reader().read(&action_diff_events) {
+            assert_eq!(
+                event.action_diff,
+                vec![ActionDiff::Pressed {
+                    action: LeafwingInput1::Jump,
+                }]
+            );
+            assert_eq!(event.owner, Some(client_entity));
         }
     }
 }

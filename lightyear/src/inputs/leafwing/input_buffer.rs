@@ -610,49 +610,53 @@ mod tests {
         assert_eq!(input_buffer.buffer.len(), 0);
     }
 
-    // #[test]
-    // fn test_create_message() {
-    //     let mut input_buffer = InputBuffer::default();
-    //
-    //     let mut a1 = ActionState::default();
-    //     a1.press(Action::Jump);
-    //     a1.action_data_mut(Action::Jump).value = 0.0;
-    //     let mut a2 = ActionState::default();
-    //     a2.press(Action::Jump);
-    //     a1.action_data_mut(Action::Jump).value = 1.0;
-    //     input_buffer.set(Tick(3), &a1);
-    //     input_buffer.set(Tick(4), &ActionState::default());
-    //     input_buffer.set(Tick(5), &ActionState::default());
-    //     input_buffer.set(Tick(6), &ActionState::default());
-    //     input_buffer.set(Tick(7), &a2);
-    //
-    //     let end_tick = Tick(10);
-    //     let mut message = InputMessage::<Action>::new(end_tick);
-    //
-    //     input_buffer.add_to_message(&mut message, end_tick, 9, None);
-    //     assert_eq!(
-    //         message,
-    //         InputMessage {
-    //             end_tick: Tick(10),
-    //             global_diffs: vec![
-    //                 vec![], // tick 2
-    //                 vec![ActionDiff::Pressed {
-    //                     action: Action::Jump
-    //                 }],
-    //                 vec![],
-    //                 vec![],
-    //                 vec![],
-    //                 vec![ActionDiff::Pressed {
-    //                     action: Action::Jump
-    //                 }],
-    //                 vec![],
-    //                 vec![],
-    //                 vec![],
-    //             ],
-    //             per_entity_diffs: vec![],
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_create_message() {
+        let mut diff_buffer = ActionDiffBuffer::default();
+
+        diff_buffer.set(
+            Tick(3),
+            vec![ActionDiff::Pressed {
+                action: Action::Jump,
+            }],
+        );
+        diff_buffer.set(
+            Tick(7),
+            vec![ActionDiff::Released {
+                action: Action::Jump,
+            }],
+        );
+
+        let entity = Entity::from_raw(0);
+        let end_tick = Tick(10);
+        let mut message = InputMessage::<Action>::new(end_tick);
+
+        diff_buffer.add_to_message(&mut message, end_tick, 9, InputTarget::Entity(entity));
+        assert_eq!(
+            message,
+            InputMessage {
+                end_tick: Tick(10),
+                diffs: vec![(
+                    InputTarget::Entity(entity),
+                    vec![
+                        vec![],
+                        vec![ActionDiff::Pressed {
+                            action: Action::Jump
+                        }],
+                        vec![],
+                        vec![],
+                        vec![],
+                        vec![ActionDiff::Released {
+                            action: Action::Jump
+                        }],
+                        vec![],
+                        vec![],
+                        vec![],
+                    ]
+                )],
+            }
+        );
+    }
 
     #[test]
     fn test_update_from_message() {

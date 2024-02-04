@@ -72,13 +72,13 @@ cfg_if! {
         pub enum LeafwingInput1 {
             Jump,
         }
-        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput1 {}
+        impl LeafwingUserAction for LeafwingInput1 {}
 
         #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
         pub enum LeafwingInput2 {
             Crouch,
         }
-        impl crate::inputs::leafwing::LeafwingUserAction for LeafwingInput2 {}
+        impl LeafwingUserAction for LeafwingInput2 {}
 
         protocolize! {
             Self = MyProtocol,
