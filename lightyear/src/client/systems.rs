@@ -132,7 +132,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     );
 }
 
-pub fn send<P: Protocol>(
+pub(crate) fn send<P: Protocol>(
     mut netcode: ResMut<ClientConnection>,
     system_change_tick: SystemChangeTick,
     tick_manager: Res<TickManager>,

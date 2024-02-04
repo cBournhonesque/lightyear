@@ -4,8 +4,6 @@
 use bevy::prelude::{App, Plugin};
 #[cfg(feature = "metrics")]
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
-#[cfg(feature = "metrics")]
-use metrics_util::layers::Layer;
 use tracing::Level;
 use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
 

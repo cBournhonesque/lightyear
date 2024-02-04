@@ -62,9 +62,7 @@ impl InterpolationDelay {
     }
 }
 
-/// How much behind the client time the interpolated entities are
-/// This will be converted to a tick
-/// This should be
+/// Config to specify how the snapshot interpolation should behave
 #[derive(Clone)]
 pub struct InterpolationConfig {
     pub delay: InterpolationDelay,

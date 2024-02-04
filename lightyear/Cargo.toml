@@ -167,3 +167,10 @@ derive_more = { version = "0.99", features = ["add", "mul"] }
 mock_instant = { version = "0.3.1" }
 tracing-subscriber = "0.3.17"
 bitvec = "1.0"
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# document all features
+all-features = true
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]

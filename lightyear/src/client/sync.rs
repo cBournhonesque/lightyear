@@ -20,6 +20,13 @@ pub fn client_is_synced<P: Protocol>(connection: Res<ConnectionManager<P>>) -> b
     connection.sync_manager.is_synced()
 }
 
+/// Configuration for the sync manager, which is in charge of syncing the client's tick/time with the server's tick/time
+///
+/// The sync manager runs only on the client and maintains two different times:
+/// - the prediction tick/time: this is the client time, which runs roughly RTT/2 ahead of the server time, so that input packets
+///     for tick T sent from the client arrive on the server at tick T
+/// - the interpolation tick/time: this is the interpolation timeline, which runs behind the server time so that interpolation
+///     always has at least one packet to interpolate towards
 #[derive(Clone, Debug)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time

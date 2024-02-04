@@ -76,6 +76,36 @@ impl PacketConfig {
     }
 }
 
+/// The configuration object that lets you create a `ClientPlugin` with the desired settings.
+///
+/// Most of the fields are optional and have sensible defaults.
+/// You do need to provide a [`SharedConfig`] struct that has to be same on the client and the server.
+/// ```rust
+/// # use bevy::prelude::default;
+/// # use lightyear::prelude::client::*;
+/// # use lightyear::prelude::*;
+/// #
+/// # mod protocol {
+/// #  use lightyear::prelude::{protocolize, message_protocol, component_protocol};
+/// #   #[message_protocol(protocol = "MyProtocol")]
+/// #   pub enum MyMessageProtocol{}
+/// #  #[component_protocol(protocol = "MyProtocol")]
+/// #  pub enum MyComponentProtocol{}
+/// #  protocolize! {
+/// #     Self = MyProtocol,
+/// #     Message = MyMessageProtocol,
+/// #     Component = MyComponentProtocol,
+/// #  }
+/// # }
+/// # use protocol::*;
+/// #
+/// # let io = Io::from_config(IoConfig::default());
+/// let config = ClientConfig {
+///    shared: SharedConfig::default(),
+///    ..default()
+/// };
+/// let client = ClientPlugin::new(PluginConfig::new(config, io, MyProtocol::default()));
+/// ```
 #[derive(Resource, Clone, Default)]
 pub struct ClientConfig {
     pub shared: SharedConfig,

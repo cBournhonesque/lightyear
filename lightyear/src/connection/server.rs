@@ -32,6 +32,7 @@ pub struct ServerConnection {
     server: Box<dyn NetServer>,
 }
 
+/// Configuration for the server connection
 #[derive(Clone, Debug)]
 pub enum NetConfig {
     Netcode {

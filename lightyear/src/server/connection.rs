@@ -173,7 +173,7 @@ impl<P: Protocol> ConnectionManager<P> {
     pub(crate) fn add(&mut self, client_id: ClientId) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
-            metrics::increment_gauge!("connected_clients", 1.0);
+            metrics::gauge!("connected_clients").increment(1.0);
 
             info!("New connection from id: {}", client_id);
             let mut connection = Connection::new(
@@ -191,7 +191,7 @@ impl<P: Protocol> ConnectionManager<P> {
 
     pub(crate) fn remove(&mut self, client_id: ClientId) {
         #[cfg(feature = "metrics")]
-        metrics::decrement_gauge!("connected_clients", 1.0);
+        metrics::gauge!("connected_clients").decrement(1.0);
 
         info!("Client {} disconnected", client_id);
         self.events.push_disconnects(client_id);
