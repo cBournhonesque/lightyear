@@ -378,10 +378,6 @@ mod tests {
 
     #[test]
     fn test_compute_hash() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_span_events(FmtSpan::ENTER)
-            .with_max_level(tracing::Level::INFO)
-            .init();
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {

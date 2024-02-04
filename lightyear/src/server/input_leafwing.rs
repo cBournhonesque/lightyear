@@ -197,7 +197,9 @@ mod tests {
     use leafwing_input_manager::prelude::ActionState;
 
     use crate::inputs::leafwing::input_buffer::ActionDiff;
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig, SyncConfig};
+    use crate::prelude::client::{
+        InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
+    };
     use crate::prelude::server::*;
     use crate::prelude::*;
     use crate::tests::protocol::*;
@@ -207,10 +209,6 @@ mod tests {
 
     #[test]
     fn test_leafwing_inputs() {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::INFO)
-            .init();
-
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -234,12 +232,16 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper
-            .client_app
-            .add_plugins((crate::client::input_leafwing::LeafwingInputPlugin::<
-                MyProtocol,
-                LeafwingInput1,
-            >::default(), InputPlugin));
+        stepper.client_app.add_plugins((
+            crate::client::input_leafwing::LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::new(
+                LeafwingInputConfig {
+                    // NOTE: for simplicity, we send every diff (because otherwise it's hard to send an input after the tick system)
+                    send_diffs_only: false,
+                    ..default()
+                },
+            ),
+            InputPlugin,
+        ));
         // let press_action_id = stepper.client_app.world.register_system(press_action);
         stepper.server_app.add_plugins((
             LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
@@ -252,7 +254,6 @@ mod tests {
             .server_app
             .world
             .spawn((
-                InputMap::<LeafwingInput1>::new([(KeyCode::A, LeafwingInput1::Jump)]),
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
             ))
@@ -269,11 +270,11 @@ mod tests {
             .get::<ActionDiffBuffer<LeafwingInput1>>()
             .is_some());
 
-        // check that the entity is replicated, including the ActionState component
+        // check that the entity is replicated
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<Connection>()
+            .resource::<ClientConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -283,7 +284,17 @@ mod tests {
             .world
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
-            .is_some(),);
+            .is_some());
+        // add an InputMap to the client entity
+        stepper
+            .client_app
+            .world
+            .entity_mut(client_entity)
+            .insert(InputMap::<LeafwingInput1>::new([(
+                KeyCode::A,
+                LeafwingInput1::Jump,
+            )]));
+        stepper.frame_step();
         // check that the client entity got an InputBuffer added to it
         assert!(stepper
             .client_app

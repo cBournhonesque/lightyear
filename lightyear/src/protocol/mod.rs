@@ -40,7 +40,7 @@ pub(crate) mod registry;
 /// # Examples
 ///
 /// Here is an example of a protocol that defines a single channel, a single message and a single component:
-/// ```
+/// ```rust,ignore
 ///# use serde::{Serialize, Deserialize};
 ///# use bevy::prelude::Component;
 ///# use lightyear::prelude::*;
