@@ -1,9 +1,7 @@
 //! Manages sending/receiving pings and computing network statistics
-use bevy::utils::Duration;
-
-use crate::prelude::Tick;
 use bevy::time::Stopwatch;
-use tracing::{error, info, trace};
+use bevy::utils::Duration;
+use tracing::{error, trace};
 
 use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
@@ -11,6 +9,8 @@ use crate::shared::ping::store::{PingId, PingStore};
 use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
+/// Config for the ping manager, which sends regular pings to the remote machine in order
+/// to compute network statistics (RTT, jitter)
 #[derive(Clone, Debug)]
 pub struct PingConfig {
     /// The duration to wait before sending a ping message to the remote host,
@@ -120,8 +120,8 @@ impl PingManager {
             self.compute_stats();
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_gauge!("rtt_ms", self.rtt().as_millis() as f64);
-                metrics::increment_gauge!("jitter_ms", self.jitter().as_millis() as f64);
+                metrics::gauge!("rtt_ms").increment(self.rtt().as_millis() as f64);
+                metrics::gauge!("jitter_ms").increment(self.jitter().as_millis() as f64);
             }
         }
 

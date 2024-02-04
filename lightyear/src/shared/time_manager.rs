@@ -9,20 +9,21 @@ It will interact with bevy's [`Time`] resource, and potentially change the relat
 The network serialization uses a u32 which can only represent times up to 46 days.
 This module contains some helper functions to compute the difference between two times.
 */
-use bevy::app::{App, RunFixedUpdateLoop};
-use bevy::utils::Duration;
-use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
-use crate::prelude::Tick;
+use bevy::app::{App, RunFixedUpdateLoop};
 use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time, Timer, TimerMode};
-use bevy::time::{Fixed, Virtual};
+use bevy::time::Fixed;
+use bevy::utils::Duration;
 use bevy::utils::Instant;
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
 
 use bitcode::{Decode, Encode};
+pub use wrapped_time::WrappedTime;
+
+use crate::prelude::Tick;
 
 /// Run Condition to check if we are ready to send packets
 pub(crate) fn is_ready_to_send(time_manager: Res<TimeManager>) -> bool {
@@ -159,14 +160,16 @@ impl TimeManager {
 }
 
 mod wrapped_time {
-    use super::*;
-    use crate::_reexport::{ReadBuffer, WriteBuffer};
-    use crate::protocol::BitSerializable;
     use anyhow::Context;
-    use bevy::prelude::Reflect;
+
     use bitcode::encoding::{Encoding, Fixed};
     use bitcode::read::Read;
     use bitcode::write::Write;
+
+    use crate::_reexport::{ReadBuffer, WriteBuffer};
+    use crate::protocol::BitSerializable;
+
+    use super::*;
 
     /// Time since start of server, in milliseconds
     /// Serializes in a compact manner
@@ -402,8 +405,6 @@ mod wrapped_time {
         }
     }
 }
-
-pub use wrapped_time::WrappedTime;
 
 #[cfg(test)]
 mod tests {

@@ -7,7 +7,7 @@ use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::reflect::Reflect;
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashSet};
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, error, trace, trace_span, warn};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 

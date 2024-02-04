@@ -370,7 +370,7 @@ mod tests {
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketBuilder;
-    use crate::prelude::{ChannelDirection, ChannelMode, ChannelRegistry, ChannelSettings};
+    use crate::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
     use crate::protocol::channel::ChannelKind;
 
     use super::*;

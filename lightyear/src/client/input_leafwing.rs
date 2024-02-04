@@ -1,4 +1,38 @@
-//! Handles client-generated inputs
+//! Module to handle inputs that are defined using the `leafwing_input_manager` crate
+//!
+//! ## Creation
+//!
+//! You first need to create Inputs that are defined using the [`leafwing_input_manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate.
+//! (see the documentation of the crate for more information)
+//! In particular your inputs should implement the [`Actionlike`] trait.
+//! You will also need to implement the `LeafwingUserAction` trait
+//!
+//! ```no_run
+//! # use lightyear::prelude::LeafwingUserAction;
+//! #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+//! pub enum PlayerActions {
+//!     Up,
+//!     Down,
+//!     Left,
+//!     Right,
+//! }
+//! impl LeafwingUserAction for PlayerActions {}
+//! ```
+//!
+//! ## Usage
+//!
+//! The networking of inputs is completely handled for you. You just need to add the `LeafwingInputPlugin` to your app.
+//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdateSet::Main`] [`SystemSet`].
+//!
+//! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
+//!
+//! There are some edge-cases to be careful of:
+//! - the `leafwing_input_manager` crate handles inputs every frame, but `lightyear` needs to store and send inputs for each tick.
+//!   This can cause issues if we have multiple ticks in a single frame, or multiple frames in a single tick.
+//!   For instance, let's say you have a system in the `FixedUpdate` schedule that reacts on a button press when the button was `JustPressed`.
+//!   If we have 2 frames with no FixedUpdate in between (because the framerate is high compared to the tickrate), then on the second frame
+//!   the button won't be `JustPressed` anymore (it will simply be `Pressed`) so your system might not react correctly to it.
+//!
 use std::fmt::Debug;
 
 use bevy::prelude::*;

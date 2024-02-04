@@ -1,4 +1,5 @@
-/*!
+/*! # Lightyear
+
 Lightyear is a networking library for Bevy.
 It is designed for server-authoritative multiplayer games; and aims to be both feature-complete and easy-to-use.
 
@@ -9,6 +10,9 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 #![allow(dead_code)]
 #![allow(clippy::type_complexity)]
 #![allow(rustdoc::private_intra_doc_links)]
+// only enables the `doc_cfg` feature when
+// the `docsrs` configuration attribute is defined
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // re-exports (mostly used in the derive macro crate or for internal purposes)
 #[doc(hidden)]

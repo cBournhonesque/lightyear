@@ -53,12 +53,12 @@ impl<P: Protocol> ClientMessage<P> {
                 let message_name = message.name();
                 trace!(channel = ?channel_name, message = ?message_name, kind = ?message.kind(), "Sending message");
                 #[cfg(metrics)]
-                metrics::increment_counter!("send_message", "channel" => channel_name, "message" => message_name);
+                metrics::counter!("send_message", "channel" => channel_name, "message" => message_name).increment(1);
             }
             ClientMessage::Replication(message) => {
                 let _span = info_span!("send replication message", channel = ?channel_name, group_id = ?message.group_id);
                 #[cfg(metrics)]
-                metrics::increment_counter!("send_replication_actions");
+                metrics::counter!("send_replication_actions").increment(1);
                 match &message.data {
                     ReplicationMessageData::Actions(m) => {
                         for (entity, actions) in &m.actions {
@@ -66,12 +66,12 @@ impl<P: Protocol> ClientMessage<P> {
                             if actions.spawn {
                                 trace!("Send entity spawn");
                                 #[cfg(metrics)]
-                                metrics::increment_counter!("send_entity_spawn");
+                                metrics::counter!("send_entity_spawn").increment(1);
                             }
                             if actions.despawn {
                                 trace!("Send entity despawn");
                                 #[cfg(metrics)]
-                                metrics::increment_counter!("send_entity_despawn");
+                                metrics::counter!("send_entity_despawn").increment(1);
                             }
                             if !actions.insert.is_empty() {
                                 let components = actions
@@ -83,7 +83,7 @@ impl<P: Protocol> ClientMessage<P> {
                                 #[cfg(metrics)]
                                 {
                                     for component in components {
-                                        metrics::increment_counter!("send_component_insert", "component" => kind);
+                                        metrics::counter!("send_component_insert", "component" => kind).increment(1);
                                     }
                                 }
                             }
@@ -92,7 +92,7 @@ impl<P: Protocol> ClientMessage<P> {
                                 #[cfg(metrics)]
                                 {
                                     for kind in actions.remove {
-                                        metrics::increment_counter!("send_component_remove", "component" => kind);
+                                        metrics::counter!("send_component_remove", "component" => kind).increment(1);
                                     }
                                 }
                             }
@@ -106,7 +106,7 @@ impl<P: Protocol> ClientMessage<P> {
                                 #[cfg(metrics)]
                                 {
                                     for component in components {
-                                        metrics::increment_counter!("send_component_update", "component" => kind);
+                                        metrics::counter!("send_component_update", "component" => kind).increment(1);
                                     }
                                 }
                             }
@@ -123,7 +123,8 @@ impl<P: Protocol> ClientMessage<P> {
                             #[cfg(metrics)]
                             {
                                 for component in components {
-                                    metrics::increment_counter!("send_component_update", "component" => kind);
+                                    metrics::counter!("send_component_update", "component" => kind)
+                                        .increment(1);
                                 }
                             }
                         }
@@ -134,12 +135,12 @@ impl<P: Protocol> ClientMessage<P> {
                 SyncMessage::Ping(_) => {
                     trace!(channel = ?channel_name, "Sending ping");
                     #[cfg(metrics)]
-                    metrics::increment_counter!("send_ping", "channel" => channel_name);
+                    metrics::counter!("send_ping", "channel" => channel_name).increment(1);
                 }
                 SyncMessage::Pong(_) => {
                     trace!(channel = ?channel_name, "Sending pong");
                     #[cfg(metrics)]
-                    metrics::increment_counter!("send_pong", "channel" => channel_name);
+                    metrics::counter!("send_pong", "channel" => channel_name).increment(1);
                 }
             },
         }

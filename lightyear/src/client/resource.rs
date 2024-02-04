@@ -31,9 +31,10 @@ use crate::transport::PacketSender;
 use super::config::ClientConfig;
 use super::connection::ConnectionManager;
 
+/// Helper [`SystemParam`] that combines multiple client-related [`Resource`]s
 #[derive(SystemParam)]
 pub struct Client<'w, 's, P: Protocol> {
-    //config
+    // config
     config: Res<'w, ClientConfig>,
     // netcode
     netcode: Res<'w, ClientConnection>,
@@ -49,6 +50,7 @@ pub struct Client<'w, 's, P: Protocol> {
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
+/// Helper [`SystemParam`] that combines multiple client-related [`Resource`]s
 #[derive(SystemParam)]
 pub struct ClientMut<'w, 's, P: Protocol> {
     //config
@@ -102,6 +104,8 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     // NETCODE
 
     /// Start the connection process with the server
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnection`)[crate::connection::client::ClientConnection] resource
     pub fn connect(&mut self) -> Result<()> {
         self.netcode.connect()
     }
@@ -114,6 +118,8 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     //  Also it would make the code much simpler by having a single `ProtocolMessage` enum
     //  instead of `ClientMessage` and `ServerMessage`
     /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnectionManager`)[ConnectionManager] resource
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: M,
@@ -128,6 +134,8 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     }
 
     /// Send a message to the server
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnectionManager`)[ConnectionManager] resource
     pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
     where
         P::Message: From<M>,
@@ -141,6 +149,9 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
 
     // TODO: maybe put the input_buffer directly in Client ?
     //  layer of indirection feelds annoying
+    /// Buffer an input to be sent to the server
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnectionManager`)[ConnectionManager] resource
     pub fn add_input(&mut self, input: P::Input) {
         self.connection.add_input(input, self.tick_manager.tick());
     }

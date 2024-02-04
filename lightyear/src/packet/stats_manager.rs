@@ -1,9 +1,9 @@
-use crate::shared::time_manager::{TimeManager, WrappedTime};
-use crate::utils::ready_buffer::ReadyBuffer;
-use bevy::prelude::Reflect;
 use bevy::utils::Duration;
 use derive_more::{AddAssign, SubAssign};
-use tracing::{info, trace};
+use tracing::trace;
+
+use crate::shared::time_manager::{TimeManager, WrappedTime};
+use crate::utils::ready_buffer::ReadyBuffer;
 
 type PacketStatsBuffer = ReadyBuffer<WrappedTime, PacketStats>;
 
@@ -75,7 +75,7 @@ impl PacketStatsManager {
             self.final_stats.packet_loss = self.rolling_stats.num_sent_packets_lost as f32
                 / self.rolling_stats.num_sent_packets as f32;
             #[cfg(feature = "metrics")]
-            metrics::increment_gauge!("packet_loss", self.final_stats.packet_loss as f64);
+            metrics::gauge!("packet_loss").increment(self.final_stats.packet_loss as f64);
         }
     }
 
@@ -83,7 +83,7 @@ impl PacketStatsManager {
     /// Notify that a packet was sent
     pub(crate) fn sent_packet(&mut self) {
         #[cfg(feature = "metrics")]
-        metrics::increment_counter!("sent_packet");
+        metrics::counter!("sent_packet").increment(1);
 
         self.current_stats.num_sent_packets += 1;
     }
@@ -91,7 +91,7 @@ impl PacketStatsManager {
     /// Notify that a packet we sent got lost (we did not receive an ack for it)
     pub(crate) fn sent_packet_lost(&mut self) {
         #[cfg(feature = "metrics")]
-        metrics::increment_counter!("sent_packet_lost");
+        metrics::counter!("sent_packet_lost").increment(1);
 
         self.current_stats.num_sent_packets_lost += 1;
     }
@@ -99,7 +99,7 @@ impl PacketStatsManager {
     /// Notify that a packet we sent got acked
     pub(crate) fn sent_packet_acked(&mut self) {
         #[cfg(feature = "metrics")]
-        metrics::increment_counter!("sent_packet_acked");
+        metrics::counter!("sent_packet_acked").increment(1);
 
         self.current_stats.num_sent_packets_acked += 1;
     }
@@ -107,7 +107,7 @@ impl PacketStatsManager {
     /// Notify that we received a packet
     pub(crate) fn received_packet(&mut self) {
         #[cfg(feature = "metrics")]
-        metrics::increment_counter!("received_packet");
+        metrics::counter!("received_packet").increment(1);
 
         self.current_stats.num_received_packets += 1;
     }

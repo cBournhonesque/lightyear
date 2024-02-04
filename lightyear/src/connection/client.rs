@@ -41,6 +41,7 @@ pub trait NetClient: Send + Sync {
     fn io_mut(&mut self) -> &mut Io;
 }
 
+/// Resource that holds the client connection
 #[derive(Resource)]
 pub struct ClientConnection {
     pub(crate) client: Box<dyn NetClient>,

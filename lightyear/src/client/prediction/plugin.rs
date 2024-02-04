@@ -39,6 +39,7 @@ use super::{
     Rollback, RollbackState,
 };
 
+/// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin

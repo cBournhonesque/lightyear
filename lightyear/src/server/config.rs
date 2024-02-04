@@ -48,6 +48,7 @@ impl NetcodeConfig {
     }
 }
 
+/// Configuration related to sending packets
 #[derive(Clone, Debug)]
 pub struct PacketConfig {
     /// Number of bytes per second that can be sent to each client
@@ -84,6 +85,7 @@ impl PacketConfig {
     }
 }
 
+/// Configuration for the server plugin
 #[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
