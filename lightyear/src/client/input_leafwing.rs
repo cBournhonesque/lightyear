@@ -824,7 +824,6 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
 
         if !diffs.is_empty() {
-            dbg!(&diffs);
             debug!(?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
