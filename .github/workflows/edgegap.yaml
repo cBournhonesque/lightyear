@@ -1,0 +1,45 @@
+name: Main
+on:
+  push:
+    branches:
+      - edgegap
+    paths-ignore:
+      - ".gitignore"
+      - ".github/dependabot.yml"
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - ".gitignore"
+      - ".github/dependabot.yml"
+      - "**.md"
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build:
+    name: Format
+    environment: edgegap
+    runs-on: ["linux", "x64"]
+    steps:
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libasound2-dev portaudio19-dev build-essential libpulse-dev libdbus-1-dev libudev-dev
+
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache crates
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build examples
+        run: cd examples/simple_box && cargo build --release && cd ../..
+
+      - name: Docker login
+        run: docker login $EDGEGAP_REGISTRY_URL -u ${{ secrets.EDGEGAP_REGISTRY_USERNAME }} -p ${{ secrets.EDGEGAP_REGISTRY_PASSWORD }}
+
+      - name: Build docker image
+        run: docker build -t $EDGEGAP_REGISTRY_URL/${{ secrets.EDGEGAP_REGISTRY_PROJECT }}/simple_box:$GITHUB_SHA -f examples/simple_box/Dockerfile-amd64 .
+
+      - name: Push docker image
+        run: docker push $EDGEGAP_REGISTRY_URL/${{ secrets.EDGEGAP_REGISTRY_PROJECT }}/simple_box:$GITHUB_SHA

@@ -1,0 +1,9 @@
+FROM debian:bullseye-slim
+RUN apt-get update && apt-get install -y libssl-dev ca-certificates libasound2-dev
+COPY target/x86_64-unknown-linux-gnu/release/simple_box /app/examples/simple_box/simple_box
+COPY examples/certificates /app/examples/certificates
+WORKDIR /app/examples/simple_box
+COPY
+RUN chmod +x simple_box
+EXPOSE 4006/udp
+ENTRYPOINT ["./simple_box", "server", "--port=4006", "--headless"]
