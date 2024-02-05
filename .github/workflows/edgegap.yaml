@@ -16,7 +16,7 @@ env:
   CARGO_TERM_COLOR: always
 jobs:
   build:
-    name: Format
+    name: Build
     environment: edgegap
     runs-on: "ubuntu-latest"
     steps:
@@ -33,7 +33,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build examples
-        run: cd examples/simple_box && cargo build --release && cd ../..
+        run: cd examples/simple_box && cargo build --release --target x86_64-unknown-linux-gnu && cd ../..
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
