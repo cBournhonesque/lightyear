@@ -32,20 +32,20 @@ jobs:
       - name: Cache crates
         uses: Swatinem/rust-cache@v2
 
-      - name: Build examples
-        run: cd examples/simple_box && cargo build --release --target x86_64-unknown-linux-gnu && cd ../..
+#      - name: Build examples
+#        run: cd examples/simple_box && cargo build --release --target x86_64-unknown-linux-gnu && cd ../..
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: target/x86_64-unknown-linux-gnu/release/simple_box
-          name: simple_box
+#      - name: Upload artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          path: target/x86_64-unknown-linux-gnu/release/simple_box
+#          name: simple_box
 
       - name: Docker login
         run: docker login -u '${{ secrets.EDGEGAP_REGISTRY_USERNAME }}' -p ${{ secrets.EDGEGAP_REGISTRY_PASSWORD }} ${{ vars.EDGEGAP_REGISTRY_URL }}
 
       - name: Build docker image
-        run: docker build -t ${{ vars.EDGEGAP_REGISTRY_URL }}/${{ secrets.EDGEGAP_REGISTRY_PROJECT }}/simple_box:$GITHUB_SHA -f examples/simple_box/Dockerfile-amd64 .
+        run: docker build -t ${{ vars.EDGEGAP_REGISTRY_URL }}/${{ secrets.EDGEGAP_REGISTRY_PROJECT }}/simple_box:$GITHUB_SHA -f examples/simple_box/Dockerfile .
 
       - name: Push docker image
         run: docker push ${{ vars.EDGEGAP_REGISTRY_URL }}/${{ secrets.EDGEGAP_REGISTRY_PROJECT }}/simple_box:$GITHUB_SHA
