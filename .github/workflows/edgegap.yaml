@@ -40,6 +40,8 @@ jobs:
 #        with:
 #          path: target/x86_64-unknown-linux-gnu/release/simple_box
 #          name: simple_box
+      - name: Generate certificate
+        run: ./examples/certificates/generate.sh
 
       - name: Docker login
         run: docker login -u '${{ secrets.EDGEGAP_REGISTRY_USERNAME }}' -p ${{ secrets.EDGEGAP_REGISTRY_PASSWORD }} ${{ vars.EDGEGAP_REGISTRY_URL }}
