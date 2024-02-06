@@ -152,7 +152,7 @@ getrandom = { version = "0.2.11", features = [
   "js",
 ] } # feature 'js' is required for wasm
 xwt-core = { version = "0.2", optional = true }
-xwt-web-sys = { version = "0.3.1", optional = true }
+xwt-web-sys = { version = "0.4.7", optional = true }
 tokio = { version = "1.34", features = [
   "macros",
   "rt",
