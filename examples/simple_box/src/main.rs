@@ -40,7 +40,7 @@ pub enum Transports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport,
-    #[cfg(not(target_family = "wasm"))]
+    // #[cfg(not(target_family = "wasm"))]
     WebSocket,
 }
 
@@ -93,7 +93,7 @@ cfg_if::cfg_if! {
                 client_port: CLIENT_PORT,
                 server_addr: Ipv4Addr::LOCALHOST,
                 server_port: SERVER_PORT,
-                transport: Transports::WebTransport,
+                transport: Transports::WebSocket,
             };
             let mut app = App::new();
             setup_client(&mut app, cli);
