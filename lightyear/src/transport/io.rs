@@ -34,7 +34,7 @@ use crate::transport::webtransport::client::WebTransportClientSocket;
 
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::WebSocketClientSocket;
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocket;
 
 #[derive(Clone)]
@@ -72,6 +72,7 @@ impl TransportConfig {
         // we don't use `dyn Transport` and instead repeat the code for `transport.listen()` because that function is not
         // object-safe (we would get "the size of `dyn Transport` cannot be statically determined")
         match self {
+            #[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
             #[cfg(not(target_family = "wasm"))]
             TransportConfig::UdpSocket(addr) => {
                 let transport = UdpSocket::new(addr).unwrap();
@@ -79,6 +80,10 @@ impl TransportConfig {
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "webtransport", not(target_family = "wasm"))))
+            )]
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportClient {
                 client_addr,
@@ -89,6 +94,10 @@ impl TransportConfig {
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "webtransport", target_family = "wasm")))
+            )]
             #[cfg(all(feature = "webtransport", target_family = "wasm"))]
             TransportConfig::WebTransportClient {
                 client_addr,
@@ -101,6 +110,10 @@ impl TransportConfig {
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "webtransport", not(target_family = "wasm"))))
+            )]
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             TransportConfig::WebTransportServer {
                 server_addr,
@@ -111,6 +124,7 @@ impl TransportConfig {
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
+            #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
             #[cfg(feature = "websocket")]
             TransportConfig::WebSocketClient { server_addr } => {
                 let transport = WebSocketClientSocket::new(server_addr);
@@ -118,6 +132,10 @@ impl TransportConfig {
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)
             }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "websocket", not(target_family = "wasm"))))
+            )]
             #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
             TransportConfig::WebSocketServer { server_addr } => {
                 let transport = WebSocketServerSocket::new(server_addr);
@@ -265,8 +283,8 @@ impl PacketReceiver for Io {
             if let Some((ref buffer, _)) = x {
                 #[cfg(feature = "metrics")]
                 {
-                    metrics::increment_counter!("transport.packets_received");
-                    metrics::increment_gauge!("transport.bytes_received", buffer.len() as f64);
+                    metrics::counter!("transport.packets_received").increment(1);
+                    metrics::gauge!("transport.bytes_received").increment(buffer.len() as f64);
                 }
                 self.stats.bytes_received += buffer.len();
                 self.stats.packets_received += 1;
@@ -281,8 +299,8 @@ impl PacketSender for Io {
         // todo: compression + bandwidth monitoring
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("transport.packets_sent");
-            metrics::increment_gauge!("transport.bytes_sent", payload.len() as f64);
+            metrics::counter!("transport.packets_sent").increment(1);
+            metrics::gauge!("transport.bytes_sent").increment(payload.len() as f64);
         }
         self.stats.bytes_sent += payload.len();
         self.stats.packets_sent += 1;

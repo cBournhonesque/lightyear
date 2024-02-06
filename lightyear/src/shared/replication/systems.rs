@@ -7,10 +7,10 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, ResMut, Without,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace};
 
-use crate::_reexport::{FromType, ShouldBeInterpolated};
-use crate::prelude::{MainSet, NetworkTarget, ShouldBePredicted};
+use crate::_reexport::FromType;
+use crate::prelude::{MainSet, NetworkTarget};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};

@@ -1,4 +1,3 @@
-use bevy::prelude::Reflect;
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
@@ -615,10 +614,9 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::default;
-    use bevy::utils::Duration;
     use std::collections::{BTreeMap, VecDeque};
 
+    use bevy::prelude::default;
     use bytes::Bytes;
 
     use lightyear_macros::ChannelInternal;

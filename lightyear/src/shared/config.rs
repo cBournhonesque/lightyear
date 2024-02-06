@@ -1,13 +1,10 @@
 //! Configuration that has to be the same between the server and the client.
-use crate::client::config::NetcodeConfig;
-use crate::client::resource::Authentication;
-use crate::connection::client::ClientConnection;
-use crate::prelude::IoConfig;
 use bevy::utils::Duration;
 
 use crate::shared::log::LogConfig;
 use crate::shared::tick_manager::TickConfig;
 
+/// Configuration that has to be the same between the server and the client.
 #[derive(Clone, Debug)]
 pub struct SharedConfig {
     pub enable_replication: bool,
@@ -15,7 +12,9 @@ pub struct SharedConfig {
     pub client_send_interval: Duration,
     /// how often does the server send updates to the client?
     pub server_send_interval: Duration,
+    /// configuration for the [`FixedUpdate`](bevy::prelude::FixedUpdate) schedule
     pub tick: TickConfig,
+    /// logging configuration
     pub log: LogConfig,
 }
 

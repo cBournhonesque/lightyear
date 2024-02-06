@@ -8,7 +8,10 @@ use std::{
 use anyhow::Result;
 use bevy::{tasks::IoTaskPool, utils::hashbrown::HashMap};
 
-use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{
+    error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
+};
+
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
@@ -106,11 +109,12 @@ struct WebSocketClientSocketSender {
 
 impl PacketSender for WebSocketClientSocketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
-        self.serverbound_tx
-            .send(payload.to_vec())
-            .map_err(|e| {
-                std::io::Error::other(format!("unable to send message to server: {:?}", e))
-            })
+        Ok(())
+        // self.serverbound_tx
+        //     .send(payload.to_vec())
+        //     .map_err(|e| {
+        //         std::io::Error::other(format!("unable to send message to server: {:?}", e))
+        //     })
     }
 }
 

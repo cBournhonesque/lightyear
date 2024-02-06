@@ -1,6 +1,5 @@
 //! Defines the actual ping/pong messages
 use bitcode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
 use crate::shared::ping::store::PingId;
 use crate::shared::time_manager::WrappedTime;

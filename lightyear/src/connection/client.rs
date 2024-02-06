@@ -41,6 +41,7 @@ pub trait NetClient: Send + Sync {
     fn io_mut(&mut self) -> &mut Io;
 }
 
+/// Resource that holds the client connection
 #[derive(Resource)]
 pub struct ClientConnection {
     pub(crate) client: Box<dyn NetClient>,
@@ -97,17 +98,6 @@ impl NetConfig {
                 // // TODO: handle errors
                 // let (steam_client, _) = steamworks::Client::init().unwrap();
                 // Box::new(super::steam::Client::new(steam_client))
-            }
-            #[cfg(feature = "rivet")]
-            NetConfig::Rivet { config } => {
-                let netcode = super::rivet::client::RivetClient {
-                    netcode_config: config,
-                    io: Some(io),
-                    netcode_client: None,
-                };
-                ClientConnection {
-                    client: Box::new(netcode),
-                }
             }
         }
     }

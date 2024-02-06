@@ -20,6 +20,8 @@ const SEND_INTERVAL_TICK_FACTOR: f32 = 1.5;
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?
 // NOTE: there's not a strict need for this, it just makes the logic easier to follow
+/// Component that will tract the values to interpolate between, as well as the interpolation ratio.
+/// This is provided so that you can easily compute your own interpolation if you want to.
 #[derive(Component, PartialEq, Debug)]
 pub struct InterpolateStatus<C: Component> {
     /// start tick to interpolate from, along with value

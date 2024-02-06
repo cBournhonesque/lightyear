@@ -25,10 +25,10 @@ pub struct PredictionDespawnCommand<P: Protocol> {
 }
 
 #[derive(Component, PartialEq, Debug)]
-pub struct PredictionDespawnMarker {
+pub(crate) struct PredictionDespawnMarker {
     // TODO: do we need this?
     // TODO: it's pub just for integration tests right now
-    pub death_tick: Tick,
+    pub(crate) death_tick: Tick,
 }
 
 impl<P: Protocol> Command for PredictionDespawnCommand<P> {

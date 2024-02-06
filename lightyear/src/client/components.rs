@@ -7,11 +7,17 @@ use bevy::prelude::{Component, Entity};
 
 use crate::prelude::{MapEntities, Named, Tick};
 
-/// Marks an entity that contains the server-updates that are received from the Server
-/// (this entity is a copy of Predicted that is RTT ticks behind)
+/// Marks an entity that directly applies the replication updates from the remote
+///
+/// In general, when an entity is replicated from the server to the client, multiple entities can be created on the client:
+/// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
+/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](crate::client::prediction::Predicted)
+/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](crate::client::interpolation::Interpolated)
 #[derive(Component)]
 pub struct Confirmed {
+    /// The corresponding Predicted entity
     pub predicted: Option<Entity>,
+    /// The corresponding Interpolated entity
     pub interpolated: Option<Entity>,
     /// The tick that the confirmed entity is at.
     /// (this is latest server tick for which we applied updates to the entity)
@@ -25,6 +31,7 @@ impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Named + for
 // NOTE: we use these traits that the Protocol will implement so that we don't implement
 // external traits on external types and break the orphan rule
 
+/// Function that will interpolated between two values
 pub trait LerpFn<C> {
     fn lerp(start: C, other: C, t: f32) -> C;
 }

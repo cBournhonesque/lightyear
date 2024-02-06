@@ -76,6 +76,17 @@ impl PacketConfig {
     }
 }
 
+/// The configuration object that lets you create a `ClientPlugin` with the desired settings.
+///
+/// Most of the fields are optional and have sensible defaults.
+/// You do need to provide a [`SharedConfig`] struct that has to be same on the client and the server.
+/// ```rust, ignore
+/// let config = ClientConfig {
+///    shared: SharedConfig::default(),
+///    ..default()
+/// };
+/// let client = ClientPlugin::new(PluginConfig::new(config, io, MyProtocol::default()));
+/// ```
 #[derive(Resource, Clone, Default)]
 pub struct ClientConfig {
     pub shared: SharedConfig,

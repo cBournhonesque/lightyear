@@ -20,6 +20,7 @@ pub mod interpolation_history;
 pub mod plugin;
 mod resource;
 
+/// Interpolator that performs linear interpolation.
 pub struct LinearInterpolator;
 impl<C> LerpFn<C> for LinearInterpolator
 where
@@ -39,7 +40,7 @@ impl<C> LerpFn<C> for NullInterpolator {
     }
 }
 
-/// Marks an entity that is being interpolated by the client
+/// Marker component for an entity that is being interpolated by the client
 #[derive(Component, Debug)]
 pub struct Interpolated {
     // TODO: maybe here add an interpolation function?
@@ -92,7 +93,9 @@ pub fn spawn_interpolated_entity<P: Protocol>(
         );
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("spawn_interpolated_entity");
+            metrics::counter!("spawn_interpolated_entity")
+                .increment(1)
+                .increment(1);
         }
     }
 }

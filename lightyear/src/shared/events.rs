@@ -6,10 +6,12 @@ pub use connection::*;
 mod bevy {
     use std::marker::PhantomData;
 
+    use bevy::prelude::{Component, Entity, Event};
+
     #[cfg(feature = "leafwing")]
     use crate::inputs::leafwing::InputMessage;
     use crate::packet::message::Message;
-    use bevy::prelude::{Component, Entity, Event};
+
     #[derive(Event)]
     pub struct ConnectEvent<Ctx = ()>(Ctx);
 
@@ -338,7 +340,7 @@ mod connection {
             );
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_counter!("input_message", "kind" => message.name());
+                metrics::counter!("input_message", "kind" => message.name()).increment(1);
             }
             self.input_messages
                 .entry(message.kind())
@@ -354,7 +356,7 @@ mod connection {
             #[cfg(feature = "metrics")]
             {
                 let message_name = message.name();
-                metrics::increment_counter!("message", "kind" => message_name);
+                metrics::counter!("message", "kind" => message_name).increment(1);
             }
             self.messages
                 .entry(message.kind())
@@ -369,7 +371,7 @@ mod connection {
             trace!(?entity, "Received entity spawn");
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_counter!("entity_spawn");
+                metrics::counter!("entity_spawn").increment(1);
             }
             self.spawns.push(entity);
             self.empty = false;
@@ -379,7 +381,7 @@ mod connection {
             trace!(?entity, "Received entity despawn");
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_counter!("entity_despawn");
+                metrics::counter!("entity_despawn").increment(1);
             }
             self.despawns.push(entity);
             self.empty = false;
@@ -394,7 +396,7 @@ mod connection {
             trace!(?entity, ?component, "Received insert component");
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_counter!("component_insert", "kind" => component.to_string());
+                metrics::counter!("component_insert", "kind" => component.to_string()).increment(1);
             }
             self.component_inserts
                 .entry(component)
@@ -413,7 +415,7 @@ mod connection {
             trace!(?entity, ?component, "Received remove component");
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_counter!("component_remove", "kind" => component.to_string());
+                metrics::counter!("component_remove", "kind" => component.to_string()).increment(1);
             }
             self.component_removes
                 .entry(component)
@@ -433,7 +435,7 @@ mod connection {
             trace!(?entity, ?component, "Received update component");
             #[cfg(feature = "metrics")]
             {
-                metrics::increment_counter!("component_update", "kind" => component.to_string());
+                metrics::counter!("component_update", "kind" => component.to_string()).increment(1);
             }
             // self.components_with_updates.insert(component.clone());
             // self.component_updates

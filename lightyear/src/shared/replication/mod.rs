@@ -8,11 +8,11 @@ use bevy::reflect::Map;
 use bevy::utils::{EntityHashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind, ShouldBeInterpolated};
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use crate::channel::builder::Channel;
 use crate::connection::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, ShouldBePredicted, Tick};
+use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, Tick};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
@@ -96,6 +96,11 @@ pub struct ReplicationMessage<C, K: Hash + Eq> {
     pub(crate) data: ReplicationMessageData<C, K>,
 }
 
+#[doc(hidden)]
+/// Trait for any service that can send replication messages to the remote.
+/// (this trait is used to easily enable both client to server and server to client replication)
+///
+/// The trait is made public because it is needed in the macros
 pub trait ReplicationSend<P: Protocol>: Resource {
     // type Manager: ReplicationManager;
 
