@@ -58,7 +58,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebSocket)]
         transport: Transports,
     },
     Client {
@@ -77,7 +77,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebSocket)]
         transport: Transports,
     },
 }

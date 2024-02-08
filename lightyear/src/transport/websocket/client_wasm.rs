@@ -8,12 +8,12 @@ use std::{
 use anyhow::Result;
 use bevy::{tasks::IoTaskPool, utils::hashbrown::HashMap};
 
-use tokio::sync::mpsc::{
-    error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
+use tokio::sync::{
+    mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    Mutex,
 };
 
-use tracing::{debug, info, trace};
-use tracing_log::log::error;
+use tracing::{debug, error, info, warn};
 
 use wasm_bindgen::{closure::Closure, JsCast};
 use web_sys::{
@@ -41,7 +41,7 @@ impl Transport for WebSocketClientSocket {
     }
 
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Vec<u8>>();
+        let (serverbound_tx, serverbound_rx) = unbounded_channel::<Vec<u8>>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Vec<u8>>();
 
         let packet_sender = WebSocketClientSocketSender { serverbound_tx };
@@ -54,14 +54,9 @@ impl Transport for WebSocketClientSocket {
 
         info!("Starting client websocket task");
 
-        let ws = WebSocket::new(&format!("ws://{}/", self.server_addr))
-            .expect("Unable to connect to websocket server");
+        let ws = WebSocket::new(&format!("ws://{}/", self.server_addr)).unwrap();
 
         ws.set_binary_type(BinaryType::Arraybuffer);
-
-        let on_open_callback = Closure::<dyn FnMut()>::new(move || {
-            info!("WebSocket handshake has been successfully completed");
-        });
 
         let on_message_callback = Closure::<dyn FnMut(_)>::new(move |e: MessageEvent| {
             let msg = Uint8Array::new(&e.data()).to_vec();
@@ -80,24 +75,37 @@ impl Transport for WebSocketClientSocket {
         });
 
         let on_error_callback = Closure::<dyn FnMut(_)>::new(move |e: ErrorEvent| {
-            info!("WebSocket connection error {}", e.message());
+            error!("WebSocket connection error {}", e.message());
         });
 
-        ws.set_onopen(Some(on_open_callback.as_ref().unchecked_ref()));
-        ws.set_onmessage(Some(on_message_callback.as_ref().unchecked_ref()));
-        ws.set_onclose(Some(on_close_callback.as_ref().unchecked_ref()));
-        ws.set_onerror(Some(on_error_callback.as_ref().unchecked_ref()));
+        // need to clone these two because we move two times
+        let socket = ws.clone();
+        let serverbound_rx = Arc::new(Mutex::new(serverbound_rx));
+
+        let on_open_callback = Closure::<dyn FnMut()>::new(move || {
+            info!("WebSocket handshake has been successfully completed");
+            let serverbound_rx = serverbound_rx.clone();
+            let ws = ws.clone();
+            IoTaskPool::get().spawn_local(async move {
+                while let Some(msg) = serverbound_rx.lock().await.recv().await {
+                    if ws.ready_state() != 1 {
+                        warn!("Tried to send packet through closed websocket connection");
+                        break;
+                    }
+                    ws.send_with_u8_array(&msg).unwrap();
+                }
+            });
+        });
+
+        socket.set_onopen(Some(on_open_callback.as_ref().unchecked_ref()));
+        socket.set_onmessage(Some(on_message_callback.as_ref().unchecked_ref()));
+        socket.set_onclose(Some(on_close_callback.as_ref().unchecked_ref()));
+        socket.set_onerror(Some(on_error_callback.as_ref().unchecked_ref()));
 
         on_open_callback.forget();
         on_message_callback.forget();
         on_close_callback.forget();
         on_error_callback.forget();
-
-        IoTaskPool::get().spawn_local(async move {
-            while let Some(msg) = serverbound_rx.recv().await {
-                ws.send_with_u8_array(&msg).unwrap();
-            }
-        });
 
         (Box::new(packet_sender), Box::new(packet_receiver))
     }
@@ -109,12 +117,9 @@ struct WebSocketClientSocketSender {
 
 impl PacketSender for WebSocketClientSocketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
-        Ok(())
-        // self.serverbound_tx
-        //     .send(payload.to_vec())
-        //     .map_err(|e| {
-        //         std::io::Error::other(format!("unable to send message to server: {:?}", e))
-        //     })
+        self.serverbound_tx.send(payload.to_vec()).map_err(|e| {
+            std::io::Error::other(format!("unable to send message to server: {:?}", e))
+        })
     }
 }
 
