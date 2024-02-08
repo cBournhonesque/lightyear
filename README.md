@@ -38,6 +38,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
   The trait currently has two implementations:
   - UDP sockets
   - WebTransport (using QUIC): available on both native and wasm!
+  - WebSocket: available on both native and wasm!
 - Serialization
   - *Lightyear* uses [bitcode](https://github.com/SoftbearStudios/bitcode/tree/main) for serialization, which supports very compact serialization. It uses bit-packing (a bool will be serialized as a single bit).
 - Message passing
