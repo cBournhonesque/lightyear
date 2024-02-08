@@ -40,7 +40,6 @@ pub enum Transports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport,
-    // #[cfg(not(target_family = "wasm"))]
     WebSocket,
 }
 
@@ -58,7 +57,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::WebSocket)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
     Client {
@@ -77,7 +76,7 @@ enum Cli {
         #[arg(short, long, default_value_t = SERVER_PORT)]
         server_port: u16,
 
-        #[arg(short, long, value_enum, default_value_t = Transports::WebSocket)]
+        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
         transport: Transports,
     },
 }
@@ -93,7 +92,7 @@ cfg_if::cfg_if! {
                 client_port: CLIENT_PORT,
                 server_addr: Ipv4Addr::LOCALHOST,
                 server_port: SERVER_PORT,
-                transport: Transports::WebSocket,
+                transport: Transports::WebTransport,
             };
             let mut app = App::new();
             setup_client(&mut app, cli);
