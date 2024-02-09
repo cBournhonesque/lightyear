@@ -187,7 +187,6 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
-        app.configure_sets(FixedUpdate, LeafwingInputSet::<A>::default());
         app.configure_sets(
             FixedUpdate,
             (
