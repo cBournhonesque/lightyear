@@ -59,7 +59,7 @@ use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::tick_manager::TickEvent;
 
 /// Run condition to control most of the systems in the LeafwingInputPlugin
-fn run_if_enabled<A>(config: Res<ToggleActions<A>>) -> bool {
+fn run_if_enabled<A: LeafwingUserAction>(config: Res<ToggleActions<A>>) -> bool {
     config.enabled
 }
 
