@@ -123,7 +123,9 @@ pub mod prelude {
         pub use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 
         #[cfg(feature = "leafwing")]
-        pub use crate::client::input_leafwing::{LeafwingInputConfig, LeafwingInputPlugin};
+        pub use crate::client::input_leafwing::{
+            LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,
+        };
     }
     pub mod server {
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};

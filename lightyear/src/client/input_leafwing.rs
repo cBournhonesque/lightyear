@@ -34,6 +34,7 @@
 //!   the button won't be `JustPressed` anymore (it will simply be `Pressed`) so your system might not react correctly to it.
 //!
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use bevy::prelude::*;
 use bevy::utils::HashMap;
@@ -56,6 +57,31 @@ use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::tick_manager::TickEvent;
+
+/// Run condition to control most of the systems in the LeafwingInputPlugin
+fn run_if_enabled<A>(config: Res<ToggleActions<A>>) -> bool {
+    config.enabled
+}
+
+#[derive(Resource)]
+pub struct ToggleActions<A> {
+    /// When this is false, [`ActionState`]'s corresponding to `A` will ignore user inputs
+    ///
+    /// When this is set to false, all corresponding [`ActionState`]s are released
+    pub enabled: bool,
+    /// Marker that stores the type of action to toggle
+    pub phantom: PhantomData<A>,
+}
+
+// implement manually to not required the `Default` bound on A
+impl<A> Default for ToggleActions<A> {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            phantom: PhantomData,
+        }
+    }
+}
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Clone, Resource)]
@@ -153,6 +179,7 @@ where
         app.add_plugins(InputManagerPlugin::<A>::default());
         // RESOURCES
         app.insert_resource(self.config.clone());
+        app.init_resource::<ToggleActions<A>>();
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();
         app.init_resource::<ActionDiffBuffer<A>>();
@@ -160,6 +187,7 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
+        app.configure_sets(FixedUpdate, LeafwingInputSet::<A>::default());
         app.configure_sets(
             FixedUpdate,
             (
@@ -190,6 +218,7 @@ where
             PreUpdate,
             (
                 generate_action_diffs::<A>
+                    .run_if(run_if_enabled::<A>)
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
                     .after(InputManagerSystem::ManualControl)
@@ -213,8 +242,9 @@ where
                         get_non_rollback_action_state::<A>.run_if(is_input_delay),
                     )
                         .chain()
-                        .run_if(not(is_in_rollback)),
-                    get_rollback_action_state::<A>.run_if(is_in_rollback),
+                        .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
+                    get_rollback_action_state::<A>
+                        .run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
                 )
                     .in_set(InputSystemSet::BufferInputs),
                 // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
@@ -223,8 +253,11 @@ where
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
                 get_delayed_action_state::<A>
-                    .run_if(is_input_delay)
-                    .run_if(not(is_in_rollback))
+                    .run_if(
+                        is_input_delay
+                            .and_then(not(is_in_rollback))
+                            .and_then(run_if_enabled::<A>),
+                    )
                     .after(FixedUpdateSet::Main),
             ),
         );
@@ -250,9 +283,14 @@ where
         app.add_systems(
             PostUpdate,
             (
-                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
-                prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
+                receive_tick_events::<A>
+                    .in_set(InputSystemSet::ReceiveTickEvents)
+                    .run_if(run_if_enabled::<A>),
+                prepare_input_message::<P, A>
+                    .in_set(InputSystemSet::SendInputMessage)
+                    .run_if(run_if_enabled::<A>),
                 add_action_state_buffer_added_input_map::<A>,
+                toggle_actions::<A>,
             ),
         );
     }
@@ -293,6 +331,16 @@ fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
             InputBuffer::<A>::default(),
             ActionDiffBuffer::<A>::default(),
         ));
+    }
+}
+
+/// Propagate toggle actions to the underlying leafwing plugin
+fn toggle_actions<A: LeafwingUserAction>(
+    config: Res<ToggleActions<A>>,
+    mut leafwing_config: ResMut<leafwing_input_manager::prelude::ToggleActions<A>>,
+) {
+    if config.is_changed() {
+        leafwing_config.enabled = config.enabled;
     }
 }
 
