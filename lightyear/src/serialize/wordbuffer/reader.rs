@@ -1,6 +1,10 @@
+use std::cell::UnsafeCell;
 use std::num::NonZeroUsize;
+use std::ops::Deref;
+use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::Context;
+use bevy::ptr::UnsafeCellDeref;
 use bitcode::buffer::BufferTrait;
 use bitcode::encoding::{Encoding, Fixed};
 use bitcode::read::Read;
@@ -19,12 +23,14 @@ pub struct Reader<'a>(Option<(WordReader<'a>, WordContext)>);
 // #[bitcode_hint(gamma)]
 struct OnlyGammaDecode<T: DeserializeOwned>(#[bitcode(with_serde)] T);
 
+unsafe impl Send for ReadWordBuffer {}
+unsafe impl Sync for ReadWordBuffer {}
+
 // We use self_cell because the reader contains a reference to the WordBuffer
 // (it will take ownership of the buffer's contents to write into)
 self_cell!(
     pub struct ReadWordBuffer {
-        owner: WordBuffer,
-
+        owner: UnsafeCell<WordBuffer>,
         #[covariant]
         // reader contains a reference to the buffer
         dependent: Reader,
@@ -33,7 +39,7 @@ self_cell!(
 
 impl ReadBuffer for ReadWordBuffer {
     fn capacity(&self) -> usize {
-        self.borrow_owner().capacity()
+        unsafe { self.borrow_owner().deref().capacity() }
     }
 
     // fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {
@@ -47,7 +53,7 @@ impl ReadBuffer for ReadWordBuffer {
     // }
 
     fn deserialize<T: DeserializeOwned>(&mut self) -> anyhow::Result<T> {
-        self.with_dependent_mut(|_buffer, reader| {
+        self.with_dependent_mut(|_, reader| {
             let reader = reader
                 .0
                 .as_mut()
@@ -59,7 +65,7 @@ impl ReadBuffer for ReadWordBuffer {
     }
 
     fn decode<T: Decode>(&mut self, encoding: impl Encoding) -> anyhow::Result<T> {
-        self.with_dependent_mut(|_buffer, reader| {
+        self.with_dependent_mut(|_, reader| {
             let reader = reader
                 .0
                 .as_mut()
@@ -69,22 +75,21 @@ impl ReadBuffer for ReadWordBuffer {
     }
 
     fn start_read(bytes: &[u8]) -> Self {
-        ReadWordBuffer::new(WordBuffer::with_capacity(bytes.len()), |buffer| {
-            // safety: we just created the buffer and nothing else had access to it
-            // we need to get a mutable reference to the buffer to take ownership of it
-            let mut_buffer: &mut WordBuffer;
-            unsafe {
-                let const_ptr = buffer as *const WordBuffer;
-                let mut_ptr = const_ptr.cast_mut();
-                mut_buffer = &mut *mut_ptr;
-            }
-            let (reader, context) = mut_buffer.start_read(bytes);
-            Reader(Some((reader, context)))
-        })
+        ReadWordBuffer::new(
+            UnsafeCell::new(WordBuffer::with_capacity(bytes.len())),
+            |buffer| {
+                // safety: we just created the buffer and nothing else had access to it
+                // we need to get a mutable reference to the buffer to take ownership of it
+                unsafe {
+                    let (reader, context) = buffer.deref_mut().start_read(bytes);
+                    Reader(Some((reader, context)))
+                }
+            },
+        )
     }
 
     fn finish_read(&mut self) -> anyhow::Result<()> {
-        self.with_dependent_mut(|_buffer, reader| {
+        self.with_dependent_mut(|_, reader| {
             let (reader, context) = std::mem::take(reader).0.context("no reader")?;
             WordBuffer::finish_read(reader, context).context("error finishing read")
         })

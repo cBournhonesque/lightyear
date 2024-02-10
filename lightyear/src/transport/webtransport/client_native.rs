@@ -33,6 +33,8 @@ impl Transport for WebTransportClientSocket {
         self.client_addr
     }
 
+    // TODO: listen (i.e. creating the sender/receiver) should not connect right away!
+    //  instead we should have a separate function that starts the connection!
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
@@ -44,21 +46,25 @@ impl Transport for WebTransportClientSocket {
             .with_no_cert_validation()
             .build();
         let server_url = format!("https://{}", server_addr);
-        debug!(
+        info!(
             "Starting client webtransport task with server url: {}",
             &server_url
         );
-        let endpoint = wtransport::Endpoint::client(config).unwrap();
 
         // native wtransport must run in a tokio runtime
-        tokio::spawn(async move {
+        let rt = tokio::runtime::Runtime::new().expect("Failed building the Runtime");
+        let _guard = rt.enter();
+        rt.spawn(async move {
+            let endpoint = wtransport::Endpoint::client(config).unwrap();
+            info!("before wtransport connect");
             let connection = endpoint
                 .connect(&server_url)
                 .await
-                .map_err(|e| {
+                .inspect_err(|e| {
                     error!("failed to connect to server: {:?}", e);
                 })
                 .unwrap();
+            info!("after wtransport connect");
             let connection = Arc::new(connection);
 
             // NOTE (IMPORTANT!):
@@ -93,12 +99,13 @@ impl Transport for WebTransportClientSocket {
                     }
                 }
             });
-
             connection.closed().await;
             info!("WebTransport connection closed.");
             recv_handle.abort();
             send_handle.abort();
         });
+        info!("fail");
+        // TODO: maybe wait for the connection to be ready before returning here?
 
         let packet_sender = WebTransportClientPacketSender { to_server_sender };
         let packet_receiver = WebTransportClientPacketReceiver {

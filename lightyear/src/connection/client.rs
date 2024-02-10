@@ -7,7 +7,7 @@ use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::ClientId;
 use crate::prelude::client::Authentication;
-use crate::prelude::Io;
+use crate::prelude::{Io, IoConfig};
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {
@@ -35,12 +35,10 @@ pub trait NetClient: Send + Sync {
     fn local_addr(&self) -> SocketAddr;
 
     /// Get immutable access to the inner io
-    fn io(&self) -> &Io;
+    fn io(&self) -> Option<&Io>;
 
     /// Get mutable access to the inner io
-    fn io_mut(&mut self) -> &mut Io;
-
-    fn into_io(&mut self) -> Io;
+    fn io_mut(&mut self) -> Option<&mut Io>;
 }
 
 /// Resource that holds the client connection
@@ -55,6 +53,7 @@ pub enum NetConfig {
     Netcode {
         auth: Authentication,
         config: NetcodeConfig,
+        io: IoConfig,
     },
     // TODO: add steam-specific config
     // TODO: for steam, we can use a pass-through io that just computes stats?
@@ -66,14 +65,19 @@ impl Default for NetConfig {
         Self::Netcode {
             auth: Authentication::default(),
             config: NetcodeConfig::default(),
+            io: IoConfig::default(),
         }
     }
 }
 
 impl NetConfig {
-    pub fn get_client(self, io: Io) -> ClientConnection {
+    pub fn build_client(self) -> ClientConnection {
         match self {
-            NetConfig::Netcode { auth, config } => {
+            NetConfig::Netcode {
+                auth,
+                config,
+                io: io_config,
+            } => {
                 let token = auth
                     .clone()
                     .get_token(config.client_timeout_secs)
@@ -84,7 +88,8 @@ impl NetConfig {
                         .expect("could not create netcode client");
                 let client = super::netcode::Client {
                     client: netcode,
-                    io: Some(io),
+                    io_config,
+                    io: None,
                 };
                 ClientConnection {
                     client: Box::new(client),
@@ -129,15 +134,11 @@ impl NetClient for ClientConnection {
         self.client.local_addr()
     }
 
-    fn io(&self) -> &Io {
+    fn io(&self) -> Option<&Io> {
         self.client.io()
     }
 
-    fn io_mut(&mut self) -> &mut Io {
+    fn io_mut(&mut self) -> Option<&mut Io> {
         self.client.io_mut()
-    }
-
-    fn into_io(&mut self) -> Io {
-        self.client.into_io()
     }
 }

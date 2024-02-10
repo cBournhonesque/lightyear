@@ -23,8 +23,9 @@ fn io_diagnostics_system(
     time: Res<Time<Real>>,
     mut diagnostics: Diagnostics,
 ) {
-    let io = netclient.io_mut();
-    IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
+    if let Some(io) = netclient.io_mut() {
+        IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
+    }
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
     fn build(&self, app: &mut App) {

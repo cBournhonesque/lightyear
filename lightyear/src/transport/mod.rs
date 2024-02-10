@@ -46,6 +46,8 @@ pub trait Transport {
     fn local_addr(&self) -> SocketAddr;
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
 
+    // TODO maybe add a `async fn ready() -> bool` function?
+
     // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>);
 }
 

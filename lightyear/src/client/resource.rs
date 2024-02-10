@@ -73,10 +73,8 @@ pub struct ClientMut<'w, 's, P: Protocol> {
 
 /// Recreate the client connection with a new token and try to connect
 pub fn connect_with_token(world: &mut World, connect_token: ConnectToken) -> Result<()> {
-    let io = world
-        .remove_resource::<ClientConnection>()
-        .unwrap()
-        .into_io();
+    // remove the existing ClientConnection
+    world.remove_resource::<ClientConnection>();
     world.resource_scope(|world, mut config: Mut<ClientConfig>| {
         // update the authentication token
         match &mut config.net {
@@ -87,7 +85,7 @@ pub fn connect_with_token(world: &mut World, connect_token: ConnectToken) -> Res
                 panic!("Invalid netcode config");
             }
         }
-        let netclient = config.net.clone().get_client(io);
+        let netclient = config.net.clone().build_client();
         world.insert_resource(netclient);
     });
     world.resource_mut::<ClientConnection>().connect()
