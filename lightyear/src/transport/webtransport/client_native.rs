@@ -2,6 +2,7 @@
 //! WebTransport client implementation.
 use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
+use async_compat::Compat;
 use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -52,10 +53,14 @@ impl Transport for WebTransportClientSocket {
         );
 
         // native wtransport must run in a tokio runtime
-        let rt = tokio::runtime::Runtime::new().expect("Failed building the Runtime");
-        let _guard = rt.enter();
-        rt.spawn(async move {
-            let endpoint = wtransport::Endpoint::client(config).unwrap();
+        // let rt = tokio::runtime::Runtime::new().expect("Failed building the Runtime");
+        // let _guard = rt.enter();
+        // rt.spawn(async move {
+        let _ = IoTaskPool::get().spawn(Compat::new(async move {
+            info!("creating endpoint");
+            let endpoint = wtransport::Endpoint::client(config)
+                .inspect_err(|e| error!("could not create endpoint: {:?}", e))
+                .unwrap();
             info!("before wtransport connect");
             let connection = endpoint
                 .connect(&server_url)
@@ -75,7 +80,7 @@ impl Transport for WebTransportClientSocket {
             // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
             //   cancelled
             let connection_recv = connection.clone();
-            let recv_handle = tokio::spawn(async move {
+            let recv_handle = IoTaskPool::get().spawn(async move {
                 loop {
                     match connection_recv.receive_datagram().await {
                         Ok(data) => {
@@ -89,7 +94,7 @@ impl Transport for WebTransportClientSocket {
                 }
             });
             let connection_send = connection.clone();
-            let send_handle = tokio::spawn(async move {
+            let send_handle = IoTaskPool::get().spawn(async move {
                 loop {
                     if let Some(msg) = to_server_receiver.recv().await {
                         trace!("send datagram to server: {:?}", &msg);
@@ -101,9 +106,12 @@ impl Transport for WebTransportClientSocket {
             });
             connection.closed().await;
             info!("WebTransport connection closed.");
-            recv_handle.abort();
-            send_handle.abort();
-        });
+            recv_handle.cancel().await;
+            send_handle.cancel().await;
+            // tokio
+            // recv_handle.abort();
+            // send_handle.abort();
+        }));
         info!("fail");
         // TODO: maybe wait for the connection to be ready before returning here?
 

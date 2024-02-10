@@ -107,6 +107,7 @@ bevy = { version = "0.12", default-features = false }
 futures-util = { version = "0.3.30", optional = true }
 
 # transport
+async-compat = "0.2.3"
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 # webtransport
 wtransport = { version = "0.1.10", optional = true, features = [
