@@ -107,7 +107,10 @@ bevy = { version = "0.12", default-features = false }
 futures-util = { version = "0.3.30", optional = true }
 
 # transport
+# we don't need any tokio features, we use only use the tokio channels
+tokio = { version = "1.36", features = [], default-features = false, optional = true }
 async-compat = "0.2.3"
+
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 # webtransport
 wtransport = { version = "0.1.10", optional = true, features = [
@@ -119,14 +122,6 @@ tokio-tungstenite = { version = "0.21.0", optional = true, features = [
   "connect",
   "handshake",
 ] }
-tokio = { version = "1.36", features = [
-  "macros",
-  "rt",
-  # "rt-multi-thread" is only valid in native.
-  "rt-multi-thread",
-  "sync",
-  "time",
-], optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7" }
@@ -154,13 +149,10 @@ getrandom = { version = "0.2.11", features = [
 ] } # feature 'js' is required for wasm
 xwt-core = { version = "0.2", optional = true }
 xwt-web-sys = { version = "0.5.1", optional = true }
-tokio = { version = "1.36", features = [
-  "macros",
-  "rt",
-  "sync",
-  "time",
-], optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
+
+
+
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.39"

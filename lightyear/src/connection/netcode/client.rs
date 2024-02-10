@@ -636,9 +636,7 @@ pub struct Client<Ctx> {
 
 impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     fn connect(&mut self) -> anyhow::Result<()> {
-        info!("building io");
         self.io = Some(Io::from_config(self.io_config.clone()));
-        info!("building io done");
         self.client.connect();
         // TODO: have a separate explicit function to start listening on the io
         // creating the io starts the io connection!
