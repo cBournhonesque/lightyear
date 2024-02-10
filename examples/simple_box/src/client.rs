@@ -4,7 +4,9 @@ use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
+use lightyear::client::resource::connect_with_token;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -28,6 +30,7 @@ impl ClientPluginGroup {
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
         };
+        let auth = Authentication::RequestConnectToken;
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
         let certificate_digest =
             String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
@@ -112,6 +115,7 @@ impl Plugin for ExampleClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
+        app.add_systems(Update, connect.run_if(on_timer(Duration::from_secs(10))));
     }
 }
 
@@ -126,7 +130,23 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
             ..default()
         },
     ));
-    let _ = client.connect();
+    // let _ = client.connect();
+}
+
+pub(crate) fn connect(world: &mut World) {
+    // if world.get_resource::<Time>().unwrap().elapsed() < Duration::from_secs(3) {
+    //     return;
+    // }
+    info!("CONNECT");
+    let server_addr = SocketAddr::from_str("127.0.0.1:5000").unwrap();
+    let auth = Authentication::Manual {
+        server_addr,
+        client_id: 1,
+        private_key: KEY,
+        protocol_id: PROTOCOL_ID,
+    };
+    let token = auth.get_token(3).unwrap();
+    let _ = connect_with_token(world, token);
 }
 
 // System that reads from peripherals and adds inputs to the buffer

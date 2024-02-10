@@ -39,6 +39,8 @@ pub trait NetClient: Send + Sync {
 
     /// Get mutable access to the inner io
     fn io_mut(&mut self) -> &mut Io;
+
+    fn into_io(&mut self) -> Io;
 }
 
 /// Resource that holds the client connection
@@ -57,10 +59,6 @@ pub enum NetConfig {
     // TODO: add steam-specific config
     // TODO: for steam, we can use a pass-through io that just computes stats?
     Steam,
-    #[cfg(feature = "rivet")]
-    Rivet {
-        config: NetcodeConfig,
-    },
 }
 
 impl Default for NetConfig {
@@ -76,7 +74,6 @@ impl NetConfig {
     pub fn get_client(self, io: Io) -> ClientConnection {
         match self {
             NetConfig::Netcode { auth, config } => {
-                let config_clone = config.clone();
                 let token = auth
                     .clone()
                     .get_token(config.client_timeout_secs)
@@ -87,7 +84,7 @@ impl NetConfig {
                         .expect("could not create netcode client");
                 let client = super::netcode::Client {
                     client: netcode,
-                    io,
+                    io: Some(io),
                 };
                 ClientConnection {
                     client: Box::new(client),
@@ -138,5 +135,9 @@ impl NetClient for ClientConnection {
 
     fn io_mut(&mut self) -> &mut Io {
         self.client.io_mut()
+    }
+
+    fn into_io(&mut self) -> Io {
+        self.client.into_io()
     }
 }

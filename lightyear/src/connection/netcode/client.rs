@@ -627,7 +627,7 @@ impl<Ctx> NetcodeClient<Ctx> {
 #[derive(Resource)]
 pub struct Client<Ctx> {
     pub client: NetcodeClient<Ctx>,
-    pub io: Io,
+    pub io: Option<Io>,
 }
 
 impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
@@ -642,7 +642,7 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
         self.client
-            .try_update(delta_ms, &mut self.io)
+            .try_update(delta_ms, self.io.as_mut().unwrap())
             .context("could not update client")
     }
 
@@ -652,7 +652,7 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
 
     fn send(&mut self, buf: &[u8]) -> anyhow::Result<()> {
         self.client
-            .send(buf, &mut self.io)
+            .send(buf, self.io.as_mut().unwrap())
             .context("could not send")
     }
 
@@ -661,14 +661,18 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn local_addr(&self) -> SocketAddr {
-        self.io.local_addr()
+        self.io().local_addr()
     }
 
     fn io(&self) -> &Io {
-        &self.io
+        self.io.as_ref().unwrap()
     }
 
     fn io_mut(&mut self) -> &mut Io {
-        &mut self.io
+        self.io.as_mut().unwrap()
+    }
+
+    fn into_io(&mut self) -> Io {
+        std::mem::take(&mut self.io).unwrap()
     }
 }
