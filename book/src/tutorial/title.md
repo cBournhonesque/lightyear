@@ -41,10 +41,10 @@ pub enum Inputs {
     // NOTE: we NEED to provide a None input so that the server can distinguish between lost input packets and 'None' inputs
     None,
 }
-impl UserInput for Inputs {}
+impl UserAction for Inputs {}
 ```
 
-Inputs have to implement the `UserInput` trait, which means that they must be `Send + Sync + 'static` and can be serialized.
+Inputs have to implement the `UserAction` trait, which means that they must be `Send + Sync + 'static` and can be serialized.
 
 ## Message
 
