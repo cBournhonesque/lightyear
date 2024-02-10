@@ -3,9 +3,9 @@
 
 This section will teach you how to quickly setup networking in your bevy game using this crate.
 
-You can find an example game in the [examples](https://github.com/cBournhonesque/lightyear/tree/main/tests/examples) folder.
+You can find an example game in the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples) folder.
 
-In this tutorial, we will reproduce the [simple box example](https://github.com/cBournhonesque/lightyear/tree/main/tests/examples/simple_box) to demonstrate the features of this crate.
+In this tutorial, we will reproduce the [simple box example](https://github.com/cBournhonesque/lightyear/tree/main/examples/simple_box) to demonstrate the features of this crate.
 
 ## Setup
 
