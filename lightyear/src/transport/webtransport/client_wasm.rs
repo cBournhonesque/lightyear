@@ -6,7 +6,6 @@ use anyhow::Context;
 use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
 use std::rc::Rc;
-use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace};
