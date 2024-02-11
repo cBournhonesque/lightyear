@@ -88,7 +88,7 @@ impl Transport for WebSocketServerSocket {
                     let clientbound_tx_map = clientbound_tx_map.clone();
                     let serverbound_tx = serverbound_tx.clone();
                     IoTaskPool::get()
-                        .spawn(async move {
+                        .spawn(Compat::new(async move {
                             let ws_stream = tokio_tungstenite::accept_async(stream)
                                 .await
                                 .expect("Error during the websocket handshake occurred");
@@ -142,7 +142,7 @@ impl Transport for WebSocketServerSocket {
                                     clientbound_handle.cancel().await;
                                 })
                                 .detach();
-                        })
+                        }))
                         .detach();
                 }
             }))

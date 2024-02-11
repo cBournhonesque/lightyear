@@ -144,11 +144,11 @@ impl Transport for WebTransportServerSocket {
             .with_bind_address(server_addr)
             .with_certificate(certificate)
             .build();
-        let endpoint = wtransport::Endpoint::server(config).unwrap();
 
         IoTaskPool::get()
             .spawn(Compat::new(async move {
                 info!("Starting server webtransport task");
+                let endpoint = wtransport::Endpoint::server(config).unwrap();
 
                 loop {
                     // clone the channel for each client
@@ -158,11 +158,13 @@ impl Transport for WebTransportServerSocket {
                     // new client connecting
                     let incoming_session = endpoint.accept().await;
 
-                    tokio::spawn(Self::handle_client(
-                        incoming_session,
-                        from_client_sender,
-                        to_client_senders,
-                    ));
+                    IoTaskPool::get()
+                        .spawn(Compat::new(Self::handle_client(
+                            incoming_session,
+                            from_client_sender,
+                            to_client_senders,
+                        )))
+                        .detach();
                 }
             }))
             .detach();

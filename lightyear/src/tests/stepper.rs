@@ -59,14 +59,12 @@ impl BevyStepper {
             send: to_server_send,
             recv: from_server_recv,
         })
-        .with_conditioner(conditioner.clone())
-        .get_io();
+        .with_conditioner(conditioner.clone());
 
         let server_io = IoConfig::from_transport(TransportConfig::Channels {
             channels: vec![(addr, to_server_recv, from_server_send)],
         })
-        .with_conditioner(conditioner.clone())
-        .get_io();
+        .with_conditioner(conditioner.clone());
 
         // Shared config
         let protocol_id = 0;
@@ -80,6 +78,7 @@ impl BevyStepper {
             config: NetcodeConfig::default()
                 .with_protocol_id(protocol_id)
                 .with_key(private_key),
+            io: server_io,
         };
         let config = ServerConfig {
             shared: shared_config.clone(),
@@ -87,7 +86,7 @@ impl BevyStepper {
             ping: PingConfig::default(),
             packet: Default::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
+        let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
@@ -102,6 +101,7 @@ impl BevyStepper {
                 client_id,
             },
             config: Default::default(),
+            io: client_io,
         };
         let config = ClientConfig {
             shared: shared_config.clone(),
@@ -113,7 +113,7 @@ impl BevyStepper {
             interpolation: interpolation_config,
             packet: Default::default(),
         };
-        let plugin_config = client::PluginConfig::new(config, client_io, protocol());
+        let plugin_config = client::PluginConfig::new(config, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
