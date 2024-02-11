@@ -8,12 +8,14 @@ use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::client as lightyear_client;
-use lightyear::netcode::generate_key;
+use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, NetClient, PredictionConfig,
-    SyncConfig,
+    Authentication, ClientConfig, ClientConnection, InputConfig, InterpolationConfig, NetClient,
+    PredictionConfig, SyncConfig,
 };
-use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
+use lightyear::prelude::server::{
+    NetConfig, NetServer, NetcodeConfig, ServerConfig, ServerConnection,
+};
 use lightyear::prelude::*;
 use lightyear::server as lightyear_server;
 
@@ -64,18 +66,22 @@ impl BevyStepper {
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(protocol_id)
             .with_key(private_key);
-        let io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
-            local_addr,
-        )));
-        let server_addr = io.local_addr();
         let config = ServerConfig {
             shared: shared_config.clone(),
-            netcode: netcode_config,
+            net: NetConfig::Netcode {
+                config: netcode_config,
+                io: IoConfig::from_transport(TransportConfig::UdpSocket(local_addr)),
+            },
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, io, protocol());
+        let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
+        let server_addr = server_app
+            .world
+            .resource::<ServerConnection>()
+            .io()
+            .local_addr();
 
         // Setup client
         let mut client_apps = HashMap::new();
@@ -90,17 +96,19 @@ impl BevyStepper {
                 client_id,
             };
             // let addr = SocketAddr::from_str(&format!("127.0.0.1:{}", i)).unwrap();
-            let io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
-                local_addr,
-            )));
             let config = ClientConfig {
                 shared: shared_config.clone(),
                 sync: sync_config.clone(),
                 prediction: prediction_config,
                 interpolation: interpolation_config.clone(),
+                net: client::NetConfig::Netcode {
+                    config: client::NetcodeConfig::default(),
+                    auth,
+                    io: IoConfig::from_transport(TransportConfig::UdpSocket(local_addr)),
+                },
                 ..default()
             };
-            let plugin_config = client::PluginConfig::new(config, io, protocol(), auth);
+            let plugin_config = client::PluginConfig::new(config, protocol());
             let plugin = client::ClientPlugin::new(plugin_config);
             client_app.add_plugins(plugin);
             // Initialize Real time (needed only for the first TimeSystem run)
@@ -145,7 +153,10 @@ impl BevyStepper {
 
     pub fn init(&mut self) {
         self.client_apps.values_mut().for_each(|client_app| {
-            client_app.world.resource_mut::<NetClient>().connect();
+            let _ = client_app
+                .world
+                .resource_mut::<ClientConnection>()
+                .connect();
         });
 
         // Advance the world to let the connection process complete

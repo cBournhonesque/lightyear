@@ -4,16 +4,15 @@ use std::fmt::Debug;
 use bevy::prelude::*;
 use tracing::{error, info};
 
-pub use despawn::{PredictionDespawnCommandsExt, PredictionDespawnMarker};
+pub use despawn::PredictionDespawnCommandsExt;
 pub use plugin::add_prediction_systems;
 pub use predicted_history::{ComponentState, PredictionHistory};
 
 use crate::client::components::{ComponentSyncMode, Confirmed};
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::resource::Client;
+use crate::connection::client::{ClientConnection, NetClient};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{PrePredicted, Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
@@ -34,6 +33,7 @@ pub struct Predicted {
     pub confirmed_entity: Option<Entity>,
 }
 
+/// Resource that indicates whether we are in a rollback state or not
 #[derive(Resource)]
 pub struct Rollback {
     pub state: RollbackState,
@@ -44,9 +44,11 @@ pub struct Rollback {
 /// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
 #[derive(Debug, Copy, Clone)]
 pub enum RollbackState {
+    /// We are not in a rollback state
     Default,
+    /// We should do a rollback starting from the current_tick
     ShouldRollback {
-        // tick we are setting (to record history)k
+        // tick we are setting (to record history)
         current_tick: Tick,
     },
 }
@@ -87,7 +89,7 @@ pub(crate) fn clean_pre_predicted_entity<P: Protocol>(
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity<P: Protocol>(
     connection: Res<ConnectionManager<P>>,
-    netclient: Res<crate::netcode::Client>,
+    netclient: Res<ClientConnection>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
@@ -140,7 +142,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
 
                     #[cfg(feature = "metrics")]
                     {
-                        metrics::increment_counter!("prespawn_predicted_entity");
+                        metrics::counter!("prespawn_predicted_entity").increment(1);
                     }
                 }
             }
@@ -157,7 +159,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                 );
                 #[cfg(feature = "metrics")]
                 {
-                    metrics::increment_counter!("spawn_predicted_entity");
+                    metrics::counter!("spawn_predicted_entity").increment(1);
                 }
             }
 
@@ -204,7 +206,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
 /// - client_entity: is needed to know which entity to use as the predicted entity
 /// - client_id: is needed in case the pre-predicted entity is predicted by other players upon replication
 pub(crate) fn handle_pre_prediction(
-    netcode: Res<crate::netcode::Client>,
+    netcode: Res<ClientConnection>,
     mut query: Query<(Entity, &mut ShouldBePredicted), Without<Confirmed>>,
 ) {
     for (entity, mut should_be_predicted) in query.iter_mut() {

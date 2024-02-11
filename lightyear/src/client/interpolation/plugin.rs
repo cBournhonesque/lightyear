@@ -1,10 +1,10 @@
-use bevy::utils::Duration;
 use std::marker::PhantomData;
 
 use bevy::prelude::{
     apply_deferred, App, Component, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, SystemSet,
     Update,
 };
+use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
@@ -62,9 +62,7 @@ impl InterpolationDelay {
     }
 }
 
-/// How much behind the client time the interpolated entities are
-/// This will be converted to a tick
-/// This should be
+/// Config to specify how the snapshot interpolation should behave
 #[derive(Clone)]
 pub struct InterpolationConfig {
     pub delay: InterpolationDelay,

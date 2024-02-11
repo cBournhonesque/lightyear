@@ -10,10 +10,9 @@ use tracing::{debug, debug_span, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
-use crate::connection::events::ConnectionEvents;
-use crate::connection::message::{ClientMessage, ServerMessage};
+use crate::client::message::ClientMessage;
+use crate::connection::netcode::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::netcode::ClientId;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
@@ -22,6 +21,8 @@ use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
+use crate::server::message::ServerMessage;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
@@ -172,7 +173,7 @@ impl<P: Protocol> ConnectionManager<P> {
     pub(crate) fn add(&mut self, client_id: ClientId) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
-            metrics::increment_gauge!("connected_clients", 1.0);
+            metrics::gauge!("connected_clients").increment(1.0);
 
             info!("New connection from id: {}", client_id);
             let mut connection = Connection::new(
@@ -190,7 +191,7 @@ impl<P: Protocol> ConnectionManager<P> {
 
     pub(crate) fn remove(&mut self, client_id: ClientId) {
         #[cfg(feature = "metrics")]
-        metrics::decrement_gauge!("connected_clients", 1.0);
+        metrics::gauge!("connected_clients").decrement(1.0);
 
         info!("Client {} disconnected", client_id);
         self.events.push_disconnects(client_id);

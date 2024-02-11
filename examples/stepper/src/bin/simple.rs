@@ -9,7 +9,7 @@ use bevy::DefaultPlugins;
 use tracing::{debug, info};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear::netcode::generate_key;
+use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::Authentication;
 use stepper::protocol::*;
 

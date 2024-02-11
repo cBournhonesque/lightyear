@@ -39,15 +39,13 @@ impl ServerPluginGroup {
                     certificate,
                 }
             }
+            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
-        let io = Io::from_config(
-            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-        );
 
         // Step 2: define the server configuration
         let config = ServerConfig {
@@ -57,14 +55,17 @@ impl ServerPluginGroup {
                 .enable_bandwidth_cap()
                 // we can set the max bandwidth to 56 KB/s
                 .with_send_bandwidth_bytes_per_second_cap(1500),
-            netcode: NetcodeConfig::default()
-                .with_protocol_id(PROTOCOL_ID)
-                .with_key(KEY),
+            net: NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(PROTOCOL_ID)
+                    .with_key(KEY),
+                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            },
             ping: PingConfig::default(),
         };
 
         // Step 3: create the plugin
-        let plugin_config = PluginConfig::new(config, io, protocol());
+        let plugin_config = PluginConfig::new(config, protocol());
         ServerPluginGroup {
             lightyear: ServerPlugin::new(plugin_config),
         }

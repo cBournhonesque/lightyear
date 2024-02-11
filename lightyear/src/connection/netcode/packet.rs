@@ -7,7 +7,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
 use tracing::debug;
 
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 
 use super::{
     bytes::Bytes,
@@ -477,7 +477,7 @@ pub fn sequence_len(sequence: u64) -> u8 {
 mod tests {
     use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305};
 
-    use crate::netcode::{
+    use crate::connection::netcode::{
         crypto::generate_key, token::AddressList, MAX_PACKET_SIZE, USER_DATA_BYTES,
     };
 

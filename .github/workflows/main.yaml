@@ -97,7 +97,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Test
-        run: cargo tarpaulin --engine llvm --out lcov
+        run: cargo tarpaulin --features leafwing --engine llvm --out lcov
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
@@ -121,6 +121,6 @@ jobs:
           name: code-coverage-report
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

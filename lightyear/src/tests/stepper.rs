@@ -2,12 +2,13 @@ use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use crate::connection::client::{ClientConnection, NetClient};
 use bevy::ecs::system::SystemState;
 use bevy::prelude::{App, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
 use bevy::{DefaultPlugins, MinimalPlugins};
 
-use crate::netcode::generate_key;
+use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
     Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
@@ -58,14 +59,12 @@ impl BevyStepper {
             send: to_server_send,
             recv: from_server_recv,
         })
-        .with_conditioner(conditioner.clone())
-        .get_io();
+        .with_conditioner(conditioner.clone());
 
         let server_io = IoConfig::from_transport(TransportConfig::Channels {
             channels: vec![(addr, to_server_recv, from_server_send)],
         })
-        .with_conditioner(conditioner.clone())
-        .get_io();
+        .with_conditioner(conditioner.clone());
 
         // Shared config
         let protocol_id = 0;
@@ -75,39 +74,46 @@ impl BevyStepper {
         // Setup server
         let mut server_app = App::new();
         server_app.add_plugins(MinimalPlugins.build());
-        let netcode_config = NetcodeConfig::default()
-            .with_protocol_id(protocol_id)
-            .with_key(private_key);
+        let net_config = server::NetConfig::Netcode {
+            config: NetcodeConfig::default()
+                .with_protocol_id(protocol_id)
+                .with_key(private_key),
+            io: server_io,
+        };
         let config = ServerConfig {
             shared: shared_config.clone(),
-            netcode: netcode_config,
+            net: net_config,
             ping: PingConfig::default(),
             packet: Default::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
+        let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
         // Setup client
         let mut client_app = App::new();
         client_app.add_plugins(MinimalPlugins.build());
-        let auth = Authentication::Manual {
-            server_addr: addr,
-            protocol_id,
-            private_key,
-            client_id,
+        let net_config = client::NetConfig::Netcode {
+            auth: Authentication::Manual {
+                server_addr: addr,
+                protocol_id,
+                private_key,
+                client_id,
+            },
+            config: Default::default(),
+            io: client_io,
         };
         let config = ClientConfig {
             shared: shared_config.clone(),
             input: InputConfig::default(),
-            netcode: Default::default(),
+            net: net_config,
             ping: PingConfig::default(),
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
             packet: Default::default(),
         };
-        let plugin_config = client::PluginConfig::new(config, client_io, protocol(), auth);
+        let plugin_config = client::PluginConfig::new(config, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 
@@ -152,8 +158,9 @@ impl BevyStepper {
     pub(crate) fn init(&mut self) {
         self.client_app
             .world
-            .resource_mut::<crate::netcode::Client>()
-            .connect();
+            .resource_mut::<ClientConnection>()
+            .connect()
+            .expect("could not connect");
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {

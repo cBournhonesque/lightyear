@@ -41,7 +41,7 @@ impl ClientPluginGroup {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
         let certificate_digest =
-            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
                 .replace(":", "");
         let transport_config = match transport {
             #[cfg(not(target_family = "wasm"))]
@@ -52,17 +52,20 @@ impl ClientPluginGroup {
                 #[cfg(target_family = "wasm")]
                 certificate_digest,
             },
+            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(150),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.02,
         };
-        let io = Io::from_config(
-            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-        );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            },
             prediction: PredictionConfig {
                 input_delay_ticks: INPUT_DELAY_TICKS,
                 correction_ticks_factor: CORRECTION_TICKS_FACTOR,
@@ -72,7 +75,7 @@ impl ClientPluginGroup {
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -166,7 +169,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
             (KeyCode::Space, PlayerActions::Shoot),
         ]),
     ));
-    client.connect();
+    let _ = client.connect();
 }
 
 fn update_cursor_state_from_window(

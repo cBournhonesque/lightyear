@@ -22,8 +22,8 @@ use crate::client::prediction::prespawn::{
     compute_prespawn_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
 };
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
+use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -39,6 +39,7 @@ use super::{
     Rollback, RollbackState,
 };
 
+/// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin
@@ -154,7 +155,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Returns true if the client is connected
-pub fn is_connected(netclient: Res<crate::netcode::Client>) -> bool {
+pub fn is_connected(netclient: Res<ClientConnection>) -> bool {
     netclient.is_connected()
 }
 

@@ -1,7 +1,6 @@
 //! Components used for replication
 use bevy::prelude::{Component, Entity};
 use bevy::utils::{HashMap, HashSet};
-use cfg_if::cfg_if;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -10,7 +9,7 @@ use lightyear_macros::MessageInternal;
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 use crate::prelude::{EntityMapper, MapEntities};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;

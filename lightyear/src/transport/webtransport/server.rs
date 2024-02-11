@@ -1,4 +1,6 @@
 //! WebTransport client implementation.
+use async_compat::Compat;
+use bevy::tasks::IoTaskPool;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -67,7 +69,7 @@ impl WebTransportServerSocket {
 
         // connection established, waiting for data from client
         let connection_recv = connection.clone();
-        let from_client_handle = tokio::spawn(async move {
+        let from_client_handle = IoTaskPool::get().spawn(async move {
             loop {
                 // receive messages from client
                 match connection_recv.receive_datagram().await {
@@ -88,7 +90,7 @@ impl WebTransportServerSocket {
             }
         });
         let connection_send = connection.clone();
-        let to_client_handle = tokio::spawn(async move {
+        let to_client_handle = IoTaskPool::get().spawn(async move {
             loop {
                 if let Some(msg) = to_client_receiver.recv().await {
                     trace!("sending datagram to client!: {:?}", &msg);
@@ -103,10 +105,13 @@ impl WebTransportServerSocket {
 
         // await for the quic connection to be closed for any reason
         connection.closed().await;
-        info!("Connection closed");
+        info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
-        from_client_handle.abort();
-        to_client_handle.abort();
+        from_client_handle.cancel().await;
+        to_client_handle.cancel().await;
+        // tokio
+        // from_client_handle.abort();
+        // to_client_handle.abort();
         // TODO: need to disconnect the client in netcode
     }
 }
@@ -139,26 +144,30 @@ impl Transport for WebTransportServerSocket {
             .with_bind_address(server_addr)
             .with_certificate(certificate)
             .build();
-        let endpoint = wtransport::Endpoint::server(config).unwrap();
 
-        tokio::spawn(async move {
-            info!("Starting server webtransport task");
+        IoTaskPool::get()
+            .spawn(Compat::new(async move {
+                info!("Starting server webtransport task");
+                let endpoint = wtransport::Endpoint::server(config).unwrap();
 
-            loop {
-                // clone the channel for each client
-                let from_client_sender = from_client_sender.clone();
-                let to_client_senders = to_client_senders.clone();
+                loop {
+                    // clone the channel for each client
+                    let from_client_sender = from_client_sender.clone();
+                    let to_client_senders = to_client_senders.clone();
 
-                // new client connecting
-                let incoming_session = endpoint.accept().await;
+                    // new client connecting
+                    let incoming_session = endpoint.accept().await;
 
-                tokio::spawn(Self::handle_client(
-                    incoming_session,
-                    from_client_sender,
-                    to_client_senders,
-                ));
-            }
-        });
+                    IoTaskPool::get()
+                        .spawn(Compat::new(Self::handle_client(
+                            incoming_session,
+                            from_client_sender,
+                            to_client_senders,
+                        )))
+                        .detach();
+                }
+            }))
+            .detach();
         (Box::new(packet_sender), Box::new(packet_receiver))
     }
 }
@@ -175,10 +184,12 @@ impl PacketSender for WebTransportServerSocketSender {
                 std::io::Error::other(format!("unable to send message to client: {}", e))
             })
         } else {
-            Err(std::io::Error::other(format!(
-                "unable to find channel for client: {}",
-                address
-            )))
+            // consider that if the channel doesn't exist, it's because the connection was closed
+            Ok(())
+            // Err(std::io::Error::other(format!(
+            //     "unable to find channel for client: {}",
+            //     address
+            // )))
         }
     }
 }

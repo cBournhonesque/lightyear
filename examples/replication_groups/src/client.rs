@@ -6,7 +6,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::_reexport::LinearInterpolator;
-use lightyear::netcode::NetcodeServer;
+use lightyear::connection::netcode::NetcodeServer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;
@@ -33,7 +33,7 @@ impl ClientPluginGroup {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
         let certificate_digest =
-            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
                 .replace(":", "");
         let transport_config = match transport {
             #[cfg(not(target_family = "wasm"))]
@@ -44,17 +44,20 @@ impl ClientPluginGroup {
                 #[cfg(target_family = "wasm")]
                 certificate_digest,
             },
+            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
             incoming_jitter: Duration::from_millis(40),
             incoming_loss: 0.05,
         };
-        let io = Io::from_config(
-            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-        );
         let config = ClientConfig {
             shared: shared_config(),
+            net: NetConfig::Netcode {
+                auth,
+                config: NetcodeConfig::default(),
+                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            },
             interpolation: InterpolationConfig {
                 delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
                 // do not do linear interpolation per component, instead we provide our own interpolation logic
@@ -62,7 +65,7 @@ impl ClientPluginGroup {
             },
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -133,7 +136,11 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<NetClient>, global: Res<Global>) {
+pub(crate) fn init(
+    mut commands: Commands,
+    mut client: ResMut<ClientConnection>,
+    global: Res<Global>,
+) {
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         format!("Client {}", global.client_id),
@@ -143,8 +150,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ResMut<NetClient>, global
             ..default()
         },
     ));
-    client.connect();
-    // client.set_base_relative_speed(0.001);
+    let _ = client.connect();
 }
 
 // System that reads from peripherals and adds inputs to the buffer

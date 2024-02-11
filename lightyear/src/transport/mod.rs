@@ -10,6 +10,7 @@ pub mod io;
 pub(crate) mod local;
 
 /// The transport is a UDP socket
+#[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod udp;
 
@@ -20,8 +21,13 @@ mod certificate;
 pub(crate) mod channels;
 
 /// The transport is using WebTransport
+#[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
 #[cfg(feature = "webtransport")]
 pub(crate) mod webtransport;
+
+#[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
+#[cfg(feature = "websocket")]
+pub(crate) mod websocket;
 
 use std::io::Result;
 use std::net::SocketAddr;
@@ -32,10 +38,15 @@ pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
 );
 
 /// Transport combines a PacketSender and a PacketReceiver
+///
+/// This trait is used to abstract the raw transport layer that sends and receives packets.
+/// There are multiple implementations of this trait, such as UdpSocket, WebSocket, WebTransport, etc.
 pub trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
+
+    // TODO maybe add a `async fn ready() -> bool` function?
 
     // fn split(&mut self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>);
 }

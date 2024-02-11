@@ -1,10 +1,10 @@
 //! Defines bevy resources needed for Prediction
 
+use bevy::prelude::{Entity, Resource};
+use bevy::utils::EntityHashMap;
+
 use crate::_reexport::ReadyBuffer;
 use crate::prelude::Tick;
-use bevy::prelude::{Entity, Resource};
-use bevy::utils::{EntityHashMap, HashSet};
-
 use crate::shared::replication::entity_map::PredictedEntityMap;
 
 #[derive(Resource, Default, Debug)]

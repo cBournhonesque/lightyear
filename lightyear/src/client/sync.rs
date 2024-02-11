@@ -1,14 +1,12 @@
 /*! Handles syncing the time between the client and the server
 */
+use bevy::prelude::Res;
 use bevy::utils::Duration;
+use chrono::Duration as ChronoDuration;
+use tracing::{debug, trace};
 
 use crate::client::connection::ConnectionManager;
-use bevy::prelude::Res;
-use chrono::Duration as ChronoDuration;
-use tracing::{debug, info, trace, warn};
-
 use crate::client::interpolation::plugin::InterpolationDelay;
-use crate::client::resource::Client;
 use crate::packet::packet::PacketId;
 use crate::protocol::Protocol;
 use crate::shared::ping::manager::PingManager;
@@ -22,6 +20,13 @@ pub fn client_is_synced<P: Protocol>(connection: Res<ConnectionManager<P>>) -> b
     connection.sync_manager.is_synced()
 }
 
+/// Configuration for the sync manager, which is in charge of syncing the client's tick/time with the server's tick/time
+///
+/// The sync manager runs only on the client and maintains two different times:
+/// - the prediction tick/time: this is the client time, which runs roughly RTT/2 ahead of the server time, so that input packets
+///     for tick T sent from the client arrive on the server at tick T
+/// - the interpolation tick/time: this is the interpolation timeline, which runs behind the server time so that interpolation
+///     always has at least one packet to interpolate towards
 #[derive(Clone, Debug)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time
@@ -536,14 +541,16 @@ impl SyncManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
+
     use crate::client::input::InputSystemSet;
     use crate::prelude::*;
     use crate::server::events::InputEvent;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::*;
-    use bevy::utils::Duration;
+
+    use super::*;
 
     fn press_input(
         mut connection: ResMut<ClientConnectionManager>,

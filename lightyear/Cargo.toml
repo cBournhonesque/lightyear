@@ -32,6 +32,13 @@ webtransport = [
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
+websocket = [
+  "dep:tokio",
+  "dep:tokio-tungstenite",
+  "dep:futures-util",
+  "dep:web-sys",
+  "dep:wasm-bindgen",
+]
 
 [dependencies]
 # utils
@@ -93,23 +100,31 @@ metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-fea
   "http-listener",
 ] }
 
-
 # bevy
-bevy = { version = "0.12", default-features = false }
+bevy = { version = "0.12", default-features = false, features = [
+  "multi-threaded",
+] }
+
+# WebSocket
+futures-util = { version = "0.3.30", optional = true }
+
+# transport
+# we don't need any tokio features, we use only use the tokio channels
+tokio = { version = "1.36", features = [
+], default-features = false, optional = true }
+async-compat = "0.2.3"
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
+# webtransport
 wtransport = { version = "0.1.10", optional = true, features = [
   "self-signed",
   "dangerous-configuration",
 ] }
-tokio = { version = "1.34", features = [
-  "macros",
-  "rt",
-  # "rt-multi-thread" is only valid in native.
-  "rt-multi-thread",
-  "sync",
-  "time",
-], optional = true }
+# websocket
+tokio-tungstenite = { version = "0.21.0", optional = true, features = [
+  "connect",
+  "handshake",
+] }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7" }
@@ -124,19 +139,20 @@ web-sys = { version = "0.3", optional = true, features = [
   "ReadableStreamDefaultReader",
   "WritableStreamDefaultWriter",
   "WebTransportDatagramDuplexStream",
+
+  "WebSocket",
+  "CloseEvent",
+  "ErrorEvent",
+  "MessageEvent",
+  "BinaryType",
 ] }
 futures-lite = { version = "2.1.0", optional = true }
 getrandom = { version = "0.2.11", features = [
   "js",
 ] } # feature 'js' is required for wasm
 xwt-core = { version = "0.2", optional = true }
-xwt-web-sys = { version = "0.3.1", optional = true }
-tokio = { version = "1.34", features = [
-  "macros",
-  "rt",
-  "sync",
-  "time",
-], optional = true }
+xwt-web-sys = { version = "0.5.1", optional = true }
+wasm-bindgen = { version = "0.2.90", optional = true }
 
 
 [dev-dependencies]
@@ -145,3 +161,10 @@ derive_more = { version = "0.99", features = ["add", "mul"] }
 mock_instant = { version = "0.3.1" }
 tracing-subscriber = "0.3.17"
 bitvec = "1.0"
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# document all features
+all-features = true
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]

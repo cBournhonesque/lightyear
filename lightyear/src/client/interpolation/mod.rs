@@ -2,7 +2,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
-use tracing::{debug, info, trace};
+use tracing::trace;
 
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
@@ -11,7 +11,6 @@ pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 use crate::client::components::{Confirmed, LerpFn, SyncComponent};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::resource::Client;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::ShouldBeInterpolated;
 
@@ -21,6 +20,7 @@ pub mod interpolation_history;
 pub mod plugin;
 mod resource;
 
+/// Interpolator that performs linear interpolation.
 pub struct LinearInterpolator;
 impl<C> LerpFn<C> for LinearInterpolator
 where
@@ -40,7 +40,7 @@ impl<C> LerpFn<C> for NullInterpolator {
     }
 }
 
-/// Marks an entity that is being interpolated by the client
+/// Marker component for an entity that is being interpolated by the client
 #[derive(Component, Debug)]
 pub struct Interpolated {
     // TODO: maybe here add an interpolation function?
@@ -93,7 +93,9 @@ pub fn spawn_interpolated_entity<P: Protocol>(
         );
         #[cfg(feature = "metrics")]
         {
-            metrics::increment_counter!("spawn_interpolated_entity");
+            metrics::counter!("spawn_interpolated_entity")
+                .increment(1)
+                .increment(1);
         }
     }
 }

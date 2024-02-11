@@ -1,19 +1,17 @@
 //! Specify how a Client sends/receives messages with a Server
-use bevy::utils::Duration;
-
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::prelude::{Res, ResMut, Resource, World};
 use bevy::reflect::Reflect;
+use bevy::utils::Duration;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
+use crate::client::message::ClientMessage;
 use crate::client::sync::SyncConfig;
-use crate::connection::events::ConnectionEvents;
-use crate::connection::message::{ClientMessage, ServerMessage};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
@@ -21,6 +19,8 @@ use crate::prelude::{Channel, ChannelKind, MapEntities, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
+use crate::server::message::ServerMessage;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::receive::ReplicationReceiver;
@@ -34,9 +34,28 @@ use crate::shared::time_manager::TimeManager;
 use super::sync::SyncManager;
 
 /// Wrapper that handles the connection with the server
+///
+/// This is the main [`Resource`] to use to interact with the server (send inputs, messages, etc.)
+///
+/// ```rust,ignore
+/// # use bevy::prelude::*;
+/// # use lightyear::client::connection::ConnectionManager as ClientConnectionManager;
+/// use lightyear::prelude::NetworkTarget;
+/// fn my_system(
+///   tick_manager: Res<TickManager>,
+///   mut connection: ResMut<ClientConnectionManager>
+/// ) {
+///    // send a message to the server
+///    connection.send_message::<MyChannel, MyMessage>("Hello, server!");
+///    // send a message to some other client with ClientId 2
+///    connection.send_message_to_target::<MyChannel, MyMessage>("Hello, server!", NetworkTarget::Single(2));
+///    // send an input for the current tick (not necessary for leafwing_inputs)
+///    connection.add_input(MyInput::new(), tick_manager.tick());
+/// }
+/// ```
 #[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
-    pub message_manager: MessageManager,
+    pub(crate) message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
     pub(crate) replication_receiver: ReplicationReceiver<P>,
     pub(crate) events: ConnectionEvents<P>,
@@ -120,6 +139,8 @@ impl<P: Protocol> ConnectionManager<P> {
         }
     }
 
+    #[doc(hidden)]
+    /// Whether or not the connection is synced with the server
     pub fn is_synced(&self) -> bool {
         self.sync_manager.is_synced()
     }
@@ -128,6 +149,9 @@ impl<P: Protocol> ConnectionManager<P> {
         self.sync_manager.duration_since_latest_received_server_tick == Duration::default()
     }
 
+    #[doc(hidden)]
+    /// The latest server tick that we received from the server.
+    /// This is public for testing purposes
     pub fn latest_received_server_tick(&self) -> Tick {
         self.sync_manager
             .latest_received_server_tick
@@ -149,7 +173,7 @@ impl<P: Protocol> ConnectionManager<P> {
         self.input_buffer.set(tick, Some(input));
     }
 
-    pub fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
+    pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
         self.message_manager
             .update(time_manager, &self.ping_manager, tick_manager);
         self.ping_manager.update(time_manager);
@@ -200,7 +224,11 @@ impl<P: Protocol> ConnectionManager<P> {
         Ok(())
     }
 
-    pub fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
+    pub(crate) fn buffer_replication_messages(
+        &mut self,
+        tick: Tick,
+        bevy_tick: BevyTick,
+    ) -> Result<()> {
         // NOTE: this doesn't work too well because then duplicate actions/updates are accumulated before the connection is synced
         // if !self.sync_manager.is_synced() {
         //
@@ -243,7 +271,7 @@ impl<P: Protocol> ConnectionManager<P> {
     }
 
     /// Send packets that are ready to be sent
-    pub fn send_packets(
+    pub(crate) fn send_packets(
         &mut self,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
@@ -286,7 +314,7 @@ impl<P: Protocol> ConnectionManager<P> {
         payloads
     }
 
-    pub fn receive(
+    pub(crate) fn receive(
         &mut self,
         world: &mut World,
         time_manager: &TimeManager,
@@ -387,7 +415,7 @@ impl<P: Protocol> ConnectionManager<P> {
         std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
-    pub fn recv_packet(
+    pub(crate) fn recv_packet(
         &mut self,
         reader: &mut impl ReadBuffer,
         tick_manager: &TickManager,

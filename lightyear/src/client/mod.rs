@@ -1,4 +1,4 @@
-/*! The Client bevy resource
+/*! Modules related to the client
 */
 
 pub mod components;
@@ -23,6 +23,8 @@ pub mod sync;
 
 mod diagnostics;
 mod easings;
+#[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]
 #[cfg(feature = "leafwing")]
 pub mod input_leafwing;
-pub mod systems;
+pub(crate) mod message;
+pub(crate) mod systems;

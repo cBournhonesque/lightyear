@@ -9,7 +9,6 @@ use tracing::{debug, error, trace};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::client::resource::Client;
 use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
@@ -26,10 +25,10 @@ pub struct PredictionDespawnCommand<P: Protocol> {
 }
 
 #[derive(Component, PartialEq, Debug)]
-pub struct PredictionDespawnMarker {
+pub(crate) struct PredictionDespawnMarker {
     // TODO: do we need this?
     // TODO: it's pub just for integration tests right now
-    pub death_tick: Tick,
+    pub(crate) death_tick: Tick,
 }
 
 impl<P: Protocol> Command for PredictionDespawnCommand<P> {

@@ -166,7 +166,6 @@ impl ChannelSend for ReliableSender {
         let resend_delay =
             chrono::Duration::from_std(self.reliable_settings.resend_delay(self.current_rtt))
                 .unwrap();
-        trace!("resend_delay: {:?}", resend_delay);
         let should_send = |last_sent: &Option<WrappedTime>| -> bool {
             match last_sent {
                 // send it the message has never been sent

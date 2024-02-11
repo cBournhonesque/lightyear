@@ -1,30 +1,87 @@
-//! Handles client-generated inputs
-use bevy::input::common_conditions::input_just_released;
+//! Module to handle inputs that are defined using the `leafwing_input_manager` crate
+//!
+//! ## Creation
+//!
+//! You first need to create Inputs that are defined using the [`leafwing_input_manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate.
+//! (see the documentation of the crate for more information)
+//! In particular your inputs should implement the [`Actionlike`] trait.
+//! You will also need to implement the `LeafwingUserAction` trait
+//!
+//! ```no_run,ignore
+//! # use lightyear::prelude::LeafwingUserAction;
+//! #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+//! pub enum PlayerActions {
+//!     Up,
+//!     Down,
+//!     Left,
+//!     Right,
+//! }
+//! impl LeafwingUserAction for PlayerActions {}
+//! ```
+//!
+//! ## Usage
+//!
+//! The networking of inputs is completely handled for you. You just need to add the `LeafwingInputPlugin` to your app.
+//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdateSet::Main`] [`SystemSet`].
+//!
+//! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
+//!
+//! There are some edge-cases to be careful of:
+//! - the `leafwing_input_manager` crate handles inputs every frame, but `lightyear` needs to store and send inputs for each tick.
+//!   This can cause issues if we have multiple ticks in a single frame, or multiple frames in a single tick.
+//!   For instance, let's say you have a system in the `FixedUpdate` schedule that reacts on a button press when the button was `JustPressed`.
+//!   If we have 2 frames with no FixedUpdate in between (because the framerate is high compared to the tickrate), then on the second frame
+//!   the button won't be `JustPressed` anymore (it will simply be `Pressed`) so your system might not react correctly to it.
+//!
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use bevy::prelude::*;
-use bevy::utils::petgraph::dot::Config;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::{Predicted, Rollback, RollbackState};
-use crate::client::resource::Client;
 use crate::client::sync::client_is_synced;
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{MapEntities, TickManager};
+use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, MainSet};
 use crate::shared::tick_manager::TickEvent;
+
+/// Run condition to control most of the systems in the LeafwingInputPlugin
+fn run_if_enabled<A: LeafwingUserAction>(config: Res<ToggleActions<A>>) -> bool {
+    config.enabled
+}
+
+#[derive(Resource)]
+pub struct ToggleActions<A> {
+    /// When this is false, [`ActionState`]'s corresponding to `A` will ignore user inputs
+    ///
+    /// When this is set to false, all corresponding [`ActionState`]s are released
+    pub enabled: bool,
+    /// Marker that stores the type of action to toggle
+    pub phantom: PhantomData<A>,
+}
+
+// implement manually to not required the `Default` bound on A
+impl<A> Default for ToggleActions<A> {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            phantom: PhantomData,
+        }
+    }
+}
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
 #[derive(Debug, Clone, Resource)]
@@ -122,6 +179,7 @@ where
         app.add_plugins(InputManagerPlugin::<A>::default());
         // RESOURCES
         app.insert_resource(self.config.clone());
+        app.init_resource::<ToggleActions<A>>();
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();
         app.init_resource::<ActionDiffBuffer<A>>();
@@ -159,6 +217,7 @@ where
             PreUpdate,
             (
                 generate_action_diffs::<A>
+                    .run_if(run_if_enabled::<A>)
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
                     .after(InputManagerSystem::ManualControl)
@@ -182,8 +241,9 @@ where
                         get_non_rollback_action_state::<A>.run_if(is_input_delay),
                     )
                         .chain()
-                        .run_if(not(is_in_rollback)),
-                    get_rollback_action_state::<A>.run_if(is_in_rollback),
+                        .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
+                    get_rollback_action_state::<A>
+                        .run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
                 )
                     .in_set(InputSystemSet::BufferInputs),
                 // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
@@ -192,8 +252,11 @@ where
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
                 get_delayed_action_state::<A>
-                    .run_if(is_input_delay)
-                    .run_if(not(is_in_rollback))
+                    .run_if(
+                        is_input_delay
+                            .and_then(not(is_in_rollback))
+                            .and_then(run_if_enabled::<A>),
+                    )
                     .after(FixedUpdateSet::Main),
             ),
         );
@@ -219,9 +282,14 @@ where
         app.add_systems(
             PostUpdate,
             (
-                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
-                prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
+                receive_tick_events::<A>
+                    .in_set(InputSystemSet::ReceiveTickEvents)
+                    .run_if(run_if_enabled::<A>),
+                prepare_input_message::<P, A>
+                    .in_set(InputSystemSet::SendInputMessage)
+                    .run_if(run_if_enabled::<A>),
                 add_action_state_buffer_added_input_map::<A>,
+                toggle_actions::<A>,
             ),
         );
     }
@@ -262,6 +330,16 @@ fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
             InputBuffer::<A>::default(),
             ActionDiffBuffer::<A>::default(),
         ));
+    }
+}
+
+/// Propagate toggle actions to the underlying leafwing plugin
+fn toggle_actions<A: LeafwingUserAction>(
+    config: Res<ToggleActions<A>>,
+    mut leafwing_config: ResMut<leafwing_input_manager::prelude::ToggleActions<A>>,
+) {
+    if config.is_changed() {
+        leafwing_config.enabled = config.enabled;
     }
 }
 
@@ -798,6 +876,139 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                 owner: maybe_entity,
                 action_diff: diffs,
             });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::sync::SyncConfig;
+    use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
+    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
+    use crate::prelude::server::LeafwingInputPlugin;
+    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use bevy::asset::AsyncReadExt;
+    use bevy::input::InputPlugin;
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
+    use leafwing_input_manager::action_state::ActionState;
+    use leafwing_input_manager::input_map::InputMap;
+
+    fn setup() -> (BevyStepper, Entity, Entity) {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            enable_replication: true,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper
+            .client_app
+            .add_plugins((crate::client::input_leafwing::LeafwingInputPlugin::<
+                MyProtocol,
+                LeafwingInput1,
+            >::default(), InputPlugin));
+        // let press_action_id = stepper.client_app.world.register_system(press_action);
+        stepper.server_app.add_plugins((
+            LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
+            InputPlugin,
+        ));
+        stepper.init();
+
+        // create an entity on server
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                InputMap::<LeafwingInput1>::new([(KeyCode::A, LeafwingInput1::Jump)]),
+                ActionState::<LeafwingInput1>::default(),
+                Replicate::default(),
+            ))
+            .id();
+        // we need to step twice because we run client before server
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the server entity got a ActionDiffBuffer added to it
+        assert!(stepper
+            .server_app
+            .world
+            .entity(server_entity)
+            .get::<ActionDiffBuffer<LeafwingInput1>>()
+            .is_some());
+
+        // check that the entity is replicated, including the ActionState component
+        let client_entity = *stepper
+            .client_app
+            .world
+            .resource::<ClientConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .unwrap();
+        stepper
+            .client_app
+            .world
+            .entity_mut(client_entity)
+            .insert(InputMap::<LeafwingInput1>::new([(
+                KeyCode::A,
+                LeafwingInput1::Jump,
+            )]));
+        assert!(stepper
+            .client_app
+            .world
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .is_some(),);
+        stepper.frame_step();
+        (stepper, server_entity, client_entity)
+    }
+
+    #[test]
+    fn test_generate_action_diffs() {
+        let (mut stepper, server_entity, client_entity) = setup();
+
+        // press the jump button on the client
+        stepper
+            .client_app
+            .world
+            .resource_mut::<Input<KeyCode>>()
+            .press(KeyCode::A);
+        stepper.frame_step();
+
+        // listen to the ActionDiff event
+        let action_diff_events = stepper
+            .client_app
+            .world
+            .get_resource_mut::<Events<ActionDiffEvent<LeafwingInput1>>>()
+            .unwrap();
+        for event in action_diff_events.get_reader().read(&action_diff_events) {
+            assert_eq!(
+                event.action_diff,
+                vec![ActionDiff::Pressed {
+                    action: LeafwingInput1::Jump,
+                }]
+            );
+            assert_eq!(event.owner, Some(client_entity));
         }
     }
 }

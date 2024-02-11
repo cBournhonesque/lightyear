@@ -1,12 +1,8 @@
 //! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
-use crate::client::config::ClientConfig;
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::Rollback;
-use crate::prelude::{FixedUpdateSet, TickManager};
-use bevy::app::FixedUpdate;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use crate::client::config::ClientConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::log;
 use crate::shared::tick_manager::TickManagerPlugin;

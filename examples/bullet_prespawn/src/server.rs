@@ -39,28 +39,28 @@ impl ServerPluginGroup {
                     certificate,
                 }
             }
+            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(150),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.02,
         };
-        let io = Io::from_config(
-            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-        );
 
         // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
-            netcode: NetcodeConfig::default()
-                .with_protocol_id(PROTOCOL_ID)
-                .with_key(KEY),
-            packet: PacketConfig::default().enable_bandwidth_cap(),
+            net: NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(PROTOCOL_ID)
+                    .with_key(KEY),
+                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            },
             ..default()
         };
 
         // Step 3: create the plugin
-        let plugin_config = PluginConfig::new(config, io, protocol());
+        let plugin_config = PluginConfig::new(config, protocol());
         ServerPluginGroup {
             lightyear: ServerPlugin::new(plugin_config),
         }

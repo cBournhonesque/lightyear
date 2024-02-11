@@ -7,23 +7,22 @@ use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::resource::ClientMut;
-use crate::connection::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::connection::server::{NetServer, ServerConnection};
 use crate::prelude::{Io, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
-use crate::server::resource::{Server, ServerMut};
 use crate::server::room::RoomManager;
+use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");
     world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager<P>>| {
         world.resource_scope(
-            |world: &mut World, mut netcode: Mut<crate::netcode::Server>| {
-                world.resource_scope(|world: &mut World, mut io: Mut<Io>| {
+            |world: &mut World, mut netcode: Mut<ServerConnection>| {
                     world.resource_scope(
                         |world: &mut World, mut time_manager: Mut<TimeManager>| {
                             world.resource_scope(
@@ -37,23 +36,26 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
                                             // update netcode server
-                                            if let Ok(context) = netcode
-                                                .try_update(delta.as_secs_f64(), io.deref_mut())
-                                                .map_err(|e| error!("Error updating netcode server: {:?}", e)) {
+                                            let _ = netcode
+                                                .try_update(delta.as_secs_f64())
+                                                .map_err(|e| error!("Error updating netcode server: {:?}", e));
 
-                                                // handle connection
-                                                for client_id in context.connections.iter().copied() {
-                                                    // let client_addr = self.netcode.client_addr(client_id).unwrap();
-                                                    // info!("New connection from {} (id: {})", client_addr, client_id);
-                                                    connection_manager.add(client_id);
-                                                }
+                                            // update connections
+                                            connection_manager
+                                                .update(time_manager.as_ref(), tick_manager.as_ref());
 
-                                                // handle disconnections
-                                                for client_id in context.disconnections.iter().copied() {
-                                                    connection_manager.remove(client_id);
-                                                    room_manager.client_disconnect(client_id);
-                                                };
+                                            // handle connection
+                                            for client_id in netcode.new_connections().iter().copied() {
+                                                // let client_addr = self.netcode.client_addr(client_id).unwrap();
+                                                // info!("New connection from {} (id: {})", client_addr, client_id);
+                                                connection_manager.add(client_id);
                                             }
+
+                                            // handle disconnections
+                                            for client_id in netcode.new_disconnections().iter().copied() {
+                                                connection_manager.remove(client_id);
+                                                room_manager.client_disconnect(client_id);
+                                            };
 
                                             // update connections
                                             connection_manager
@@ -133,16 +135,13 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                 });
                         });
                 });
-            },
-        );
     });
 }
 
 // or do additional send stuff here
 pub(crate) fn send<P: Protocol>(
     change_tick: SystemChangeTick,
-    mut netserver: ResMut<crate::netcode::Server>,
-    mut io: ResMut<Io>,
+    mut netserver: ResMut<ServerConnection>,
     mut connection_manager: ResMut<ConnectionManager<P>>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
@@ -164,7 +163,7 @@ pub(crate) fn send<P: Protocol>(
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), *client_id, io.deref_mut())?;
+                netserver.send(packet_byte.as_slice(), *client_id)?;
             }
             Ok(())
         })

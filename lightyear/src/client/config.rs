@@ -1,7 +1,5 @@
 //! Defines client-specific configuration options
-use bevy::ecs::system::SystemParam;
 use bevy::prelude::Resource;
-use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
@@ -9,6 +7,7 @@ use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::sync::SyncConfig;
+use crate::connection::client::NetConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::ping::manager::PingConfig;
 
@@ -28,14 +27,14 @@ impl Default for NetcodeConfig {
         Self {
             num_disconnect_packets: 10,
             keepalive_packet_send_rate: 1.0 / 10.0,
-            client_timeout_secs: 10,
+            client_timeout_secs: 3,
         }
     }
 }
 
 impl NetcodeConfig {
-    pub(crate) fn build(&self) -> crate::netcode::ClientConfig<()> {
-        crate::netcode::ClientConfig::default()
+    pub(crate) fn build(&self) -> crate::connection::netcode::ClientConfig<()> {
+        crate::connection::netcode::ClientConfig::default()
             .num_disconnect_packets(self.num_disconnect_packets)
             .packet_send_rate(self.keepalive_packet_send_rate)
     }
@@ -77,11 +76,22 @@ impl PacketConfig {
     }
 }
 
+/// The configuration object that lets you create a `ClientPlugin` with the desired settings.
+///
+/// Most of the fields are optional and have sensible defaults.
+/// You do need to provide a [`SharedConfig`] struct that has to be same on the client and the server.
+/// ```rust, ignore
+/// let config = ClientConfig {
+///    shared: SharedConfig::default(),
+///    ..default()
+/// };
+/// let client = ClientPlugin::new(PluginConfig::new(config, io, MyProtocol::default()));
+/// ```
 #[derive(Resource, Clone, Default)]
 pub struct ClientConfig {
     pub shared: SharedConfig,
     pub packet: PacketConfig,
-    pub netcode: NetcodeConfig,
+    pub net: NetConfig,
     pub input: InputConfig,
     pub ping: PingConfig,
     pub sync: SyncConfig,

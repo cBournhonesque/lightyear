@@ -14,10 +14,10 @@ use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
 
 use lightyear::client as lightyear_client;
-use lightyear::netcode::generate_key;
+use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, NetClient, PredictionConfig,
-    SyncConfig,
+    Authentication, ClientConfig, ClientConnection, InputConfig, InterpolationConfig, NetClient,
+    NetConfig, PredictionConfig, SyncConfig,
 };
 use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
@@ -75,8 +75,7 @@ impl LocalBevyStepper {
             let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
                 recv: from_server_recv,
                 send: to_server_send,
-            })
-            .get_io();
+            });
             client_params.push((addr, to_server_recv, from_server_send));
 
             // Setup client
@@ -103,12 +102,17 @@ impl LocalBevyStepper {
             };
             let config = ClientConfig {
                 shared: shared_config.clone(),
+                net: NetConfig::Netcode {
+                    auth,
+                    config: client::NetcodeConfig::default(),
+                    io: client_io,
+                },
                 sync: sync_config.clone(),
                 prediction: prediction_config,
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            let plugin_config = client::PluginConfig::new(config, client_io, protocol(), auth);
+            let plugin_config = client::PluginConfig::new(config, protocol());
             let plugin = client::ClientPlugin::new(plugin_config);
             client_app.add_plugins(plugin);
             // Initialize Real time (needed only for the first TimeSystem run)
@@ -123,8 +127,7 @@ impl LocalBevyStepper {
         // Setup server
         let server_io = IoConfig::from_transport(TransportConfig::Channels {
             channels: client_params,
-        })
-        .get_io();
+        });
 
         let mut server_app = App::new();
         server_app.add_plugins(
@@ -146,10 +149,13 @@ impl LocalBevyStepper {
             .with_key(private_key);
         let config = ServerConfig {
             shared: shared_config.clone(),
-            netcode: netcode_config,
+            net: server::NetConfig::Netcode {
+                config: netcode_config,
+                io: server_io,
+            },
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, server_io, protocol());
+        let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
@@ -186,7 +192,10 @@ impl LocalBevyStepper {
 
     pub fn init(&mut self) {
         self.client_apps.values_mut().for_each(|client_app| {
-            client_app.world.resource_mut::<NetClient>().connect();
+            let _ = client_app
+                .world
+                .resource_mut::<ClientConnection>()
+                .connect();
         });
 
         // Advance the world to let the connection process complete

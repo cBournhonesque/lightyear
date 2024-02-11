@@ -1,9 +1,8 @@
-use bevy::prelude::Reflect;
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
 
-use crate::netcode::MAX_PACKET_SIZE;
+use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageContainer, SingleData};
 use crate::packet::packet::{
@@ -615,10 +614,9 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::default;
-    use bevy::utils::Duration;
     use std::collections::{BTreeMap, VecDeque};
 
+    use bevy::prelude::default;
     use bytes::Bytes;
 
     use lightyear_macros::ChannelInternal;

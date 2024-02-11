@@ -4,7 +4,7 @@ use bevy::prelude::{
     Res, ResMut, SystemSet,
 };
 
-use crate::netcode::ClientId;
+use crate::connection::netcode::ClientId;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;

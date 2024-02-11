@@ -1,44 +1,45 @@
 //! Defines the client bevy resource
-use bevy::utils::Duration;
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemParam;
-use bevy::prelude::{Entity, Res, ResMut, Resource, World};
+use bevy::prelude::{Entity, Mut, Res, ResMut, Resource, World};
+use bevy::utils::Duration;
 use bevy::utils::EntityHashMap;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
 use crate::channel::builder::Channel;
-use crate::connection::events::ConnectionEvents;
+use crate::connection::client::{ClientConnection, NetClient};
+use crate::connection::netcode::ClientId;
+use crate::connection::netcode::{ConnectToken, Key};
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::netcode::{Client as NetcodeClient, ClientId};
-use crate::netcode::{ConnectToken, Key};
 use crate::packet::message::Message;
-use crate::prelude::NetworkTarget;
+use crate::prelude::client::NetConfig;
+use crate::prelude::{generate_key, Io, NetworkTarget};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
+use crate::shared::events::ConnectionEvents;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
-use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 use super::connection::ConnectionManager;
 
+/// Helper [`SystemParam`] that combines multiple client-related [`Resource`]s
 #[derive(SystemParam)]
 pub struct Client<'w, 's, P: Protocol> {
-    // Io
-    pub(crate) io: Res<'w, Io>,
-    //config
+    // config
     config: Res<'w, ClientConfig>,
     // netcode
-    netcode: Res<'w, crate::netcode::Client>,
+    netcode: Res<'w, ClientConnection>,
     // connection
     pub(crate) connection: Res<'w, ConnectionManager<P>>,
     // protocol
@@ -51,14 +52,13 @@ pub struct Client<'w, 's, P: Protocol> {
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
+/// Helper [`SystemParam`] that combines multiple client-related [`Resource`]s
 #[derive(SystemParam)]
 pub struct ClientMut<'w, 's, P: Protocol> {
-    // Io
-    pub(crate) io: ResMut<'w, Io>,
     //config
     config: ResMut<'w, ClientConfig>,
     // netcode
-    netcode: ResMut<'w, crate::netcode::Client>,
+    netcode: ResMut<'w, ClientConnection>,
     // connection
     pub(crate) connection: ResMut<'w, ConnectionManager<P>>,
     // protocol
@@ -71,11 +71,31 @@ pub struct ClientMut<'w, 's, P: Protocol> {
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
+/// Recreate the client connection with a new token and try to connect
+pub fn connect_with_token(world: &mut World, connect_token: ConnectToken) -> Result<()> {
+    // remove the existing ClientConnection
+    world.remove_resource::<ClientConnection>();
+    world.resource_scope(|world, mut config: Mut<ClientConfig>| {
+        // update the authentication token
+        match &mut config.net {
+            NetConfig::Netcode { auth, .. } => {
+                *auth = Authentication::Token(connect_token);
+            }
+            _ => {
+                panic!("Invalid netcode config");
+            }
+        }
+        let netclient = config.net.clone().build_client();
+        world.insert_resource(netclient);
+    });
+    world.resource_mut::<ClientConnection>().connect()
+}
+
 impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     /// Maintain connection with server, queues up any packet received from the server
     pub(crate) fn update(&mut self, delta: Duration) -> Result<()> {
         self.time_manager.update(delta);
-        self.netcode.try_update(delta.as_secs_f64(), &mut self.io)?;
+        self.netcode.try_update(delta.as_secs_f64())?;
 
         // only start the connection (sending messages, sending pings, starting sync, etc.)
         // once we are connected
@@ -106,8 +126,10 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     // NETCODE
 
     /// Start the connection process with the server
-    pub fn connect(&mut self) {
-        self.netcode.connect();
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnection`)[crate::connection::client::ClientConnection] resource
+    pub fn connect(&mut self) -> Result<()> {
+        self.netcode.connect()
     }
 
     // MESSAGES
@@ -118,6 +140,8 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     //  Also it would make the code much simpler by having a single `ProtocolMessage` enum
     //  instead of `ClientMessage` and `ServerMessage`
     /// Send a message to the server, the message should be re-broadcasted according to the `target`
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnectionManager`)[ConnectionManager] resource
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: M,
@@ -132,6 +156,8 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
     }
 
     /// Send a message to the server
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnectionManager`)[ConnectionManager] resource
     pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
     where
         P::Message: From<M>,
@@ -145,12 +171,15 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
 
     // TODO: maybe put the input_buffer directly in Client ?
     //  layer of indirection feelds annoying
+    /// Buffer an input to be sent to the server
+    ///
+    /// NOTE: it is more efficient to call this method from the (`ClientConnectionManager`)[ConnectionManager] resource
     pub fn add_input(&mut self, input: P::Input) {
         self.connection.add_input(input, self.tick_manager.tick());
     }
 }
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Default, Clone)]
 #[allow(clippy::large_enum_variant)]
 /// Struct used to authenticate with the server
 pub enum Authentication {
@@ -163,12 +192,13 @@ pub enum Authentication {
         private_key: Key,
         protocol_id: u64,
     },
-    /// Request a connect token directly to the server
-    RequestConnectToken { server_addr: SocketAddr },
+    #[default]
+    /// Request a connect token from the backend
+    RequestConnectToken,
 }
 
 impl Authentication {
-    pub(crate) fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+    pub fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
         match self {
             Authentication::Token(token) => Some(token),
             Authentication::Manual {
@@ -180,7 +210,18 @@ impl Authentication {
                 .timeout_seconds(client_timeout_secs)
                 .generate()
                 .ok(),
-            Authentication::RequestConnectToken { .. } => None,
+            Authentication::RequestConnectToken => {
+                // create a fake connect token so that we have a NetcodeClient
+                ConnectToken::build(
+                    SocketAddr::from_str("0.0.0.0:0").unwrap(),
+                    0,
+                    0,
+                    generate_key(),
+                )
+                .timeout_seconds(client_timeout_secs)
+                .generate()
+                .ok()
+            }
         }
     }
 }
@@ -191,7 +232,7 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
     }
 
     pub fn local_addr(&self) -> SocketAddr {
-        self.io.local_addr()
+        self.netcode.local_addr()
     }
 
     // NETCODE
@@ -212,9 +253,9 @@ impl<'w, 's, P: Protocol> Client<'w, 's, P> {
 
     // IO
 
-    pub fn io(&self) -> &Io {
-        &self.io
-    }
+    // pub fn io(&self) -> &Io {
+    //     &self.io
+    // }
 
     // REPLICATION
     pub(crate) fn replication_sender(&self) -> &ReplicationSender<P> {
