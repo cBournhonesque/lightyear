@@ -145,7 +145,7 @@ fn setup(app: &mut App, cli: Cli) {
             let server_plugin_group = IoTaskPool::get()
                 .scope(|s| {
                     s.spawn(Compat::new(async {
-                        ServerPluginGroup::new(port, transport).await
+                        ServerPluginGroup::new(port, transport, predict).await
                     }));
                 })
                 .pop()
