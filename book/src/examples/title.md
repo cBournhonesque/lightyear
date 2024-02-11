@@ -3,6 +3,7 @@
 
 This page contains a list of examples that you can run to see how Lightyear works.
 Click on the links to run the example in your browser.
+The examples run using WASM and WebTransport, so they might not work on all browsers (for example, they don't work on Safari currently).
 
 ### [Simple Box](https://cbournhonesque.github.io/lightyear/examples/simple_box/dist/)
 
