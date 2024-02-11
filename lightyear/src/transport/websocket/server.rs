@@ -4,6 +4,8 @@ use std::{
 };
 
 use anyhow::Result;
+use async_compat::Compat;
+use bevy::tasks::IoTaskPool;
 use bevy::utils::hashbrown::HashMap;
 
 use tracing::{info, trace};
@@ -78,63 +80,73 @@ impl Transport for WebSocketServerSocket {
             serverbound_rx,
         };
 
-        tokio::spawn(async move {
-            info!("Starting server websocket task");
-            let listener = TcpListener::bind(self.server_addr).await.unwrap();
-            while let Ok((stream, addr)) = listener.accept().await {
-                let clientbound_tx_map = clientbound_tx_map.clone();
-                let serverbound_tx = serverbound_tx.clone();
-                tokio::spawn(async move {
-                    let ws_stream = tokio_tungstenite::accept_async(stream)
-                        .await
-                        .expect("Error during the websocket handshake occurred");
-
-                    info!("New WebSocket connection: {}", addr);
-
-                    let (clientbound_tx, mut clientbound_rx) = unbounded_channel::<Message>();
-                    let (mut write, mut read) = ws_stream.split();
-
-                    clientbound_tx_map
-                        .lock()
-                        .unwrap()
-                        .insert(addr, clientbound_tx);
-
+        IoTaskPool::get()
+            .spawn(Compat::new(async move {
+                info!("Starting server websocket task");
+                let listener = TcpListener::bind(self.server_addr).await.unwrap();
+                while let Ok((stream, addr)) = listener.accept().await {
+                    let clientbound_tx_map = clientbound_tx_map.clone();
                     let serverbound_tx = serverbound_tx.clone();
-
-                    let clientbound_handle = tokio::spawn(async move {
-                        while let Some(msg) = clientbound_rx.recv().await {
-                            write
-                                .send(msg)
+                    IoTaskPool::get()
+                        .spawn(async move {
+                            let ws_stream = tokio_tungstenite::accept_async(stream)
                                 .await
-                                .map_err(|e| {
-                                    error!("Encountered error while sending websocket msg: {}", e);
-                                })
-                                .unwrap();
-                        }
-                    });
-                    tokio::spawn(async move {
-                        while let Some(msg) = read.next().await {
-                            match msg {
-                                Ok(msg) => {
-                                    serverbound_tx.send((addr, msg)).unwrap_or_else(|e| {
-                                        error!("receive websocket error: {:?}", e)
-                                    });
-                                }
-                                Err(e) => {
-                                    error!("receive websocket error: {:?}", e);
-                                }
-                            }
-                        }
+                                .expect("Error during the websocket handshake occurred");
 
-                        // stream has been closed: cleanup the tasks
-                        info!("Connection with {} closed", addr);
-                        // assert!(ws_stream.is_terminated());
-                        clientbound_tx_map.lock().unwrap().remove(&addr);
-                        clientbound_handle.abort();
-                    });
-                });
-            }
-        });
+                            info!("New WebSocket connection: {}", addr);
+
+                            let (clientbound_tx, mut clientbound_rx) =
+                                unbounded_channel::<Message>();
+                            let (mut write, mut read) = ws_stream.split();
+
+                            clientbound_tx_map
+                                .lock()
+                                .unwrap()
+                                .insert(addr, clientbound_tx);
+
+                            let serverbound_tx = serverbound_tx.clone();
+
+                            let clientbound_handle = IoTaskPool::get().spawn(async move {
+                                while let Some(msg) = clientbound_rx.recv().await {
+                                    write
+                                        .send(msg)
+                                        .await
+                                        .map_err(|e| {
+                                            error!(
+                                                "Encountered error while sending websocket msg: {}",
+                                                e
+                                            );
+                                        })
+                                        .unwrap();
+                                }
+                            });
+                            IoTaskPool::get()
+                                .spawn(async move {
+                                    while let Some(msg) = read.next().await {
+                                        match msg {
+                                            Ok(msg) => {
+                                                serverbound_tx.send((addr, msg)).unwrap_or_else(
+                                                    |e| error!("receive websocket error: {:?}", e),
+                                                );
+                                            }
+                                            Err(e) => {
+                                                error!("receive websocket error: {:?}", e);
+                                            }
+                                        }
+                                    }
+
+                                    // stream has been closed: cleanup the tasks
+                                    info!("Connection with {} closed", addr);
+                                    // assert!(ws_stream.is_terminated());
+                                    clientbound_tx_map.lock().unwrap().remove(&addr);
+                                    clientbound_handle.cancel().await;
+                                })
+                                .detach();
+                        })
+                        .detach();
+                }
+            }))
+            .detach();
 
         (Box::new(packet_sender), Box::new(packet_receiver))
     }

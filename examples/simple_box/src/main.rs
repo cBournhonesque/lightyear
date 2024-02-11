@@ -101,7 +101,6 @@ cfg_if::cfg_if! {
             app.run();
         }
     } else {
-        // #[tokio::main]
         fn main() {
             let cli = Cli::parse();
             let mut app = App::new();
@@ -140,7 +139,6 @@ fn setup(app: &mut App, cli: Cli) {
                 })
                 .pop()
                 .unwrap();
-            // let server_plugin_group = ServerPluginGroup::new(port, transport, headless).await;
             app.add_plugins(server_plugin_group.build());
         }
         Cli::Client { .. } => {
