@@ -21,7 +21,7 @@ cfg_if! {
 }
 
 /// Contains configuration required to initialize a LinkConditioner
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LinkConditionerConfig {
     /// Delay to receive incoming messages in milliseconds (half the RTT)
     pub incoming_latency: Duration,

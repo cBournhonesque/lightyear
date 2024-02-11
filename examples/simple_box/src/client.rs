@@ -4,7 +4,9 @@ use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
+use lightyear::client::resource::connect_with_token;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -30,7 +32,7 @@ impl ClientPluginGroup {
         };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
         let certificate_digest =
-            String::from("6c594425dd0c8664c188a0ad6e641b39ff5f007e5bcfc1e72c7a7f2f38ecf819")
+            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
                 .replace(":", "");
         let transport_config = match transport {
             #[cfg(not(target_family = "wasm"))]
@@ -48,14 +50,12 @@ impl ClientPluginGroup {
             incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
-        let io = Io::from_config(
-            IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-        );
         let config = ClientConfig {
             shared: shared_config(),
             net: NetConfig::Netcode {
                 auth,
                 config: NetcodeConfig::default(),
+                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
             },
             interpolation: InterpolationConfig {
                 delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
@@ -63,7 +63,7 @@ impl ClientPluginGroup {
             },
             ..default()
         };
-        let plugin_config = PluginConfig::new(config, io, protocol());
+        let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
             client_id,
             lightyear: ClientPlugin::new(plugin_config),
@@ -112,6 +112,7 @@ impl Plugin for ExampleClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
+        // app.add_systems(Update, connect.run_if(on_timer(Duration::from_secs(10))));
     }
 }
 
@@ -128,6 +129,39 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
     ));
     let _ = client.connect();
 }
+
+// pub(crate) fn connect(world: &mut World) {
+//     // if world.get_resource::<Time>().unwrap().elapsed() < Duration::from_secs(3) {
+//     //     return;
+//     // }
+//     let server_addr = SocketAddr::from_str("127.0.0.1:5000").unwrap();
+//     let client_port = 0;
+//     let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+//     let certificate_digest =
+//         String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
+//             .replace(":", "");
+//     let transport_config = TransportConfig::WebTransportClient {
+//         client_addr,
+//         server_addr,
+//     };
+//     let link_conditioner = LinkConditionerConfig {
+//         incoming_latency: Duration::from_millis(200),
+//         incoming_jitter: Duration::from_millis(20),
+//         incoming_loss: 0.05,
+//     };
+//     let io = Io::from_config(
+//         IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+//     );
+//     info!("CONNECT");
+//     let auth = Authentication::Manual {
+//         server_addr,
+//         client_id: 1,
+//         private_key: KEY,
+//         protocol_id: PROTOCOL_ID,
+//     };
+//     let token = auth.get_token(20).unwrap();
+//     let _ = connect_with_token(world, token, io);
+// }
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<Input<KeyCode>>) {

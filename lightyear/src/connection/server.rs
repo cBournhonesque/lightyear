@@ -3,7 +3,7 @@ use bevy::prelude::Resource;
 
 use crate::_reexport::ReadWordBuffer;
 use crate::connection::netcode::ClientId;
-use crate::prelude::Io;
+use crate::prelude::{Io, IoConfig};
 use crate::server::config::NetcodeConfig;
 
 pub trait NetServer: Send + Sync {
@@ -25,6 +25,8 @@ pub trait NetServer: Send + Sync {
     fn new_connections(&self) -> Vec<ClientId>;
 
     fn new_disconnections(&self) -> Vec<ClientId>;
+
+    fn io(&self) -> &Io;
 }
 
 #[derive(Resource)]
@@ -35,29 +37,25 @@ pub struct ServerConnection {
 /// Configuration for the server connection
 #[derive(Clone, Debug)]
 pub enum NetConfig {
-    Netcode {
-        config: NetcodeConfig,
-    },
+    Netcode { config: NetcodeConfig, io: IoConfig },
     // TODO: add steam-specific config
     Steam,
-    #[cfg(feature = "rivet")]
-    Rivet {
-        config: NetcodeConfig,
-    },
 }
 
 impl Default for NetConfig {
     fn default() -> Self {
         NetConfig::Netcode {
             config: NetcodeConfig::default(),
+            io: IoConfig::default(),
         }
     }
 }
 
 impl NetConfig {
-    pub fn get_server(self, io: Io) -> ServerConnection {
+    pub fn build_server(self) -> ServerConnection {
         match self {
-            NetConfig::Netcode { config } => {
+            NetConfig::Netcode { config, io } => {
+                let io = io.get_io();
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
                     server: Box::new(server),
@@ -97,5 +95,9 @@ impl NetServer for ServerConnection {
 
     fn new_disconnections(&self) -> Vec<ClientId> {
         self.server.new_disconnections()
+    }
+
+    fn io(&self) -> &Io {
+        self.server.io()
     }
 }

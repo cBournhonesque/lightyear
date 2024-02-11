@@ -7,6 +7,8 @@ use std::{
 };
 
 use anyhow::Result;
+use async_compat::Compat;
+use bevy::tasks::IoTaskPool;
 use bevy::utils::hashbrown::HashMap;
 
 use tokio::{
@@ -17,6 +19,7 @@ use tokio::{
     },
 };
 
+use futures_util::stream::FusedStream;
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},
@@ -79,42 +82,49 @@ impl Transport for WebSocketClientSocket {
             clientbound_rx,
         };
 
-        tokio::spawn(async move {
-            info!("Starting client websocket task");
-            let (ws_stream, _) =
-                connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
-                    .await
-                    .expect("Unable to connect to websocket server");
-            info!("WebSocket handshake has been successfully completed");
-
-            let (mut write, mut read) = ws_stream.split();
-
-            tokio::spawn(async move {
-                while let Some(msg) = read.next().await {
-                    let msg = msg
-                        .map_err(|e| {
-                            error!("Error while receiving websocket msg: {}", e);
-                        })
-                        .unwrap();
-
-                    clientbound_tx
-                        .send(msg)
-                        .expect("Unable to propagate the read websocket message to the receiver");
-                }
-            });
-
-            tokio::spawn(async move {
-                while let Some(msg) = serverbound_rx.recv().await {
-                    write
-                        .send(msg)
+        IoTaskPool::get()
+            .spawn(Compat::new(async move {
+                info!("Starting client websocket task");
+                let (ws_stream, _) =
+                    connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
                         .await
-                        .map_err(|e| {
-                            error!("Encountered error while sending websocket msg: {}", e);
-                        })
-                        .unwrap();
-                }
-            });
-        });
+                        .expect("Unable to connect to websocket server");
+                info!("WebSocket handshake has been successfully completed");
+
+                let (mut write, mut read) = ws_stream.split();
+
+                IoTaskPool::get()
+                    .spawn(async move {
+                        while let Some(msg) = read.next().await {
+                            let msg = msg
+                                .map_err(|e| {
+                                    error!("Error while receiving websocket msg: {}", e);
+                                })
+                                .unwrap();
+
+                            clientbound_tx.send(msg).expect(
+                                "Unable to propagate the read websocket message to the receiver",
+                            );
+                        }
+                        // when we reach this point, the stream is closed
+                    })
+                    .detach();
+
+                IoTaskPool::get()
+                    .spawn(async move {
+                        while let Some(msg) = serverbound_rx.recv().await {
+                            write
+                                .send(msg)
+                                .await
+                                .map_err(|e| {
+                                    error!("Encountered error while sending websocket msg: {}", e);
+                                })
+                                .unwrap();
+                        }
+                    })
+                    .detach();
+            }))
+            .detach();
 
         (Box::new(packet_sender), Box::new(packet_receiver))
     }

@@ -1,10 +1,11 @@
 //! Defines the client bevy resource
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::system::SystemParam;
-use bevy::prelude::{Entity, Res, ResMut, Resource, World};
+use bevy::prelude::{Entity, Mut, Res, ResMut, Resource, World};
 use bevy::utils::Duration;
 use bevy::utils::EntityHashMap;
 use tracing::{debug, trace, trace_span};
@@ -16,7 +17,8 @@ use crate::connection::netcode::ClientId;
 use crate::connection::netcode::{ConnectToken, Key};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message::Message;
-use crate::prelude::NetworkTarget;
+use crate::prelude::client::NetConfig;
+use crate::prelude::{generate_key, Io, NetworkTarget};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
 use crate::shared::events::ConnectionEvents;
@@ -67,6 +69,26 @@ pub struct ClientMut<'w, 's, P: Protocol> {
     pub(crate) time_manager: ResMut<'w, TimeManager>,
     pub(crate) tick_manager: ResMut<'w, TickManager>,
     _marker: std::marker::PhantomData<&'s ()>,
+}
+
+/// Recreate the client connection with a new token and try to connect
+pub fn connect_with_token(world: &mut World, connect_token: ConnectToken) -> Result<()> {
+    // remove the existing ClientConnection
+    world.remove_resource::<ClientConnection>();
+    world.resource_scope(|world, mut config: Mut<ClientConfig>| {
+        // update the authentication token
+        match &mut config.net {
+            NetConfig::Netcode { auth, .. } => {
+                *auth = Authentication::Token(connect_token);
+            }
+            _ => {
+                panic!("Invalid netcode config");
+            }
+        }
+        let netclient = config.net.clone().build_client();
+        world.insert_resource(netclient);
+    });
+    world.resource_mut::<ClientConnection>().connect()
 }
 
 impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
@@ -176,7 +198,7 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    pub(crate) fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+    pub fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
         match self {
             Authentication::Token(token) => Some(token),
             Authentication::Manual {
@@ -188,7 +210,18 @@ impl Authentication {
                 .timeout_seconds(client_timeout_secs)
                 .generate()
                 .ok(),
-            Authentication::RequestConnectToken { .. } => None,
+            Authentication::RequestConnectToken => {
+                // create a fake connect token so that we have a NetcodeClient
+                ConnectToken::build(
+                    SocketAddr::from_str("0.0.0.0:0").unwrap(),
+                    0,
+                    0,
+                    generate_key(),
+                )
+                .timeout_seconds(client_timeout_secs)
+                .generate()
+                .ok()
+            }
         }
     }
 }

@@ -1048,6 +1048,10 @@ impl NetServer for Server {
     fn new_disconnections(&self) -> Vec<ClientId> {
         self.server.cfg.context.disconnections.clone()
     }
+
+    fn io(&self) -> &Io {
+        &self.io
+    }
 }
 
 impl Server {

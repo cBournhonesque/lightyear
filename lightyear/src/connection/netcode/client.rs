@@ -1,3 +1,5 @@
+use std::net::{IpAddr, Ipv4Addr};
+use std::time::Duration;
 use std::{collections::VecDeque, net::SocketAddr};
 
 use anyhow::Context;
@@ -5,10 +7,11 @@ use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace};
 
 use crate::connection::client::NetClient;
+use crate::prelude::IoConfig;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::ReadWordBuffer;
 use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender};
+use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
 
 use super::{
     bytes::Bytes,
@@ -627,12 +630,16 @@ impl<Ctx> NetcodeClient<Ctx> {
 #[derive(Resource)]
 pub struct Client<Ctx> {
     pub client: NetcodeClient<Ctx>,
-    pub io: Io,
+    pub io_config: IoConfig,
+    pub io: Option<Io>,
 }
 
 impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     fn connect(&mut self) -> anyhow::Result<()> {
+        self.io = Some(Io::from_config(self.io_config.clone()));
         self.client.connect();
+        // TODO: have a separate explicit function to start listening on the io
+        // creating the io starts the io connection!
         Ok(())
     }
 
@@ -641,8 +648,10 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
+        let io = self.io.as_mut().context("io is not initialized")?;
         self.client
-            .try_update(delta_ms, &mut self.io)
+            .try_update(delta_ms, io)
+            .inspect_err(|e| error!("error updating client: {:?}", e))
             .context("could not update client")
     }
 
@@ -651,9 +660,8 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn send(&mut self, buf: &[u8]) -> anyhow::Result<()> {
-        self.client
-            .send(buf, &mut self.io)
-            .context("could not send")
+        let io = self.io.as_mut().context("io is not initialized")?;
+        self.client.send(buf, io).context("could not send")
     }
 
     fn id(&self) -> ClientId {
@@ -661,14 +669,14 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn local_addr(&self) -> SocketAddr {
-        self.io.local_addr()
+        self.io.as_ref().map_or(LOCAL_SOCKET, |io| io.local_addr())
     }
 
-    fn io(&self) -> &Io {
-        &self.io
+    fn io(&self) -> Option<&Io> {
+        self.io.as_ref()
     }
 
-    fn io_mut(&mut self) -> &mut Io {
-        &mut self.io
+    fn io_mut(&mut self) -> Option<&mut Io> {
+        self.io.as_mut()
     }
 }

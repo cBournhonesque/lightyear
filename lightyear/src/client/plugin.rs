@@ -14,7 +14,7 @@ use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::sync::client_is_synced;
 use crate::client::systems::{receive, send, sync_update};
-use crate::prelude::ReplicationSet;
+use crate::prelude::{IoConfig, ReplicationSet};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -30,15 +30,13 @@ use super::config::ClientConfig;
 
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
-    io: Io,
     protocol: P,
 }
 
 impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, io: Io, protocol: P) -> Self {
+    pub fn new(client_config: ClientConfig, protocol: P) -> Self {
         PluginConfig {
             client_config,
-            io,
             protocol,
         }
     }
@@ -128,7 +126,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
 
-        let netclient = config.client_config.net.clone().get_client(config.io);
+        let netclient = config.client_config.net.clone().build_client();
         let fixed_timestep = config.client_config.shared.tick.tick_duration;
         let clean_interval = fixed_timestep * (i16::MAX as u32 / 3);
 

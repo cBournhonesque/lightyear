@@ -67,6 +67,17 @@ pub enum TransportConfig {
     },
 }
 
+// TODO: derive Debug directly on TransportConfig once the new version of wtransport is out
+impl std::fmt::Debug for TransportConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO
+        match self {
+            TransportConfig::UdpSocket(s) => s.fmt(f),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl TransportConfig {
     pub fn get_io(self) -> Io {
         // we don't use `dyn Transport` and instead repeat the code for `transport.listen()` because that function is not
@@ -162,7 +173,7 @@ impl TransportConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IoConfig {
     pub transport: TransportConfig,
     pub conditioner: Option<LinkConditionerConfig>,

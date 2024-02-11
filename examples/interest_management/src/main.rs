@@ -14,11 +14,13 @@ mod protocol;
 mod server;
 mod shared;
 
+use async_compat::Compat;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
@@ -100,18 +102,17 @@ cfg_if::cfg_if! {
             app.run();
         }
     } else {
-        #[tokio::main]
-        async fn main() {
+        fn main() {
             let cli = Cli::parse();
             let mut app = App::new();
-            setup(&mut app, cli).await;
+            setup(&mut app, cli);
             app.run();
         }
     }
 }
 
 // the function is async because the server needs to load the certificates from a file
-async fn setup(app: &mut App, cli: Cli) {
+fn setup(app: &mut App, cli: Cli) {
     match cli {
         #[cfg(not(target_family = "wasm"))]
         Cli::Server {
@@ -120,15 +121,25 @@ async fn setup(app: &mut App, cli: Cli) {
             port,
             transport,
         } => {
-            let server_plugin_group = ServerPluginGroup::new(port, transport).await;
             if !headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
                 app.add_plugins(MinimalPlugins);
             }
+
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
+            // this is async because we need to load the certificate from io
+            // we need async_compat because wtransport expects a tokio reactor
+            let server_plugin_group = IoTaskPool::get()
+                .scope(|s| {
+                    s.spawn(Compat::new(async {
+                        ServerPluginGroup::new(port, transport).await
+                    }));
+                })
+                .pop()
+                .unwrap();
             app.add_plugins(server_plugin_group.build());
         }
         Cli::Client { .. } => {
