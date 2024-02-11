@@ -101,7 +101,9 @@ metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-fea
 ] }
 
 # bevy
-bevy = { version = "0.12", default-features = false, features = ["multi-threaded"] }
+bevy = { version = "0.12", default-features = false, features = [
+  "multi-threaded",
+] }
 
 # WebSocket
 futures-util = { version = "0.3.30", optional = true }
