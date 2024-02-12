@@ -93,7 +93,7 @@ cfg_if::cfg_if! {
                 client_port: CLIENT_PORT,
                 server_addr: Ipv4Addr::LOCALHOST,
                 server_port: SERVER_PORT,
-                transport: Transports::WebSocket,
+                transport: Transports::WebTransport,
             };
             let mut app = App::new();
             setup_client(&mut app, cli);
