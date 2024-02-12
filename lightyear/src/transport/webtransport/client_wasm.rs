@@ -103,6 +103,7 @@ impl Transport for WebTransportClientSocket {
             send.send(connection.clone()).unwrap();
             send2.send(connection.clone()).unwrap();
         });
+
         // NOTE (IMPORTANT!):
         // - we spawn two different futures for receive and send datagrams
         // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
@@ -110,31 +111,36 @@ impl Transport for WebTransportClientSocket {
         //   to poll the existing one. This is FAULTY behaviour
         // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
         //   cancelled
-        IoTaskPool::get().spawn(async move {
-            let connection = recv.await.expect("could not get connection");
-            loop {
-                match connection.receive_datagram().await {
-                    Ok(data) => {
-                        trace!("receive datagram from server: {:?}", &data);
-                        from_server_sender.send(data).unwrap();
-                    }
-                    Err(e) => {
-                        error!("receive_datagram connection error: {:?}", e);
+        IoTaskPool::get()
+            .spawn(async move {
+                let connection = recv.await.expect("could not get connection");
+                loop {
+                    match connection.receive_datagram().await {
+                        Ok(data) => {
+                            trace!("receive datagram from server: {:?}", &data);
+                            from_server_sender.send(data).unwrap();
+                        }
+                        Err(e) => {
+                            error!("receive_datagram connection error: {:?}", e);
+                        }
                     }
                 }
-            }
-        });
-        IoTaskPool::get().spawn(async move {
-            let connection = recv2.await.expect("could not get connection");
-            loop {
-                if let Some(msg) = to_server_receiver.recv().await {
-                    trace!("send datagram to server: {:?}", &msg);
-                    connection.send_datagram(msg).await.unwrap_or_else(|e| {
-                        error!("send_datagram error: {:?}", e);
-                    });
+            })
+            .detach();
+        IoTaskPool::get()
+            .spawn(async move {
+                let connection = recv2.await.expect("could not get connection");
+                loop {
+                    if let Some(msg) = to_server_receiver.recv().await {
+                        trace!("send datagram to server: {:?}", &msg);
+                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
+                            error!("send_datagram error: {:?}", e);
+                        });
+                    }
                 }
-            }
-        });
+            })
+            .detach();
+
         let packet_sender = WebTransportClientPacketSender { to_server_sender };
         let packet_receiver = WebTransportClientPacketReceiver {
             server_addr,
