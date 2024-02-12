@@ -25,7 +25,7 @@ impl Default for NetcodeConfig {
         Self {
             num_disconnect_packets: 10,
             keep_alive_send_rate: 1.0 / 10.0,
-            client_timeout_secs: 3,
+            client_timeout_secs: 10,
             protocol_id: 0,
             private_key: None,
         }

@@ -107,11 +107,8 @@ impl WebTransportServerSocket {
         connection.closed().await;
         info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
-        from_client_handle.cancel().await;
-        to_client_handle.cancel().await;
-        // tokio
-        // from_client_handle.abort();
-        // to_client_handle.abort();
+        // dropping the task cancels them
+
         // TODO: need to disconnect the client in netcode
     }
 }
