@@ -111,6 +111,7 @@ futures-util = { version = "0.3.30", optional = true }
 # transport
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.36", features = [
+  "sync"
 ], default-features = false, optional = true }
 async-compat = "0.2.3"
 
@@ -151,7 +152,7 @@ getrandom = { version = "0.2.11", features = [
   "js",
 ] } # feature 'js' is required for wasm
 xwt-core = { version = "0.2", optional = true }
-xwt-web-sys = { version = "0.5.1", optional = true }
+xwt-web-sys = { version = "0.4.7", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
 
 
