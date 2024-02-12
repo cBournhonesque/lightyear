@@ -11,7 +11,6 @@ use bevy::utils::hashbrown::HashMap;
 use tracing::{info, trace};
 use tracing_log::log::error;
 
-use futures_util::stream::FusedStream;
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},
@@ -106,6 +105,9 @@ impl Transport for WebSocketServerSocket {
 
                             let serverbound_tx = serverbound_tx.clone();
 
+                            let (close_tx, mut close_rx) = tokio::sync::mpsc::channel(1);
+                            let close_tx_clone = close_tx.clone();
+
                             let clientbound_handle = IoTaskPool::get().spawn(async move {
                                 while let Some(msg) = clientbound_rx.recv().await {
                                     write
@@ -119,29 +121,32 @@ impl Transport for WebSocketServerSocket {
                                         })
                                         .unwrap();
                                 }
+                                write.close().await.unwrap_or_else(|e| {
+                                    error!("Error closing websocket: {:?}", e);
+                                });
+                                let _ = close_tx_clone.send(());
                             });
-                            IoTaskPool::get()
-                                .spawn(async move {
-                                    while let Some(msg) = read.next().await {
-                                        match msg {
-                                            Ok(msg) => {
-                                                serverbound_tx.send((addr, msg)).unwrap_or_else(
-                                                    |e| error!("receive websocket error: {:?}", e),
-                                                );
-                                            }
-                                            Err(e) => {
-                                                error!("receive websocket error: {:?}", e);
-                                            }
+                            let serverbound_handle = IoTaskPool::get().spawn(async move {
+                                while let Some(msg) = read.next().await {
+                                    match msg {
+                                        Ok(msg) => {
+                                            serverbound_tx.send((addr, msg)).unwrap_or_else(|e| {
+                                                error!("receive websocket error: {:?}", e)
+                                            });
+                                        }
+                                        Err(e) => {
+                                            error!("receive websocket error: {:?}", e);
                                         }
                                     }
-
-                                    // stream has been closed: cleanup the tasks
-                                    info!("Connection with {} closed", addr);
-                                    // assert!(ws_stream.is_terminated());
-                                    clientbound_tx_map.lock().unwrap().remove(&addr);
-                                    clientbound_handle.cancel().await;
-                                })
-                                .detach();
+                                }
+                                // TODO: how to cancel the clientbound_handle?
+                                let _ = close_tx.clone().send(());
+                            });
+                            // wait until the websocket is done
+                            let _ = close_rx.recv().await;
+                            info!("Connection with {} closed", addr);
+                            clientbound_tx_map.lock().unwrap().remove(&addr);
+                            // dropping the task handles cancels them
                         }))
                         .detach();
                 }
