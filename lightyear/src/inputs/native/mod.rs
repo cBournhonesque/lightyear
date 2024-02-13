@@ -12,9 +12,6 @@ use crate::protocol::BitSerializable;
 pub mod input_buffer;
 
 // TODO: should we request that a user input is a message?
-pub trait UserAction:
-    BitSerializable + Clone + Eq + PartialEq + Send + Sync + Debug + 'static
-{
-}
+pub trait UserAction: BitSerializable + Clone + PartialEq + Send + Sync + Debug + 'static {}
 
 impl UserAction for () {}

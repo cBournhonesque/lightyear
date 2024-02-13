@@ -17,7 +17,6 @@ pub trait LeafwingUserAction:
     BitSerializable
     + Copy
     + Clone
-    + Eq
     + PartialEq
     + Send
     + Sync
