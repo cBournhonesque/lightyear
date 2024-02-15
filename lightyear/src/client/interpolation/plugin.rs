@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use bevy::prelude::{
-    apply_deferred, App, Component, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, SystemSet,
-    Update,
-};
+use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
@@ -12,6 +9,10 @@ use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::interpolation::visual_interpolation::{
+    restore_from_visual_interpolation, update_visual_interpolation_status, visual_interpolation,
+};
+use crate::prelude::FixedUpdateSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
@@ -119,8 +120,12 @@ impl<P: Protocol> Default for InterpolationPlugin<P> {
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSet {
     // PreUpdate Sets
-    // // Contains the other pre-update prediction sets
-    // PreUpdateInterpolation,
+    /// Restore the correct component values
+    RestoreVisualInterpolation,
+    // FixedUpdate
+    /// Update the previous/current component values used for visual interpolation
+    UpdateVisualInterpolationState,
+    // Update Sets,
     /// Spawn interpolation entities,
     SpawnInterpolation,
     SpawnInterpolationFlush,
@@ -135,6 +140,9 @@ pub enum InterpolationSet {
     /// Interpolate between last 2 server states. Has to be overriden if
     /// `InterpolationConfig.custom_interpolation_logic` is set to true
     Interpolate,
+    // PostUpdate sets
+    /// Interpolate the visual state of the game with 1 tick of delay
+    VisualInterpolation,
 }
 
 // We want to run prediction:
@@ -144,6 +152,31 @@ pub enum InterpolationSet {
 // - a PROBLEM is that ideally we would like to rollback the physics simulation
 //   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
 //  the tick we rollback to would not be the current client tick ?
+
+pub fn add_visual_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
+where
+    P::Components: SyncMetadata<C>,
+{
+    match P::Components::mode() {
+        ComponentSyncMode::Full => {
+            app.add_systems(
+                PreUpdate,
+                restore_from_visual_interpolation::<C>
+                    .in_set(InterpolationSet::RestoreVisualInterpolation),
+            );
+            app.add_systems(
+                FixedUpdate,
+                update_visual_interpolation_status::<C>
+                    .in_set(InterpolationSet::UpdateVisualInterpolationState),
+            );
+            app.add_systems(
+                PostUpdate,
+                visual_interpolation::<C, P>.in_set(InterpolationSet::VisualInterpolation),
+            );
+        }
+        _ => {}
+    }
+}
 
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
@@ -205,6 +238,11 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         // RESOURCES
         app.init_resource::<InterpolationManager>();
         // SETS
+        app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
+        app.configure_sets(
+            FixedUpdate,
+            InterpolationSet::UpdateVisualInterpolationState.after(FixedUpdateSet::MainFlush),
+        );
         app.configure_sets(
             Update,
             (
@@ -219,6 +257,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             )
                 .chain(),
         );
+        app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
         // SYSTEMS
         app.add_systems(
             Update,

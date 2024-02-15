@@ -36,15 +36,18 @@ impl Plugin for SharedPlugin {
 }
 
 // This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &Inputs) {
+pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
-        Inputs::Direction(direction) => match direction {
-            Direction::Up => position.y += MOVE_SPEED,
-            Direction::Down => position.y -= MOVE_SPEED,
-            Direction::Left => position.x -= MOVE_SPEED,
-            Direction::Right => position.x += MOVE_SPEED,
-        },
+        Inputs::Direction(direction) => {
+            info!("moving head!");
+            match direction {
+                Direction::Up => position.y += MOVE_SPEED,
+                Direction::Down => position.y -= MOVE_SPEED,
+                Direction::Left => position.x -= MOVE_SPEED,
+                Direction::Right => position.x += MOVE_SPEED,
+            }
+        }
         _ => {}
     }
 }

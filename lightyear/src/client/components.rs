@@ -33,7 +33,7 @@ impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Named + for
 
 /// Function that will interpolated between two values
 pub trait LerpFn<C> {
-    fn lerp(start: C, other: C, t: f32) -> C;
+    fn lerp(start: &C, other: &C, t: f32) -> C;
 }
 
 /// Defines how to do interpolation/correction for the component

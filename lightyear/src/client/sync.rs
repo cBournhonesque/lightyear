@@ -105,7 +105,6 @@ pub struct SyncManager {
     /// Tick of the server that we last received in any packet from the server.
     /// This is not updated every tick, but only when we receive a packet from the server.
     pub(crate) latest_received_server_tick: Option<Tick>,
-    pub(crate) estimated_interpolation_tick: Tick,
     pub(crate) duration_since_latest_received_server_tick: Duration,
     pub(crate) new_latest_received_server_tick: bool,
     /// The 'generation' of the tick. Everytime the tick wraps around, the generation increases by 1
@@ -128,7 +127,6 @@ impl SyncManager {
             interpolation_speed_ratio: 1.0,
             // server tick
             latest_received_server_tick: None,
-            estimated_interpolation_tick: Tick(0),
             duration_since_latest_received_server_tick: Duration::default(),
             new_latest_received_server_tick: false,
             // TODO: should we start with None?
@@ -211,7 +209,10 @@ impl SyncManager {
             tick_manager.tick(),
             generation,
             tick_manager.config.tick_duration,
-        ) + time_manager.overstep();
+        ) + tick_manager
+            .config
+            .tick_duration
+            .mul_f32(time_manager.overstep());
         // when getting time from ticks, don't forget the overstep
         debug!(
             ?generation,
@@ -338,11 +339,13 @@ impl SyncManager {
     }
 
     pub(crate) fn interpolation_tick(&self, tick_manager: &TickManager) -> Tick {
-        // TODO: check that this wraps correctly!
-        Tick(
-            (self.interpolation_time.elapsed.as_nanos()
-                / tick_manager.config.tick_duration.as_nanos()) as u16,
-        )
+        self.interpolation_time
+            .to_tick(tick_manager.config.tick_duration)
+    }
+
+    pub(crate) fn interpolation_overstep(&self, tick_manager: &TickManager) -> f32 {
+        self.interpolation_time
+            .tick_overstep(tick_manager.config.tick_duration)
     }
 
     // TODO: only run when there's a change? (new server tick received or new ping received)

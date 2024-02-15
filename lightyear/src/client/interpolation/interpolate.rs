@@ -28,8 +28,29 @@ pub struct InterpolateStatus<C: Component> {
     pub start: Option<(Tick, C)>,
     /// end tick to interpolate to, along with value
     pub end: Option<(Tick, C)>,
-    /// current interpolation tick
-    pub current: Tick,
+    /// current interpolation tick, which will belong to [start_tick, end_tick[
+    pub current_tick: Tick,
+    /// for more accurate interpolation, this is the fraction between [current_tick, current_tick + 1[
+    pub current_overstep: f32,
+}
+
+impl<C: Component> InterpolateStatus<C> {
+    pub fn interpolation_fraction(&self) -> Option<f32> {
+        self.start
+            .as_ref()
+            .map(|(start_tick, _)| {
+                self.end.as_ref().map(|(end_tick, _)| {
+                    if *start_tick != *end_tick {
+                        let t = ((self.current_tick - *start_tick) as f32 + self.current_overstep)
+                            / (*end_tick - *start_tick) as f32;
+                        t
+                    } else {
+                        0.0
+                    }
+                })
+            })
+            .flatten()
+    }
 }
 
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
@@ -61,6 +82,9 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     let current_interpolate_tick = connection
         .sync_manager
         .interpolation_tick(tick_manager.as_ref());
+    let current_interpolate_overstep = connection
+        .sync_manager
+        .interpolation_overstep(tick_manager.as_ref());
     for (entity, component, mut status, mut history) in query.iter_mut() {
         let mut start = status.start.take();
         let mut end = status.end.take();
@@ -169,13 +193,15 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
             ?entity,
             component = ?kind,
             ?current_interpolate_tick,
+            ?current_interpolate_overstep,
             last_received_server_tick = ?connection.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
             "update_interpolate_status");
         status.start = start;
         status.end = end;
-        status.current = current_interpolate_tick;
+        status.current_tick = current_interpolate_tick;
+        status.current_overstep = current_interpolate_overstep;
         if status.start.is_none() {
             trace!("no lerp start tick");
         }
@@ -201,21 +227,20 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
         if let Some((start_tick, start_value)) = &status.start {
             // TODO: maybe that's not correct? we only want to insert the component if we are interpolating
             //  between two values!
-            if status.current == *start_tick {
-                debug!(?entity, ?start_tick, "setting component to start value");
-                entity_commands.insert(start_value.clone());
-                continue;
-            }
+            // if status.current_ == *start_tick {
+            //     debug!(?entity, ?start_tick, "setting component to start value");
+            //     entity_commands.insert(start_value.clone());
+            //     continue;
+            // }
             if let Some((end_tick, end_value)) = &status.end {
-                debug!(?entity, ?start_tick, interpolate_tick=?status.current, ?end_tick, "doing interpolation!");
-                if status.current == *end_tick {
+                debug!(?entity, ?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
+                if status.current_tick == *end_tick {
                     entity_commands.insert(end_value.clone());
                     continue;
                 }
                 if start_tick != end_tick {
-                    let t =
-                        (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
-                    let value = P::Components::lerp(start_value.clone(), end_value.clone(), t);
+                    let t = status.interpolation_fraction().unwrap();
+                    let value = P::Components::lerp(start_value, end_value, t);
                     entity_commands.insert(value);
                 } else {
                     entity_commands.insert(start_value.clone());
@@ -235,21 +260,12 @@ pub(crate) fn interpolate<C: Component + Clone, P: Protocol>(
         debug!("checking if we do interpolation");
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
-            if status.current == *start_tick {
-                debug!(?start_tick, "setting component to start value");
-                *component = start_value.clone();
-                continue;
-            }
             if let Some((end_tick, end_value)) = &status.end {
-                debug!(?start_tick, interpolate_tick=?status.current, ?end_tick, "doing interpolation!");
-                if status.current == *end_tick {
-                    *component = end_value.clone();
-                    continue;
-                }
+                debug!(?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
+                assert!(status.current_tick < *end_tick);
                 if start_tick != end_tick {
-                    let t =
-                        (status.current - *start_tick) as f32 / (*end_tick - *start_tick) as f32;
-                    let value = P::Components::lerp(start_value.clone(), end_value.clone(), t);
+                    let t = status.interpolation_fraction().unwrap();
+                    let value = P::Components::lerp(start_value, end_value, t);
                     *component = value;
                 } else {
                     *component = start_value.clone();

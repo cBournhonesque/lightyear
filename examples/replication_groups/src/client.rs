@@ -6,7 +6,9 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::_reexport::LinearInterpolator;
+use lightyear::client::interpolation::add_visual_interpolation_systems;
 use lightyear::connection::netcode::NetcodeServer;
+use lightyear::prelude::client::InterpolationSet::VisualInterpolation;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;
@@ -132,6 +134,10 @@ impl Plugin for ExampleClientPlugin {
                 .in_set(FixedUpdateSet::Main),
         );
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
+        add_visual_interpolation_systems::<PlayerPosition, MyProtocol>(app);
+
+        app.add_systems(Update, debug_pre_visual_interpolation);
+        app.add_systems(Last, debug_post_visual_interpolation);
     }
 }
 
@@ -190,8 +196,8 @@ pub(crate) fn movement(
     }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
-            for mut position in position_query.iter_mut() {
-                shared_movement_behaviour(&mut position, input);
+            for position in position_query.iter_mut() {
+                shared_movement_behaviour(position, input);
             }
         }
     }
@@ -200,10 +206,22 @@ pub(crate) fn movement(
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
-    for mut color in predicted.iter_mut() {
+pub(crate) fn handle_predicted_spawn(
+    mut commands: Commands,
+    mut predicted_heads: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    predicted_tails: Query<Entity, (With<PlayerParent>, Added<Predicted>)>,
+) {
+    for (entity, mut color) in predicted_heads.iter_mut() {
         color.0.set_s(0.3);
+        commands
+            .entity(entity)
+            .insert(VisualInterpolateStatus::<PlayerPosition>::default());
     }
+    // for entity in predicted_tails.iter() {
+    //     commands
+    //         .entity(entity)
+    //         .insert(VisualInterpolateStatus::<TailPoints>::default())
+    // }
 }
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
@@ -247,6 +265,36 @@ pub(crate) fn debug_prediction_post_rollback(
             .expect("Tail entity has no parent entity!");
         info!(?parent_history, "parent");
         info!(?tail_history, "tail");
+    }
+}
+
+pub(crate) fn debug_pre_visual_interpolation(
+    tick_manager: Res<TickManager>,
+    query: Query<(&PlayerPosition, &VisualInterpolateStatus<PlayerPosition>)>,
+) {
+    let tick = tick_manager.tick();
+    for (position, interpolate_status) in query.iter() {
+        info!(
+            ?tick,
+            ?position,
+            ?interpolate_status,
+            "pre visual interpolation"
+        );
+    }
+}
+
+pub(crate) fn debug_post_visual_interpolation(
+    tick_manager: Res<TickManager>,
+    query: Query<(&PlayerPosition, &VisualInterpolateStatus<PlayerPosition>)>,
+) {
+    let tick = tick_manager.tick();
+    for (position, interpolate_status) in query.iter() {
+        info!(
+            ?tick,
+            ?position,
+            ?interpolate_status,
+            "post visual interpolation"
+        );
     }
 }
 
@@ -303,44 +351,19 @@ pub(crate) fn interpolate(
                 continue;
             }
             let pos_start = &parent_status.start.as_ref().unwrap().1;
-            if tail_status.current == *start_tick {
-                assert_eq!(tail_status.current, parent_status.current);
-                *tail = tail_start_value.clone();
-                *parent_position = pos_start.clone();
-                debug!(
-                    ?tail,
-                    ?parent_position,
-                    "after interpolation; CURRENT = START"
-                );
-                continue;
-            }
-
             if let Some((end_tick, tail_end_value)) = &tail_status.end {
                 if parent_status.end.is_none() {
                     // the parent component has not been confirmed yet, so we can't interpolate
                     continue;
                 }
                 let pos_end = &parent_status.end.as_ref().unwrap().1;
-                if tail_status.current == *end_tick {
-                    assert_eq!(tail_status.current, parent_status.current);
-                    *tail = tail_end_value.clone();
-                    *parent_position = pos_end.clone();
-                    debug!(
-                        ?tail,
-                        ?parent_position,
-                        "after interpolation; CURRENT = END"
-                    );
-                    continue;
-                }
                 if start_tick != end_tick {
                     // the new tail will be similar to the old tail, with some added points at the front
                     *tail = tail_start_value.clone();
                     *parent_position = pos_start.clone();
 
                     // interpolation ratio
-                    let t = (tail_status.current - *start_tick) as f32
-                        / (*end_tick - *start_tick) as f32;
-
+                    let t = tail_status.interpolation_fraction().unwrap();
                     let mut tail_diff_length = 0.0;
                     // find in which end tail segment the previous head_position is
 
@@ -356,8 +379,7 @@ pub(crate) fn interpolate(
                             debug!("ADD POINT");
                         }
                         // the path is straight! just move the head and adjust the tail
-                        *parent_position =
-                            LinearInterpolator::lerp(pos_start.clone(), pos_end.clone(), t);
+                        *parent_position = LinearInterpolator::lerp(pos_start, pos_end, t);
                         tail.shorten_back(parent_position.0, tail_length.0);
                         debug!(
                             ?tail,
