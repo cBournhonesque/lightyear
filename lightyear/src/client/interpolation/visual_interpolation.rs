@@ -73,7 +73,7 @@ pub(crate) fn visual_interpolation<C: SyncComponent, P: Protocol>(
     let kind = C::type_name();
     let tick = tick_manager.tick();
     let overstep = time_manager.overstep();
-    for (mut component, mut interpolate_status) in query.iter_mut() {
+    for (mut component, interpolate_status) in query.iter_mut() {
         // TODO: think about how we can avoid running this all the time if the component is not changed
         // if !component.is_changed() {
         //     info!(
@@ -111,14 +111,14 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
     mut query: Query<(Ref<C>, &mut VisualInterpolateStatus<C>)>,
 ) {
     for (component, mut interpolate_status) in query.iter_mut() {
-        if !component.is_changed() {
-            info!("not updating interpolate status because component did not change");
-            continue;
-        }
-        info!("updating interpolate status");
         if let Some(current_value) = interpolate_status.current_value.take() {
             interpolate_status.previous_value = Some(current_value);
         }
+        if !component.is_changed() {
+            info!("not updating interpolate status current value because component did not change");
+            continue;
+        }
+        info!("updating interpolate status current_value");
         interpolate_status.current_value = Some(component.clone());
     }
 }
@@ -128,7 +128,7 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>)>,
 ) {
     let kind = C::type_name();
-    for (mut component, mut interpolate_status) in query.iter_mut() {
+    for (mut component, interpolate_status) in query.iter_mut() {
         // TODO: do this only if we actually did visual interpolation
         // if interpolate_status.is_changed() {
         if let Some(current_value) = &interpolate_status.current_value {
@@ -136,5 +136,537 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
             *component.bypass_change_detection() = current_value.clone();
         }
         // }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::input::InputSystemSet;
+    use crate::client::interpolation::add_visual_interpolation_systems;
+    use crate::client::sync::SyncConfig;
+    use crate::prelude::client::{InterpolateStatus, InterpolationConfig, PredictionConfig};
+    use crate::prelude::{FixedUpdateSet, LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+    use approx::{abs_diff_eq, assert_abs_diff_eq, assert_relative_eq};
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
+    use tracing_subscriber::fmt::format::FmtSpan;
+
+    #[derive(Resource, Debug)]
+    pub struct Toggle(bool);
+
+    fn setup(tick_duration: Duration, frame_duration: Duration) -> (BevyStepper, Entity) {
+        let shared_config = SharedConfig {
+            enable_replication: true,
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = BevyStepper::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper.client_app.add_systems(
+            FixedUpdate,
+            fixed_update_increment.in_set(FixedUpdateSet::Main),
+        );
+        stepper.client_app.world.insert_resource(Toggle(true));
+        add_visual_interpolation_systems::<Component1, MyProtocol>(&mut stepper.client_app);
+        let entity = stepper
+            .client_app
+            .world
+            .spawn((
+                Component1(0.0),
+                VisualInterpolateStatus::<Component1>::default(),
+            ))
+            .id();
+        (stepper, entity)
+    }
+
+    fn fixed_update_increment(mut query: Query<&mut Component1>, enabled: Res<Toggle>) {
+        if enabled.0 {
+            for mut component1 in query.iter_mut() {
+                component1.0 += 1.0;
+            }
+        }
+    }
+
+    #[test]
+    fn test_shorter_tick_normal() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+        let (mut stepper, entity) = setup(Duration::from_millis(9), Duration::from_millis(12));
+
+        stepper.frame_step();
+        // TODO: should we not show the component at all until we have enough to interpolate?
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            1.0
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: None,
+                current_value: Some(Component1(1.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.33,
+            max_relative = 0.1
+        );
+
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            1.66,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(1.0)),
+                current_value: Some(Component1(2.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.66,
+            max_relative = 0.1
+        );
+
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            3.00,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(3.0)),
+                current_value: Some(Component1(4.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.00,
+            max_relative = 0.1
+        );
+
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            4.33,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(4.0)),
+                current_value: Some(Component1(5.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.33,
+            max_relative = 0.1
+        );
+    }
+
+    #[test]
+    fn test_shorter_tick_unchanged() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+        let (mut stepper, entity) = setup(Duration::from_millis(9), Duration::from_millis(12));
+
+        stepper.frame_step();
+        // TODO: should we not show the component at all until we have enough to interpolate?
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            1.0
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: None,
+                current_value: Some(Component1(1.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.33,
+            max_relative = 0.1
+        );
+
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            1.66,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(1.0)),
+                current_value: Some(Component1(2.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.66,
+            max_relative = 0.1
+        );
+
+        stepper.client_app.world.resource_mut::<Toggle>().0 = false;
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            2.00,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(2.0)),
+                current_value: None,
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.00,
+            max_relative = 0.1
+        );
+
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            2.0,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(2.0)),
+                current_value: None,
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.33,
+            max_relative = 0.1
+        );
+        stepper.client_app.world.resource_mut::<Toggle>().0 = true;
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            2.66,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: Some(Component1(2.0)),
+                current_value: Some(Component1(3.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.66,
+            max_relative = 0.1
+        );
+    }
+
+    #[test]
+    fn test_shorter_frame_normal() {
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+        let (mut stepper, entity) = setup(Duration::from_millis(12), Duration::from_millis(9));
+
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            0.0
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: None,
+                current_value: None,
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.75,
+            max_relative = 0.1
+        );
+
+        stepper.frame_step();
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<Component1>()
+                .unwrap()
+                .0,
+            1.0,
+            max_relative = 0.1
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .entity(entity)
+                .get::<VisualInterpolateStatus<Component1>>()
+                .unwrap(),
+            &VisualInterpolateStatus {
+                previous_value: None,
+                current_value: Some(Component1(1.0)),
+            }
+        );
+        assert_relative_eq!(
+            stepper
+                .client_app
+                .world
+                .resource::<TimeManager>()
+                .overstep(),
+            0.5,
+            max_relative = 0.1
+        );
+        //
+        // stepper.frame_step();
+        // assert_relative_eq!(
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .entity(entity)
+        //         .get::<Component1>()
+        //         .unwrap()
+        //         .0,
+        //     3.00,
+        //     max_relative = 0.1
+        // );
+        // assert_eq!(
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .entity(entity)
+        //         .get::<VisualInterpolateStatus<Component1>>()
+        //         .unwrap(),
+        //     &VisualInterpolateStatus {
+        //         previous_value: Some(Component1(3.0)),
+        //         current_value: Some(Component1(4.0)),
+        //     }
+        // );
+        // assert_relative_eq!(
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .resource::<TimeManager>()
+        //         .overstep(),
+        //     0.00,
+        //     max_relative = 0.1
+        // );
+        //
+        // stepper.frame_step();
+        // assert_relative_eq!(
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .entity(entity)
+        //         .get::<Component1>()
+        //         .unwrap()
+        //         .0,
+        //     4.33,
+        //     max_relative = 0.1
+        // );
+        // assert_eq!(
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .entity(entity)
+        //         .get::<VisualInterpolateStatus<Component1>>()
+        //         .unwrap(),
+        //     &VisualInterpolateStatus {
+        //         previous_value: Some(Component1(4.0)),
+        //         current_value: Some(Component1(5.0)),
+        //     }
+        // );
+        // assert_relative_eq!(
+        //     stepper
+        //         .client_app
+        //         .world
+        //         .resource::<TimeManager>()
+        //         .overstep(),
+        //     0.33,
+        //     max_relative = 0.1
+        // );
     }
 }
