@@ -5,7 +5,7 @@ use bevy::prelude::{
     With, Without, World,
 };
 use bevy::utils::EntityHashSet;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
@@ -169,6 +169,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
         return;
     }
     let _span = trace_span!("client rollback prepare");
+    debug!("in prepare rollback");
 
     let current_tick = tick_manager.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {

@@ -22,7 +22,6 @@ mod tests {
     use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
     use bevy::utils::Duration;
     use tracing::info;
-    use tracing_subscriber::fmt::format::FmtSpan;
     use wtransport::tls::Certificate;
 
     #[cfg(not(target_family = "wasm"))]

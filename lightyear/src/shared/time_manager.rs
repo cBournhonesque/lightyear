@@ -50,7 +50,7 @@ impl Plugin for TimePlugin {
 }
 
 fn update_overstep(mut time_manager: ResMut<TimeManager>, fixed_time: Res<Time<Fixed>>) {
-    time_manager.update_overstep(fixed_time.overstep());
+    time_manager.update_overstep(fixed_time.overstep_percentage());
 }
 
 #[derive(Resource)]
@@ -59,8 +59,8 @@ pub struct TimeManager {
     wrapped_time: WrappedTime,
     /// The real time
     real_time: WrappedTime,
-    /// The remaining time after running the fixed-update steps
-    overstep: Duration,
+    /// The remaining time after running the fixed-update steps, as a fraction of the tick time
+    overstep: f32,
     /// The time since the last frame; gets update by bevy's Time resource at the start of the frame
     delta: Duration,
     /// The relative speed set by the client.
@@ -86,7 +86,7 @@ impl TimeManager {
         Self {
             wrapped_time: WrappedTime::new(0),
             real_time: WrappedTime::new(0),
-            overstep: Duration::default(),
+            overstep: 0.0,
             delta: Duration::default(),
             base_relative_speed: 1.0,
             sync_relative_speed: 1.0,
@@ -105,7 +105,9 @@ impl TimeManager {
         self.delta
     }
 
-    pub fn overstep(&self) -> Duration {
+    /// Get the overstep (remaining time after running the fixed-update steps)
+    /// as a fraction of the tick time
+    pub fn overstep(&self) -> f32 {
         self.overstep
     }
 
@@ -140,7 +142,7 @@ impl TimeManager {
     }
 
     /// Update the overstep (right after the overstep was computed, after RunFixedUpdateLoop)
-    fn update_overstep(&mut self, overstep: Duration) {
+    pub(crate) fn update_overstep(&mut self, overstep: f32) {
         self.overstep = overstep;
     }
 
@@ -248,6 +250,17 @@ mod wrapped_time {
             let elapsed =
                 ((generation as u32 * (u16::MAX as u32 + 1)) + tick.0 as u32) * tick_duration;
             Self { elapsed }
+        }
+
+        /// Convert the time to a tick, using the tick duration.
+        pub fn to_tick(&self, tick_duration: Duration) -> Tick {
+            Tick((self.elapsed.as_nanos() / tick_duration.as_nanos()) as u16)
+        }
+
+        /// If the time is between two ticks, give us the overstep as a percentage of a tick duration
+        pub fn tick_overstep(&self, tick_duration: Duration) -> f32 {
+            (self.elapsed.as_nanos() % tick_duration.as_nanos()) as f32
+                / tick_duration.as_nanos() as f32
         }
 
         pub fn to_duration(&self) -> Duration {
@@ -510,5 +523,33 @@ mod tests {
             WrappedTime::from_tick(Tick(1), 1, tick_duration),
             WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 2))
         );
+    }
+
+    #[test]
+    fn test_to_tick() {
+        let tick_duration = Duration::from_secs_f32(1.0 / 64.0);
+
+        let time = WrappedTime::from_duration(tick_duration * (u16::MAX as u32));
+        assert_eq!(time.to_tick(tick_duration), Tick(u16::MAX));
+
+        let time = WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 1));
+        assert_eq!(time.to_tick(tick_duration), Tick(0));
+
+        let time = WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 2));
+        assert_eq!(time.to_tick(tick_duration), Tick(1));
+    }
+
+    #[test]
+    fn test_tick_overstep() {
+        let tick_duration = Duration::from_secs_f32(1.0 / 64.0);
+
+        let time = WrappedTime::from_duration(tick_duration.mul_f32(0.5));
+        assert_eq!(time.tick_overstep(tick_duration), 0.5);
+
+        let time = WrappedTime::from_duration(tick_duration.mul_f32(1.5));
+        assert_eq!(time.tick_overstep(tick_duration), 0.5);
+
+        let time = WrappedTime::from_duration(tick_duration.mul_f32(u16::MAX as f32 + 1.5));
+        assert_eq!(time.tick_overstep(tick_duration), 0.5);
     }
 }

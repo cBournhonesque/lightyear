@@ -6,6 +6,7 @@ use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::ops::Mul;
 use tracing::{debug, info, trace};
 
 // Player
@@ -74,9 +75,17 @@ impl TailBundle {
 pub struct PlayerId(ClientId);
 
 #[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
+    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add,
 )]
 pub struct PlayerPosition(pub(crate) Vec2);
+
+impl Mul<f32> for &PlayerPosition {
+    type Output = PlayerPosition;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        PlayerPosition(self.0 * rhs)
+    }
+}
 
 impl PlayerPosition {
     /// Checks if the position is between two other positions.

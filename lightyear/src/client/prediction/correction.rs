@@ -6,7 +6,7 @@
 // - interpolate (provided)
 // - custom
 
-use bevy::prelude::{Commands, Component, Entity, Query, Res};
+use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
 use crate::_reexport::ComponentProtocol;
@@ -31,10 +31,10 @@ use crate::protocol::Protocol;
 
 /// We snapback instantly to the Corrected state
 pub struct InstantCorrector;
-impl<C: Component> LerpFn<C> for InstantCorrector {
-    fn lerp(predicted: C, corrected: C, t: f32) -> C {
+impl<C: Clone> LerpFn<C> for InstantCorrector {
+    fn lerp(predicted: &C, corrected: &C, t: f32) -> C {
         // the correction is instant, so we just return the Corrected state
-        corrected
+        corrected.clone()
     }
 
     // fn get_correction_final_tick(&self, prediction_tick: Tick) -> Tick {
@@ -109,15 +109,12 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
             // visually update the component
-            let visual = P::Components::correct(
-                correction.original_prediction.clone(),
-                component.clone(),
-                t,
-            );
+            let visual =
+                P::Components::correct(&correction.original_prediction, component.as_ref(), t);
             // store the current visual value
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value
-            *component = visual;
+            *component.bypass_change_detection() = visual;
         }
     }
 }
@@ -129,7 +126,7 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
     for (mut component, mut correction) in query.iter_mut() {
         if let Some(correction) = std::mem::take(&mut correction.current_correction) {
             debug!("restoring corrected component: {:?}", component.name());
-            *component = correction;
+            *component.bypass_change_detection() = correction;
         } else {
             debug!(
                 "Corrected component was None so couldn't restore: {:?}",
