@@ -8,6 +8,7 @@ use leafwing_input_manager::InputManagerBundle;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use serde::{Deserialize, Serialize};
+use std::ops::Mul;
 use tracing::info;
 use UserAction;
 
@@ -70,6 +71,14 @@ pub struct PlayerId(pub ClientId);
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
 pub struct Position(pub(crate) Vec2);
+
+impl Mul<f32> for &Position {
+    type Output = Position;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Position(self.0 * rhs)
+    }
+}
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);

@@ -3,6 +3,7 @@ use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::ops::Mul;
 
 // Player
 #[derive(Bundle)]
@@ -65,6 +66,14 @@ pub struct PlayerId(pub ClientId);
 )]
 pub struct PlayerPosition(Vec2);
 
+impl Mul<f32> for &PlayerPosition {
+    type Output = PlayerPosition;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        PlayerPosition(self.0 * rhs)
+    }
+}
+
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
@@ -72,6 +81,14 @@ pub struct PlayerColor(pub(crate) Color);
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
 pub struct CursorPosition(pub Vec2);
+
+impl Mul<f32> for &CursorPosition {
+    type Output = CursorPosition;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        CursorPosition(self.0 * rhs)
+    }
+}
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {

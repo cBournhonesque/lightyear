@@ -18,7 +18,7 @@ pub mod position {
     pub struct PositionLinearInterpolation;
 
     impl LerpFn<Position> for PositionLinearInterpolation {
-        fn lerp(start: Position, other: Position, t: f32) -> Position {
+        fn lerp(start: &Position, other: &Position, t: f32) -> Position {
             let res = Position::new(start.0 * (1.0 - t) + other.0 * t);
             trace!(
                 "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
@@ -50,7 +50,7 @@ pub mod rotation {
     pub struct RotationLinearInterpolation;
 
     impl LerpFn<Rotation> for RotationLinearInterpolation {
-        fn lerp(start: Rotation, other: Rotation, t: f32) -> Rotation {
+        fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
             let shortest_angle =
                 ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
             let res = Rotation::from_degrees(start.as_degrees() + shortest_angle * t);
@@ -90,7 +90,7 @@ pub mod linear_velocity {
     pub struct LinearVelocityLinearInterpolation;
 
     impl LerpFn<LinearVelocity> for LinearVelocityLinearInterpolation {
-        fn lerp(start: LinearVelocity, other: LinearVelocity, t: f32) -> LinearVelocity {
+        fn lerp(start: &LinearVelocity, other: &LinearVelocity, t: f32) -> LinearVelocity {
             let res = LinearVelocity(start.0 * (1.0 - t) + other.0 * t);
             trace!(
                 "linear velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
@@ -122,7 +122,7 @@ pub mod angular_velocity {
     pub struct AngularVelocityLinearInterpolation;
 
     impl LerpFn<AngularVelocity> for AngularVelocityLinearInterpolation {
-        fn lerp(start: AngularVelocity, other: AngularVelocity, t: f32) -> AngularVelocity {
+        fn lerp(start: &AngularVelocity, other: &AngularVelocity, t: f32) -> AngularVelocity {
             let res = AngularVelocity(start.0 * (1.0 - t) + other.0 * t);
             trace!(
                 "angular velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
