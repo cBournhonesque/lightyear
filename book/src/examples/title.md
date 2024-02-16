@@ -59,7 +59,7 @@ This example showcases several things:
     - `correction_ticks`: when there is a misprediction, we don't immediately snapback to the corrected state, but instead we visually interpolate
       from the current state to the corrected state. This parameter helps make mispredictions less jittery.
 
-### [Priority](https://cbournhonesque.github.io/lightyear/examples/priority/dist/))
+### [Priority](https://cbournhonesque.github.io/lightyear/examples/priority/dist/)
 
 This examples shows how `lightyear` can help with bandwidth management.
 See this [chapter](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/bandwidth_management.html) of the book.
