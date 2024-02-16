@@ -169,7 +169,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent, P: Protocol>(
         return;
     }
     let _span = trace_span!("client rollback prepare");
-    info!("in prepare rollback");
+    debug!("in prepare rollback");
 
     let current_tick = tick_manager.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {

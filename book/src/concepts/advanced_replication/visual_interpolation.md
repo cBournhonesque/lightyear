@@ -16,6 +16,26 @@ To solve this, `lightyear` provides the `VisualInterpolation` plugin.
 The plugin will take care of interpolating the position of the entity between the last two `FixedUpdate` ticks, thus making sure that 
 the entity is making smooth progress on every frame.
 
+There are 3 main ways we can interpolate the component:
+- #1: `lerp(previous_tick_value, current_tick_value, time.overstep_fraction())`: interpolate between the previous tick value and the current tick value.
+  - PROS: relatively simple to implement
+  - CONS:
+    - introduces a visual delay of 1 simulation tick
+    - need to store the previous and current value (so extra component clones)
+- #2: simulate an extra step during FixedUpdate to compute the `future_tick_value`, then interpolate between the `current_tick_value` and the `future_tick_value`
+  `lerp(current_tick_value, future_tick_value, time.overstep_fraction())`
+  - PROS: might be less accurate? (we simulate 1 tick ahead in the future, but maybe that simulation is incorrect because we ran it ahead of when it should have run)
+  - CONS:
+    - need to store the previous and current value (so extra component clones)
+- #3: do not interpolate, but instead run the simulation (FixedUpdate schedule) for one 'partial' tick, i.e. we use (time.overstep_fraction() * fixed_timestep) as the timestep for the simulation.
+  - PROS:
+    - no visual delay, 
+    - no need to store copies of the components 
+  - CONS: 
+    - we might run many extra simulation steps if we run an extra partial step in every frame
+
+Currently lightyear only provides option 1: interpolate between the previous tick value and the current tick value.
+
 ## How does it work?
 
 There are 3 main systems:

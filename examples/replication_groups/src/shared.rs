@@ -39,15 +39,12 @@ impl Plugin for SharedPlugin {
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
-        Inputs::Direction(direction) => {
-            info!("moving head!");
-            match direction {
-                Direction::Up => position.y += MOVE_SPEED,
-                Direction::Down => position.y -= MOVE_SPEED,
-                Direction::Left => position.x -= MOVE_SPEED,
-                Direction::Right => position.x += MOVE_SPEED,
-            }
-        }
+        Inputs::Direction(direction) => match direction {
+            Direction::Up => position.y += MOVE_SPEED,
+            Direction::Down => position.y -= MOVE_SPEED,
+            Direction::Left => position.x -= MOVE_SPEED,
+            Direction::Right => position.x += MOVE_SPEED,
+        },
         _ => {}
     }
 }

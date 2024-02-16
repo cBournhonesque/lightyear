@@ -6,9 +6,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::_reexport::LinearInterpolator;
-use lightyear::client::interpolation::add_visual_interpolation_systems;
 use lightyear::connection::netcode::NetcodeServer;
-use lightyear::prelude::client::InterpolationSet::VisualInterpolation;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::collections::VecDeque;
@@ -134,8 +132,11 @@ impl Plugin for ExampleClientPlugin {
                 .in_set(FixedUpdateSet::Main),
         );
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
-        add_visual_interpolation_systems::<PlayerPosition, MyProtocol>(app);
 
+        // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
+        // (updating it only during FixedUpdate might cause visual artifacts, see:
+        //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
+        app.add_plugins(VisualInterpolationPlugin::<PlayerPosition, MyProtocol>::default());
         app.add_systems(Update, debug_pre_visual_interpolation);
         app.add_systems(Last, debug_post_visual_interpolation);
     }
@@ -213,15 +214,14 @@ pub(crate) fn handle_predicted_spawn(
 ) {
     for (entity, mut color) in predicted_heads.iter_mut() {
         color.0.set_s(0.3);
+        // add visual interpolation for the head position of the predited entity
+        // so that the position gets updated smoothly every frame
+        // (updating it only during FixedUpdate might cause visual artifacts, see:
+        //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
         commands
             .entity(entity)
             .insert(VisualInterpolateStatus::<PlayerPosition>::default());
     }
-    // for entity in predicted_tails.iter() {
-    //     commands
-    //         .entity(entity)
-    //         .insert(VisualInterpolateStatus::<TailPoints>::default())
-    // }
 }
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
@@ -241,15 +241,15 @@ pub(crate) fn debug_prediction_pre_rollback(
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
-    info!(tick = ?tick_manager.tick(),
+    trace!(tick = ?tick_manager.tick(),
         inputs = ?client.get_input_buffer(),
         "prediction pre rollback debug");
     for (parent, tail_history) in tail_query.iter() {
         let parent_history = parent_query
             .get(parent.0)
             .expect("Tail entity has no parent entity!");
-        info!(?parent_history, "parent");
-        info!(?tail_history, "tail");
+        trace!(?parent_history, "parent");
+        trace!(?tail_history, "tail");
     }
 }
 
@@ -258,13 +258,13 @@ pub(crate) fn debug_prediction_post_rollback(
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
-    info!(tick = ?tick_manager.tick(), "prediction post rollback debug");
+    trace!(tick = ?tick_manager.tick(), "prediction post rollback debug");
     for (parent, tail_history) in tail_query.iter() {
         let parent_history = parent_query
             .get(parent.0)
             .expect("Tail entity has no parent entity!");
-        info!(?parent_history, "parent");
-        info!(?tail_history, "tail");
+        trace!(?parent_history, "parent");
+        trace!(?tail_history, "tail");
     }
 }
 
@@ -274,7 +274,7 @@ pub(crate) fn debug_pre_visual_interpolation(
 ) {
     let tick = tick_manager.tick();
     for (position, interpolate_status) in query.iter() {
-        info!(
+        trace!(
             ?tick,
             ?position,
             ?interpolate_status,
@@ -289,7 +289,7 @@ pub(crate) fn debug_post_visual_interpolation(
 ) {
     let tick = tick_manager.tick();
     for (position, interpolate_status) in query.iter() {
-        info!(
+        trace!(
             ?tick,
             ?position,
             ?interpolate_status,
