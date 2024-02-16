@@ -112,7 +112,7 @@ pub mod prelude {
             InterpolationConfig, InterpolationDelay, InterpolationSet,
         };
         pub use crate::client::interpolation::{
-            InterpolateStatus, Interpolated, VisualInterpolateStatus,
+            InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;

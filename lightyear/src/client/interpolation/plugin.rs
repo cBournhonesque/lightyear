@@ -152,32 +152,6 @@ pub enum InterpolationSet {
 // - a PROBLEM is that ideally we would like to rollback the physics simulation
 //   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
 //  the tick we rollback to would not be the current client tick ?
-
-pub fn add_visual_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
-where
-    P::Components: SyncMetadata<C>,
-{
-    match P::Components::mode() {
-        ComponentSyncMode::Full => {
-            app.add_systems(
-                PreUpdate,
-                restore_from_visual_interpolation::<C>
-                    .in_set(InterpolationSet::RestoreVisualInterpolation),
-            );
-            app.add_systems(
-                FixedUpdate,
-                update_visual_interpolation_status::<C>
-                    .in_set(InterpolationSet::UpdateVisualInterpolationState),
-            );
-            app.add_systems(
-                PostUpdate,
-                visual_interpolation::<C, P>.in_set(InterpolationSet::VisualInterpolation),
-            );
-        }
-        _ => {}
-    }
-}
-
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::Components: SyncMetadata<C>,
@@ -238,11 +212,6 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         // RESOURCES
         app.init_resource::<InterpolationManager>();
         // SETS
-        app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
-        app.configure_sets(
-            FixedUpdate,
-            InterpolationSet::UpdateVisualInterpolationState.after(FixedUpdateSet::MainFlush),
-        );
         app.configure_sets(
             Update,
             (
@@ -257,7 +226,6 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             )
                 .chain(),
         );
-        app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
         // SYSTEMS
         app.add_systems(
             Update,
