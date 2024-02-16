@@ -3,9 +3,9 @@
 
 This section will teach you how to quickly setup networking in your bevy game using this crate.
 
-You can find an example game in the [examples](https://github.com/cBournhonesque/lightyear/tree/main/tests/examples) folder.
+You can find an example game in the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples) folder.
 
-In this tutorial, we will reproduce the [simple box example](https://github.com/cBournhonesque/lightyear/tree/main/tests/examples/simple_box) to demonstrate the features of this crate.
+In this tutorial, we will reproduce the [simple box example](https://github.com/cBournhonesque/lightyear/tree/main/examples/simple_box) to demonstrate the features of this crate.
 
 ## Setup
 
@@ -41,10 +41,10 @@ pub enum Inputs {
     // NOTE: we NEED to provide a None input so that the server can distinguish between lost input packets and 'None' inputs
     None,
 }
-impl UserInput for Inputs {}
+impl UserAction for Inputs {}
 ```
 
-Inputs have to implement the `UserInput` trait, which means that they must be `Send + Sync + 'static` and can be serialized.
+Inputs have to implement the `UserAction` trait, which means that they must be `Send + Sync + 'static` and can be serialized.
 
 ## Message
 
@@ -67,13 +67,13 @@ Each variant must implement the `Message` trait, and the message protocol must c
 
 Let's define our components protocol:
 ```rust
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
 pub struct PlayerPosition(Vec2);
 
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
 #[component_protocol(protocol = "MyProtocol")]
