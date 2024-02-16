@@ -3,6 +3,7 @@ use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::ops::Mul;
 
 // Player
 #[derive(Bundle)]
@@ -38,6 +39,14 @@ pub struct PlayerId(ClientId);
     Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
 )]
 pub struct PlayerPosition(Vec2);
+
+impl Mul<f32> for &PlayerPosition {
+    type Output = PlayerPosition;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        PlayerPosition(self.0 * rhs)
+    }
+}
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
