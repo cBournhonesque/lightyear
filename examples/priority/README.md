@@ -11,7 +11,9 @@ In this example, the center row has priority 1.0, and each row further away from
 You can find more information in the [book](https://github.com/cBournhonesque/lightyear/blob/main/book/src/concepts/advanced_replication/bandwidth_management.md)
 
 
-https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-8974-1d208b4ef798
+https://github.com/cBournhonesque/lightyear/assets/8112632/0efcd974-b181-4910-9312-5307fbd45718
+
+
 
 ## Running the example
 

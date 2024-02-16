@@ -171,8 +171,8 @@ pub(crate) fn movement(
                 tick_manager.tick()
             );
             if let Some((player_entity, _)) = global.client_id_to_entity_id.get(client_id) {
-                if let Ok(mut position) = position_query.get_mut(*player_entity) {
-                    shared_movement_behaviour(&mut position, input);
+                if let Ok(position) = position_query.get_mut(*player_entity) {
+                    shared_movement_behaviour(position, input);
                 }
             }
         }

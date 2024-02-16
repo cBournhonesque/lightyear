@@ -175,17 +175,21 @@ impl BevyStepper {
             self.frame_step();
         }
     }
+
+    pub(crate) fn advance_time(&mut self, duration: Duration) {
+        self.current_time += duration;
+        self.client_app
+            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        self.server_app
+            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        mock_instant::MockClock::advance(duration);
+    }
 }
 
 impl Step for BevyStepper {
     /// Advance the world by one frame duration
     fn frame_step(&mut self) {
-        self.current_time += self.frame_duration;
-        self.client_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        self.server_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        mock_instant::MockClock::advance(self.frame_duration);
+        self.advance_time(self.frame_duration);
         self.client_app.update();
         // sleep a bit to make sure that local io receives the packets
         // std::thread::sleep(Duration::from_millis(1));
@@ -194,12 +198,7 @@ impl Step for BevyStepper {
     }
 
     fn tick_step(&mut self) {
-        self.current_time += self.tick_duration;
-        self.client_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        self.server_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        mock_instant::MockClock::advance(self.tick_duration);
+        self.advance_time(self.tick_duration);
         self.client_app.update();
         self.server_app.update();
     }

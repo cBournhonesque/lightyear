@@ -86,6 +86,12 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
 ) where
     P::Components: SyncMetadata<C>,
 {
+    let current_tick = connection
+        .sync_manager
+        .interpolation_tick(tick_manager.as_ref());
+    let current_overstep = connection
+        .sync_manager
+        .interpolation_overstep(tick_manager.as_ref());
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.interpolated {
             if let Ok(interpolated_entity) = interpolated_entities.get(p) {
@@ -109,9 +115,8 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                                 InterpolateStatus::<C> {
                                     start: None,
                                     end: None,
-                                    current: connection
-                                        .sync_manager
-                                        .interpolation_tick(tick_manager.as_ref()),
+                                    current_tick,
+                                    current_overstep,
                                 },
                             ));
                         }

@@ -8,8 +8,6 @@ use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{EntityHashMap, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace, warn};
-use tracing_subscriber::filter::FilterExt;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;

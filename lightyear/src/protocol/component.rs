@@ -103,14 +103,14 @@ pub trait ComponentProtocol:
     }
 
     /// Get the sync mode for the component
-    fn lerp<C>(start: C, other: C, t: f32) -> C
+    fn lerp<C>(start: &C, other: &C, t: f32) -> C
     where
         Self: SyncMetadata<C>,
     {
         <Self as SyncMetadata<C>>::Interpolator::lerp(start, other, t)
     }
 
-    fn correct<C>(predicted: C, corrected: C, t: f32) -> C
+    fn correct<C>(predicted: &C, corrected: &C, t: f32) -> C
     where
         Self: SyncMetadata<C>,
     {
