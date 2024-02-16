@@ -14,12 +14,18 @@
 //! This module currently has some caveats:
 //! - the systems are only compatible with components that are present in the protocol and have a SyncMetadata implementation
 //!   (because the InterpolatorFn is associated with the protocol, not the component itself, to circumvent the orphan rule)
-//! - the systems are not added to the schedule by default, you have to add them manually:
+//! - VisualInterpolation is not enabled by default, you have to add the plugin manually
 //! ```rust,no_run,ignore
 //! # use crate::tests::protocol::*;
-//! # let mut app = bevy::app::App::new();
-//! # use lightyear::client::interpolation::add_visual_interpolation_systems;
-//! add_visual_interpolation_systems::<Component1, MyProtocol>(&mut app);
+//! use lightyear::prelude::client::VisualInterpolationPlugin;
+//! let mut app = bevy::app::App::new();
+//! app.add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
+//! ```
+//! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
+//! ```rust,no_run_ignore
+//! fn spawn_entity(mut commands: Commands) {
+//!     commands.spawn().insert(VisualInterpolateState::<Component1>::default());
+//! }
 //! ```
 
 // TODO: in post-update, interpolate the visual state of the game between with 1 tick of delay.
@@ -133,37 +139,25 @@ pub(crate) fn visual_interpolation<C: SyncComponent, P: Protocol>(
     let tick = tick_manager.tick();
     let overstep = time_manager.overstep();
     for (mut component, interpolate_status) in query.iter_mut() {
-        // TODO: think about how we can avoid running this all the time if the component is not changed
-        // if !component.is_changed() {
-        //     info!(
-        //         ?kind,
-        //         "Component is not changed, skipping visual interpolation"
-        //     );
-        //     continue;
-        // }
         let Some(previous_value) = &interpolate_status.previous_value else {
-            info!(?kind, "No previous value, skipping visual interpolation");
+            trace!(?kind, "No previous value, skipping visual interpolation");
             continue;
         };
         let Some(current_value) = &interpolate_status.current_value else {
-            info!(?kind, "No current value, skipping visual interpolation");
+            trace!(?kind, "No current value, skipping visual interpolation");
             continue;
         };
-        info!(
+        trace!(
             ?kind,
             ?tick,
             ?overstep,
-            // ?previous_value,
-            // current_value = ?component.as_ref(),
             "Visual interpolation of fixed-update component!"
         );
         *component.bypass_change_detection() =
             P::Components::lerp(previous_value, current_value, overstep);
-        // interpolate_status.previous_value = Some(current_value);
     }
 }
 
-// TODO: handle edge states
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
 pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
@@ -174,10 +168,12 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
             interpolate_status.previous_value = Some(current_value);
         }
         if !component.is_changed() {
-            info!("not updating interpolate status current value because component did not change");
+            trace!(
+                "not updating interpolate status current value because component did not change"
+            );
             continue;
         }
-        info!("updating interpolate status current_value");
+        trace!("updating interpolate status current_value");
         interpolate_status.current_value = Some(component.clone());
     }
 }
@@ -188,13 +184,10 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
 ) {
     let kind = C::type_name();
     for (mut component, interpolate_status) in query.iter_mut() {
-        // TODO: do this only if we actually did visual interpolation
-        // if interpolate_status.is_changed() {
         if let Some(current_value) = &interpolate_status.current_value {
-            info!(?kind, "Restoring visual interpolation");
+            trace!(?kind, "Restoring visual interpolation");
             *component.bypass_change_detection() = current_value.clone();
         }
-        // }
     }
 }
 
