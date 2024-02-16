@@ -36,20 +36,16 @@ pub struct InterpolateStatus<C: Component> {
 
 impl<C: Component> InterpolateStatus<C> {
     pub fn interpolation_fraction(&self) -> Option<f32> {
-        self.start
-            .as_ref()
-            .map(|(start_tick, _)| {
-                self.end.as_ref().map(|(end_tick, _)| {
-                    if *start_tick != *end_tick {
-                        let t = ((self.current_tick - *start_tick) as f32 + self.current_overstep)
-                            / (*end_tick - *start_tick) as f32;
-                        t
-                    } else {
-                        0.0
-                    }
-                })
+        self.start.as_ref().and_then(|(start_tick, _)| {
+            self.end.as_ref().map(|(end_tick, _)| {
+                if *start_tick != *end_tick {
+                    ((self.current_tick - *start_tick) as f32 + self.current_overstep)
+                        / (*end_tick - *start_tick) as f32
+                } else {
+                    0.0
+                }
             })
-            .flatten()
+        })
     }
 }
 

@@ -22,7 +22,7 @@
 //! app.add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
 //! ```
 //! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
-//! ```rust,no_run_ignore
+//! ```rust,no_run,ignore
 //! fn spawn_entity(mut commands: Commands) {
 //!     commands.spawn().insert(VisualInterpolateState::<Component1>::default());
 //! }
@@ -72,24 +72,21 @@ where
         app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
 
         // SYSTEMS
-        match P::Components::mode() {
-            ComponentSyncMode::Full => {
-                app.add_systems(
-                    PreUpdate,
-                    restore_from_visual_interpolation::<C>
-                        .in_set(InterpolationSet::RestoreVisualInterpolation),
-                );
-                app.add_systems(
-                    FixedUpdate,
-                    update_visual_interpolation_status::<C>
-                        .in_set(InterpolationSet::UpdateVisualInterpolationState),
-                );
-                app.add_systems(
-                    PostUpdate,
-                    visual_interpolation::<C, P>.in_set(InterpolationSet::VisualInterpolation),
-                );
-            }
-            _ => {}
+        if P::Components::mode() == ComponentSyncMode::Full {
+            app.add_systems(
+                PreUpdate,
+                restore_from_visual_interpolation::<C>
+                    .in_set(InterpolationSet::RestoreVisualInterpolation),
+            );
+            app.add_systems(
+                FixedUpdate,
+                update_visual_interpolation_status::<C>
+                    .in_set(InterpolationSet::UpdateVisualInterpolationState),
+            );
+            app.add_systems(
+                PostUpdate,
+                visual_interpolation::<C, P>.in_set(InterpolationSet::VisualInterpolation),
+            );
         }
     }
 }
@@ -102,7 +99,7 @@ where
 /// - start_value = previous_value
 /// - end_tick = current_tick
 /// - end_value = current_value
-/// - overstep = Time<Fixed>.overstep_percentage() = TimeManager.overstep()
+/// - overstep = `Time<Fixed>`.overstep_percentage() = TimeManager.overstep()
 #[derive(Component, PartialEq, Debug)]
 pub struct VisualInterpolateStatus<C: Component> {
     /// Value of the component at the previous tick

@@ -367,7 +367,6 @@ pub(crate) fn spawn_pre_spawned_player_object<P: Protocol>(
 mod tests {
     use bevy::prelude::Entity;
     use bevy::utils::{Duration, EntityHashMap};
-    use tracing_subscriber::fmt::format::FmtSpan;
 
     use crate::_reexport::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
