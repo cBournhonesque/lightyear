@@ -13,7 +13,7 @@ mock_time = ["lightyear/mock_time"]
 [dependencies]
 bevy_framepace = "0.14.1"
 bevy_screen_diagnostics = "0.4.0"
-leafwing-input-manager = "0.11.2"
+leafwing-input-manager = "0.12.0"
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "websocket",
