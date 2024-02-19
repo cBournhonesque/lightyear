@@ -199,8 +199,9 @@ pub fn component_protocol_impl(
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
+            use bevy::ecs::entity::{EntityHashSet, MapEntities, EntityMapper};
             use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
-            use bevy::utils::{EntityHashMap, EntityHashSet, HashMap};
+            use bevy::utils::HashMap;
             use std::any::TypeId;
             use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
             #[cfg(feature = "leafwing")]
@@ -600,22 +601,15 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
 
     // TODO: make it work with generics (generic components)
     quote! {
-        impl<'a> MapEntities<'a> for #enum_name {
-            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        impl LightyearMapEntities for #enum_name {
+            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
                 match self {
                     #map_entities_body
                 }
             }
-            fn entities(&self) -> EntityHashSet<Entity> {
-                match self {
-                    #entities_body
-                }
-            }
         }
-        impl<'a> MapEntities<'a> for #enum_kind_name {
-            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-            fn entities(&self) -> EntityHashSet<Entity> {
-                EntityHashSet::default()
+        impl LightyearMapEntities for #enum_kind_name {
+            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
             }
         }
     }

@@ -1,11 +1,13 @@
 //! Defines bevy resources needed for Prediction
 
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
-use bevy::utils::EntityHashMap;
 
 use crate::_reexport::ReadyBuffer;
 use crate::prelude::Tick;
 use crate::shared::replication::entity_map::PredictedEntityMap;
+
+type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource, Default, Debug)]
 pub(crate) struct PredictionManager {

@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 
+use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::{
     Commands, DespawnRecursiveExt, DetectChanges, Entity, FixedUpdate, Query, Ref, Res, ResMut,
     With, Without, World,
 };
-use bevy::utils::EntityHashSet;
 use tracing::{debug, error, info, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, FromType};

@@ -41,7 +41,7 @@ pub fn message_impl(
         pub mod #module_name {
             use super::*;
             use bevy::prelude::*;
-            use bevy::utils::{EntityHashMap, EntityHashSet};
+            use bevy::ecs::entity::{MapEntities, EntityMapper};
             use #shared_crate_name::prelude::*;
 
             #map_entities_trait
@@ -59,29 +59,14 @@ pub fn message_impl(
 // Add the MapEntities trait for the message.
 // Need to combine the generics from the message with the generics from the trait
 fn map_entities_trait(input: &DeriveInput, ident_map: bool) -> TokenStream {
-    // combined generics
-    let mut gen_clone = input.generics.clone();
-    let lt: LifetimeParam = parse_quote_spanned! {Span::mixed_site() => 'a};
-    gen_clone.params.push(GenericParam::from(lt));
-    let (impl_generics, _, _) = gen_clone.split_for_impl();
-
     // type generics
-    let (_, type_generics, where_clause) = input.generics.split_for_impl();
-
-    // trait generics (MapEntities)
-    let mut map_entities_generics = Generics::default();
-    let lt: LifetimeParam = parse_quote_spanned! {Span::mixed_site() => 'a};
-    map_entities_generics.params.push(GenericParam::from(lt));
-    let (_, type_generics_map, _) = map_entities_generics.split_for_impl();
+    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
 
     let struct_name = &input.ident;
     if ident_map {
         quote! {
-            impl #impl_generics MapEntities #type_generics_map for #struct_name #type_generics #where_clause {
-                fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-                fn entities(&self) -> EntityHashSet<Entity> {
-                    EntityHashSet::default()
-                }
+            impl #impl_generics MapEntities for #struct_name #type_generics #where_clause {
+                fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
             }
         }
     } else {
@@ -164,7 +149,7 @@ pub fn message_protocol_impl(
             use super::*;
             use serde::{Serialize, Deserialize};
             use bevy::prelude::{App, Entity, World};
-            use bevy::utils::{EntityHashMap, EntityHashSet};
+            use bevy::ecs::entity::{MapEntities, EntityMapper};
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::shared::systems::events::push_message_events;
@@ -376,22 +361,13 @@ fn map_entities_impl(input: &ItemEnum) -> TokenStream {
             #map_entities_body
             #enum_name::#ident(ref mut x) => x.map_entities(entity_mapper),
         };
-        entities_body = quote! {
-            #entities_body
-            #enum_name::#ident(ref x) => x.entities(),
-        };
     }
 
     quote! {
-        impl<'a> MapEntities<'a> for #enum_name {
-            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+        impl LightyearMapEntities for #enum_name {
+            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
                 match self {
                     #map_entities_body
-                }
-            }
-            fn entities(&self) -> EntityHashSet<Entity> {
-                match self {
-                    #entities_body
                 }
             }
         }

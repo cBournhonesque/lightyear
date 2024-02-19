@@ -49,6 +49,7 @@ cfg-if = "1.0"
 derive_more = "0.99.17"
 enum_delegate = "0.2"
 enum_dispatch = "0.3"
+hashbrown = "0.14"
 # used to have the same instant in wasm and native. (maybe can be replaced by bevy_utils in 0.13)
 instant = "0.1.12"
 governor = "0.6.0"
@@ -101,7 +102,7 @@ metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-fea
 ] }
 
 # bevy
-bevy = { version = "0.12", default-features = false, features = [
+bevy = { version = "0.13", default-features = false, features = [
   "multi-threaded",
 ] }
 

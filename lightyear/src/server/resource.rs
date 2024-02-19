@@ -6,9 +6,10 @@ use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Entity, Res, ResMut, Resource, World};
-use bevy::utils::{EntityHashMap, HashSet};
+use bevy::utils::HashSet;
 use crossbeam_channel::Sender;
 use tracing::{debug, debug_span, error, info, trace, trace_span};
 
@@ -450,7 +451,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         self.buffer_replication_messages(tick, bevy_tick)
     }
 
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>> {
         &mut self.replicate_component_cache
     }
 }

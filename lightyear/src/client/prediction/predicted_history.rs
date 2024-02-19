@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, With,
-    Without,
+    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
+    With, Without,
 };
 use tracing::{debug, error};
 
@@ -117,7 +117,8 @@ impl<T: SyncComponent> PredictionHistory<T> {
 // TODO: only run this for SyncComponent where SyncMode != None
 #[allow(clippy::type_complexity)]
 pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
-    manager: Res<PredictionManager>,
+    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
+    mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     tick_manager: Res<TickManager>,
     predicted_entities: Query<
@@ -150,7 +151,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                             commands.get_entity(predicted_entity).unwrap();
                         // map any entities from confirmed to predicted
                         let mut new_component = confirmed_component.deref().clone();
-                        new_component.map_entities(Box::new(&manager.predicted_entity_map));
+                        new_component.map_entities(&mut manager.predicted_entity_map);
                         match P::Components::mode() {
                             ComponentSyncMode::Full => {
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
@@ -312,7 +313,8 @@ pub fn update_prediction_history<T: SyncComponent>(
 /// When we receive a server update, we might want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
-    manager: Res<PredictionManager>,
+    // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
+    mut manager: ResMut<PredictionManager>,
     mut predicted_entities: Query<
         &mut C,
         (
@@ -343,7 +345,7 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Simple => {
                             // map any entities from confirmed to predicted
                             let mut component = confirmed_component.deref().clone();
-                            component.map_entities(Box::new(&manager.predicted_entity_map));
+                            component.map_entities(&mut manager.predicted_entity_map);
                             *predicted_component = component;
                         }
                         _ => {}

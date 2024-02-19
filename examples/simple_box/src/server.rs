@@ -180,9 +180,9 @@ pub(crate) fn movement(
 /// and cannot do input handling)
 pub(crate) fn send_message(
     mut server: ResMut<ServerConnectionManager>,
-    input: Res<Input<KeyCode>>,
+    input: Res<ButtonInput<KeyCode>>,
 ) {
-    if input.pressed(KeyCode::M) {
+    if input.pressed(KeyCode::KeyM) {
         // TODO: add way to send message to all
         let message = Message1(5);
         info!("Send message: {:?}", message);

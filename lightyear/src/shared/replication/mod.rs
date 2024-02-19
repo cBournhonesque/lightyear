@@ -3,16 +3,17 @@ use std::hash::Hash;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::{Component, Entity, Resource};
 use bevy::reflect::Map;
-use bevy::utils::{EntityHashMap, HashSet};
+use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use crate::channel::builder::Channel;
 use crate::connection::netcode::ClientId;
 use crate::packet::message::MessageId;
-use crate::prelude::{EntityMapper, MapEntities, NetworkTarget, Tick};
+use crate::prelude::{NetworkTarget, Tick};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
@@ -177,7 +178,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// But the receiving systems might expect both components to be present at the same time.
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>>;
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>>;
 }
 
 #[cfg(test)]

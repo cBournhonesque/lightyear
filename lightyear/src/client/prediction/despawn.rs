@@ -74,7 +74,7 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
 pub trait PredictionDespawnCommandsExt {
     fn prediction_despawn<P: Protocol>(&mut self);
 }
-impl PredictionDespawnCommandsExt for EntityCommands<'_, '_, '_> {
+impl PredictionDespawnCommandsExt for EntityCommands<'_> {
     fn prediction_despawn<P: Protocol>(&mut self) {
         let entity = self.id();
         self.commands().add(PredictionDespawnCommand {

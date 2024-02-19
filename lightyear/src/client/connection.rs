@@ -15,7 +15,7 @@ use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{Channel, ChannelKind, MapEntities, Message, NetworkTarget};
+use crate::prelude::{Channel, ChannelKind, LightyearMapEntities, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -343,9 +343,7 @@ impl<P: Protocol> ConnectionManager<P> {
                     match message {
                         ServerMessage::Message(mut message) => {
                             // map any entities inside the message
-                            message.map_entities(Box::new(
-                                &self.replication_receiver.remote_entity_map,
-                            ));
+                            message.map_entities(&mut self.replication_receiver.remote_entity_map);
                             // buffer the message
                             self.events.push_message(channel_kind, message);
                         }

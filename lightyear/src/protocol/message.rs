@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
-use crate::prelude::MapEntities;
+use crate::prelude::LightyearMapEntities;
 use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 #[cfg(feature = "leafwing")]
@@ -31,7 +31,7 @@ pub trait MessageProtocol:
     + Serialize
     + DeserializeOwned
     + Clone
-    + for<'a> MapEntities<'a>
+    + LightyearMapEntities
     + Debug
     + Send
     + Sync

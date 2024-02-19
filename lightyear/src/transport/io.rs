@@ -1,7 +1,7 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
 use bevy::app::{App, Plugin};
-use bevy::diagnostic::{Diagnostic, DiagnosticId, Diagnostics, RegisterDiagnostic};
+use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::{Real, Res, Resource, Time};
 use crossbeam_channel::{Receiver, Sender};
 use std::fmt::{Debug, Formatter};
@@ -319,18 +319,14 @@ pub struct IoDiagnosticsPlugin;
 
 impl IoDiagnosticsPlugin {
     /// How many bytes do we receive per second
-    pub const BYTES_IN: DiagnosticId =
-        DiagnosticId::from_u128(272724337309910272967747412065116587937);
+    pub const BYTES_IN: DiagnosticPath = DiagnosticPath::const_new("KB received per second");
     /// How many bytes do we send per second
-    pub const BYTES_OUT: DiagnosticId =
-        DiagnosticId::from_u128(55304262539591435450305383702521958293);
+    pub const BYTES_OUT: DiagnosticPath = DiagnosticPath::const_new("KB sent per second");
 
     /// How many bytes do we receive per second
-    pub const PACKETS_IN: DiagnosticId =
-        DiagnosticId::from_u128(183580771279032958450263611989577449811);
+    pub const PACKETS_IN: DiagnosticPath = DiagnosticPath::const_new("packets received per second");
     /// How many bytes do we send per second
-    pub const PACKETS_OUT: DiagnosticId =
-        DiagnosticId::from_u128(314668465487051049643062180884137694217);
+    pub const PACKETS_OUT: DiagnosticPath = DiagnosticPath::const_new("packets sent per second");
 
     /// Max diagnostic history length.
     pub const DIAGNOSTIC_HISTORY_LEN: usize = 60;
@@ -344,16 +340,16 @@ impl IoDiagnosticsPlugin {
         if delta_seconds == 0.0 {
             return;
         }
-        diagnostics.add_measurement(Self::BYTES_IN, || {
+        diagnostics.add_measurement(&Self::BYTES_IN, || {
             (stats.bytes_received as f64 / 1000.0) / delta_seconds
         });
-        diagnostics.add_measurement(Self::BYTES_OUT, || {
+        diagnostics.add_measurement(&Self::BYTES_OUT, || {
             (stats.bytes_sent as f64 / 1000.0) / delta_seconds
         });
-        diagnostics.add_measurement(Self::PACKETS_IN, || {
+        diagnostics.add_measurement(&Self::PACKETS_IN, || {
             stats.packets_received as f64 / delta_seconds
         });
-        diagnostics.add_measurement(Self::PACKETS_OUT, || {
+        diagnostics.add_measurement(&Self::PACKETS_OUT, || {
             stats.packets_sent as f64 / delta_seconds
         });
         *stats = IoStats::default()
@@ -362,26 +358,22 @@ impl IoDiagnosticsPlugin {
 
 impl Plugin for IoDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
-        app.register_diagnostic(Diagnostic::new(
-            IoDiagnosticsPlugin::BYTES_IN,
-            "KB received per second",
-            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
-        ));
-        app.register_diagnostic(Diagnostic::new(
-            IoDiagnosticsPlugin::BYTES_OUT,
-            "KB sent per second",
-            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
-        ));
-        app.register_diagnostic(Diagnostic::new(
-            IoDiagnosticsPlugin::PACKETS_IN,
-            "packets received per second",
-            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
-        ));
-        app.register_diagnostic(Diagnostic::new(
-            IoDiagnosticsPlugin::PACKETS_OUT,
-            "packets sent per second",
-            IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN,
-        ));
+        app.register_diagnostic(
+            Diagnostic::new(IoDiagnosticsPlugin::BYTES_IN)
+                .with_max_history_length(IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN),
+        );
+        app.register_diagnostic(
+            Diagnostic::new(IoDiagnosticsPlugin::BYTES_OUT)
+                .with_max_history_length(IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN),
+        );
+        app.register_diagnostic(
+            Diagnostic::new(IoDiagnosticsPlugin::PACKETS_IN)
+                .with_max_history_length(IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN),
+        );
+        app.register_diagnostic(
+            Diagnostic::new(IoDiagnosticsPlugin::PACKETS_OUT)
+                .with_max_history_length(IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN),
+        );
     }
 }
 
