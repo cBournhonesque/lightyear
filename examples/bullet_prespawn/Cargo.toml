@@ -11,7 +11,7 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-bevy_framepace = "0.14.1"
+bevy_framepace = "0.15.0"
 bevy_screen_diagnostics = "0.4.0"
 leafwing-input-manager = "0.11.2"
 lightyear = { path = "../../lightyear", features = [
