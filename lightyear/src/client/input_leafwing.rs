@@ -991,7 +991,7 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
+            .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::A);
         stepper.frame_step();
 

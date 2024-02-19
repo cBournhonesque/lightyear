@@ -30,7 +30,7 @@ webtransport = [
   "dep:tokio",
   "dep:ring",
 ]
-leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
+leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing", "bevy/bevy_asset"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
 websocket = [
   "dep:tokio",

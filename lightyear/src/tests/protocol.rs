@@ -1,5 +1,5 @@
+use bevy::ecs::entity::{EntityHashSet, EntityMapper, MapEntities};
 use bevy::prelude::{default, Component, Entity, Reflect};
-use bevy::utils::EntityHashSet;
 use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
 use std::ops::Mul;
@@ -43,13 +43,9 @@ pub struct Component3(pub f32);
 #[message(custom_map)]
 pub struct Component4(pub Entity);
 
-impl<'a> MapEntities<'a> for Component4 {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        self.0.map_entities(entity_mapper);
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::from_iter(vec![self.0])
+impl MapEntities for Component4 {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
     }
 }
 

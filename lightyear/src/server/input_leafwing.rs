@@ -307,7 +307,7 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
+            .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::A);
         stepper.frame_step();
         // client tick when we send the Jump action
@@ -315,7 +315,7 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
+            .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::A);
         stepper.frame_step();
 
