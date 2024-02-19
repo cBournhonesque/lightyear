@@ -27,11 +27,8 @@ impl ServerPluginGroup {
                     Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
                         .await
                         .unwrap();
-                let digest = certificate.hashes()[0].fmt_as_dotted_hex();
-                println!(
-                    "Generated self-signed certificate with digest: {:?}",
-                    digest
-                );
+                let digest = &certificate.hashes()[0];
+                println!("Generated self-signed certificate with digest: {}", digest);
                 TransportConfig::WebTransportServer {
                     server_addr,
                     certificate,

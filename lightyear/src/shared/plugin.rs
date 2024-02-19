@@ -38,8 +38,6 @@ impl Plugin for SharedPlugin {
         // PLUGINS
         // TODO: increment_tick should be shared
         // app.add_systems(FixedUpdate, increment_tick);
-        let log_config = self.config.log.clone();
-        app.add_plugins(log::LogPlugin { config: log_config });
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
         });
