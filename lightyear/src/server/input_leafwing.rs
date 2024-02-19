@@ -307,16 +307,16 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
-            .press(KeyCode::A);
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
-            .release(KeyCode::A);
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
         stepper.frame_step();
 
         // we should have sent an InputMessage from client to server

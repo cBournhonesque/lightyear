@@ -991,8 +991,8 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
-            .press(KeyCode::A);
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
         stepper.frame_step();
 
         // listen to the ActionDiff event

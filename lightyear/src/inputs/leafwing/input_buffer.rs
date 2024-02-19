@@ -2,9 +2,11 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
 use bevy::math::Vec2;
-use bevy::prelude::{Component, Entity, Event, FromReflect, Reflect, Resource, TypePath};
+use bevy::prelude::{
+    Component, Entity, EntityMapper, Event, FromReflect, Reflect, Resource, TypePath,
+};
 use bevy::reflect::DynamicTypePath;
-use bevy::utils::{EntityHashSet, HashMap};
+use bevy::utils::HashMap;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::prelude::ActionState;
 use leafwing_input_manager::Actionlike;
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::prelude::client::SyncComponent;
-use crate::prelude::{EntityMapper, MapEntities, Message, Named};
+use crate::prelude::{LightyearMapEntities, Message, Named};
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
@@ -32,12 +34,10 @@ use super::LeafwingUserAction;
 // - we apply the ticks on the right tick to the entity/resource
 // - no need to maintain our inputbuffer on the server
 
-impl<'a, A: LeafwingUserAction> MapEntities<'a> for ActionState<A> {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::default()
-    }
+impl<A: LeafwingUserAction> LightyearMapEntities for ActionState<A> {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
+
 impl<A: LeafwingUserAction> Named for ActionState<A> {
     // const NAME: &'static str = formatcp!("ActionState<{}>", A::short_type_path());
     const NAME: &'static str = "ActionState";
@@ -235,13 +235,13 @@ impl<A: LeafwingUserAction> Named for InputMessage<A> {
     // const NAME: &'static str = <Self as TypePath>::short_type_path();
 }
 
-impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
+impl<A: LeafwingUserAction> LightyearMapEntities for InputMessage<A> {
     // NOTE: we do NOT map the entities for input-message because when already convert
     //  the entities on the message to the corresponding client entities when we write them
     //  in the input message
 
     // NOTE: we only map the inputs for the pre-predicted entities
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.diffs
             .iter_mut()
             .filter_map(|(entity, _)| {
@@ -256,19 +256,6 @@ impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
                     *entity = new_entity;
                 }
             });
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        self.diffs
-            .iter()
-            .filter_map(|(entity, _)| {
-                if let InputTarget::PrePredictedEntity(e) = entity {
-                    Some(*e)
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 }
 

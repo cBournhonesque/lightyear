@@ -61,7 +61,7 @@ impl RemoteEntityMap {
     //     Box::new(&self.local_to_remote)
     // }
     //
-    // // TODO: makke sure all calls to remote entity map use this to get the exact mapper
+    // // TODO: make sure all calls to remote entity map use this to get the exact mapper
     // pub(crate) fn get_to_local_mapper(&self) -> Box<dyn EntityMapper + '_> {
     //     Box::new(&self.remote_to_local)
     // }
