@@ -1,6 +1,6 @@
 //! Handles client-generated inputs
 use bevy::prelude::{
-    App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, FixedUpdate, IntoSystemConfigs,
+    App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs,
     IntoSystemSetConfigs, Plugin, Res, ResMut, SystemSet,
 };
 

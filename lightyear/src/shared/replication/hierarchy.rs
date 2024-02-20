@@ -155,7 +155,6 @@ mod tests {
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::app::FixedUpdate;
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
     use std::ops::Deref;

@@ -156,6 +156,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mu
 where
     P::Components: SyncMetadata<C>,
 {
+    // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         Update,

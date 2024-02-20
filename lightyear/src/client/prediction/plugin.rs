@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, App, FixedPostUpdate, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
+    apply_deferred, App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::transform::TransformSystem;
 
@@ -133,7 +133,7 @@ pub enum PredictionSet {
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
 
-    // FixedUpdate Sets
+    // FixedPostUpdate Sets
     /// Increment the rollback tick after the main fixed-update physics loop has run
     IncrementRollbackTick,
     /// Set to deal with predicted/confirmed entities getting despawned
@@ -190,7 +190,7 @@ where
                 ),
             );
             app.add_systems(
-                FixedUpdate,
+                FixedPostUpdate,
                 (
                     add_prespawned_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
                     // we need to run this during fixed update to know accurately the history for each tick
@@ -227,7 +227,7 @@ where
         _ => {}
     };
     app.add_systems(
-        FixedUpdate,
+        FixedPostUpdate,
         remove_component_for_despawn_predicted::<C, P>.in_set(PredictionSet::EntityDespawn),
     );
 }

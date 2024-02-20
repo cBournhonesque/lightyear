@@ -58,7 +58,7 @@ fn test_sync_after_tick_wrap() {
         .set_tick_to(new_tick);
 
     stepper.client_app.add_systems(
-        FixedUpdate,
+        FixedPreUpdate,
         press_input.in_set(InputSystemSet::BufferInputs),
     );
     stepper.server_app.add_systems(FixedUpdate, increment);
@@ -150,7 +150,7 @@ fn test_sync_after_tick_half_wrap() {
         .set_tick_to(new_tick);
 
     stepper.client_app.add_systems(
-        FixedUpdate,
+        FixedPreUpdate,
         press_input.in_set(InputSystemSet::BufferInputs),
     );
     stepper.server_app.add_systems(FixedUpdate, increment);

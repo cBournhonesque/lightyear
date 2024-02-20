@@ -180,16 +180,11 @@ fn update_cursor_state_from_window(
     for window in window_query.iter() {
         for mut action_state in action_state_query.iter_mut() {
             if let Some(val) = window_relative_mouse_position(window) {
-                match action_state.action_data_mut(&PlayerActions::MoveCursor) {
-                    Some(action_data) => {
-                        action_data.axis_pair = Some(DualAxisData::from_xy(val));
-                        action_data.state = Pressed;
-                    }
-                    None => {
-                        action_state
-                            .set_action_data(PlayerActions::MoveCursor, ActionData::default());
-                    }
-                }
+                action_state.press(&PlayerActions::MoveCursor);
+                action_state
+                    .action_data_mut(&PlayerActions::MoveCursor)
+                    .unwrap()
+                    .axis_pair = Some(DualAxisData::from_xy(val));
             }
         }
     }

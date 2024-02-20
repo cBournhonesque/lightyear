@@ -1,9 +1,10 @@
+use bevy::app::FixedMain;
 use std::fmt::Debug;
 
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::{
-    Commands, DespawnRecursiveExt, DetectChanges, Entity, FixedUpdate, Query, Ref, Res, ResMut,
-    With, Without, World,
+    Commands, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
+    World,
 };
 use tracing::{debug, error, info, trace, trace_span};
 
@@ -443,7 +444,7 @@ pub(crate) fn run_rollback(world: &mut World) {
         for i in 0..num_rollback_ticks {
             // TODO: if we are in rollback, there are some FixedUpdate systems that we don't want to re-run ??
             //  for example we only want to run the physics on non-confirmed entities
-            world.run_schedule(FixedUpdate)
+            world.run_schedule(FixedMain)
         }
         debug!("Finished rollback. Current tick: {:?}", current_tick);
     }

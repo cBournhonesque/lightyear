@@ -5,8 +5,8 @@ use std::sync::Mutex;
 
 use crate::_reexport::ShouldBeInterpolated;
 use bevy::prelude::{
-    apply_deferred, default, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin as PluginType, PostUpdate, PreUpdate,
+    apply_deferred, default, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType,
+    PostUpdate, PreUpdate,
 };
 use bevy::time::common_conditions::on_timer;
 
