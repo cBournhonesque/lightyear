@@ -29,11 +29,6 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        log: LogConfig {
-            level: Level::WARN,
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
-                .to_string(),
-        },
     }
 }
 
@@ -147,16 +142,16 @@ pub(crate) fn shared_movement_behaviour(
     action: &ActionState<PlayerActions>,
 ) {
     const MOVE_SPEED: f32 = 10.0;
-    if action.pressed(PlayerActions::Up) {
+    if action.pressed(&PlayerActions::Up) {
         velocity.y += MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Down) {
+    if action.pressed(&PlayerActions::Down) {
         velocity.y -= MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Left) {
+    if action.pressed(&PlayerActions::Left) {
         velocity.x -= MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Right) {
+    if action.pressed(&PlayerActions::Right) {
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));

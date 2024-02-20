@@ -28,11 +28,6 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        log: LogConfig {
-            level: Level::INFO,
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
-                .to_string(),
-        },
     }
 }
 
@@ -127,8 +122,10 @@ pub(crate) fn shared_player_movement(
 ) {
     const PLAYER_MOVE_SPEED: f32 = 10.0;
     // warn!(?action, "action state");
-    let mouse_position = action
-        .action_data(PlayerActions::MoveCursor)
+    let Some(cursor_data) = action.action_data(&PlayerActions::MoveCursor) else {
+        return;
+    };
+    let mouse_position = cursor_data
         .axis_pair
         .map(|axis| axis.xy())
         .unwrap_or_default();
@@ -141,16 +138,16 @@ pub(crate) fn shared_player_movement(
     }
     // TODO: look_at should work
     // transform.look_at(Vec3::new(mouse_position.x, mouse_position.y, 0.0), Vec3::Y);
-    if action.pressed(PlayerActions::Up) {
+    if action.pressed(&PlayerActions::Up) {
         transform.translation.y += PLAYER_MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Down) {
+    if action.pressed(&PlayerActions::Down) {
         transform.translation.y -= PLAYER_MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Right) {
+    if action.pressed(&PlayerActions::Right) {
         transform.translation.x += PLAYER_MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Left) {
+    if action.pressed(&PlayerActions::Left) {
         transform.translation.x -= PLAYER_MOVE_SPEED;
     }
 }
@@ -255,10 +252,10 @@ pub(crate) fn shoot_bullet(
         // NOTE: cannot spawn the bullet during FixedUpdate because then during rollback we spawn a new bullet! For now just set the system to
         //  run when not in rollback
         // TODO:  if we were running this in FixedUpdate, we would need to `consume` the action. (in case there are several fixed-update steps
-        //  ine one frame). We also cannot use JustPressed, becuase we could have a frame with no FixedUpdate.
+        //  ine one frame). We also cannot use JustPressed, because we could have a frame with no FixedUpdate.
         // NOTE: pressed lets you shoot many bullets, which can be cool
-        if action.pressed(PlayerActions::Shoot) {
-            action.consume(PlayerActions::Shoot);
+        if action.pressed(&PlayerActions::Shoot) {
+            action.consume(&PlayerActions::Shoot);
 
             info!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
 

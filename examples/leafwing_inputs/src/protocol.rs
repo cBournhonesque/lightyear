@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::utils::EntityHashSet;
 use bevy_xpbd_2d::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
@@ -100,7 +99,7 @@ pub(crate) struct PhysicsBundle {
 impl PhysicsBundle {
     pub(crate) fn ball() -> Self {
         Self {
-            collider: Collider::ball(BALL_SIZE),
+            collider: Collider::circle(BALL_SIZE),
             collider_density: ColliderDensity(0.05),
             rigid_body: RigidBody::Dynamic,
         }
@@ -108,7 +107,7 @@ impl PhysicsBundle {
 
     pub(crate) fn player() -> Self {
         Self {
-            collider: Collider::cuboid(PLAYER_SIZE, PLAYER_SIZE),
+            collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
             collider_density: ColliderDensity(0.2),
             rigid_body: RigidBody::Dynamic,
         }

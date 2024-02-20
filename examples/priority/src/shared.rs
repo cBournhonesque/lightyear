@@ -59,16 +59,16 @@ pub(crate) fn player_movement(
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<Confirmed>>,
 ) {
     for (mut position, input) in position_query.iter_mut() {
-        if input.pressed(Inputs::Up) {
+        if input.pressed(&Inputs::Up) {
             position.y += MOVE_SPEED;
         }
-        if input.pressed(Inputs::Down) {
+        if input.pressed(&Inputs::Down) {
             position.y -= MOVE_SPEED;
         }
-        if input.pressed(Inputs::Left) {
+        if input.pressed(&Inputs::Left) {
             position.x -= MOVE_SPEED;
         }
-        if input.pressed(Inputs::Right) {
+        if input.pressed(&Inputs::Right) {
             position.x += MOVE_SPEED;
         }
     }

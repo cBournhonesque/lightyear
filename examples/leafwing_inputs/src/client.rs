@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
-use leafwing_input_manager::action_state::ActionDiff;
 use leafwing_input_manager::prelude::*;
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;
@@ -118,8 +117,8 @@ impl Plugin for ExampleClientPlugin {
         // To send global inputs, insert the ActionState and the InputMap as Resources
         app.init_resource::<ActionState<AdminActions>>();
         app.insert_resource(InputMap::<AdminActions>::new([
-            (KeyCode::M, AdminActions::SendMessage),
-            (KeyCode::R, AdminActions::Reset),
+            (AdminActions::SendMessage, KeyCode::KeyM),
+            (AdminActions::Reset, KeyCode::KeyR),
         ]));
 
         app.insert_resource(Global {
@@ -171,10 +170,10 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
         Vec2::new(-50.0, y),
         color_from_id(global.client_id),
         InputMap::new([
-            (KeyCode::W, PlayerActions::Up),
-            (KeyCode::S, PlayerActions::Down),
-            (KeyCode::A, PlayerActions::Left),
-            (KeyCode::D, PlayerActions::Right),
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
         ]),
     ));
     // }
@@ -183,10 +182,10 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
         Vec2::new(50.0, y),
         color_from_id(global.client_id),
         InputMap::new([
-            (KeyCode::Up, PlayerActions::Up),
-            (KeyCode::Down, PlayerActions::Down),
-            (KeyCode::Left, PlayerActions::Left),
-            (KeyCode::Right, PlayerActions::Right),
+            (PlayerActions::Up, KeyCode::ArrowUp),
+            (PlayerActions::Down, KeyCode::ArrowDown),
+            (PlayerActions::Left, KeyCode::ArrowLeft),
+            (PlayerActions::Right, KeyCode::ArrowRight),
         ]),
     ));
     let _ = client.connect();
@@ -268,7 +267,7 @@ fn player_movement(
 
 // System to send messages on the client
 pub(crate) fn send_message(action_state: Res<ActionState<AdminActions>>) {
-    if action_state.just_pressed(AdminActions::SendMessage) {
+    if action_state.just_pressed(&AdminActions::SendMessage) {
         info!("Send message");
     }
 }

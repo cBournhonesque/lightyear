@@ -35,11 +35,8 @@ impl ServerPluginGroup {
                     Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
                         .await
                         .unwrap();
-                let digest = certificate.hashes()[0].fmt_as_dotted_hex();
-                println!(
-                    "Generated self-signed certificate with digest: {:?}",
-                    digest
-                );
+                let digest = &certificate.hashes()[0];
+                println!("Generated self-signed certificate with digest: {}", digest);
                 TransportConfig::WebTransportServer {
                     server_addr,
                     certificate,
@@ -126,7 +123,7 @@ pub(crate) fn init(mut commands: Commands) {
         for y in -NUM_CIRCLES..NUM_CIRCLES {
             commands.spawn((
                 Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
-                Circle,
+                CircleMarker,
                 Replicate {
                     // use rooms for replication
                     replication_mode: ReplicationMode::Room,
@@ -194,8 +191,8 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
 /// - we will add/remove other entities from the player's room only if they are close
 pub(crate) fn interest_management(
     mut room_manager: ResMut<RoomManager>,
-    player_query: Query<(&PlayerId, Ref<Position>), Without<Circle>>,
-    circle_query: Query<(Entity, &Position), With<Circle>>,
+    player_query: Query<(&PlayerId, Ref<Position>), Without<CircleMarker>>,
+    circle_query: Query<(Entity, &Position), With<CircleMarker>>,
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {

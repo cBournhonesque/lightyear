@@ -137,29 +137,29 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {
     let mut direction = Direction {
         up: false,
         down: false,
         left: false,
         right: false,
     };
-    if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
+    if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
         direction.up = true;
     }
-    if keypress.pressed(KeyCode::S) || keypress.pressed(KeyCode::Down) {
+    if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
         direction.down = true;
     }
-    if keypress.pressed(KeyCode::A) || keypress.pressed(KeyCode::Left) {
+    if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
         direction.left = true;
     }
-    if keypress.pressed(KeyCode::D) || keypress.pressed(KeyCode::Right) {
+    if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
         direction.right = true;
     }
     if !direction.is_none() {
         return client.add_input(Inputs::Direction(direction));
     }
-    if keypress.pressed(KeyCode::K) {
+    if keypress.pressed(KeyCode::KeyK) {
         // currently, directions is an enum and we can only add one input per tick
         return client.add_input(Inputs::Delete);
     }
@@ -304,9 +304,9 @@ pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
 /// Send messages from server to clients
 pub(crate) fn send_message(
     mut client: ResMut<ClientConnectionManager>,
-    input: Res<Input<KeyCode>>,
+    input: Res<ButtonInput<KeyCode>>,
 ) {
-    if input.pressed(KeyCode::M) {
+    if input.pressed(KeyCode::KeyM) {
         let message = Message1(5);
         info!("Send message: {:?}", message);
         // the message will be re-broadcasted by the server to all clients

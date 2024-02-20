@@ -129,16 +129,16 @@ impl<A> LeafwingInputConfig<A> {
 /// Adds a plugin to handle inputs using the LeafwingInputManager
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     config: LeafwingInputConfig<A>,
-    _protocol_marker: std::marker::PhantomData<P>,
-    _action_marker: std::marker::PhantomData<A>,
+    _protocol_marker: PhantomData<P>,
+    _action_marker: PhantomData<A>,
 }
 
 impl<P: Protocol, A: LeafwingUserAction> LeafwingInputPlugin<P, A> {
     pub fn new(config: LeafwingInputConfig<A>) -> Self {
         Self {
             config,
-            _protocol_marker: std::marker::PhantomData,
-            _action_marker: std::marker::PhantomData,
+            _protocol_marker: PhantomData,
+            _action_marker: PhantomData,
         }
     }
 }
@@ -147,8 +147,8 @@ impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
         Self {
             config: LeafwingInputConfig::default(),
-            _protocol_marker: std::marker::PhantomData,
-            _action_marker: std::marker::PhantomData,
+            _protocol_marker: PhantomData,
+            _action_marker: PhantomData,
         }
     }
 }
@@ -765,21 +765,23 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         // TODO: optimize config.send_diffs_only at compile time?
         if config.send_diffs_only {
             for action in action_state.get_just_pressed() {
-                match action_state.action_data(&action).unwrap().axis_pair {
+                let Some(action_data) = action_state.action_data(&action) else {
+                    warn!("Action in ActionDiff has no data: was it generated correctly?");
+                    continue;
+                };
+                match action_data.axis_pair {
                     Some(axis_pair) => {
                         diffs.push(ActionDiff::AxisPairChanged {
                             action: action.clone(),
                             axis_pair: axis_pair.into(),
                         });
                         previous_axis_pairs
-                            .raw_entry_mut()
-                            .from_key(&action)
-                            .or_insert_with(|| (action.clone(), HashMap::default()))
-                            .1
+                            .entry(action)
+                            .or_default()
                             .insert(maybe_entity, axis_pair.xy());
                     }
                     None => {
-                        let value = action_state.value(&action);
+                        let value = action_data.value;
                         diffs.push(if value == 1. {
                             ActionDiff::Pressed {
                                 action: action.clone(),
@@ -791,10 +793,8 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                             }
                         });
                         previous_values
-                            .raw_entry_mut()
-                            .from_key(&action)
-                            .or_insert_with(|| (action.clone(), HashMap::default()))
-                            .1
+                            .entry(action)
+                            .or_default()
                             .insert(maybe_entity, value);
                     }
                 }
@@ -806,7 +806,11 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                     continue;
                 }
             }
-            match action_state.action_data(&action).unwrap().axis_pair {
+            let Some(action_data) = action_state.action_data(&action) else {
+                warn!("Action in ActionState has no data: was it generated correctly?");
+                continue;
+            };
+            match action_data.axis_pair {
                 Some(axis_pair) => {
                     if config.send_diffs_only {
                         let previous_axis_pairs =
@@ -825,7 +829,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                     });
                 }
                 None => {
-                    let value = action_state.value(&action);
+                    let value = action_data.value;
                     if config.send_diffs_only {
                         let previous_values = previous_values.entry(action.clone()).or_default();
 
@@ -858,10 +862,18 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
             // (see https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443)
             .filter(|action| {
                 !config.send_diffs_only
-                    || action_state.just_released(&action)
-                    || action_state.consumed(&action)
+                    || action_state.just_released(*action)
+                    || action_state.consumed(*action)
             })
         {
+            let just_released = action_state.just_released(action);
+            let consumed = action_state.consumed(action);
+            info!(
+                send_diffs=?config.send_diffs_only,
+                ?just_released,
+                ?consumed,
+                "action released: {:?}", action
+            );
             diffs.push(ActionDiff::Released {
                 action: action.clone(),
             });
@@ -876,7 +888,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
 
         if !diffs.is_empty() {
-            debug!(?maybe_entity, "writing action diffs: {:?}", diffs);
+            info!(send_diffs_only = ?config.send_diffs_only, ?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,

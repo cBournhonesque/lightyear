@@ -5,7 +5,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use leafwing_input_manager::action_state::ActionDiff;
+use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::orientation::Orientation;
@@ -93,7 +93,7 @@ impl PluginGroup for ClientPluginGroup {
             .add(shared::SharedPlugin)
             .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
                 LeafwingInputConfig::<PlayerActions> {
-                    send_diffs_only: false,
+                    send_diffs_only: true,
                     ..default()
                 },
             ))
@@ -120,8 +120,8 @@ impl Plugin for ExampleClientPlugin {
         // To send global inputs, insert the ActionState and the InputMap as Resources
         app.init_resource::<ActionState<AdminActions>>();
         app.insert_resource(InputMap::<AdminActions>::new([
-            (KeyCode::M, AdminActions::SendMessage),
-            (KeyCode::R, AdminActions::Reset),
+            (AdminActions::SendMessage, KeyCode::KeyM),
+            (AdminActions::Reset, KeyCode::KeyR),
         ]));
 
         app.insert_resource(ClientIdResource {
@@ -162,11 +162,11 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
         Vec2::new(-50.0, y),
         color_from_id(plugin.client_id),
         InputMap::new([
-            (KeyCode::W, PlayerActions::Up),
-            (KeyCode::S, PlayerActions::Down),
-            (KeyCode::A, PlayerActions::Left),
-            (KeyCode::D, PlayerActions::Right),
-            (KeyCode::Space, PlayerActions::Shoot),
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
+            (PlayerActions::Shoot, KeyCode::Space),
         ]),
     ));
     let _ = client.connect();
@@ -180,12 +180,16 @@ fn update_cursor_state_from_window(
     for window in window_query.iter() {
         for mut action_state in action_state_query.iter_mut() {
             if let Some(val) = window_relative_mouse_position(window) {
-                action_state
-                    .action_data_mut(PlayerActions::MoveCursor)
-                    .axis_pair = Some(DualAxisData::from_xy(val));
-                action_state
-                    .action_data_mut(PlayerActions::MoveCursor)
-                    .state = Pressed;
+                match action_state.action_data_mut(&PlayerActions::MoveCursor) {
+                    Some(action_data) => {
+                        action_data.axis_pair = Some(DualAxisData::from_xy(val));
+                        action_data.state = Pressed;
+                    }
+                    None => {
+                        action_state
+                            .set_action_data(PlayerActions::MoveCursor, ActionData::default());
+                    }
+                }
             }
         }
     }

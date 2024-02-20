@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
@@ -43,17 +42,17 @@ impl PlayerBundle {
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
         InputMap::new([
-            (KeyCode::ArrowRight, Inputs::Right),
-            (KeyCode::KeyD, Inputs::Right),
-            (KeyCode::ArrowLeft, Inputs::Left),
-            (KeyCode::KeyA, Inputs::Left),
-            (KeyCode::ArrowUp, Inputs::Up),
-            (KeyCode::KeyW, Inputs::Up),
-            (KeyCode::ArrowDown, Inputs::Down),
-            (KeyCode::KeyS, Inputs::Down),
-            (KeyCode::Backspace, Inputs::Delete),
-            (KeyCode::Space, Inputs::Spawn),
-            (KeyCode::KeyM, Inputs::Message),
+            (Inputs::Right, KeyCode::ArrowRight),
+            (Inputs::Right, KeyCode::KeyD),
+            (Inputs::Left, KeyCode::ArrowLeft),
+            (Inputs::Left, KeyCode::KeyA),
+            (Inputs::Up, KeyCode::ArrowUp),
+            (Inputs::Up, KeyCode::KeyW),
+            (Inputs::Down, KeyCode::ArrowDown),
+            (Inputs::Down, KeyCode::KeyS),
+            (Inputs::Delete, KeyCode::Backspace),
+            (Inputs::Spawn, KeyCode::Space),
+            (Inputs::Message, KeyCode::KeyM),
         ])
     }
 }
