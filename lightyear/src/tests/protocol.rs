@@ -43,7 +43,7 @@ pub struct Component3(pub f32);
 #[message(custom_map)]
 pub struct Component4(pub Entity);
 
-impl MapEntities for Component4 {
+impl LightyearMapEntities for Component4 {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.0 = entity_mapper.map_entity(self.0);
     }

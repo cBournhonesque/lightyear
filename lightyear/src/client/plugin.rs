@@ -142,8 +142,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
 
         app
             // PLUGINS //
-            .add_plugins(SharedPlugin {
+            .add_plugins(SharedPlugin::<P> {
                 config: config.client_config.shared.clone(),
+                ..default()
             })
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))

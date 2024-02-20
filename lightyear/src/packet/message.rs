@@ -5,6 +5,7 @@ use bytes::Bytes;
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
+use crate::prelude::LightyearMapEntities;
 use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -288,8 +289,8 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + Named + MapEntities {}
-impl<T: EventContext + Named + MapEntities> Message for T {}
+pub trait Message: EventContext + Named + LightyearMapEntities {}
+impl<T: EventContext + Named + LightyearMapEntities> Message for T {}
 
 #[cfg(test)]
 mod tests {

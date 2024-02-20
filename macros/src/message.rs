@@ -65,7 +65,7 @@ fn map_entities_trait(input: &DeriveInput, ident_map: bool) -> TokenStream {
     let struct_name = &input.ident;
     if ident_map {
         quote! {
-            impl #impl_generics MapEntities for #struct_name #type_generics #where_clause {
+            impl #impl_generics LightyearMapEntities for #struct_name #type_generics #where_clause {
                 fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
             }
         }

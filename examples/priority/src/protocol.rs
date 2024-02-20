@@ -43,17 +43,17 @@ impl PlayerBundle {
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
         InputMap::new([
-            (KeyCode::Right, Inputs::Right),
-            (KeyCode::D, Inputs::Right),
-            (KeyCode::Left, Inputs::Left),
-            (KeyCode::A, Inputs::Left),
-            (KeyCode::Up, Inputs::Up),
-            (KeyCode::W, Inputs::Up),
-            (KeyCode::Down, Inputs::Down),
-            (KeyCode::S, Inputs::Down),
-            (KeyCode::Delete, Inputs::Delete),
+            (KeyCode::ArrowRight, Inputs::Right),
+            (KeyCode::KeyD, Inputs::Right),
+            (KeyCode::ArrowLeft, Inputs::Left),
+            (KeyCode::KeyA, Inputs::Left),
+            (KeyCode::ArrowUp, Inputs::Up),
+            (KeyCode::KeyW, Inputs::Up),
+            (KeyCode::ArrowDown, Inputs::Down),
+            (KeyCode::KeyS, Inputs::Down),
+            (KeyCode::Backspace, Inputs::Delete),
             (KeyCode::Space, Inputs::Spawn),
-            (KeyCode::M, Inputs::Message),
+            (KeyCode::KeyM, Inputs::Message),
         ])
     }
 }

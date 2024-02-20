@@ -127,6 +127,10 @@ pub fn component_protocol_impl(
         // #[sync(external)]
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
+    input.variants.push(parse_quote! {
+        // #[sync(external)]
+        ParentSync(ParentSync)
+    });
     #[cfg(feature = "leafwing")]
     for i in 1..3 {
         let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
@@ -591,7 +595,7 @@ fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
         let ident = &variant.ident;
         map_entities_body = quote! {
             #map_entities_body
-            Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+            Self::#ident(ref mut x) => LightyearMapEntities::map_entities(x, entity_mapper),
         };
         entities_body = quote! {
             #entities_body

@@ -42,26 +42,6 @@ impl LightyearMapEntities for Transform {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
-impl Named for Parent {
-    const NAME: &'static str = "Parent";
-}
-
-impl LightyearMapEntities for Parent {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        MapEntities::map_entities(self, entity_mapper)
-    }
-}
-
-impl Named for Children {
-    const NAME: &'static str = "Children";
-}
-
-impl LightyearMapEntities for Children {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        MapEntities::map_entities(self, entity_mapper)
-    }
-}
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "render")] {
         use bevy::prelude::{Color,  Visibility};

@@ -88,6 +88,7 @@ pub mod prelude {
         NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
+    pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
