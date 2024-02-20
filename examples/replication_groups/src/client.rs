@@ -122,7 +122,7 @@ impl Plugin for ExampleClientPlugin {
             interpolate.in_set(InterpolationSet::Interpolate),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());

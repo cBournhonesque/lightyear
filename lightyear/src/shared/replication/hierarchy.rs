@@ -82,9 +82,11 @@ impl<P: Protocol> HierarchySyncPlugin<P> {
         >,
     ) {
         for (entity, parent_sync, parent) in &hierarchy {
-            info!(
+            trace!(
                 "update_parent: entity: {:?}, parent_sync: {:?}, parent: {:?}",
-                entity, parent_sync, parent
+                entity,
+                parent_sync,
+                parent
             );
             if let Some(new_parent) = parent_sync.0 {
                 if parent.filter(|&parent| **parent == new_parent).is_none() {
@@ -103,7 +105,7 @@ impl<P: Protocol> HierarchySyncPlugin<P> {
     fn update_parent_sync(mut query: Query<(Ref<Parent>, &mut ParentSync), With<Replicate<P>>>) {
         for (parent, mut parent_sync) in query.iter_mut() {
             if parent.is_changed() || parent_sync.is_added() {
-                info!(
+                trace!(
                     ?parent,
                     ?parent_sync,
                     "Update parent sync because hierarchy has changed"

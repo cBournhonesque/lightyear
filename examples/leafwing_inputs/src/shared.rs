@@ -82,15 +82,17 @@ impl Plugin for SharedPlugin {
             .insert_resource(Gravity(Vec2::ZERO));
         app.configure_sets(
             FixedUpdate,
-            // make sure that any physics simulation happens after the Main SystemSet
-            // (where we apply user's actions)
             (
-                PhysicsSet::Prepare,
-                PhysicsSet::StepSimulation,
-                PhysicsSet::Sync,
-            )
-                .in_set(FixedSet::Physics),
-            ((FixedSet::Main, FixedSet::Physics).chain()),
+                // make sure that any physics simulation happens after the Main SystemSet
+                // (where we apply user's actions)
+                (
+                    PhysicsSet::Prepare,
+                    PhysicsSet::StepSimulation,
+                    PhysicsSet::Sync,
+                )
+                    .in_set(FixedSet::Physics),
+                (FixedSet::Main, FixedSet::Physics).chain(),
+            ),
         );
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));

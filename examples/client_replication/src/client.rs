@@ -93,8 +93,9 @@ impl Plugin for ExampleClientPlugin {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
+        // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule

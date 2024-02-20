@@ -97,8 +97,9 @@ impl Plugin for ExampleClientPlugin {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
+        // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);

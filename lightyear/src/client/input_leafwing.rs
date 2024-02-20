@@ -757,7 +757,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         // TODO: optimize config.send_diffs_only at compile time?
         if config.send_diffs_only {
             for action in action_state.get_just_pressed() {
-                info!(?action, consumed=?action_state.consumed(&action), "action is JustPressed!");
+                trace!(?action, consumed=?action_state.consumed(&action), "action is JustPressed!");
                 let Some(action_data) = action_state.action_data(&action) else {
                     warn!("Action in ActionDiff has no data: was it generated correctly?");
                     continue;
@@ -800,7 +800,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                     continue;
                 }
             }
-            info!(?action, consumed=?action_state.consumed(&action), "action is pressed!");
+            trace!(?action, consumed=?action_state.consumed(&action), "action is pressed!");
             let Some(action_data) = action_state.action_data(&action) else {
                 warn!("Action in ActionState has no data: was it generated correctly?");
                 continue;
@@ -863,7 +863,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         {
             let just_released = action_state.just_released(action);
             let consumed = action_state.consumed(action);
-            info!(
+            trace!(
                 send_diffs=?config.send_diffs_only,
                 ?just_released,
                 ?consumed,
@@ -883,7 +883,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
 
         if !diffs.is_empty() {
-            info!(send_diffs_only = ?config.send_diffs_only, ?maybe_entity, "writing action diffs: {:?}", diffs);
+            trace!(send_diffs_only = ?config.send_diffs_only, ?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,

@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
