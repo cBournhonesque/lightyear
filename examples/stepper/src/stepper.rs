@@ -47,10 +47,10 @@ impl BevyStepper {
         conditioner: LinkConditionerConfig,
         frame_duration: Duration,
     ) -> Self {
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_span_events(FmtSpan::ENTER)
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_span_events(FmtSpan::ENTER)
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
 
         // Shared config
         let server_addr = SocketAddr::from_str("127.0.0.1:5000").unwrap();

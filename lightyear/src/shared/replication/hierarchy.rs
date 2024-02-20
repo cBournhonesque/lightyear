@@ -2,7 +2,6 @@
 use crate::prelude::{LightyearMapEntities, MainSet, ReplicationGroup, ReplicationSet};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
-use crate::tests::protocol::Component4;
 use bevy::prelude::*;
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
@@ -205,9 +204,6 @@ mod tests {
 
     #[test]
     fn test_update_parent() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .init();
         let (mut stepper, grandparent, parent, child) = setup_hierarchy();
 
         let mut replicate = Replicate::default();

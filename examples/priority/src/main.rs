@@ -22,7 +22,6 @@ use bevy::DefaultPlugins;
 // use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::client::ClientPluginGroup;
 #[cfg(not(target_family = "wasm"))]

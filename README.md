@@ -70,10 +70,9 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 - Examples
   - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy crates such as `bevy_xpbd_2d`
 
-## Planned features
+## Supported bevy version
 
-- Metrics
-    - Improve the metrics/logs
-- Serialization
-    - Improve the serialization code to be more ergonomic, and to have fewer copies.
-- Correctness: add more unit tests for replication edge-cases
+| Lightyear | Bevy |
+|-----------|------|
+| 0.10    | 0.13 |
+| 0.9       | 0.12 |

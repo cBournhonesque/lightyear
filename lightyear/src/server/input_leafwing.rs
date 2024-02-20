@@ -291,8 +291,8 @@ mod tests {
             .world
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
-                KeyCode::A,
                 LeafwingInput1::Jump,
+                KeyCode::KeyA,
             )]));
         stepper.frame_step();
         // check that the client entity got an InputBuffer added to it

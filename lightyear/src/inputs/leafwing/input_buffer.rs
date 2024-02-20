@@ -186,24 +186,30 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
     pub(crate) fn apply(self, action_state: &mut ActionState<A>) {
         match self {
             ActionDiff::Pressed { action } => {
-                action_state.press(action.clone());
-                action_state.action_data_mut(action.clone()).value = 1.;
+                action_state.press(&action);
+                if let Some(data) = action_state.action_data_mut(&action) {
+                    data.value = 1.0;
+                }
             }
             ActionDiff::Released { action } => {
-                action_state.release(action.clone());
-                let action_data = action_state.action_data_mut(action.clone());
-                action_data.value = 0.;
-                action_data.axis_pair = None;
+                action_state.release(&action);
+                if let Some(action_data) = action_state.action_data_mut(&action) {
+                    action_data.value = 0.;
+                    action_data.axis_pair = None;
+                }
             }
             ActionDiff::ValueChanged { action, value } => {
-                action_state.press(action.clone());
-                action_state.action_data_mut(action.clone()).value = value;
+                action_state.press(&action);
+                if let Some(data) = action_state.action_data_mut(&action) {
+                    data.value = value;
+                }
             }
             ActionDiff::AxisPairChanged { action, axis_pair } => {
-                action_state.press(action.clone());
-                let action_data = action_state.action_data_mut(action.clone());
-                action_data.axis_pair = Some(DualAxisData::from_xy(axis_pair));
-                action_data.value = axis_pair.length();
+                action_state.press(&action);
+                if let Some(action_data) = action_state.action_data_mut(&action) {
+                    action_data.axis_pair = Some(DualAxisData::from_xy(axis_pair));
+                    action_data.value = axis_pair.length();
+                }
             }
         };
     }
@@ -251,11 +257,7 @@ impl<A: LeafwingUserAction> LightyearMapEntities for InputMessage<A> {
                     return None;
                 }
             })
-            .for_each(|entity| {
-                if let Some(new_entity) = entity_mapper.map(*entity) {
-                    *entity = new_entity;
-                }
-            });
+            .for_each(|entity| *entity = entity_mapper.map_entity(*entity));
     }
 }
 
@@ -565,11 +567,11 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
 
         let mut a1 = ActionState::default();
-        a1.press(Action::Jump);
-        a1.action_data_mut(Action::Jump).value = 0.0;
+        a1.press(&Action::Jump);
+        a1.action_data_mut(&Action::Jump).unwrap().value = 0.0;
         let mut a2 = ActionState::default();
-        a2.press(Action::Jump);
-        a1.action_data_mut(Action::Jump).value = 1.0;
+        a2.press(&Action::Jump);
+        a1.action_data_mut(&Action::Jump).unwrap().value = 1.0;
         input_buffer.set(Tick(3), &a1);
         input_buffer.set(Tick(6), &a2);
         input_buffer.set(Tick(7), &a2);

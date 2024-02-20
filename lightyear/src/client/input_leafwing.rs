@@ -765,7 +765,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         // TODO: optimize config.send_diffs_only at compile time?
         if config.send_diffs_only {
             for action in action_state.get_just_pressed() {
-                match action_state.action_data(action.clone()).axis_pair {
+                match action_state.action_data(&action).unwrap().axis_pair {
                     Some(axis_pair) => {
                         diffs.push(ActionDiff::AxisPairChanged {
                             action: action.clone(),
@@ -779,7 +779,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                             .insert(maybe_entity, axis_pair.xy());
                     }
                     None => {
-                        let value = action_state.value(action.clone());
+                        let value = action_state.value(&action);
                         diffs.push(if value == 1. {
                             ActionDiff::Pressed {
                                 action: action.clone(),
@@ -802,11 +802,11 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
         for action in action_state.get_pressed() {
             if config.send_diffs_only {
-                if action_state.just_pressed(action.clone()) {
+                if action_state.just_pressed(&action) {
                     continue;
                 }
             }
-            match action_state.action_data(action.clone()).axis_pair {
+            match action_state.action_data(&action).unwrap().axis_pair {
                 Some(axis_pair) => {
                     if config.send_diffs_only {
                         let previous_axis_pairs =
@@ -825,7 +825,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                     });
                 }
                 None => {
-                    let value = action_state.value(action.clone());
+                    let value = action_state.value(&action);
                     if config.send_diffs_only {
                         let previous_values = previous_values.entry(action.clone()).or_default();
 
@@ -850,21 +850,26 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                 }
             }
         }
-        let release_diffs = if config.send_diffs_only {
-            // TODO: issue for consumed keys: https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443
-            action_state.get_just_released()
-        } else {
-            action_state.get_released()
-        };
-        for action in release_diffs {
+        for action in action_state
+            .get_released()
+            .iter()
+            // If we only send diffs, just keep the JustReleased keys.
+            // Consumed keys are marked as 'Release' so we need to handle them separately
+            // (see https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443)
+            .filter(|action| {
+                !config.send_diffs_only
+                    || action_state.just_released(&action)
+                    || action_state.consumed(&action)
+            })
+        {
             diffs.push(ActionDiff::Released {
                 action: action.clone(),
             });
             if config.send_diffs_only {
-                if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
+                if let Some(previous_axes) = previous_axis_pairs.get_mut(action) {
                     previous_axes.remove(&maybe_entity);
                 }
-                if let Some(previous_values) = previous_values.get_mut(&action) {
+                if let Some(previous_values) = previous_values.get_mut(action) {
                     previous_values.remove(&maybe_entity);
                 }
             }
@@ -939,7 +944,7 @@ mod tests {
             .server_app
             .world
             .spawn((
-                InputMap::<LeafwingInput1>::new([(KeyCode::A, LeafwingInput1::Jump)]),
+                InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
             ))
@@ -970,8 +975,8 @@ mod tests {
             .world
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
-                KeyCode::A,
                 LeafwingInput1::Jump,
+                KeyCode::KeyA,
             )]));
         assert!(stepper
             .client_app
