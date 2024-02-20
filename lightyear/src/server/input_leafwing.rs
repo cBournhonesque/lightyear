@@ -63,15 +63,7 @@ where
         // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
         app.add_plugins(InputManagerPlugin::<A>::server());
         // SETS
-        app.configure_sets(
-            FixedUpdate,
-            (
-                FixedUpdateSet::TickUpdate,
-                InputSystemSet::Update,
-                FixedUpdateSet::Main,
-            )
-                .chain(),
-        );
+        app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
         // SYSTEMS
         app.add_systems(
             PreUpdate,
@@ -86,7 +78,7 @@ where
                 .after(MainSet::ReceiveFlush),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
     }

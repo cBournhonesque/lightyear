@@ -253,7 +253,7 @@ pub(crate) fn remove_despawn_marker(
 //         stepper.client_mut().set_synced();
 //         stepper.client_app.add_systems(
 //             FixedUpdate,
-//             increment_component_and_despawn.in_set(FixedUpdateSet::Main),
+//             increment_component_and_despawn
 //         );
 //
 //         // Create a confirmed entity
@@ -442,7 +442,7 @@ pub(crate) fn remove_despawn_marker(
 //         );
 //         stepper.client_app.add_systems(
 //             FixedUpdate,
-//             increment_component_and_despawn_both.in_set(FixedUpdateSet::Main),
+//             increment_component_and_despawn_both
 //         );
 //
 //         // Create a confirmed entity

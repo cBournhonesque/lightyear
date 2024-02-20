@@ -125,12 +125,7 @@ impl Plugin for ExampleClientPlugin {
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(
-            FixedUpdate,
-            (movement, shared_tail_behaviour)
-                .chain()
-                .in_set(FixedUpdateSet::Main),
-        );
+        app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
 
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)

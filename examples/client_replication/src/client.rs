@@ -97,11 +97,8 @@ impl Plugin for ExampleClientPlugin {
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
-        app.add_systems(
-            FixedUpdate,
-            (player_movement, delete_player).in_set(FixedUpdateSet::Main),
-        );
+        // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
+        app.add_systems(FixedUpdate, (player_movement, delete_player));
         app.add_systems(
             Update,
             (

@@ -22,7 +22,7 @@
 //! ## Usage
 //!
 //! The networking of inputs is completely handled for you. You just need to add the `LeafwingInputPlugin` to your app.
-//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdateSet::Main`] [`SystemSet`].
+//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
 //!
@@ -187,15 +187,8 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
-        app.configure_sets(
-            FixedUpdate,
-            (
-                FixedUpdateSet::TickUpdate,
-                InputSystemSet::BufferInputs,
-                FixedUpdateSet::Main,
-            )
-                .chain(),
-        );
+        app.configure_sets(FixedFirst, FixedUpdateSet::TickUpdate);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferInputs);
         app.configure_sets(
             PostUpdate,
             // we send inputs only every send_interval
@@ -231,35 +224,34 @@ where
         // - handle `JustPressed` actions in the Update schedule, where they can only happen once
         // - `consume` the action when you read it, so that it can only happen once
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             (
                 (
-                    (
-                        (write_action_diffs::<A>, buffer_action_state::<P, A>),
-                        // get the action-state corresponding to the current tick (which we need to get from the buffer
-                        //  because it was added to the buffer input_delay ticks ago)
-                        get_non_rollback_action_state::<A>.run_if(is_input_delay),
-                    )
-                        .chain()
-                        .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
-                    get_rollback_action_state::<A>
-                        .run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
+                    (write_action_diffs::<A>, buffer_action_state::<P, A>),
+                    // get the action-state corresponding to the current tick (which we need to get from the buffer
+                    //  because it was added to the buffer input_delay ticks ago)
+                    get_non_rollback_action_state::<A>.run_if(is_input_delay),
                 )
-                    .in_set(InputSystemSet::BufferInputs),
-                // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
-                // we want:
-                // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
-                //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
-                // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-                get_delayed_action_state::<A>
-                    .run_if(
-                        is_input_delay
-                            .and_then(not(is_in_rollback))
-                            .and_then(run_if_enabled::<A>),
-                    )
-                    .after(FixedUpdateSet::Main),
+                    .chain()
+                    .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
+                get_rollback_action_state::<A>.run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
+            )
+                .in_set(InputSystemSet::BufferInputs),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
+            // we want:
+            // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
+            //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
+            // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
+            get_delayed_action_state::<A>.run_if(
+                is_input_delay
+                    .and_then(not(is_in_rollback))
+                    .and_then(run_if_enabled::<A>),
             ),
         );
+
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
         // app.add_systems(PostUpdate, clear_input_events::<P>);
@@ -765,6 +757,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         // TODO: optimize config.send_diffs_only at compile time?
         if config.send_diffs_only {
             for action in action_state.get_just_pressed() {
+                info!(?action, consumed=?action_state.consumed(&action), "action is JustPressed!");
                 let Some(action_data) = action_state.action_data(&action) else {
                     warn!("Action in ActionDiff has no data: was it generated correctly?");
                     continue;
@@ -802,10 +795,12 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
         for action in action_state.get_pressed() {
             if config.send_diffs_only {
+                // we already handled these cases above
                 if action_state.just_pressed(&action) {
                     continue;
                 }
             }
+            info!(?action, consumed=?action_state.consumed(&action), "action is pressed!");
             let Some(action_data) = action_state.action_data(&action) else {
                 warn!("Action in ActionState has no data: was it generated correctly?");
                 continue;

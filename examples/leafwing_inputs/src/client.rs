@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
 use crate::{shared, Transports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
@@ -125,13 +125,8 @@ impl Plugin for ExampleClientPlugin {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
-        // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
-        app.add_systems(
-            FixedUpdate,
-            player_movement
-                .in_set(FixedUpdateSet::Main)
-                .before(PhysicsSet::Prepare),
-        );
+        // all actions related-system that can be rolled back should be in FixedUpdate schedule
+        app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
         app.add_systems(
             Update,
             (

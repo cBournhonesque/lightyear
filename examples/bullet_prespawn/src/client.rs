@@ -128,8 +128,8 @@ impl Plugin for ExampleClientPlugin {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
-        // all actions related-system that can be rolled back should be in FixedUpdateSet::Main
-        // app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        // all actions related-system that can be rolled back should be in the `FixedUpdate` schdule
+        // app.add_systems(FixedUpdate, player_movement);
         // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
         app.add_systems(
             PreUpdate,

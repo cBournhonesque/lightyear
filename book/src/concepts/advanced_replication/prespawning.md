@@ -40,7 +40,7 @@ That's it!
 
 The various system-sets for prespawning are:
 - PreUpdate schedule:
-  - PredictionSet::SpawnPrediction: we first run the prespawn match system to match the pre-spawned entities with their corresponding server entity.
+  - `PredictionSet::SpawnPrediction`: we first run the prespawn match system to match the pre-spawned entities with their corresponding server entity.
     If there is a match, we remove the PreSpawnedPlayerObject component and add the Predicted/Confirmed components.
     We then run an apply_deferred, and we run the normal predicted spawn system, which will skip all confirmed entities that 
     already have a `predicted` counterpart (i.e. were matched)

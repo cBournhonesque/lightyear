@@ -39,7 +39,7 @@ Currently lightyear only provides option 1: interpolate between the previous tic
 ## How does it work?
 
 There are 3 main systems:
-- during FixedUpdate, we run `update_visual_interpolation_status` after the FixedUpdate::Main set (meaning that the simulation has run).
+- during FixedUpdate, we run `update_visual_interpolation_status` after the `FixedUpdate::Main` set (meaning that the simulation has run).
   In that system we keep track of the value of the component on the current tick and the previous tick
 - during PostUpdate, we run `visual_interpolation` which will interpolate the value of the component between the last two tick values
   stored in the `update_visual_interpolation_status` system. We use the `Time<Fixed>::overstep_percentage()` to determine how much to interpolate

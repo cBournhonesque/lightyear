@@ -32,6 +32,14 @@ pub fn shared_config() -> SharedConfig {
     }
 }
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum FixedSet {
+    // main fixed update systems (handle inputs)
+    Main,
+    // apply physics steps
+    Physics,
+}
+
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
@@ -81,12 +89,13 @@ impl Plugin for SharedPlugin {
                 PhysicsSet::StepSimulation,
                 PhysicsSet::Sync,
             )
-                .in_set(FixedUpdateSet::Main),
+                .in_set(FixedSet::Physics),
+            ((FixedSet::Main, FixedSet::Physics).chain()),
         );
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
-        app.add_systems(FixedUpdate, after_physics_log.after(FixedUpdateSet::Main));
+        app.add_systems(FixedPostUpdate, after_physics_log);
         app.add_systems(Last, last_log);
 
         // registry types for reflection

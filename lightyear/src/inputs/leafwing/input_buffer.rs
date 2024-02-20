@@ -187,29 +187,27 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
         match self {
             ActionDiff::Pressed { action } => {
                 action_state.press(&action);
-                if let Some(data) = action_state.action_data_mut(&action) {
-                    data.value = 1.0;
-                }
+                // Pressing will initialize the ActionData if it doesn't exist
+                action_state.action_data_mut(&action).unwrap().value = 1.0;
             }
             ActionDiff::Released { action } => {
                 action_state.release(&action);
-                if let Some(action_data) = action_state.action_data_mut(&action) {
-                    action_data.value = 0.;
-                    action_data.axis_pair = None;
-                }
+                // Releasing will initialize the ActionData if it doesn't exist
+                let action_data = action_state.action_data_mut(&action).unwrap();
+                action_data.value = 0.;
+                action_data.axis_pair = None;
             }
             ActionDiff::ValueChanged { action, value } => {
                 action_state.press(&action);
-                if let Some(data) = action_state.action_data_mut(&action) {
-                    data.value = value;
-                }
+                // Pressing will initialize the ActionData if it doesn't exist
+                action_state.action_data_mut(&action).unwrap().value = value;
             }
             ActionDiff::AxisPairChanged { action, axis_pair } => {
                 action_state.press(&action);
-                if let Some(action_data) = action_state.action_data_mut(&action) {
-                    action_data.axis_pair = Some(DualAxisData::from_xy(axis_pair));
-                    action_data.value = axis_pair.length();
-                }
+                // Pressing will initialize the ActionData if it doesn't exist
+                let action_data = action_state.action_data_mut(&action).unwrap();
+                action_data.axis_pair = Some(DualAxisData::from_xy(axis_pair));
+                action_data.value = axis_pair.length();
             }
         };
     }

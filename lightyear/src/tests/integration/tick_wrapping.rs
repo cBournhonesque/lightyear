@@ -61,9 +61,7 @@ fn test_sync_after_tick_wrap() {
         FixedUpdate,
         press_input.in_set(InputSystemSet::BufferInputs),
     );
-    stepper
-        .server_app
-        .add_systems(FixedUpdate, increment.in_set(FixedUpdateSet::Main));
+    stepper.server_app.add_systems(FixedUpdate, increment);
 
     let server_entity = stepper
         .server_app
@@ -155,9 +153,7 @@ fn test_sync_after_tick_half_wrap() {
         FixedUpdate,
         press_input.in_set(InputSystemSet::BufferInputs),
     );
-    stepper
-        .server_app
-        .add_systems(FixedUpdate, increment.in_set(FixedUpdateSet::Main));
+    stepper.server_app.add_systems(FixedUpdate, increment);
 
     let server_entity = stepper
         .server_app

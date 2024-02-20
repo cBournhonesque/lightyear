@@ -70,9 +70,8 @@ pub(crate) fn movement(
         }
     }
 }
-app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+app.add_systems(FixedMain, movement);
 ```
-Don't forget that fixed-timestep simulation systems must run in the `FixedUpdateSet::Main` `SystemSet`.
 
 You might be wondering what the `ComponentSyncMode` is.
 This crate specifies 3 different modes for synchronizing components between the `Confirmed` and `Predicted` entities:

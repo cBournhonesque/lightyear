@@ -87,7 +87,7 @@ impl Plugin for ExampleServerPlugin {
         });
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, movement);
         if !self.headless {
             app.add_systems(Update, send_message);
         }

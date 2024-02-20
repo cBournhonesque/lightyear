@@ -53,9 +53,6 @@ pub enum MainSet {
 /// SystemSet that run during the FixedUpdate schedule
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FixedUpdateSet {
-    /// System that runs at the very start of the FixedUpdate schedule to increment the ticks
+    /// System that runs in the FixedFirst schedule to increment the ticks
     TickUpdate,
-    /// Main loop (with physics, game logic) during FixedUpdate
-    Main,
-    MainFlush,
 }

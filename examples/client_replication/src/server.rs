@@ -82,10 +82,7 @@ impl Plugin for ExampleServerPlugin {
             (replicate_cursors, replicate_players).in_set(MainSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(
-            FixedUpdate,
-            (movement, delete_player).in_set(FixedUpdateSet::Main),
-        );
+        app.add_systems(FixedUpdate, (movement, delete_player));
         app.add_systems(Update, handle_disconnections);
     }
 }

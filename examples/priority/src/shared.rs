@@ -39,7 +39,7 @@ impl Plugin for SharedPlugin {
         }
 
         // movement
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, player_movement);
     }
 }
 

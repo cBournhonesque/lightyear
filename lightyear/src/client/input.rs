@@ -24,8 +24,8 @@
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
 use bevy::prelude::{
-    not, App, EventReader, EventWriter, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin, PostUpdate, Res, ResMut, SystemSet,
+    not, App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, FixedUpdate,
+    IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
 use tracing::{debug, error, trace};
 
@@ -95,17 +95,15 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         app.add_event::<InputEvent<P::Input>>();
         // SETS
         app.configure_sets(
-            FixedUpdate,
+            FixedPreUpdate,
             (
-                FixedUpdateSet::TickUpdate,
                 // no need to keep buffering inputs during rollback
                 InputSystemSet::BufferInputs.run_if(not(is_in_rollback)),
                 InputSystemSet::WriteInputEvent,
-                FixedUpdateSet::Main,
-                InputSystemSet::ClearInputEvent,
             )
                 .chain(),
         );
+        app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
         app.configure_sets(
             PostUpdate,
             (
@@ -124,11 +122,11 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 
         // SYSTEMS
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             write_input_event::<P>.in_set(InputSystemSet::WriteInputEvent),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPostUpdate,
             clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvent),
         );
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits

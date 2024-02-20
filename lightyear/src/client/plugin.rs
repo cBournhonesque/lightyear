@@ -170,15 +170,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .insert_resource(config.protocol)
             // SYSTEM SETS //
             .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
-            .configure_sets(
-                FixedUpdate,
-                (
-                    FixedUpdateSet::TickUpdate,
-                    FixedUpdateSet::Main,
-                    FixedUpdateSet::MainFlush,
-                )
-                    .chain(),
-            )
+            .configure_sets(FixedFirst, FixedUpdateSet::TickUpdate)
             // TODO: revisit the ordering of systems here. I believe all systems in ReplicationSet::All can run in parallel,
             //  but maybe that's not the case and we need to run them in a certain order
             // NOTE: it's ok to run the replication systems less frequently than every frame

@@ -254,10 +254,10 @@ pub(crate) fn movement(
         }
     }
 }
-app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+app.add_systems(FixedMain, movement);
 ```
 
-Any fixed-update simulation system (physics, etc.) must run in the `FixedUpdateSet::Main` `SystemSet` to behave correctly.
+Any fixed-update simulation system (physics, etc.) must run in the `FixedMain` `Schedule` to behave correctly.
 
 ## Displaying entities
 

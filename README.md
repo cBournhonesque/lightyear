@@ -74,5 +74,5 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.10    | 0.13 |
+| 0.10      | 0.13 |
 | 0.9       | 0.12 |

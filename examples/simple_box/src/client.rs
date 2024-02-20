@@ -101,7 +101,7 @@ impl Plugin for ExampleClientPlugin {
             FixedUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
             Update,
             (

@@ -526,7 +526,7 @@ pub(crate) fn increment_rollback_tick(mut rollback: ResMut<Rollback>) {
 //         stepper.client_mut().set_synced();
 //         stepper.client_app.add_systems(
 //             FixedUpdate,
-//             increment_component.in_set(FixedUpdateSet::Main),
+//             increment_component
 //         );
 //         stepper
 //     }

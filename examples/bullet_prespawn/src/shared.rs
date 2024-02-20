@@ -67,9 +67,8 @@ impl Plugin for SharedPlugin {
 
         // registry types for reflection
         app.register_type::<PlayerId>();
-        app.add_systems(FixedUpdate, fixed_update_log.after(FixedUpdateSet::Main));
-        // every system that is physics-based and can be rolled-back has to be scheduled
-        // in FixedUpdateSet::Main
+        app.add_systems(FixedPostUpdate, fixed_update_log);
+        // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
             FixedUpdate,
             // ideally, during rollback, we'd despawn the pre-predicted player objects and then respawn them during shoot_bullet.
@@ -82,8 +81,7 @@ impl Plugin for SharedPlugin {
                 // shoot_bullet.run_if(not(is_in_rollback)),
                 move_bullet,
             )
-                .chain()
-                .in_set(FixedUpdateSet::Main),
+                .chain(),
         );
         // NOTE: we need to create prespawned entities in FixedUpdate, because only then are inputs correctly associated with a tick
         //  Example:

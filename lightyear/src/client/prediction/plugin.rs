@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    PreUpdate, Res, SystemSet,
+    apply_deferred, App, FixedPostUpdate, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::transform::TransformSystem;
 
@@ -306,10 +306,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // 3. Increment rollback tick (only run in fallback)
         // 4. Update predicted history
         app.configure_sets(
-            FixedUpdate,
+            FixedPostUpdate,
             (
-                FixedUpdateSet::Main,
-                FixedUpdateSet::MainFlush,
                 // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
                 // TODO: entities spawned during update might have a tick that is off by 1 or more...
                 //  account for this when setting the hash?
@@ -328,7 +326,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 .chain(),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPostUpdate,
             (
                 // compute hashes for all pre-spawned player objects
                 compute_prespawn_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
