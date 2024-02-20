@@ -1,47 +1,36 @@
 //! Map between local and remote entities
 use anyhow::Context;
+use bevy::ecs::entity::{EntityHashMap, EntityHashSet, EntityMapper, MapEntities};
 use bevy::prelude::{Entity, EntityWorldMut, World};
 use bevy::utils::hashbrown::hash_map::Entry;
-use bevy::utils::{EntityHashMap, EntityHashSet};
 use tracing::error;
 
-pub trait EntityMapper {
-    /// Map an entity
-    fn map(&self, entity: Entity) -> Option<Entity>;
-}
-
-impl<T: EntityMapper> EntityMapper for &T {
-    #[inline]
-    fn map(&self, entity: Entity) -> Option<Entity> {
-        (*self).map(entity)
-    }
-}
-
-impl EntityMapper for EntityHashMap<Entity, Entity> {
-    #[inline]
-    fn map(&self, entity: Entity) -> Option<Entity> {
-        self.get(&entity).copied()
-    }
+// TODO: another solution to avoid the orphan rule would be to implement MapEntities directly on the enum type?
+// Wrapper trait to avoid the orphan rule (so that I can implement MapEntities for external types)
+pub trait LightyearMapEntities {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M);
 }
 
 #[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
-    remote_to_local: EntityHashMap<Entity, Entity>,
-    local_to_remote: EntityHashMap<Entity, Entity>,
+    remote_to_local: EntityHashMap<Entity>,
+    local_to_remote: EntityHashMap<Entity>,
 }
 
 #[derive(Default, Debug)]
 pub struct PredictedEntityMap {
     // map from the confirmed entity to the predicted entity
     // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
-    pub(crate) confirmed_to_predicted: EntityHashMap<Entity, Entity>,
+    pub(crate) confirmed_to_predicted: EntityHashMap<Entity>,
 }
 
 impl EntityMapper for PredictedEntityMap {
-    #[inline]
-    fn map(&self, entity: Entity) -> Option<Entity> {
-        self.confirmed_to_predicted.get(&entity).copied()
+    fn map_entity(&mut self, entity: Entity) -> Entity {
+        self.confirmed_to_predicted
+            .get(&entity)
+            .copied()
+            .unwrap_or(entity)
     }
 }
 
@@ -49,13 +38,15 @@ impl EntityMapper for PredictedEntityMap {
 pub struct InterpolatedEntityMap {
     // map from the confirmed entity to the interpolated entity
     // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
-    pub(crate) confirmed_to_interpolated: EntityHashMap<Entity, Entity>,
+    pub(crate) confirmed_to_interpolated: EntityHashMap<Entity>,
 }
 
 impl EntityMapper for InterpolatedEntityMap {
-    #[inline]
-    fn map(&self, entity: Entity) -> Option<Entity> {
-        self.confirmed_to_interpolated.get(&entity).copied()
+    fn map_entity(&mut self, entity: Entity) -> Entity {
+        self.confirmed_to_interpolated
+            .get(&entity)
+            .copied()
+            .unwrap_or(entity)
     }
 }
 
@@ -66,14 +57,14 @@ impl RemoteEntityMap {
         self.local_to_remote.insert(local_entity, remote_entity);
     }
 
-    pub(crate) fn get_to_remote_mapper(&self) -> Box<dyn EntityMapper + '_> {
-        Box::new(&self.local_to_remote)
-    }
-
-    // TODO: makke sure all calls to remote entity map use this to get the exact mapper
-    pub(crate) fn get_to_local_mapper(&self) -> Box<dyn EntityMapper + '_> {
-        Box::new(&self.remote_to_local)
-    }
+    // pub(crate) fn get_to_remote_mapper(&self) -> Box<dyn EntityMapper + '_> {
+    //     Box::new(&self.local_to_remote)
+    // }
+    //
+    // // TODO: make sure all calls to remote entity map use this to get the exact mapper
+    // pub(crate) fn get_to_local_mapper(&self) -> Box<dyn EntityMapper + '_> {
+    //     Box::new(&self.remote_to_local)
+    // }
 
     #[inline]
     pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<&Entity> {
@@ -123,12 +114,12 @@ impl RemoteEntityMap {
     }
 
     #[inline]
-    pub fn to_local(&self) -> &EntityHashMap<Entity, Entity> {
+    pub fn to_local(&self) -> &EntityHashMap<Entity> {
         &self.remote_to_local
     }
 
     #[inline]
-    pub fn to_remote(&self) -> &EntityHashMap<Entity, Entity> {
+    pub fn to_remote(&self) -> &EntityHashMap<Entity> {
         &self.local_to_remote
     }
 
@@ -143,37 +134,8 @@ impl RemoteEntityMap {
 }
 
 impl EntityMapper for RemoteEntityMap {
-    #[inline]
-    fn map(&self, entity: Entity) -> Option<Entity> {
-        self.get_local(entity).copied()
-    }
-}
-
-/// Trait that Messages or Components must implement to be able to map entities
-pub trait MapEntities<'a> {
-    /// Map the entities inside the message or component from the remote World to the local World
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>);
-
-    /// Get all the entities that are present in that message or component
-    fn entities(&self) -> EntityHashSet<Entity>;
-}
-
-impl<'a> MapEntities<'a> for Entity {
-    #[inline]
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        if let Some(local) = entity_mapper.map(*self) {
-            *self = local;
-        } else {
-            error!(
-                "cannot map entity {:?} because it doesn't exist in the entity map!",
-                self
-            );
-        }
-    }
-
-    #[inline]
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::from_iter(vec![*self])
+    fn map_entity(&mut self, entity: Entity) -> Entity {
+        self.get_local(entity).copied().unwrap_or(entity)
     }
 }
 

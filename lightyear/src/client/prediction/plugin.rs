@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    PreUpdate, Res, SystemSet,
+    apply_deferred, App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
+    PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::transform::TransformSystem;
 
@@ -133,7 +133,7 @@ pub enum PredictionSet {
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
 
-    // FixedUpdate Sets
+    // FixedPostUpdate Sets
     /// Increment the rollback tick after the main fixed-update physics loop has run
     IncrementRollbackTick,
     /// Set to deal with predicted/confirmed entities getting despawned
@@ -190,7 +190,7 @@ where
                 ),
             );
             app.add_systems(
-                FixedUpdate,
+                FixedPostUpdate,
                 (
                     add_prespawned_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
                     // we need to run this during fixed update to know accurately the history for each tick
@@ -227,7 +227,7 @@ where
         _ => {}
     };
     app.add_systems(
-        FixedUpdate,
+        FixedPostUpdate,
         remove_component_for_despawn_predicted::<C, P>.in_set(PredictionSet::EntityDespawn),
     );
 }
@@ -306,10 +306,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // 3. Increment rollback tick (only run in fallback)
         // 4. Update predicted history
         app.configure_sets(
-            FixedUpdate,
+            FixedPostUpdate,
             (
-                FixedUpdateSet::Main,
-                FixedUpdateSet::MainFlush,
                 // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
                 // TODO: entities spawned during update might have a tick that is off by 1 or more...
                 //  account for this when setting the hash?
@@ -328,7 +326,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 .chain(),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPostUpdate,
             (
                 // compute hashes for all pre-spawned player objects
                 compute_prespawn_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),

@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use bevy::prelude::{App, Component, Entity, EntityWorldMut, World};
-use bevy::utils::{EntityHashSet, HashMap};
+use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
 use crate::_reexport::{InstantCorrector, NullInterpolator};
@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
-use crate::prelude::{EntityMapper, MapEntities, Message, Named, PreSpawnedPlayerObject};
+use crate::prelude::{LightyearMapEntities, Message, Named, PreSpawnedPlayerObject};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::events::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
@@ -29,7 +29,7 @@ pub trait ComponentProtocol:
     BitSerializable
     + Serialize
     + DeserializeOwned
-    + for<'a> MapEntities<'a>
+    + LightyearMapEntities
     + ComponentBehaviour
     + Debug
     + Send
@@ -189,7 +189,7 @@ cfg_if!(
             BitSerializable
             + Serialize
             + DeserializeOwned
-            + for<'a> MapEntities<'a>
+            + LightyearMapEntities
             + PartialEq
             + Eq
             + PartialOrd
@@ -216,7 +216,7 @@ cfg_if!(
             BitSerializable
             + Serialize
             + DeserializeOwned
-            + for<'a> MapEntities<'a>
+            + LightyearMapEntities
             + PartialEq
             + Eq
             + PartialOrd

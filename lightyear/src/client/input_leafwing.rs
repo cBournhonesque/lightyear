@@ -22,7 +22,7 @@
 //! ## Usage
 //!
 //! The networking of inputs is completely handled for you. You just need to add the `LeafwingInputPlugin` to your app.
-//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdateSet::Main`] [`SystemSet`].
+//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
 //!
@@ -129,16 +129,16 @@ impl<A> LeafwingInputConfig<A> {
 /// Adds a plugin to handle inputs using the LeafwingInputManager
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     config: LeafwingInputConfig<A>,
-    _protocol_marker: std::marker::PhantomData<P>,
-    _action_marker: std::marker::PhantomData<A>,
+    _protocol_marker: PhantomData<P>,
+    _action_marker: PhantomData<A>,
 }
 
 impl<P: Protocol, A: LeafwingUserAction> LeafwingInputPlugin<P, A> {
     pub fn new(config: LeafwingInputConfig<A>) -> Self {
         Self {
             config,
-            _protocol_marker: std::marker::PhantomData,
-            _action_marker: std::marker::PhantomData,
+            _protocol_marker: PhantomData,
+            _action_marker: PhantomData,
         }
     }
 }
@@ -147,8 +147,8 @@ impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
         Self {
             config: LeafwingInputConfig::default(),
-            _protocol_marker: std::marker::PhantomData,
-            _action_marker: std::marker::PhantomData,
+            _protocol_marker: PhantomData,
+            _action_marker: PhantomData,
         }
     }
 }
@@ -187,15 +187,8 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
-        app.configure_sets(
-            FixedUpdate,
-            (
-                FixedUpdateSet::TickUpdate,
-                InputSystemSet::BufferInputs,
-                FixedUpdateSet::Main,
-            )
-                .chain(),
-        );
+        app.configure_sets(FixedFirst, FixedUpdateSet::TickUpdate);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferInputs);
         app.configure_sets(
             PostUpdate,
             // we send inputs only every send_interval
@@ -231,35 +224,34 @@ where
         // - handle `JustPressed` actions in the Update schedule, where they can only happen once
         // - `consume` the action when you read it, so that it can only happen once
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             (
                 (
-                    (
-                        (write_action_diffs::<A>, buffer_action_state::<P, A>),
-                        // get the action-state corresponding to the current tick (which we need to get from the buffer
-                        //  because it was added to the buffer input_delay ticks ago)
-                        get_non_rollback_action_state::<A>.run_if(is_input_delay),
-                    )
-                        .chain()
-                        .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
-                    get_rollback_action_state::<A>
-                        .run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
+                    (write_action_diffs::<A>, buffer_action_state::<P, A>),
+                    // get the action-state corresponding to the current tick (which we need to get from the buffer
+                    //  because it was added to the buffer input_delay ticks ago)
+                    get_non_rollback_action_state::<A>.run_if(is_input_delay),
                 )
-                    .in_set(InputSystemSet::BufferInputs),
-                // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
-                // we want:
-                // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
-                //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
-                // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-                get_delayed_action_state::<A>
-                    .run_if(
-                        is_input_delay
-                            .and_then(not(is_in_rollback))
-                            .and_then(run_if_enabled::<A>),
-                    )
-                    .after(FixedUpdateSet::Main),
+                    .chain()
+                    .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
+                get_rollback_action_state::<A>.run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
+            )
+                .in_set(InputSystemSet::BufferInputs),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
+            // we want:
+            // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
+            //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
+            // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
+            get_delayed_action_state::<A>.run_if(
+                is_input_delay
+                    .and_then(not(is_in_rollback))
+                    .and_then(run_if_enabled::<A>),
             ),
         );
+
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
         // app.add_systems(PostUpdate, clear_input_events::<P>);
@@ -765,21 +757,24 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         // TODO: optimize config.send_diffs_only at compile time?
         if config.send_diffs_only {
             for action in action_state.get_just_pressed() {
-                match action_state.action_data(action.clone()).axis_pair {
+                trace!(?action, consumed=?action_state.consumed(&action), "action is JustPressed!");
+                let Some(action_data) = action_state.action_data(&action) else {
+                    warn!("Action in ActionDiff has no data: was it generated correctly?");
+                    continue;
+                };
+                match action_data.axis_pair {
                     Some(axis_pair) => {
                         diffs.push(ActionDiff::AxisPairChanged {
                             action: action.clone(),
                             axis_pair: axis_pair.into(),
                         });
                         previous_axis_pairs
-                            .raw_entry_mut()
-                            .from_key(&action)
-                            .or_insert_with(|| (action.clone(), HashMap::default()))
-                            .1
+                            .entry(action)
+                            .or_default()
                             .insert(maybe_entity, axis_pair.xy());
                     }
                     None => {
-                        let value = action_state.value(action.clone());
+                        let value = action_data.value;
                         diffs.push(if value == 1. {
                             ActionDiff::Pressed {
                                 action: action.clone(),
@@ -791,10 +786,8 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                             }
                         });
                         previous_values
-                            .raw_entry_mut()
-                            .from_key(&action)
-                            .or_insert_with(|| (action.clone(), HashMap::default()))
-                            .1
+                            .entry(action)
+                            .or_default()
                             .insert(maybe_entity, value);
                     }
                 }
@@ -802,11 +795,17 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
         for action in action_state.get_pressed() {
             if config.send_diffs_only {
-                if action_state.just_pressed(action.clone()) {
+                // we already handled these cases above
+                if action_state.just_pressed(&action) {
                     continue;
                 }
             }
-            match action_state.action_data(action.clone()).axis_pair {
+            trace!(?action, consumed=?action_state.consumed(&action), "action is pressed!");
+            let Some(action_data) = action_state.action_data(&action) else {
+                warn!("Action in ActionState has no data: was it generated correctly?");
+                continue;
+            };
+            match action_data.axis_pair {
                 Some(axis_pair) => {
                     if config.send_diffs_only {
                         let previous_axis_pairs =
@@ -825,7 +824,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                     });
                 }
                 None => {
-                    let value = action_state.value(action.clone());
+                    let value = action_data.value;
                     if config.send_diffs_only {
                         let previous_values = previous_values.entry(action.clone()).or_default();
 
@@ -850,28 +849,41 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                 }
             }
         }
-        let release_diffs = if config.send_diffs_only {
-            // TODO: issue for consumed keys: https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443
-            action_state.get_just_released()
-        } else {
-            action_state.get_released()
-        };
-        for action in release_diffs {
+        for action in action_state
+            .get_released()
+            .iter()
+            // If we only send diffs, just keep the JustReleased keys.
+            // Consumed keys are marked as 'Release' so we need to handle them separately
+            // (see https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443)
+            .filter(|action| {
+                !config.send_diffs_only
+                    || action_state.just_released(*action)
+                    || action_state.consumed(*action)
+            })
+        {
+            let just_released = action_state.just_released(action);
+            let consumed = action_state.consumed(action);
+            trace!(
+                send_diffs=?config.send_diffs_only,
+                ?just_released,
+                ?consumed,
+                "action released: {:?}", action
+            );
             diffs.push(ActionDiff::Released {
                 action: action.clone(),
             });
             if config.send_diffs_only {
-                if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
+                if let Some(previous_axes) = previous_axis_pairs.get_mut(action) {
                     previous_axes.remove(&maybe_entity);
                 }
-                if let Some(previous_values) = previous_values.get_mut(&action) {
+                if let Some(previous_values) = previous_values.get_mut(action) {
                     previous_values.remove(&maybe_entity);
                 }
             }
         }
 
         if !diffs.is_empty() {
-            debug!(?maybe_entity, "writing action diffs: {:?}", diffs);
+            trace!(send_diffs_only = ?config.send_diffs_only, ?maybe_entity, "writing action diffs: {:?}", diffs);
             action_diffs.send(ActionDiffEvent {
                 owner: maybe_entity,
                 action_diff: diffs,
@@ -939,7 +951,7 @@ mod tests {
             .server_app
             .world
             .spawn((
-                InputMap::<LeafwingInput1>::new([(KeyCode::A, LeafwingInput1::Jump)]),
+                InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
             ))
@@ -970,8 +982,8 @@ mod tests {
             .world
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
-                KeyCode::A,
                 LeafwingInput1::Jump,
+                KeyCode::KeyA,
             )]));
         assert!(stepper
             .client_app
@@ -991,8 +1003,8 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
-            .press(KeyCode::A);
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
         stepper.frame_step();
 
         // listen to the ActionDiff event

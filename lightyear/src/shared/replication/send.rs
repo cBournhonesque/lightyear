@@ -3,15 +3,16 @@ use std::iter::Extend;
 
 use anyhow::Context;
 use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Reflect};
 use bevy::utils::petgraph::data::ElementIterator;
-use bevy::utils::{EntityHashMap, HashMap, HashSet};
+use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace, warn};
 
 use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;
-use crate::prelude::{MapEntities, ShouldBePredicted, Tick};
+use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
@@ -19,6 +20,10 @@ use crate::protocol::Protocol;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
+
+type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+
+type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationSender<P: Protocol> {
     // TODO: this is unused by server-send, should we just move it to client-connection?
@@ -37,12 +42,13 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     /// are being buffered individually but we want to group them inside a message
     pub pending_actions: EntityHashMap<
         ReplicationGroupId,
-        HashMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
+        EntityHashMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
     >,
-    pub pending_updates: EntityHashMap<ReplicationGroupId, HashMap<Entity, Vec<P::Components>>>,
+    pub pending_updates:
+        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<P::Components>>>,
     // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
     pub pending_unique_components:
-        EntityHashMap<ReplicationGroupId, HashMap<Entity, HashSet<P::ComponentKinds>>>,
+        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<P::ComponentKinds>>>,
 
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,

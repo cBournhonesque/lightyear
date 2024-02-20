@@ -1,5 +1,4 @@
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
-use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};

@@ -5,8 +5,8 @@ use std::sync::Mutex;
 
 use crate::_reexport::ShouldBeInterpolated;
 use bevy::prelude::{
-    apply_deferred, App, FixedUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
-    Plugin as PluginType, PostUpdate, PreUpdate,
+    apply_deferred, default, App, IntoSystemConfigs, IntoSystemSetConfigs, Plugin as PluginType,
+    PostUpdate, PreUpdate,
 };
 use bevy::time::common_conditions::on_timer;
 
@@ -84,9 +84,10 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
 
         app
             // PLUGINS
-            .add_plugins(SharedPlugin {
+            .add_plugins(SharedPlugin::<P> {
                 // TODO: move shared config out of server_config
                 config: config.server_config.shared.clone(),
+                ..default()
             })
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())

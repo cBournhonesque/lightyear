@@ -63,15 +63,7 @@ where
         // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
         app.add_plugins(InputManagerPlugin::<A>::server());
         // SETS
-        app.configure_sets(
-            FixedUpdate,
-            (
-                FixedUpdateSet::TickUpdate,
-                InputSystemSet::Update,
-                FixedUpdateSet::Main,
-            )
-                .chain(),
-        );
+        app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
         // SYSTEMS
         app.add_systems(
             PreUpdate,
@@ -86,7 +78,7 @@ where
                 .after(MainSet::ReceiveFlush),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
     }
@@ -291,8 +283,8 @@ mod tests {
             .world
             .entity_mut(client_entity)
             .insert(InputMap::<LeafwingInput1>::new([(
-                KeyCode::A,
                 LeafwingInput1::Jump,
+                KeyCode::KeyA,
             )]));
         stepper.frame_step();
         // check that the client entity got an InputBuffer added to it
@@ -307,16 +299,16 @@ mod tests {
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
-            .press(KeyCode::A);
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyA);
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
         stepper
             .client_app
             .world
-            .resource_mut::<Input<KeyCode>>()
-            .release(KeyCode::A);
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
         stepper.frame_step();
 
         // we should have sent an InputMessage from client to server

@@ -36,14 +36,11 @@ impl Plugin for TickManagerPlugin {
             .insert_resource(TickManager::from_config(self.config.clone()))
             // SYSTEMS
             .add_systems(
-                FixedUpdate,
-                (
-                    increment_tick
-                        .in_set(FixedUpdateSet::TickUpdate)
-                        // run if there is no rollback resource, or if we are not in rollback
-                        .run_if(not(resource_exists::<Rollback>()).or_else(not(is_in_rollback))),
-                    apply_deferred.in_set(FixedUpdateSet::MainFlush),
-                ),
+                FixedFirst,
+                (increment_tick
+                    .in_set(FixedUpdateSet::TickUpdate)
+                    // run if there is no rollback resource, or if we are not in rollback
+                    .run_if(not(resource_exists::<Rollback>).or_else(not(is_in_rollback))),),
             );
     }
 }

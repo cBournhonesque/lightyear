@@ -1,5 +1,5 @@
+use bevy::math::Vec2;
 use bevy::prelude::*;
-use bevy::utils::EntityHashSet;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
@@ -48,16 +48,16 @@ impl PlayerBundle {
     }
     pub(crate) fn get_input_map() -> InputMap<Inputs> {
         InputMap::new([
-            (KeyCode::Right, Inputs::Right),
-            (KeyCode::D, Inputs::Right),
-            (KeyCode::Left, Inputs::Left),
-            (KeyCode::A, Inputs::Left),
-            (KeyCode::Up, Inputs::Up),
-            (KeyCode::W, Inputs::Up),
-            (KeyCode::Down, Inputs::Down),
-            (KeyCode::S, Inputs::Down),
-            (KeyCode::Delete, Inputs::Delete),
-            (KeyCode::Space, Inputs::Spawn),
+            (Inputs::Right, KeyCode::ArrowRight),
+            (Inputs::Right, KeyCode::KeyD),
+            (Inputs::Left, KeyCode::ArrowLeft),
+            (Inputs::Left, KeyCode::KeyA),
+            (Inputs::Up, KeyCode::ArrowUp),
+            (Inputs::Up, KeyCode::KeyW),
+            (Inputs::Down, KeyCode::ArrowDown),
+            (Inputs::Down, KeyCode::KeyS),
+            (Inputs::Delete, KeyCode::Backspace),
+            (Inputs::Spawn, KeyCode::Space),
         ])
     }
 }
@@ -85,7 +85,7 @@ pub struct PlayerColor(pub(crate) Color);
 
 #[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
 // Marker component
-pub struct Circle;
+pub struct CircleMarker;
 
 // Example of a component that contains an entity.
 // This component, when replicated, needs to have the inner entity mapped from the Server world
@@ -96,15 +96,9 @@ pub struct Circle;
 #[message(custom_map)]
 pub struct PlayerParent(Entity);
 
-impl<'a> MapEntities<'a> for PlayerParent {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        info!("mapping parent entity {:?}", self.0);
-        self.0.map_entities(entity_mapper);
-        info!("After mapping: {:?}", self.0);
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::from_iter(vec![self.0])
+impl LightyearMapEntities for PlayerParent {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
     }
 }
 
@@ -117,7 +111,7 @@ pub enum Components {
     #[sync(once)]
     PlayerColor(PlayerColor),
     #[sync(once)]
-    Circle(Circle),
+    CircleMarker(CircleMarker),
 }
 
 // Channels

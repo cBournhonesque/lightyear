@@ -97,11 +97,12 @@ impl Plugin for ExampleClientPlugin {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
+        // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
             Update,
             (
@@ -164,29 +165,29 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Gl
 // }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<Input<KeyCode>>) {
+pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {
     let mut direction = Direction {
         up: false,
         down: false,
         left: false,
         right: false,
     };
-    if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
+    if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
         direction.up = true;
     }
-    if keypress.pressed(KeyCode::S) || keypress.pressed(KeyCode::Down) {
+    if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
         direction.down = true;
     }
-    if keypress.pressed(KeyCode::A) || keypress.pressed(KeyCode::Left) {
+    if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
         direction.left = true;
     }
-    if keypress.pressed(KeyCode::D) || keypress.pressed(KeyCode::Right) {
+    if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
         direction.right = true;
     }
     if !direction.is_none() {
         return client.add_input(Inputs::Direction(direction));
     }
-    if keypress.pressed(KeyCode::Delete) {
+    if keypress.pressed(KeyCode::Backspace) {
         // currently, inputs is an enum and we can only add one input per tick
         return client.add_input(Inputs::Delete);
     }

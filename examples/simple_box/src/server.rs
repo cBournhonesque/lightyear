@@ -27,11 +27,8 @@ impl ServerPluginGroup {
                     Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
                         .await
                         .unwrap();
-                let digest = certificate.hashes()[0].fmt_as_dotted_hex();
-                println!(
-                    "Generated self-signed certificate with digest: {:?}",
-                    digest
-                );
+                let digest = &certificate.hashes()[0];
+                println!("Generated self-signed certificate with digest: {}", digest);
                 TransportConfig::WebTransportServer {
                     server_addr,
                     certificate,
@@ -90,7 +87,7 @@ impl Plugin for ExampleServerPlugin {
         });
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, movement);
         if !self.headless {
             app.add_systems(Update, send_message);
         }
@@ -180,9 +177,9 @@ pub(crate) fn movement(
 /// and cannot do input handling)
 pub(crate) fn send_message(
     mut server: ResMut<ServerConnectionManager>,
-    input: Res<Input<KeyCode>>,
+    input: Res<ButtonInput<KeyCode>>,
 ) {
-    if input.pressed(KeyCode::M) {
+    if input.pressed(KeyCode::KeyM) {
         // TODO: add way to send message to all
         let message = Message1(5);
         info!("Send message: {:?}", message);

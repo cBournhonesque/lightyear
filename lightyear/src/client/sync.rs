@@ -597,12 +597,10 @@ mod tests {
         let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
 
         stepper.client_app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             press_input.in_set(InputSystemSet::BufferInputs),
         );
-        stepper
-            .server_app
-            .add_systems(FixedUpdate, increment.in_set(FixedUpdateSet::Main));
+        stepper.server_app.add_systems(FixedUpdate, increment);
 
         stepper
             .server_app

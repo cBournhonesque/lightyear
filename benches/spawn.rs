@@ -9,7 +9,7 @@ use bevy::utils::Duration;
 use divan::{AllocProfiler, Bencher};
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
-use lightyear::prelude::{ClientId, LogConfig, NetworkTarget, SharedConfig, TickConfig};
+use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 use lightyear_benches::stepper::{BevyStepper, Step};
@@ -36,10 +36,6 @@ fn spawn_local(bencher: Bencher, n: usize) {
             let tick_duration = Duration::from_millis(10);
             let shared_config = SharedConfig {
                 tick: TickConfig::new(tick_duration),
-                log: LogConfig {
-                    level: Level::WARN,
-                    ..default()
-                },
                 ..default()
             };
             let mut stepper = LocalBevyStepper::new(
@@ -100,10 +96,6 @@ fn spawn(bencher: Bencher, n: usize) {
             let tick_duration = Duration::from_millis(10);
             let shared_config = SharedConfig {
                 tick: TickConfig::new(tick_duration),
-                log: LogConfig {
-                    level: Level::WARN,
-                    ..default()
-                },
                 ..default()
             };
             let mut stepper = LocalBevyStepper::new(

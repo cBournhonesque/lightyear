@@ -2,6 +2,7 @@ use bevy::prelude::Component;
 use bevy::utils::default;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
+use std::ops::Mul;
 
 use lightyear::prelude::*;
 
@@ -21,6 +22,14 @@ pub enum MyMessageProtocol {
 // Components
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component1(pub f32);
+
+impl Mul<f32> for &Component1 {
+    type Output = Component1;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Component1(self.0 * rhs)
+    }
+}
 
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component2(pub f32);

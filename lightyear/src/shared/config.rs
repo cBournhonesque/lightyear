@@ -1,7 +1,6 @@
 //! Configuration that has to be the same between the server and the client.
 use bevy::utils::Duration;
 
-use crate::shared::log::LogConfig;
 use crate::shared::tick_manager::TickConfig;
 
 /// Configuration that has to be the same between the server and the client.
@@ -14,8 +13,6 @@ pub struct SharedConfig {
     pub server_send_interval: Duration,
     /// configuration for the [`FixedUpdate`](bevy::prelude::FixedUpdate) schedule
     pub tick: TickConfig,
-    /// logging configuration
-    pub log: LogConfig,
 }
 
 impl Default for SharedConfig {
@@ -26,7 +23,6 @@ impl Default for SharedConfig {
             client_send_interval: Duration::from_millis(0),
             server_send_interval: Duration::from_millis(0),
             tick: TickConfig::new(Duration::from_millis(16)),
-            log: LogConfig::default(),
         }
     }
 }

@@ -24,11 +24,6 @@ pub fn shared_config() -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        log: LogConfig {
-            level: Level::INFO,
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
-                .to_string(),
-        },
     }
 }
 
@@ -44,7 +39,7 @@ impl Plugin for SharedPlugin {
         }
 
         // movement
-        app.add_systems(FixedUpdate, player_movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, player_movement);
     }
 }
 
@@ -64,16 +59,16 @@ pub(crate) fn player_movement(
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<Confirmed>>,
 ) {
     for (mut position, input) in position_query.iter_mut() {
-        if input.pressed(Inputs::Up) {
+        if input.pressed(&Inputs::Up) {
             position.y += MOVE_SPEED;
         }
-        if input.pressed(Inputs::Down) {
+        if input.pressed(&Inputs::Down) {
             position.y -= MOVE_SPEED;
         }
-        if input.pressed(Inputs::Left) {
+        if input.pressed(&Inputs::Left) {
             position.x -= MOVE_SPEED;
         }
-        if input.pressed(Inputs::Right) {
+        if input.pressed(&Inputs::Right) {
             position.x += MOVE_SPEED;
         }
     }

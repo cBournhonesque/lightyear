@@ -111,7 +111,7 @@ macro_rules! protocolize {
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
 
-            #[derive(Debug, Clone, Resource)]
+            #[derive(Debug, Clone, Resource, PartialEq)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }
@@ -210,7 +210,7 @@ macro_rules! protocolize {
             use $shared_crate_name::_reexport::*;
             use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
-            #[derive(Debug, Clone, Resource)]
+            #[derive(Debug, Clone, Resource, PartialEq)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }

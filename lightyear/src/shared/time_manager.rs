@@ -12,7 +12,7 @@ This module contains some helper functions to compute the difference between two
 use std::fmt::Formatter;
 use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
-use bevy::app::{App, RunFixedUpdateLoop};
+use bevy::app::{App, RunFixedMainLoop};
 use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time, Timer, TimerMode};
 use bevy::time::Fixed;
 use bevy::utils::Duration;
@@ -43,14 +43,14 @@ impl Plugin for TimePlugin {
         app.insert_resource(TimeManager::new(self.send_interval));
         // SYSTEMS
         app.add_systems(
-            RunFixedUpdateLoop,
-            update_overstep.after(bevy::time::run_fixed_update_schedule),
+            RunFixedMainLoop,
+            update_overstep.after(bevy::time::run_fixed_main_schedule),
         );
     }
 }
 
 fn update_overstep(mut time_manager: ResMut<TimeManager>, fixed_time: Res<Time<Fixed>>) {
-    time_manager.update_overstep(fixed_time.overstep_percentage());
+    time_manager.update_overstep(fixed_time.overstep_fraction());
 }
 
 #[derive(Resource)]

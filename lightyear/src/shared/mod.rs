@@ -4,7 +4,7 @@ pub mod config;
 
 pub mod events;
 
-pub(crate) mod log;
+pub mod log;
 
 pub mod ping;
 
