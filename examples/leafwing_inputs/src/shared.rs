@@ -107,11 +107,11 @@ impl Plugin for SharedPlugin {
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
-        .add("bytes_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+        .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
         .aggregate(Aggregate::Average)
         .format(|v| format!("{v:.0}"));
     onscreen
-        .add("bytes_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+        .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
         .aggregate(Aggregate::Average)
         .format(|v| format!("{v:.0}"));
 }
