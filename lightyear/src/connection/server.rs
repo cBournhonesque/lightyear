@@ -10,7 +10,7 @@ use crate::server::config::NetcodeConfig;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
-    fn start(&mut self);
+    fn start(&mut self) -> Result<()>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
@@ -39,8 +39,14 @@ pub struct ServerConnection {
 /// Configuration for the server connection
 #[derive(Clone, Debug)]
 pub enum NetConfig {
-    Netcode { config: NetcodeConfig, io: IoConfig },
-    Steam { config: SteamConfig },
+    Netcode {
+        config: NetcodeConfig,
+        io: IoConfig,
+    },
+    #[cfg(feature = "steam")]
+    Steam {
+        config: SteamConfig,
+    },
 }
 
 impl Default for NetConfig {
@@ -62,6 +68,7 @@ impl NetConfig {
                     server: Box::new(server),
                 }
             }
+            #[cfg(feature = "steam")]
             NetConfig::Steam { config } => {
                 // TODO: handle errors
                 let server = super::steam::server::Server::new(config)
@@ -75,7 +82,7 @@ impl NetConfig {
 }
 
 impl NetServer for ServerConnection {
-    fn start(&mut self) {
+    fn start(&mut self) -> Result<()> {
         self.server.start()
     }
 

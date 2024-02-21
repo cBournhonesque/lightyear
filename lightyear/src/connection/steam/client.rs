@@ -51,13 +51,13 @@ impl Client {
             self.client
                 .networking_sockets()
                 .get_connection_info(connection)
-                .context("connection handle is invalid")
+                .map_err(|err| anyhow!("could not get connection info"))
         })
     }
 
     fn connection_state(&self) -> Result<NetworkingConnectionState> {
         self.connection_info()
-            .unwrap_or(anyhow!("no connection").into())
+            .unwrap_or(Err(anyhow!("no connection")))
             .map_or(Ok(NetworkingConnectionState::None), |info| info.state())
             .context("could not get connection state")
     }
@@ -86,16 +86,14 @@ impl NetClient for Client {
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
 
         // update connection state
-        match self.connection_state()? {
-            NetworkingConnectionState::None => {
-                Err(anyhow!("no connection"));
-            }
+        return match self.connection_state()? {
+            NetworkingConnectionState::None => Err(anyhow!("no connection")),
             NetworkingConnectionState::Connecting | NetworkingConnectionState::FindingRoute => {
                 Ok(())
             }
             NetworkingConnectionState::ClosedByPeer
             | NetworkingConnectionState::ProblemDetectedLocally => {
-                Err(anyhow!("connection closed"));
+                Err(anyhow!("connection closed"))
             }
             NetworkingConnectionState::Connected => {
                 // receive packet
@@ -107,9 +105,9 @@ impl NetClient for Client {
                     let reader = ReadWordBuffer::start_read(message.data());
                     self.packet_queue.push_back(reader);
                 }
+                Ok(())
             }
-        }
-        Ok(())
+        };
     }
 
     fn recv(&mut self) -> Option<ReadWordBuffer> {
@@ -121,6 +119,7 @@ impl NetClient for Client {
             .ok_or(anyhow!("client not connected"))?
             .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)
             .context("could not send message")?;
+        Ok(())
     }
 
     fn id(&self) -> ClientId {

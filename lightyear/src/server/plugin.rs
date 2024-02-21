@@ -69,7 +69,9 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
         let mut netserver = config.server_config.net.clone().build_server();
         // TODO: maybe also don't start the io/server right away, but only here?
         // start the server
-        netserver.start();
+        let _ = netserver
+            .start()
+            .inspect_err(|err| error!("could not start server"));
 
         let tick_duration = config.server_config.shared.tick.tick_duration;
         // TODO: have better constants for clean_interval?

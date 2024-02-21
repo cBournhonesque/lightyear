@@ -57,9 +57,8 @@ pub enum NetConfig {
         io: IoConfig,
     },
     // TODO: for steam, we can use a pass-through io that just computes stats?
-    Steam {
-        config: SteamConfig,
-    },
+    #[cfg(feature = "steam")]
+    Steam { config: SteamConfig },
 }
 
 impl Default for NetConfig {
@@ -97,6 +96,7 @@ impl NetConfig {
                     client: Box::new(client),
                 }
             }
+            #[cfg(feature = "steam")]
             NetConfig::Steam { config } => {
                 // TODO: handle errors
                 let client = super::steam::client::Client::new(config)

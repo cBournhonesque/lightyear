@@ -20,7 +20,7 @@ pub struct SteamConfig {
     pub game_port: u16,
     pub query_port: u16,
     pub max_clients: usize,
-    pub mode: ServerMode,
+    // pub mode: ServerMode,
     // TODO: name this protocol to match netcode?
     pub version: String,
 }
@@ -34,7 +34,7 @@ impl Default for SteamConfig {
             game_port: 27015,
             query_port: 27016,
             max_clients: 16,
-            mode: ServerMode::NoAuthentication,
+            // mode: ServerMode::NoAuthentication,
             version: "1.0".to_string(),
         }
     }
@@ -61,7 +61,8 @@ impl Server {
             config.server_ip,
             config.game_port,
             config.query_port,
-            config.mode.clone(),
+            ServerMode::NoAuthentication,
+            // config.mode.clone(),
             &config.version.clone(),
         )
         .context("could not initialize steam server")?;
@@ -80,7 +81,7 @@ impl Server {
 }
 
 impl NetServer for Server {
-    fn start(&mut self) {
+    fn start(&mut self) -> Result<()> {
         let options: Vec<NetworkingConfigEntry> = Vec::new();
         let server_addr = SocketAddr::new(self.config.server_ip.into(), self.config.game_port);
         let listen_socket = self
@@ -88,10 +89,11 @@ impl NetServer for Server {
             .networking_sockets()
             .create_listen_socket_ip(server_addr, options)
             .context("could not create server listen socket")?;
+        Ok(())
     }
 
     fn connected_client_ids(&self) -> Vec<ClientId> {
-        self.connections.keys().collect()
+        self.connections.keys().cloned().collect()
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
@@ -121,7 +123,7 @@ impl NetServer for Server {
                     }
                 }
                 ListenSocketEvent::Connecting(event) => {
-                    if self.num_connected_clients() >= self.config.max_clients {
+                    if self.connections.len() >= self.config.max_clients {
                         event.reject(NetConnectionEnd::AppGeneric, Some("Too many clients"));
                         continue;
                     }

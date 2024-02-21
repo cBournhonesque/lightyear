@@ -45,11 +45,22 @@ impl ServerPluginGroup {
         // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
-            net: NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(PROTOCOL_ID)
-                    .with_key(KEY),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            // net: NetConfig::Netcode {
+            //     config: NetcodeConfig::default()
+            //         .with_protocol_id(PROTOCOL_ID)
+            //         .with_key(KEY),
+            //     io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            // },
+            net: NetConfig::Steam {
+                config: SteamConfig {
+                    app_id: 480,
+                    server_ip: Ipv4Addr::UNSPECIFIED,
+                    game_port: port,
+                    query_port: 27016,
+                    max_clients: 16,
+                    // mode: ServerMode::NoAuthentication,
+                    version: format!("{}", PROTOCOL_ID),
+                },
             },
             ..default()
         };

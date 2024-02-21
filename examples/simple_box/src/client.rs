@@ -52,10 +52,16 @@ impl ClientPluginGroup {
         };
         let config = ClientConfig {
             shared: shared_config(),
-            net: NetConfig::Netcode {
-                auth,
-                config: NetcodeConfig::default(),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            // net: NetConfig::Netcode {
+            //     auth,
+            //     config: NetcodeConfig::default(),
+            //     io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
+            // },
+            net: NetConfig::Steam {
+                config: SteamConfig {
+                    server_addr,
+                    app_id: 480,
+                },
             },
             interpolation: InterpolationConfig {
                 delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
