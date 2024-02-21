@@ -2,7 +2,8 @@
 
 The `Transport` trait is the trait that is used to send and receive raw data on the network.
 
-It is very general:
+It is a very low-level trait:
+
 ```rust,noplayground
 pub trait PacketSender: Send + Sync {
     /// Send data on the socket to the remote address
@@ -17,7 +18,8 @@ pub trait PacketReceiver: Send + Sync {
 ```
 
 
-The trait currently has 3 implementations:
+The trait currently has 4 implementations:
 - UDP sockets
-- WebTransport (using QUIC): not compatible with wasm yet.
-- crossbeam-channels: used for internal testing
+- WebTransport (using QUIC): it is wasm compatible, but only for some browsers (Safari is not supported)
+- WebSockets
+- crossbeam-channels: used for internal testing with 0 latency
