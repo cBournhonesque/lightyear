@@ -4,3 +4,4 @@ pub(crate) mod client;
 pub mod netcode;
 
 pub(crate) mod server;
+mod steam;
