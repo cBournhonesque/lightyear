@@ -232,7 +232,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 ```
 
 Then we can create a system that reads the inputs and applies them to the player entity.
-Similarly, we have an event `InputEvent<I: UserInput>` that will give us on every tick the input that was sent by the client.
+Similarly, we have an event `InputEvent<I: UserAction>` that will give us on every tick the input that was sent by the client.
 We can use the `context()` method to get the `ClientId` of the client that sent the input,
 and `input()` to get the actual input.
 
@@ -254,10 +254,10 @@ pub(crate) fn movement(
         }
     }
 }
-app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+app.add_systems(FixedMain, movement);
 ```
 
-Any fixed-update simulation system (physics, etc.) must run in the `FixedUpdateSet::Main` `SystemSet` to behave correctly.
+Any fixed-update simulation system (physics, etc.) must run in the `FixedMain` `Schedule` to behave correctly.
 
 ## Displaying entities
 

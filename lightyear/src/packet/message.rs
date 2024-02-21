@@ -5,13 +5,14 @@ use bytes::Bytes;
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
+use crate::prelude::LightyearMapEntities;
 use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
-use crate::shared::replication::entity_map::MapEntities;
 use crate::shared::tick_manager::Tick;
 use crate::utils::named::Named;
 use crate::utils::wrapping_id::wrapping_id;
+use bevy::ecs::entity::MapEntities;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
@@ -288,8 +289,8 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + Named + for<'a> MapEntities<'a> {}
-impl<T: EventContext + Named + for<'a> MapEntities<'a>> Message for T {}
+pub trait Message: EventContext + Named + LightyearMapEntities {}
+impl<T: EventContext + Named + LightyearMapEntities> Message for T {}
 
 #[cfg(test)]
 mod tests {

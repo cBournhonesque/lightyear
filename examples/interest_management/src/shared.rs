@@ -3,7 +3,6 @@ use bevy::prelude::*;
 
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
@@ -21,11 +20,6 @@ pub fn shared_config() -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        log: LogConfig {
-            level: Level::INFO,
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
-                .to_string(),
-        },
     }
 }
 
@@ -42,16 +36,16 @@ impl Plugin for SharedPlugin {
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &ActionState<Inputs>) {
     const MOVE_SPEED: f32 = 10.0;
-    if input.pressed(Inputs::Up) {
+    if input.pressed(&Inputs::Up) {
         position.y += MOVE_SPEED;
     }
-    if input.pressed(Inputs::Down) {
+    if input.pressed(&Inputs::Down) {
         position.y -= MOVE_SPEED;
     }
-    if input.pressed(Inputs::Left) {
+    if input.pressed(&Inputs::Left) {
         position.x -= MOVE_SPEED;
     }
-    if input.pressed(Inputs::Right) {
+    if input.pressed(&Inputs::Right) {
         position.x += MOVE_SPEED;
     }
 }
@@ -75,7 +69,7 @@ pub(crate) fn draw_boxes(
 }
 
 /// System that draws circles
-pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<Circle>>) {
+pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<CircleMarker>>) {
     for position in &circles {
         gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
     }

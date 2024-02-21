@@ -3,15 +3,16 @@ use std::collections::BTreeMap;
 use std::iter::Extend;
 
 use anyhow::Context;
+use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::reflect::Reflect;
 use bevy::utils::petgraph::data::ElementIterator;
-use bevy::utils::{EntityHashMap, HashSet};
+use bevy::utils::HashSet;
 use tracing::{debug, error, trace, trace_span, warn};
 
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
-use crate::prelude::{MapEntities, Tick};
+use crate::prelude::{LightyearMapEntities, Tick};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
@@ -22,6 +23,10 @@ use super::entity_map::RemoteEntityMap;
 use super::{
     EntityActionMessage, EntityUpdatesMessage, ReplicationMessage, ReplicationMessageData,
 };
+
+type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+
+type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationReceiver<P: Protocol> {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
@@ -265,7 +270,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
                     for mut component in actions.insert {
                         // map any entities inside the component
-                        component.map_entities(Box::new(&self.remote_entity_map));
+                        component.map_entities(&mut self.remote_entity_map);
                         // TODO: figure out what to do with tick here
                         events.push_insert_component(
                             local_entity_mut.id(),
@@ -302,7 +307,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
                     for mut component in actions.updates {
                         // map any entities inside the component
-                        component.map_entities(Box::new(&self.remote_entity_map));
+                        component.map_entities(&mut self.remote_entity_map);
                         events.push_update_component(
                             local_entity_mut.id(),
                             (&component).into(),
@@ -322,7 +327,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
                     {
                         for mut component in components {
                             // map any entities inside the component
-                            component.map_entities(Box::new(&self.remote_entity_map));
+                            component.map_entities(&mut self.remote_entity_map);
                             events.push_update_component(
                                 local_entity.id(),
                                 (&component).into(),

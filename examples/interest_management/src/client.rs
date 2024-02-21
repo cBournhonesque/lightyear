@@ -102,7 +102,7 @@ impl Plugin for ExampleClientPlugin {
             client_id: self.client_id,
         });
         app.add_systems(Startup, init);
-        app.add_systems(FixedUpdate, movement.in_set(FixedUpdateSet::Main));
+        app.add_systems(FixedUpdate, movement);
         app.add_systems(
             Update,
             (

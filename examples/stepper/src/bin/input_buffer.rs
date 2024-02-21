@@ -103,10 +103,10 @@ fn main() -> anyhow::Result<()> {
     );
     stepper
         .client_app
-        .add_systems(FixedUpdate, client_read_input.in_set(FixedUpdateSet::Main));
+        .add_systems(FixedUpdate, client_read_input);
     stepper
         .server_app
-        .add_systems(FixedUpdate, server_read_input.in_set(FixedUpdateSet::Main));
+        .add_systems(FixedUpdate, server_read_input);
 
     // tick a bit, and check the input buffer received on server
     for i in 0..400 {

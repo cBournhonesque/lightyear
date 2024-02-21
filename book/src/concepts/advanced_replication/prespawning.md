@@ -15,7 +15,7 @@ This section focuses about the third type of predicted entity: prespawned entiti
 
 ## How does it work
 
-You can find an example of prespawning in the [prespawned example](https://github.com/cBournhonesque/lightyear/tree/main/tests/examples/bullet_prespawn).
+You can find an example of prespawning in the [prespawned example](https://github.com/cBournhonesque/lightyear/tree/main/examples/bullet_prespawn).
 
 Let's say you want to spawn a bullet when the client shoots.
 You could just spawn the bullet on the server and wait for it to be replicated + predicted on the client.
@@ -40,7 +40,7 @@ That's it!
 
 The various system-sets for prespawning are:
 - PreUpdate schedule:
-  - PredictionSet::SpawnPrediction: we first run the prespawn match system to match the pre-spawned entities with their corresponding server entity.
+  - `PredictionSet::SpawnPrediction`: we first run the prespawn match system to match the pre-spawned entities with their corresponding server entity.
     If there is a match, we remove the PreSpawnedPlayerObject component and add the Predicted/Confirmed components.
     We then run an apply_deferred, and we run the normal predicted spawn system, which will skip all confirmed entities that 
     already have a `predicted` counterpart (i.e. were matched)

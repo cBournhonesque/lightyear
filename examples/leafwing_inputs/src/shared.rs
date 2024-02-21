@@ -29,12 +29,15 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        log: LogConfig {
-            level: Level::WARN,
-            filter: "wgpu=error,wgpu_hal=error,naga=warn,bevy_app=info,bevy_render=warn,quinn=warn"
-                .to_string(),
-        },
     }
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum FixedSet {
+    // main fixed update systems (handle inputs)
+    Main,
+    // apply physics steps
+    Physics,
 }
 
 pub struct SharedPlugin;
@@ -79,19 +82,22 @@ impl Plugin for SharedPlugin {
             .insert_resource(Gravity(Vec2::ZERO));
         app.configure_sets(
             FixedUpdate,
-            // make sure that any physics simulation happens after the Main SystemSet
-            // (where we apply user's actions)
             (
-                PhysicsSet::Prepare,
-                PhysicsSet::StepSimulation,
-                PhysicsSet::Sync,
-            )
-                .in_set(FixedUpdateSet::Main),
+                // make sure that any physics simulation happens after the Main SystemSet
+                // (where we apply user's actions)
+                (
+                    PhysicsSet::Prepare,
+                    PhysicsSet::StepSimulation,
+                    PhysicsSet::Sync,
+                )
+                    .in_set(FixedSet::Physics),
+                (FixedSet::Main, FixedSet::Physics).chain(),
+            ),
         );
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::BroadPhase));
 
-        app.add_systems(FixedUpdate, after_physics_log.after(FixedUpdateSet::Main));
+        app.add_systems(FixedPostUpdate, after_physics_log);
         app.add_systems(Last, last_log);
 
         // registry types for reflection
@@ -101,11 +107,11 @@ impl Plugin for SharedPlugin {
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
-        .add("bytes_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
+        .add("KB_in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
         .aggregate(Aggregate::Average)
         .format(|v| format!("{v:.0}"));
     onscreen
-        .add("bytes_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
+        .add("KB_out".to_string(), IoDiagnosticsPlugin::BYTES_OUT)
         .aggregate(Aggregate::Average)
         .format(|v| format!("{v:.0}"));
 }
@@ -147,16 +153,16 @@ pub(crate) fn shared_movement_behaviour(
     action: &ActionState<PlayerActions>,
 ) {
     const MOVE_SPEED: f32 = 10.0;
-    if action.pressed(PlayerActions::Up) {
+    if action.pressed(&PlayerActions::Up) {
         velocity.y += MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Down) {
+    if action.pressed(&PlayerActions::Down) {
         velocity.y -= MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Left) {
+    if action.pressed(&PlayerActions::Left) {
         velocity.x -= MOVE_SPEED;
     }
-    if action.pressed(PlayerActions::Right) {
+    if action.pressed(&PlayerActions::Right) {
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));

@@ -122,15 +122,10 @@ impl Plugin for ExampleClientPlugin {
             interpolate.in_set(InterpolationSet::Interpolate),
         );
         app.add_systems(
-            FixedUpdate,
+            FixedPreUpdate,
             buffer_input.in_set(InputSystemSet::BufferInputs),
         );
-        app.add_systems(
-            FixedUpdate,
-            (movement, shared_tail_behaviour)
-                .chain()
-                .in_set(FixedUpdateSet::Main),
-        );
+        app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
 
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
@@ -161,20 +156,20 @@ pub(crate) fn init(
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<Input<KeyCode>>) {
-    if keypress.pressed(KeyCode::W) || keypress.pressed(KeyCode::Up) {
+pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {
+    if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
         return client.add_input(Inputs::Direction(Direction::Up));
     }
-    if keypress.pressed(KeyCode::S) || keypress.pressed(KeyCode::Down) {
+    if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
         return client.add_input(Inputs::Direction(Direction::Down));
     }
-    if keypress.pressed(KeyCode::A) || keypress.pressed(KeyCode::Left) {
+    if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
         return client.add_input(Inputs::Direction(Direction::Left));
     }
-    if keypress.pressed(KeyCode::D) || keypress.pressed(KeyCode::Right) {
+    if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
         return client.add_input(Inputs::Direction(Direction::Right));
     }
-    if keypress.pressed(KeyCode::Delete) {
+    if keypress.pressed(KeyCode::Backspace) {
         // currently, inputs is an enum and we can only add one input per tick
         return client.add_input(Inputs::Delete);
     }

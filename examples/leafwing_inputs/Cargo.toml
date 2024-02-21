@@ -11,11 +11,10 @@ metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
 mock_time = ["lightyear/mock_time"]
 
 [dependencies]
-bevy_framepace = "0.14.1"
-bevy-fps-counter = "0.3.0"
-bevy_screen_diagnostics = "0.4.0"
-leafwing-input-manager = "0.11.2"
-bevy_xpbd_2d = { version = "0.3.3", features = ["serialize"] }
+bevy_framepace = "0.15"
+bevy_screen_diagnostics = "0.5.0"
+leafwing-input-manager = "0.13"
+bevy_xpbd_2d = { version = "0.4", features = ["serialize"] }
 lightyear = { path = "../../lightyear", features = [
   "webtransport",
   "websocket",
@@ -28,7 +27,7 @@ serde = { version = "1.0.188", features = ["derive"] }
 anyhow = { version = "1.0.75", features = [] }
 tracing = "0.1"
 tracing-subscriber = "0.3.17"
-bevy = { version = "0.12", features = ["bevy_core_pipeline"] }
+bevy = { version = "0.13", features = ["bevy_core_pipeline"] }
 derive_more = { version = "0.99", features = ["add", "mul"] }
 rand = "0.8.1"
 clap = { version = "4.4", features = ["derive"] }

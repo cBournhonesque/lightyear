@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.9.1"
+version = "0.10.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 rust-version = "1.65"
@@ -49,6 +49,7 @@ cfg-if = "1.0"
 derive_more = "0.99.17"
 enum_delegate = "0.2"
 enum_dispatch = "0.3"
+hashbrown = "0.14"
 # used to have the same instant in wasm and native. (maybe can be replaced by bevy_utils in 0.13)
 instant = "0.1.12"
 governor = "0.6.0"
@@ -61,10 +62,10 @@ thiserror = "1.0.50"
 seahash = "4.1.0"
 
 # input
-leafwing-input-manager = { version = "0.11.2", optional = true }
+leafwing-input-manager = { version = "0.13", optional = true }
 
 # physics
-bevy_xpbd_2d = { version = "0.3.3", optional = true }
+bevy_xpbd_2d = { version = "0.4", optional = true }
 
 # serialization
 bitcode = { version = "0.4.1", package = "bitcode_lightyear_patch", path = "../vendor/bitcode", features = [
@@ -79,11 +80,11 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 byteorder = "1.5.0"
 
 # derive
-lightyear_macros = { version = "0.9.1", path = "../macros" }
+lightyear_macros = { version = "0.10.0", path = "../macros" }
 
 # tracing
 tracing = "0.1.40"
-tracing-log = "0.1.3"
+tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.17", features = [
   "registry",
   "env-filter",
@@ -101,7 +102,7 @@ metrics-exporter-prometheus = { version = "0.13.0", optional = true, default-fea
 ] }
 
 # bevy
-bevy = { version = "0.12", default-features = false, features = [
+bevy = { version = "0.13", default-features = false, features = [
   "multi-threaded",
 ] }
 

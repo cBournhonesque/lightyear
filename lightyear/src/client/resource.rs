@@ -4,10 +4,10 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Entity, Mut, Res, ResMut, Resource, World};
 use bevy::utils::Duration;
-use bevy::utils::EntityHashMap;
 use tracing::{debug, trace, trace_span};
 
 use crate::_reexport::ReplicationSend;
@@ -453,7 +453,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         let _span = trace_span!("buffer_replication_messages").entered();
         self.buffer_replication_messages(tick, bevy_tick)
     }
-    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Entity, Replicate<P>> {
+    fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>> {
         &mut self.replication_sender.replicate_component_cache
     }
 }

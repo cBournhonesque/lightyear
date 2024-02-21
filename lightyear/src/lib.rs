@@ -82,13 +82,13 @@ pub mod prelude {
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::SharedConfig;
-    pub use crate::shared::log::LogConfig;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
         NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
-    pub use crate::shared::replication::entity_map::{EntityMapper, MapEntities, RemoteEntityMap};
+    pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
+    pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};

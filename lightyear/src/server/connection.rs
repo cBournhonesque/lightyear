@@ -3,8 +3,9 @@ use bevy::utils::Duration;
 
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::{Entity, Res, ResMut, Resource, World};
-use bevy::utils::{EntityHashMap, Entry, HashMap, HashSet};
+use bevy::utils::{Entry, HashMap, HashSet};
 use serde::Serialize;
 use tracing::{debug, debug_span, info, trace, trace_span};
 
@@ -15,7 +16,7 @@ use crate::connection::netcode::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{Channel, ChannelKind, MapEntities, Message};
+use crate::prelude::{Channel, ChannelKind, LightyearMapEntities, Message};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -43,7 +44,7 @@ pub struct ConnectionManager<P: Protocol> {
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
+    pub replicate_component_cache: EntityHashMap<Replicate<P>>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -500,9 +501,7 @@ impl<P: Protocol> Connection<P> {
                                 self.replication_receiver.remote_entity_map
                             );
                             // map any entities inside the message
-                            message.map_entities(Box::new(
-                                &self.replication_receiver.remote_entity_map,
-                            ));
+                            message.map_entities(&mut self.replication_receiver.remote_entity_map);
                             if target != NetworkTarget::None {
                                 self.messages_to_rebroadcast.push((
                                     message.clone(),

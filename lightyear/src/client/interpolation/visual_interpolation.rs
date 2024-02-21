@@ -66,8 +66,8 @@ where
         // SETS
         app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
         app.configure_sets(
-            FixedUpdate,
-            InterpolationSet::UpdateVisualInterpolationState.after(FixedUpdateSet::MainFlush),
+            FixedPostUpdate,
+            InterpolationSet::UpdateVisualInterpolationState,
         );
         app.configure_sets(PostUpdate, InterpolationSet::VisualInterpolation);
 
@@ -79,7 +79,7 @@ where
                     .in_set(InterpolationSet::RestoreVisualInterpolation),
             );
             app.add_systems(
-                FixedUpdate,
+                FixedPostUpdate,
                 update_visual_interpolation_status::<C>
                     .in_set(InterpolationSet::UpdateVisualInterpolationState),
             );
@@ -226,10 +226,9 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_app.add_systems(
-            FixedUpdate,
-            fixed_update_increment.in_set(FixedUpdateSet::Main),
-        );
+        stepper
+            .client_app
+            .add_systems(FixedUpdate, fixed_update_increment);
         stepper.client_app.world.insert_resource(Toggle(true));
         stepper
             .client_app

@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::prelude::{MapEntities, Named, Tick};
+use crate::prelude::{Message, Named, Tick};
 
 /// Marks an entity that directly applies the replication updates from the remote
 ///
@@ -25,8 +25,8 @@ pub struct Confirmed {
 }
 
 // TODO: add TypeNamed as well
-pub trait SyncComponent: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {}
-impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Named + for<'a> MapEntities<'a> {}
+pub trait SyncComponent: Component + Clone + PartialEq + Message {}
+impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
 
 // NOTE: we use these traits that the Protocol will implement so that we don't implement
 // external traits on external types and break the orphan rule

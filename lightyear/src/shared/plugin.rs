@@ -3,12 +3,24 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::client::config::ClientConfig;
+use crate::prelude::Protocol;
 use crate::shared::config::SharedConfig;
-use crate::shared::log;
 use crate::shared::tick_manager::TickManagerPlugin;
+use crate::shared::{log, replication};
+use replication::hierarchy::HierarchySyncPlugin;
 
-pub struct SharedPlugin {
+pub struct SharedPlugin<P: Protocol> {
     pub config: SharedConfig,
+    pub _marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> Default for SharedPlugin<P> {
+    fn default() -> Self {
+        Self {
+            config: SharedConfig::default(),
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 /// You can use this as a SystemParam to identify whether you're running on the client or the server
@@ -27,7 +39,7 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
     }
 }
 
-impl Plugin for SharedPlugin {
+impl<P: Protocol> Plugin for SharedPlugin<P> {
     fn build(&self, app: &mut App) {
         // RESOURCES
         // NOTE: this tick duration must be the same as any previous existing fixed timesteps
@@ -38,8 +50,7 @@ impl Plugin for SharedPlugin {
         // PLUGINS
         // TODO: increment_tick should be shared
         // app.add_systems(FixedUpdate, increment_tick);
-        let log_config = self.config.log.clone();
-        app.add_plugins(log::LogPlugin { config: log_config });
+        app.add_plugins(HierarchySyncPlugin::<P>::default());
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
         });

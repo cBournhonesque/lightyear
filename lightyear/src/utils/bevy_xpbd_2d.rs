@@ -1,13 +1,12 @@
 //! Implement lightyear traits for some common bevy types
 use crate::_reexport::LinearInterpolator;
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
-use bevy::prelude::Entity;
-use bevy::utils::EntityHashSet;
+use bevy::prelude::{Entity, EntityMapper};
 use bevy_xpbd_2d::components::*;
 use std::ops::{Add, Mul};
 use tracing::{info, trace};
 
-use crate::prelude::{EntityMapper, MapEntities, Message, Named};
+use crate::prelude::{LightyearMapEntities, Message, Named};
 
 pub mod position {
     use super::*;
@@ -31,12 +30,8 @@ pub mod position {
         }
     }
 
-    impl<'a> MapEntities<'a> for Position {
-        fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-        fn entities(&self) -> EntityHashSet<Entity> {
-            EntityHashSet::default()
-        }
+    impl LightyearMapEntities for Position {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
     }
 }
 pub use position::*;
@@ -71,12 +66,8 @@ pub mod rotation {
         }
     }
 
-    impl<'a> MapEntities<'a> for Rotation {
-        fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-        fn entities(&self) -> EntityHashSet<Entity> {
-            EntityHashSet::default()
-        }
+    impl LightyearMapEntities for Rotation {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
     }
 }
 pub use rotation::*;
@@ -102,13 +93,8 @@ pub mod linear_velocity {
             res
         }
     }
-
-    impl<'a> MapEntities<'a> for LinearVelocity {
-        fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-        fn entities(&self) -> EntityHashSet<Entity> {
-            EntityHashSet::default()
-        }
+    impl LightyearMapEntities for LinearVelocity {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
     }
 }
 pub use linear_velocity::*;
@@ -135,12 +121,8 @@ pub mod angular_velocity {
         }
     }
 
-    impl<'a> MapEntities<'a> for AngularVelocity {
-        fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-        fn entities(&self) -> EntityHashSet<Entity> {
-            EntityHashSet::default()
-        }
+    impl LightyearMapEntities for AngularVelocity {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
     }
 }
 pub use angular_velocity::*;
@@ -153,12 +135,8 @@ pub mod mass {
     impl Named for Mass {
         const NAME: &'static str = "Mass";
     }
-    impl<'a> MapEntities<'a> for Mass {
-        fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-        fn entities(&self) -> EntityHashSet<Entity> {
-            EntityHashSet::default()
-        }
+    impl LightyearMapEntities for Mass {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
     }
 }
 pub use mass::*;

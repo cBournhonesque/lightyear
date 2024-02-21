@@ -1,5 +1,7 @@
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
-use bevy::utils::EntityHashSet;
+use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{
+    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
+};
 use derive_more::{Add, Mul};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -60,13 +62,9 @@ pub struct PlayerColor(pub(crate) Color);
 #[message(custom_map)]
 pub struct PlayerParent(Entity);
 
-impl<'a> MapEntities<'a> for PlayerParent {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-        self.0.map_entities(entity_mapper);
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::from_iter(vec![self.0])
+impl LightyearMapEntities for PlayerParent {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
     }
 }
 

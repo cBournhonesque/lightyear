@@ -27,7 +27,7 @@ impl From<TypeId> for ChannelKind {
     }
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel
     pub(in crate::protocol) builder_map: HashMap<ChannelKind, ChannelBuilder>,

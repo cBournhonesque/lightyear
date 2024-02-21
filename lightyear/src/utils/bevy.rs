@@ -1,13 +1,13 @@
 //! Implement lightyear traits for some common bevy types
 use crate::_reexport::LinearInterpolator;
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
+use bevy::ecs::entity::{EntityHashSet, MapEntities};
 use bevy::hierarchy::Parent;
-use bevy::prelude::{Entity, Transform};
-use bevy::utils::EntityHashSet;
+use bevy::prelude::{Children, Entity, EntityMapper, Transform};
 use std::ops::Mul;
 use tracing::{info, trace};
 
-use crate::prelude::{EntityMapper, MapEntities, Message, Named};
+use crate::prelude::{LightyearMapEntities, Message, Named};
 
 // TODO: add implementations for Parent and Children
 
@@ -38,12 +38,8 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
     }
 }
 
-impl<'a> MapEntities<'a> for Transform {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::default()
-    }
+impl LightyearMapEntities for Transform {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
 cfg_if::cfg_if! {
@@ -53,26 +49,16 @@ cfg_if::cfg_if! {
             const NAME: &'static str = "Color";
         }
 
-        impl<'a> MapEntities<'a> for Color {
-            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-            fn entities(&self) -> EntityHashSet<Entity> {
-                EntityHashSet::default()
-            }
+        impl LightyearMapEntities for Color {
+            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
         }
-
 
         impl Named for Visibility {
             const NAME: &'static str = "Visibility";
         }
 
-        impl<'a> MapEntities<'a> for Visibility {
-            fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-
-            fn entities(&self) -> EntityHashSet<Entity> {
-                EntityHashSet::default()
-            }
+        impl LightyearMapEntities for Visibility {
+            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
         }
-
     }
 }

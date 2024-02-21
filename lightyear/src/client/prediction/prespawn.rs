@@ -366,7 +366,8 @@ pub(crate) fn spawn_pre_spawned_player_object<P: Protocol>(
 #[cfg(test)]
 mod tests {
     use bevy::prelude::Entity;
-    use bevy::utils::{Duration, EntityHashMap};
+    use bevy::utils::Duration;
+    use hashbrown::HashMap;
 
     use crate::_reexport::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
@@ -416,11 +417,12 @@ mod tests {
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
         let expected_hash: u64 = 11844036307541615334;
+        dbg!(&prediction_manager.prespawn_hash_to_entities);
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
-            EntityHashMap::from_iter(vec![(
+            HashMap::from_iter(vec![(
                 expected_hash,
-                vec![Entity::from_bits(0), Entity::from_bits(1)]
+                vec![Entity::from_raw(0), Entity::from_raw(1)]
             )])
         );
         assert_eq!(
@@ -436,7 +438,7 @@ mod tests {
             stepper
                 .client_app
                 .world
-                .entity(Entity::from_bits(0))
+                .entity(Entity::from_raw(0))
                 .get::<PredictionHistory<Component1>>()
                 .unwrap()
                 .buffer

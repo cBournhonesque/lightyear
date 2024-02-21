@@ -10,7 +10,6 @@ use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::netcode::ClientId;
-use crate::prelude::{EntityMapper, MapEntities};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
@@ -20,7 +19,7 @@ pub struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, PartialEq, Debug)]
 pub struct Replicate<P: Protocol> {
     /// Which clients should this entity be replicated to
     pub replication_target: NetworkTarget,
@@ -40,6 +39,10 @@ pub struct Replicate<P: Protocol> {
     // TODO: currently, if the host removes Replicate, then the entity is not removed in the remote
     //  it just keeps living but doesn't receive any updates. Should we make this configurable?
     pub replication_group: ReplicationGroup,
+    /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
+    /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
+    /// and `ParentSync` components to the children yourself
+    pub replicate_hierarchy: bool,
 
     /// Lets you override the replication modalities for a specific component
     pub per_component_metadata: HashMap<P::ComponentKinds, PerComponentReplicationMetadata>,
@@ -188,7 +191,7 @@ impl<P: Protocol> Replicate<P> {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub enum ReplicationGroupIdBuilder {
     // the group id is the entity id
     #[default]
@@ -200,7 +203,7 @@ pub enum ReplicationGroupIdBuilder {
     Group(u64),
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,
     /// the priority of the accumulation group
@@ -278,6 +281,7 @@ impl<P: Protocol> Default for Replicate<P> {
             replication_clients_cache: HashMap::new(),
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
+            replicate_hierarchy: true,
             per_component_metadata: HashMap::default(),
         };
         // those metadata components should only be replicated once

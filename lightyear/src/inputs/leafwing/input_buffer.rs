@@ -2,9 +2,11 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
 use bevy::math::Vec2;
-use bevy::prelude::{Component, Entity, Event, FromReflect, Reflect, Resource, TypePath};
+use bevy::prelude::{
+    Component, Entity, EntityMapper, Event, FromReflect, Reflect, Resource, TypePath,
+};
 use bevy::reflect::DynamicTypePath;
-use bevy::utils::{EntityHashSet, HashMap};
+use bevy::utils::HashMap;
 use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::prelude::ActionState;
 use leafwing_input_manager::Actionlike;
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::prelude::client::SyncComponent;
-use crate::prelude::{EntityMapper, MapEntities, Message, Named};
+use crate::prelude::{LightyearMapEntities, Message, Named};
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
@@ -32,12 +34,10 @@ use super::LeafwingUserAction;
 // - we apply the ticks on the right tick to the entity/resource
 // - no need to maintain our inputbuffer on the server
 
-impl<'a, A: LeafwingUserAction> MapEntities<'a> for ActionState<A> {
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-    fn entities(&self) -> EntityHashSet<Entity> {
-        EntityHashSet::default()
-    }
+impl<A: LeafwingUserAction> LightyearMapEntities for ActionState<A> {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
+
 impl<A: LeafwingUserAction> Named for ActionState<A> {
     // const NAME: &'static str = formatcp!("ActionState<{}>", A::short_type_path());
     const NAME: &'static str = "ActionState";
@@ -186,22 +186,26 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
     pub(crate) fn apply(self, action_state: &mut ActionState<A>) {
         match self {
             ActionDiff::Pressed { action } => {
-                action_state.press(action.clone());
-                action_state.action_data_mut(action.clone()).value = 1.;
+                action_state.press(&action);
+                // Pressing will initialize the ActionData if it doesn't exist
+                action_state.action_data_mut(&action).unwrap().value = 1.0;
             }
             ActionDiff::Released { action } => {
-                action_state.release(action.clone());
-                let action_data = action_state.action_data_mut(action.clone());
+                action_state.release(&action);
+                // Releasing will initialize the ActionData if it doesn't exist
+                let action_data = action_state.action_data_mut(&action).unwrap();
                 action_data.value = 0.;
                 action_data.axis_pair = None;
             }
             ActionDiff::ValueChanged { action, value } => {
-                action_state.press(action.clone());
-                action_state.action_data_mut(action.clone()).value = value;
+                action_state.press(&action);
+                // Pressing will initialize the ActionData if it doesn't exist
+                action_state.action_data_mut(&action).unwrap().value = value;
             }
             ActionDiff::AxisPairChanged { action, axis_pair } => {
-                action_state.press(action.clone());
-                let action_data = action_state.action_data_mut(action.clone());
+                action_state.press(&action);
+                // Pressing will initialize the ActionData if it doesn't exist
+                let action_data = action_state.action_data_mut(&action).unwrap();
                 action_data.axis_pair = Some(DualAxisData::from_xy(axis_pair));
                 action_data.value = axis_pair.length();
             }
@@ -235,13 +239,13 @@ impl<A: LeafwingUserAction> Named for InputMessage<A> {
     // const NAME: &'static str = <Self as TypePath>::short_type_path();
 }
 
-impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
+impl<A: LeafwingUserAction> LightyearMapEntities for InputMessage<A> {
     // NOTE: we do NOT map the entities for input-message because when already convert
     //  the entities on the message to the corresponding client entities when we write them
     //  in the input message
 
     // NOTE: we only map the inputs for the pre-predicted entities
-    fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.diffs
             .iter_mut()
             .filter_map(|(entity, _)| {
@@ -251,24 +255,7 @@ impl<'a, A: LeafwingUserAction> MapEntities<'a> for InputMessage<A> {
                     return None;
                 }
             })
-            .for_each(|entity| {
-                if let Some(new_entity) = entity_mapper.map(*entity) {
-                    *entity = new_entity;
-                }
-            });
-    }
-
-    fn entities(&self) -> EntityHashSet<Entity> {
-        self.diffs
-            .iter()
-            .filter_map(|(entity, _)| {
-                if let InputTarget::PrePredictedEntity(e) = entity {
-                    Some(*e)
-                } else {
-                    None
-                }
-            })
-            .collect()
+            .for_each(|entity| *entity = entity_mapper.map_entity(*entity));
     }
 }
 
@@ -578,11 +565,11 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
 
         let mut a1 = ActionState::default();
-        a1.press(Action::Jump);
-        a1.action_data_mut(Action::Jump).value = 0.0;
+        a1.press(&Action::Jump);
+        a1.action_data_mut(&Action::Jump).unwrap().value = 0.0;
         let mut a2 = ActionState::default();
-        a2.press(Action::Jump);
-        a1.action_data_mut(Action::Jump).value = 1.0;
+        a2.press(&Action::Jump);
+        a1.action_data_mut(&Action::Jump).unwrap().value = 1.0;
         input_buffer.set(Tick(3), &a1);
         input_buffer.set(Tick(6), &a2);
         input_buffer.set(Tick(7), &a2);

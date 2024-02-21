@@ -40,7 +40,7 @@ pub trait Channel: 'static + Named {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChannelBuilder {
     // TODO: this has been made public just for testing integration tests
     pub settings: ChannelSettings,
@@ -96,7 +96,7 @@ impl ChannelContainer {
 }
 
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChannelSettings {
     // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
     pub mode: ChannelMode,
