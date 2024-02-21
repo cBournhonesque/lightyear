@@ -70,6 +70,8 @@ Let's define our components protocol:
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
+// `Deref` and `DerefMut` are from bevy
+// `Add` and `Mul` are from the derive_more crate
 #[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
 pub struct PlayerPosition(Vec2);
 
