@@ -5,19 +5,48 @@ use crate::prelude::{ClientId, Io};
 use anyhow::{Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
 use steamworks::networking_types::{
     ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, SendFlags,
 };
-use steamworks::{ClientManager, Manager, ServerManager, SteamError};
+use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SteamError};
 use tracing::error;
+
+#[derive(Debug, Clone)]
+pub struct SteamConfig {
+    pub app_id: u32,
+    pub server_ip: Ipv4Addr,
+    pub game_port: u16,
+    pub query_port: u16,
+    pub max_clients: usize,
+    pub mode: ServerMode,
+    // TODO: name this protocol to match netcode?
+    pub version: String,
+}
+
+impl Default for SteamConfig {
+    fn default() -> Self {
+        Self {
+            // app id of the public Space Wars demo app
+            app_id: 480,
+            server_ip: Ipv4Addr::new(127, 0, 0, 1),
+            game_port: 27015,
+            query_port: 27016,
+            max_clients: 16,
+            mode: ServerMode::NoAuthentication,
+            version: "1.0".to_string(),
+        }
+    }
+}
 
 // TODO: enable p2p by replacing ServerManager with ClientManager?
 pub struct Server {
+    // TODO: update to use ServerManager...
+    client: steamworks::Client<ClientManager>,
     server: steamworks::Server,
+    config: SteamConfig,
     listen_socket: ListenSocket<ServerManager>,
-    max_clients: usize,
     connections: HashMap<ClientId, NetConnection<ServerManager>>,
     packet_queue: VecDeque<(ReadWordBuffer, ClientId)>,
     new_connections: Vec<ClientId>,
@@ -25,23 +54,23 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(
-        client: steamworks::Client<ServerManager>,
-        local_addr: SocketAddr,
-        server: steamworks::Server,
-        listen_socket: ListenSocket<ServerManager>,
-        max_clients: usize,
-    ) -> Result<Self> {
-        // TODO: build steam server here
-        let options: Vec<NetworkingConfigEntry> = Vec::new();
-        let listen_socket = client
-            .networking_sockets()
-            .create_listen_socket_ip(local_addr, options)
-            .context("could not create server listen socket")?;
+    pub fn new(config: SteamConfig) -> Result<Self> {
+        let (client, _) = steamworks::Client::init_app(config.app_id)
+            .context("could not initialize steam client")?;
+        let (mut server, _) = steamworks::Server::init(
+            config.server_ip,
+            config.game_port,
+            config.query_port,
+            config.mode.clone(),
+            &config.version.clone(),
+        )
+        .context("could not initialize steam server")?;
+
         Ok(Self {
+            client,
             server,
+            config,
             listen_socket,
-            max_clients,
             connections: HashMap::new(),
             packet_queue: VecDeque::new(),
             new_connections: Vec::new(),
@@ -51,7 +80,15 @@ impl Server {
 }
 
 impl NetServer for Server {
-    fn start(&mut self) {}
+    fn start(&mut self) {
+        let options: Vec<NetworkingConfigEntry> = Vec::new();
+        let server_addr = SocketAddr::new(self.config.server_ip.into(), self.config.game_port);
+        let listen_socket = self
+            .client
+            .networking_sockets()
+            .create_listen_socket_ip(server_addr, options)
+            .context("could not create server listen socket")?;
+    }
 
     fn connected_client_ids(&self) -> Vec<ClientId> {
         self.connections.keys().collect()
@@ -84,7 +121,7 @@ impl NetServer for Server {
                     }
                 }
                 ListenSocketEvent::Connecting(event) => {
-                    if self.num_connected_clients() >= self.max_clients {
+                    if self.num_connected_clients() >= self.config.max_clients {
                         event.reject(NetConnectionEnd::AppGeneric, Some("Too many clients"));
                         continue;
                     }
@@ -108,7 +145,7 @@ impl NetServer for Server {
 
         // buffer incoming packets
         for (client_id, connection) in self.connections.iter_mut() {
-            // TODO: avoid allocating messages into a separate buffer, instead provide our own buffer
+            // TODO: avoid allocating messages into a separate buffer, instead provide our own buffer?
             for message in connection
                 .receive_messages(MAX_PACKET_SIZE)
                 .context("Failed to receive messages")?
@@ -116,10 +153,13 @@ impl NetServer for Server {
                 self.packet_queue
                     .push_back((ReadWordBuffer::start_read(message.data()), *client_id));
             }
+            // TODO: is this necessary since I disabled nagle?
+            connection
+                .flush_messages()
+                .context("Failed to flush messages")?;
         }
 
         // send any keep-alives or connection-related packets
-
         Ok(())
     }
 
@@ -131,8 +171,9 @@ impl NetServer for Server {
         let Some(connection) = self.connections.get_mut(&client_id) else {
             return Err(SteamError::NoConnection.into());
         };
+        // TODO: compare this with self.listen_socket.send_messages()
         connection
-            .send_message(buf, SendFlags::UNRELIABLE)
+            .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)
             .context("Failed to send message")?;
         Ok(())
     }

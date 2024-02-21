@@ -16,6 +16,7 @@ use tracing::info;
 use super::LOCAL_SOCKET;
 use crate::transport::channels::Channels;
 use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
+use crate::transport::dummy::DummyIo;
 use crate::transport::local::LocalChannel;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
@@ -55,9 +56,13 @@ pub enum TransportConfig {
         certificate: Certificate,
     },
     #[cfg(feature = "websocket")]
-    WebSocketClient { server_addr: SocketAddr },
+    WebSocketClient {
+        server_addr: SocketAddr,
+    },
     #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-    WebSocketServer { server_addr: SocketAddr },
+    WebSocketServer {
+        server_addr: SocketAddr,
+    },
     Channels {
         channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>,
     },
@@ -65,6 +70,7 @@ pub enum TransportConfig {
         recv: Receiver<Vec<u8>>,
         send: Sender<Vec<u8>>,
     },
+    Dummy,
 }
 
 // TODO: derive Debug directly on TransportConfig once the new version of wtransport is out
@@ -161,6 +167,12 @@ impl TransportConfig {
             }
             TransportConfig::LocalChannel { recv, send } => {
                 let transport = LocalChannel::new(recv, send);
+                let addr = transport.local_addr();
+                let (sender, receiver) = transport.listen();
+                Io::new(addr, sender, receiver)
+            }
+            TransportConfig::Dummy => {
+                let transport = DummyIo;
                 let addr = transport.local_addr();
                 let (sender, receiver) = transport.listen();
                 Io::new(addr, sender, receiver)

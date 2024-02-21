@@ -6,6 +6,7 @@ use bevy::prelude::Resource;
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::ClientId;
+use crate::connection::steam::client::SteamConfig;
 use crate::prelude::client::Authentication;
 use crate::prelude::{Io, IoConfig};
 
@@ -55,9 +56,10 @@ pub enum NetConfig {
         config: NetcodeConfig,
         io: IoConfig,
     },
-    // TODO: add steam-specific config
     // TODO: for steam, we can use a pass-through io that just computes stats?
-    Steam,
+    Steam {
+        config: SteamConfig,
+    },
 }
 
 impl Default for NetConfig {
@@ -95,11 +97,13 @@ impl NetConfig {
                     client: Box::new(client),
                 }
             }
-            NetConfig::Steam => {
-                unimplemented!()
-                // // TODO: handle errors
-                // let (steam_client, _) = steamworks::Client::init().unwrap();
-                // Box::new(super::steam::Client::new(steam_client))
+            NetConfig::Steam { config } => {
+                // TODO: handle errors
+                let client = super::steam::client::Client::new(config)
+                    .expect("could not create steam client");
+                ClientConnection {
+                    client: Box::new(client),
+                }
             }
         }
     }

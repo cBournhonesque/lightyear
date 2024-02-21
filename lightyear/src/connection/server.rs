@@ -2,7 +2,9 @@ use anyhow::Result;
 use bevy::prelude::Resource;
 
 use crate::_reexport::ReadWordBuffer;
+use crate::connection::client::ClientConnection;
 use crate::connection::netcode::ClientId;
+use crate::connection::steam::server::SteamConfig;
 use crate::prelude::{Io, IoConfig};
 use crate::server::config::NetcodeConfig;
 
@@ -38,8 +40,7 @@ pub struct ServerConnection {
 #[derive(Clone, Debug)]
 pub enum NetConfig {
     Netcode { config: NetcodeConfig, io: IoConfig },
-    // TODO: add steam-specific config
-    Steam,
+    Steam { config: SteamConfig },
 }
 
 impl Default for NetConfig {
@@ -61,8 +62,13 @@ impl NetConfig {
                     server: Box::new(server),
                 }
             }
-            NetConfig::Steam => {
-                unimplemented!()
+            NetConfig::Steam { config } => {
+                // TODO: handle errors
+                let server = super::steam::server::Server::new(config)
+                    .expect("could not create steam server");
+                ServerConnection {
+                    server: Box::new(server),
+                }
             }
         }
     }
