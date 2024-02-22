@@ -73,6 +73,10 @@ impl NetClient for Client {
                 .connect_by_ip_address(self.config.server_addr, options)
                 .context("failed to create connection")?,
         );
+        info!(
+            "Opened connection to server at address: {}",
+            self.config.server_addr
+        );
         Ok(())
     }
 

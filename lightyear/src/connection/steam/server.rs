@@ -90,6 +90,7 @@ impl NetServer for Server {
                 .create_listen_socket_ip(server_addr, options)
                 .context("could not create server listen socket")?,
         );
+        info!("Steam socket started on {:?}", server_addr);
         Ok(())
     }
 
