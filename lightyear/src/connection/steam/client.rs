@@ -1,6 +1,7 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::client::NetClient;
 use crate::prelude::{ClientId, Io};
+use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -128,14 +129,14 @@ impl NetClient for Client {
     }
 
     fn local_addr(&self) -> SocketAddr {
-        todo!()
+        LOCAL_SOCKET
     }
 
     fn io(&self) -> Option<&Io> {
-        todo!()
+        None
     }
 
     fn io_mut(&mut self) -> Option<&mut Io> {
-        todo!()
+        None
     }
 }
