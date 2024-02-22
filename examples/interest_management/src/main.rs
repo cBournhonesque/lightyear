@@ -123,14 +123,15 @@ fn setup(app: &mut App, cli: Cli) {
             transport,
         } => {
             if !headless {
-                app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-                    level: Level::INFO,
-                    filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
-                    update_subscriber: Some(add_log_layer),
-                }));
+                app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
                 app.add_plugins(MinimalPlugins);
             }
+            app.add_plugins(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+                update_subscriber: Some(add_log_layer),
+            });
 
             if inspector {
                 app.add_plugins(WorldInspectorPlugin::new());

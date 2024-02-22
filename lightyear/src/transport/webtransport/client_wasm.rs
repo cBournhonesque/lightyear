@@ -117,7 +117,7 @@ impl Transport for WebTransportClientSocket {
                 loop {
                     match connection.receive_datagram().await {
                         Ok(data) => {
-                            trace!("receive datagram from server: {:?}", &data);
+                            info!("receive datagram from server: {:?}", &data);
                             from_server_sender.send(data).unwrap();
                         }
                         Err(e) => {
@@ -132,7 +132,7 @@ impl Transport for WebTransportClientSocket {
                 let connection = recv2.await.expect("could not get connection");
                 loop {
                     if let Some(msg) = to_server_receiver.recv().await {
-                        trace!("send datagram to server: {:?}", &msg);
+                        info!("send datagram to server: {:?}", &msg);
                         connection.send_datagram(msg).await.unwrap_or_else(|e| {
                             error!("send_datagram error: {:?}", e);
                         });

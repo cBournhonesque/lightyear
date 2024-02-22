@@ -74,9 +74,9 @@ impl WebTransportServerSocket {
                 // receive messages from client
                 match connection_recv.receive_datagram().await {
                     Ok(data) => {
-                        trace!(
+                        info!(
                             "received datagram from client!: {:?} {:?}",
-                            &data,
+                            data.as_ref(),
                             data.len()
                         );
                         from_client_sender.send((data, client_addr)).unwrap();
@@ -84,7 +84,7 @@ impl WebTransportServerSocket {
                     Err(e) => {
                         error!("receive_datagram connection error: {:?}", e);
                         // to_client_channels.lock().unwrap().remove(&client_addr);
-                        // break;
+                        break;
                     }
                 }
             }
@@ -93,7 +93,7 @@ impl WebTransportServerSocket {
         let to_client_handle = IoTaskPool::get().spawn(async move {
             loop {
                 if let Some(msg) = to_client_receiver.recv().await {
-                    trace!("sending datagram to client!: {:?}", &msg);
+                    info!("sending datagram to client!: {:?}", &msg);
                     connection_send
                         .send_datagram(msg.as_ref())
                         .unwrap_or_else(|e| {
@@ -107,6 +107,8 @@ impl WebTransportServerSocket {
         connection.closed().await;
         info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
+        info!("Dropping tasks");
+
         // dropping the task cancels them
 
         // TODO: need to disconnect the client in netcode
