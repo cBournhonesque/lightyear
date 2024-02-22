@@ -3,7 +3,6 @@ use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::client::{Confirmed, Interpolated};
 use lightyear::prelude::*;
 use tracing::Level;

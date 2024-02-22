@@ -36,17 +36,6 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
-            // limit frame rate
-            // app.add_plugins(bevy_framepace::FramepacePlugin);
-            // app.world
-            //     .resource_mut::<bevy_framepace::FramepaceSettings>()
-            //     .limiter = bevy_framepace::Limiter::from_framerate(FRAME_HZ);
-
-            // show framerate
-            // use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
-            // app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-            // app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
-
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,

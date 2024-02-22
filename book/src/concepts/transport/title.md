@@ -1,4 +1,4 @@
-# Tranposrt
+# Transport
 
 The `Transport` trait is the trait that is used to send and receive raw data on the network.
 
