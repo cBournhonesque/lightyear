@@ -3,7 +3,6 @@ use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 

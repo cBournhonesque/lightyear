@@ -19,7 +19,7 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use bevy::DefaultPlugins;
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
@@ -133,17 +133,18 @@ fn setup(app: &mut App, cli: Cli) {
             predict,
         } => {
             if !headless {
-                app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-                    level: Level::INFO,
-                    filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
-                    update_subscriber: Some(add_log_layer),
-                }));
+                app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
                 app.add_plugins(MinimalPlugins);
             }
+            app.add_plugins(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+                update_subscriber: Some(add_log_layer),
+            });
 
             if inspector {
-                // app.add_plugins(WorldInspectorPlugin::new());
+                app.add_plugins(WorldInspectorPlugin::new());
             }
             // this is async because we need to load the certificate from io
             // we need async_compat because wtransport expects a tokio reactor
@@ -185,7 +186,7 @@ fn setup_client(app: &mut App, cli: Cli) {
     }));
 
     if inspector {
-        // app.add_plugins(WorldInspectorPlugin::new());
+        app.add_plugins(WorldInspectorPlugin::new());
     }
     let server_addr = SocketAddr::new(server_addr.into(), server_port);
     let client_plugin_group =
