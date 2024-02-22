@@ -11,7 +11,7 @@ use steamworks::networking_types::{
     ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, SendFlags,
 };
 use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SteamError};
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {
@@ -112,6 +112,7 @@ impl NetServer for Server {
                 ListenSocketEvent::Connected(event) => {
                     if let Some(steam_id) = event.remote().steam_id() {
                         let client_id = steam_id.raw() as ClientId;
+                        info!("Client with id: {:?} connected!", client_id);
                         self.new_connections.push(client_id);
                         self.connections.insert(client_id, event.take_connection());
                     } else {
@@ -121,6 +122,7 @@ impl NetServer for Server {
                 ListenSocketEvent::Disconnected(event) => {
                     if let Some(steam_id) = event.remote().steam_id() {
                         let client_id = steam_id.raw() as ClientId;
+                        info!("Client with id: {:?} disconnected!", client_id);
                         self.new_disconnections.push(client_id);
                         self.connections.remove(&client_id);
                     } else {
@@ -136,12 +138,14 @@ impl NetServer for Server {
                         event.reject(NetConnectionEnd::AppGeneric, Some("Invalid steam id"));
                         continue;
                     };
+                    info!("Client with id: {:?} requesting connection!", steam_id);
                     // TODO: improve permission check
                     let permitted = true;
                     if permitted {
                         if let Err(e) = event.accept() {
                             error!("Failed to accept connection from {steam_id:?}: {e}");
                         }
+                        info!("Accepted connection from client {:?}", steam_id);
                     } else {
                         event.reject(NetConnectionEnd::AppGeneric, Some("Not allowed"));
                         continue;

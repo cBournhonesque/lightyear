@@ -10,6 +10,7 @@ use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, SendFlags,
 };
 use steamworks::ClientManager;
+use tracing::info;
 
 const MAX_MESSAGE_BATCH_SIZE: usize = 512;
 
@@ -101,6 +102,7 @@ impl NetClient for Client {
                 Err(anyhow!("connection closed"))
             }
             NetworkingConnectionState::Connected => {
+                info!("Client is connected!");
                 // receive packet
                 let connection = self.connection.as_mut().unwrap();
                 for message in connection
