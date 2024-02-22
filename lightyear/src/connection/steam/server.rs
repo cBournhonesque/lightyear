@@ -46,8 +46,8 @@ pub struct Server {
     client: steamworks::Client<ClientManager>,
     server: steamworks::Server,
     config: SteamConfig,
-    listen_socket: ListenSocket<ServerManager>,
-    connections: HashMap<ClientId, NetConnection<ServerManager>>,
+    listen_socket: Option<ListenSocket<ClientManager>>,
+    connections: HashMap<ClientId, NetConnection<ClientManager>>,
     packet_queue: VecDeque<(ReadWordBuffer, ClientId)>,
     new_connections: Vec<ClientId>,
     new_disconnections: Vec<ClientId>,
@@ -57,7 +57,7 @@ impl Server {
     pub fn new(config: SteamConfig) -> Result<Self> {
         let (client, _) = steamworks::Client::init_app(config.app_id)
             .context("could not initialize steam client")?;
-        let (mut server, _) = steamworks::Server::init(
+        let (server, _) = steamworks::Server::init(
             config.server_ip,
             config.game_port,
             config.query_port,
@@ -71,7 +71,7 @@ impl Server {
             client,
             server,
             config,
-            listen_socket,
+            listen_socket: None,
             connections: HashMap::new(),
             packet_queue: VecDeque::new(),
             new_connections: Vec::new(),
@@ -84,11 +84,12 @@ impl NetServer for Server {
     fn start(&mut self) -> Result<()> {
         let options: Vec<NetworkingConfigEntry> = Vec::new();
         let server_addr = SocketAddr::new(self.config.server_ip.into(), self.config.game_port);
-        let listen_socket = self
-            .client
-            .networking_sockets()
-            .create_listen_socket_ip(server_addr, options)
-            .context("could not create server listen socket")?;
+        self.listen_socket = Some(
+            self.client
+                .networking_sockets()
+                .create_listen_socket_ip(server_addr, options)
+                .context("could not create server listen socket")?,
+        );
         Ok(())
     }
 
@@ -102,7 +103,10 @@ impl NetServer for Server {
         self.new_disconnections.clear();
 
         // process connection events
-        while let Some(event) = self.listen_socket.try_receive_event() {
+        let Some(listen_socket) = self.listen_socket.as_mut() else {
+            return Err(SteamError::NoConnection.into());
+        };
+        while let Some(event) = listen_socket.try_receive_event() {
             match event {
                 ListenSocketEvent::Connected(event) => {
                     if let Some(steam_id) = event.remote().steam_id() {

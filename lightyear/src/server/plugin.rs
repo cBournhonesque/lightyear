@@ -9,6 +9,7 @@ use bevy::prelude::{
     PostUpdate, PreUpdate,
 };
 use bevy::time::common_conditions::on_timer;
+use tracing::error;
 
 use crate::connection::netcode::ClientId;
 use crate::connection::server::NetServer;

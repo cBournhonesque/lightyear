@@ -141,7 +141,7 @@ pub mod prelude {
 
         pub use crate::connection::server::{NetConfig, NetServer, ServerConnection};
         #[cfg(feature = "steam")]
-        pub use crate::connection::steam::server::{ServerMode, SteamConfig};
+        pub use crate::connection::steam::server::SteamConfig;
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

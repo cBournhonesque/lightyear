@@ -97,7 +97,7 @@ impl NetClient for Client {
             }
             NetworkingConnectionState::Connected => {
                 // receive packet
-                let mut connection = self.connection.unwrap();
+                let connection = self.connection.as_mut().unwrap();
                 for message in connection
                     .receive_messages(MAX_MESSAGE_BATCH_SIZE)
                     .context("failed to receive messages")?
@@ -116,6 +116,7 @@ impl NetClient for Client {
 
     fn send(&mut self, buf: &[u8]) -> Result<()> {
         self.connection
+            .as_ref()
             .ok_or(anyhow!("client not connected"))?
             .send_message(buf, SendFlags::UNRELIABLE_NO_NAGLE)
             .context("could not send message")?;
