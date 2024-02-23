@@ -440,6 +440,12 @@ impl ConnectToken {
         })?;
         Ok(buf)
     }
+
+    /// Tries to convert a 2048-byte array into a connect token.
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, InvalidTokenError> {
+        let mut cursor = io::Cursor::new(bytes);
+        Self::read_from(&mut cursor)
+    }
 }
 
 impl Bytes for ConnectToken {
