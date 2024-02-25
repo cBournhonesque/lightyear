@@ -252,7 +252,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                     let _ = sender
                                         .prepare_component_insert(
                                             entity,
-                                            component.clone().into(),
+                                            component.as_ref(),
                                             replicate,
                                             target,
                                             system_bevy_ticks.this_run(),

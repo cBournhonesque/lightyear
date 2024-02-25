@@ -140,7 +140,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
-        component: P::Components,
+        component: &P::Components,
         replicate: &Replicate<P>,
         target: NetworkTarget,
         // bevy_tick for the current system run (we send component updates since the most recent bevy_tick of
