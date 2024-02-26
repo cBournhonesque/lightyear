@@ -7,7 +7,7 @@ use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, Without,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::_reexport::FromType;
 use crate::prelude::{MainSet, NetworkTarget, TickManager};
@@ -111,9 +111,6 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     }
 }
 
-// TODO: maybe there was no point in making this generic in replication send; because
-//  connect-events is only available on the server ? or should we also add it in the client ?
-//  we can also separate the on_connect part to a separate system
 fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     system_bevy_ticks: SystemChangeTick,
     query: Query<(Entity, Ref<Replicate<P>>)>,

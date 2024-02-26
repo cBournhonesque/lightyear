@@ -143,7 +143,7 @@ impl<P: Protocol> Plugin for HierarchySyncPlugin<P> {
                     (Self::propagate_replicate, Self::update_parent_sync).chain(),
                     Self::removal_system,
                 )
-                    .before(ReplicationSet::SendComponentUpdates),
+                    .before(ReplicationSet::All),
             );
     }
 }

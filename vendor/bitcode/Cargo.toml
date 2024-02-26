@@ -1,7 +1,7 @@
 [package]
 name = "bitcode_lightyear_patch"
 authors = ["Cai Bear", "Finn Bear"]
-version = "0.4.1"
+version = "0.5.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/SoftbearStudios/bitcode"
@@ -10,7 +10,6 @@ exclude = ["fuzz/"]
 
 [dependencies]
 bitcode_derive = { version = "0.1.4", optional = true }
-bitintr = "0.3.0"
 bytemuck = { version = "1.13", features = ["extern_crate_alloc"] }
 from_bytes_or_zeroed = "0.1"
 residua-zigzag = "0.1.0"
