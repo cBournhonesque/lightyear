@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -505,6 +506,16 @@ impl<Ctx> NetcodeServer<Ctx> {
             _ => unreachable!("packet should have been filtered out by `ALLOWED_PACKETS`"),
         }
     }
+
+    fn remove_client(&mut self, addr: SocketAddr) {
+        let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
+        if let Some(idx) = client_id {
+            debug!("server disconnected client {idx}");
+            self.on_disconnect(idx);
+            self.conn_cache.remove(idx);
+        }
+    }
+
     fn send_to_addr(
         &mut self,
         packet: Packet,
@@ -801,9 +812,28 @@ impl<Ctx> NetcodeServer<Ctx> {
         receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {
-            self.recv_packet(buf, now, addr, sender)?;
+
+        loop {
+            match receiver.recv() {
+                Ok(Some((buf, addr))) => {
+                    self.recv_packet(buf, now, addr, sender)?;
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::TimedOut {
+                        if let Ok(addr) = SocketAddr::from_str(e.to_string().as_str()) {
+                            self.remove_client(addr);
+                        }
+                    }
+                    break;
+                }
+                _ => {
+                    break;
+                }
+            }
         }
+        // while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {
+        //     self.recv_packet(buf, now, addr, sender)?;
+        // }
         Ok(())
     }
     /// Updates the server.
