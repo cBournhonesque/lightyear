@@ -14,7 +14,6 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
     // create udp-socket based io
     let config = ServerConfig {
         shared: SharedConfig {
-            enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },

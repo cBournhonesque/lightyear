@@ -287,31 +287,31 @@ impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
     }
 }
 
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a client is connected
+/// Bevy [`Event`] emitted on the server on the frame where a client is connected
 pub type ConnectEvent = crate::shared::events::components::ConnectEvent<ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a client is disconnected
+/// Bevy [`Event`] emitted on the server on the frame where a client is disconnected
 pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where an input message from a client is received
+/// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received
 pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a EntitySpawn replication message is received
+/// Bevy [`Event`] emitted on the server on the frame where a EntitySpawn replication message is received
 pub type EntitySpawnEvent = crate::shared::events::components::EntitySpawnEvent<ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a EntityDepawn replication message is received
+/// Bevy [`Event`] emitted on the server on the frame where a EntityDepawn replication message is received
 pub type EntityDespawnEvent = crate::shared::events::components::EntityDespawnEvent<ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a ComponentUpdate replication message is received
+/// Bevy [`Event`] emitted on the server on the frame where a ComponentUpdate replication message is received
 pub type ComponentUpdateEvent<C> =
     crate::shared::events::components::ComponentUpdateEvent<C, ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a ComponentInsert replication message is received
+/// Bevy [`Event`] emitted on the server on the frame where a ComponentInsert replication message is received
 pub type ComponentInsertEvent<C> =
     crate::shared::events::components::ComponentInsertEvent<C, ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a ComponentRemove replication message is received
+/// Bevy [`Event`] emitted on the server on the frame where a ComponentRemove replication message is received
 pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
 #[cfg(feature = "leafwing")]
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where an input message from a client is received
+/// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received
 pub(crate) type InputMessageEvent<A> =
     crate::shared::events::components::InputMessageEvent<A, ClientId>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a (non-replication) message is received
+/// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
 pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
 
 #[cfg(test)]

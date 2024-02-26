@@ -53,7 +53,7 @@ jobs:
         run: cargo clippy -p lightyear --no-deps --tests -- -D warnings -A clippy::module_inception -A clippy::wrong_self_convention -A clippy::assign-op-pattern
 
       - name: Rustdoc
-        run: cargo rustdoc -p lightyear -- --document-private-items -D warnings
+        run: cargo rustdoc -p lightyear --all-features -- --document-private-items -D warnings --cfg docsrc
 
   doctest:
     name: Doctest

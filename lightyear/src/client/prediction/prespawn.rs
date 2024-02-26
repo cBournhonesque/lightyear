@@ -381,7 +381,6 @@ mod tests {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

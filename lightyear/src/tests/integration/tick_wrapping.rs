@@ -25,7 +25,6 @@ fn test_sync_after_tick_wrap() {
     let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
     let shared_config = SharedConfig {
-        enable_replication: false,
         tick: TickConfig::new(tick_duration),
         ..Default::default()
     };
@@ -117,7 +116,6 @@ fn test_sync_after_tick_half_wrap() {
     let frame_duration = Duration::from_secs_f32(1.0 / 60.0);
     let tick_duration = Duration::from_millis(10);
     let shared_config = SharedConfig {
-        enable_replication: false,
         tick: TickConfig::new(tick_duration),
         ..Default::default()
     };

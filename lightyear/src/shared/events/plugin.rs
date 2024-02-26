@@ -1,12 +1,13 @@
-//! Create the bevy [`Plugin`](bevy::app::Plugin)
+//! Create the bevy [`Plugin`]
+
+use bevy::app::{App, PostUpdate};
+use bevy::prelude::Plugin;
 
 use crate::_reexport::{ComponentProtocol, EventContext, MessageProtocol};
-use crate::prelude::{ClientId, MainSet, Protocol};
+use crate::prelude::{MainSet, Protocol};
 use crate::shared::events::components::{
     ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent,
 };
-use bevy::app::{App, PostUpdate};
-use bevy::prelude::Plugin;
 
 pub struct EventsPlugin<P: Protocol, Ctx: EventContext> {
     marker: std::marker::PhantomData<(P, Ctx)>,

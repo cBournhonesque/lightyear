@@ -1,11 +1,10 @@
-use crate::_reexport::{ComponentProtocol, ReplicationSend};
-use crate::prelude::{MainSet, Protocol, ReplicationSet, SharedConfig};
-use crate::shared::replication::components::Replicate;
-use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::transform::TransformSystem;
 use bevy::utils::Duration;
+
+use crate::_reexport::{ComponentProtocol, ReplicationSend};
+use crate::prelude::{MainSet, Protocol, ReplicationSet};
+use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 
 pub(crate) struct ReplicationPlugin<P: Protocol, R: ReplicationSend<P>> {
     tick_duration: Duration,

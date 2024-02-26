@@ -16,7 +16,6 @@ const PROP_SIZE: f32 = 5.0;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(100),
         tick: TickConfig {

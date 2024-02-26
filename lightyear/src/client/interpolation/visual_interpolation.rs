@@ -207,7 +207,6 @@ mod tests {
 
     fn setup(tick_duration: Duration, frame_duration: Duration) -> (BevyStepper, Entity) {
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

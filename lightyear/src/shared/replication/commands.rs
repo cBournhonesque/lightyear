@@ -1,9 +1,9 @@
+use bevy::ecs::system::{Command, EntityCommands};
+use bevy::prelude::{Entity, World};
+
 use crate::_reexport::ReplicationSend;
 use crate::prelude::Protocol;
 use crate::shared::replication::components::Replicate;
-use bevy::ecs::system::{Command, EntityCommands};
-use bevy::prelude::{Entity, World};
-use std::marker::PhantomData;
 
 pub struct RemoveReplicate;
 

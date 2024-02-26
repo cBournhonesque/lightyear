@@ -14,7 +14,6 @@ pub fn bevy_setup(app: &mut App, auth: Authentication) {
     let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
     let config = ClientConfig {
         shared: SharedConfig {
-            enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },

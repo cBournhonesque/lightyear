@@ -2,12 +2,13 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use replication::hierarchy::HierarchySyncPlugin;
+
 use crate::client::config::ClientConfig;
 use crate::prelude::Protocol;
 use crate::shared::config::SharedConfig;
+use crate::shared::replication;
 use crate::shared::tick_manager::TickManagerPlugin;
-use crate::shared::{log, replication};
-use replication::hierarchy::HierarchySyncPlugin;
 
 pub struct SharedPlugin<P: Protocol> {
     pub config: SharedConfig,
