@@ -8,7 +8,6 @@ use tracing::Level;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
         // server_send_interval: Duration::from_millis(100),

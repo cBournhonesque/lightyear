@@ -17,7 +17,6 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
         .with_key(private_key);
     let config = ServerConfig {
         shared: SharedConfig {
-            enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },

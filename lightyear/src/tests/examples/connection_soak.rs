@@ -12,7 +12,7 @@ use tracing::debug;
 use crate::prelude::client::{Authentication, ClientConfig, SyncConfig};
 use crate::prelude::server::{NetcodeConfig, ServerConfig};
 use crate::prelude::*;
-use crate::shared::events::IterMessageEvent;
+use crate::shared::events::connection::IterMessageEvent;
 use crate::tests::protocol::*;
 
 // TODO: rework connection_soak, we need to create bevy plugins now to be able to use the rest of the library

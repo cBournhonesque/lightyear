@@ -22,7 +22,6 @@ const WALL_SIZE: f32 = 350.0;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
         // server_send_interval: Duration::from_millis(100),

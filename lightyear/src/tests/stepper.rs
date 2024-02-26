@@ -46,7 +46,6 @@ impl BevyStepper {
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::DEBUG)
         //     .init();
 

@@ -894,7 +894,13 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bevy::asset::AsyncReadExt;
+    use bevy::input::InputPlugin;
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
+    use leafwing_input_manager::action_state::ActionState;
+    use leafwing_input_manager::input_map::InputMap;
+
     use crate::client::sync::SyncConfig;
     use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
@@ -902,12 +908,8 @@ mod tests {
     use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::asset::AsyncReadExt;
-    use bevy::input::InputPlugin;
-    use bevy::prelude::*;
-    use bevy::utils::Duration;
-    use leafwing_input_manager::action_state::ActionState;
-    use leafwing_input_manager::input_map::InputMap;
+
+    use super::*;
 
     fn setup() -> (BevyStepper, Entity, Entity) {
         let frame_duration = Duration::from_millis(10);

@@ -207,7 +207,7 @@ pub fn component_protocol_impl(
             use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
             use bevy::utils::HashMap;
             use std::any::TypeId;
-            use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
+            use #shared_crate_name::shared::events::components::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
             #[cfg(feature = "leafwing")]
             use leafwing_input_manager::prelude::*;
 

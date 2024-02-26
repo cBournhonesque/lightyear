@@ -1,7 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Res, ResMut, Resource, World};
+use bevy::prelude::{Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use serde::Serialize;
@@ -20,7 +20,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
 use crate::server::message::ServerMessage;
-use crate::shared::events::ConnectionEvents;
+use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::receive::ReplicationReceiver;
@@ -64,45 +64,6 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
-}
-
-/// Do some regular cleanup on the internals of replication:
-/// - set the latest_tick for every group to
-pub(crate) fn replication_clean<P: Protocol>(
-    mut connection: ResMut<ConnectionManager<P>>,
-    tick_manager: Res<TickManager>,
-) {
-    debug!("Running replication clean");
-    let tick = tick_manager.tick();
-    // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
-    // (meaning that there's no need when we receive the update to check if we have already received a previous action)
-    for group_channel in connection.replication_sender.group_channels.values_mut() {
-        debug!("Checking group channel: {:?}", group_channel);
-        if let Some(last_action_tick) = group_channel.last_action_tick {
-            if tick - last_action_tick > (i16::MAX / 2) {
-                debug!(
-                    ?tick,
-                    ?last_action_tick,
-                    ?group_channel,
-                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
-                group_channel.last_action_tick = None;
-            }
-        }
-    }
-    // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
-    for group_channel in connection.replication_receiver.group_channels.values_mut() {
-        debug!("Checking group channel: {:?}", group_channel);
-        if let Some(latest_tick) = group_channel.latest_tick {
-            if tick - latest_tick > (i16::MAX / 2) {
-                debug!(
-                    ?tick,
-                    ?latest_tick,
-                    ?group_channel,
-                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
-                group_channel.latest_tick = Some(tick);
-            }
-        }
-    }
 }
 
 impl<P: Protocol> ConnectionManager<P> {

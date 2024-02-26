@@ -69,7 +69,7 @@ pub(crate) mod registry;
 ///
 ///# fn main() {}
 /// ```
-pub trait Protocol: Send + Sync + Clone + Debug + Resource + 'static {
+pub trait Protocol: Send + Sync + Clone + Debug + 'static {
     type Input: crate::inputs::native::UserAction;
     #[cfg(feature = "leafwing")]
     type LeafwingInput1: crate::inputs::leafwing::LeafwingUserAction;

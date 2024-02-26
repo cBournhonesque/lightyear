@@ -2,12 +2,10 @@
 //! Log plugin that also potentially emits metrics to Prometheus.
 //! This cannot be used in conjunction with Bevy's `LogPlugin`
 use bevy::log::BoxedSubscriber;
-use bevy::prelude::{App, Plugin};
+use bevy::prelude::Plugin;
 #[cfg(feature = "metrics")]
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
-use tracing::instrument::WithSubscriber;
-use tracing::Level;
-use tracing_subscriber::{prelude::*, registry::Registry, EnvFilter};
+use tracing_subscriber::prelude::*;
 
 pub fn add_log_layer(subscriber: BoxedSubscriber) -> BoxedSubscriber {
     // let fmt_layer = tracing_subscriber::fmt::Layer::default()

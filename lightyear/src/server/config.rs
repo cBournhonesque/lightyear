@@ -1,6 +1,5 @@
 //! Defines server-specific configuration options
 use bevy::prelude::Resource;
-use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
