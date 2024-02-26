@@ -18,10 +18,10 @@ use crate::connection::netcode::{ConnectToken, Key};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message::Message;
 use crate::prelude::client::NetConfig;
-use crate::prelude::{generate_key, Io, NetworkTarget};
+use crate::prelude::{generate_key, NetworkTarget};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::Protocol;
-use crate::shared::events::ConnectionEvents;
+use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
@@ -42,10 +42,6 @@ pub struct Client<'w, 's, P: Protocol> {
     netcode: Res<'w, ClientConnection>,
     // connection
     pub(crate) connection: Res<'w, ConnectionManager<P>>,
-    // protocol
-    protocol: Res<'w, P>,
-    // events
-    events: Res<'w, ConnectionEvents<P>>,
     // syncing
     pub(crate) time_manager: Res<'w, TimeManager>,
     pub(crate) tick_manager: Res<'w, TickManager>,
@@ -61,10 +57,6 @@ pub struct ClientMut<'w, 's, P: Protocol> {
     netcode: ResMut<'w, ClientConnection>,
     // connection
     pub(crate) connection: ResMut<'w, ConnectionManager<P>>,
-    // protocol
-    protocol: ResMut<'w, P>,
-    // events
-    events: ResMut<'w, ConnectionEvents<P>>,
     // syncing
     pub(crate) time_manager: ResMut<'w, TimeManager>,
     pub(crate) tick_manager: ResMut<'w, TickManager>,
@@ -455,6 +447,38 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     }
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>> {
         &mut self.replication_sender.replicate_component_cache
+    }
+    fn cleanup(&mut self, tick: Tick) {
+        debug!("Running replication clean");
+        // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
+        // (meaning that there's no need when we receive the update to check if we have already received a previous action)
+        for group_channel in self.replication_sender.group_channels.values_mut() {
+            debug!("Checking group channel: {:?}", group_channel);
+            if let Some(last_action_tick) = group_channel.last_action_tick {
+                if tick - last_action_tick > (i16::MAX / 2) {
+                    debug!(
+                    ?tick,
+                    ?last_action_tick,
+                    ?group_channel,
+                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
+                    group_channel.last_action_tick = None;
+                }
+            }
+        }
+        // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
+        for group_channel in self.replication_receiver.group_channels.values_mut() {
+            debug!("Checking group channel: {:?}", group_channel);
+            if let Some(latest_tick) = group_channel.latest_tick {
+                if tick - latest_tick > (i16::MAX / 2) {
+                    debug!(
+                    ?tick,
+                    ?latest_tick,
+                    ?group_channel,
+                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                    group_channel.latest_tick = Some(tick);
+                }
+            }
+        }
     }
 }
 

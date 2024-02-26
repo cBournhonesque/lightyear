@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use bevy::prelude::{Component, Entity};
 
-use crate::prelude::{Message, Named, Tick};
+use crate::prelude::{Message, Tick};
 
 /// Marks an entity that directly applies the replication updates from the remote
 ///

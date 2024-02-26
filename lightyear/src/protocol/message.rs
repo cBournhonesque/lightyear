@@ -11,8 +11,8 @@ use crate::prelude::LightyearMapEntities;
 use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 #[cfg(feature = "leafwing")]
-use crate::shared::events::InputMessageEvent;
-use crate::shared::events::IterMessageEvent;
+use crate::shared::events::components::InputMessageEvent;
+use crate::shared::events::connection::IterMessageEvent;
 use crate::utils::named::Named;
 
 // client writes an Enum containing all their message type

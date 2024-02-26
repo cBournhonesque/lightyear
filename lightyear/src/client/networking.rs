@@ -13,12 +13,58 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{TickManager, TimeManager};
+use crate::prelude::{MainSet, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
-use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::tick_manager::TickEvent;
+use crate::shared::time_manager::is_ready_to_send;
+
+pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
+    marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
+    fn default() -> Self {
+        Self {
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
+    fn build(&self, app: &mut App) {
+        app
+            // SYSTEM SETS
+            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PostUpdate,
+                (
+                    // run sync before send because some send systems need to know if the client is synced
+                    // we don't send packets every frame, but on a timer instead
+                    (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send)).chain(),
+                    MainSet::SendPackets.in_set(MainSet::Send),
+                ),
+            )
+            // SYSTEMS
+            .add_systems(
+                PreUpdate,
+                (
+                    receive::<P>.in_set(MainSet::Receive),
+                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                ),
+            )
+            // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+            .add_systems(
+                PostUpdate,
+                (
+                    send::<P>.in_set(MainSet::SendPackets),
+                    sync_update::<P>.in_set(MainSet::Sync),
+                ),
+            );
+    }
+}
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive server packets");

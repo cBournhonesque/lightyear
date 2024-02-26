@@ -1,21 +1,17 @@
 //! Defines the server bevy resource
-use bevy::utils::Duration;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::ecs::system::SystemParam;
-use bevy::prelude::{Entity, Res, ResMut, Resource, World};
-use bevy::utils::HashSet;
-use crossbeam_channel::Sender;
-use tracing::{debug, debug_span, error, info, trace, trace_span};
+use bevy::prelude::{Entity, Res, ResMut, World};
+use bevy::utils::Duration;
+use tracing::{debug, debug_span, error, trace};
 
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
-use crate::connection::netcode::{generate_key, ClientId, ConnectToken};
+use crate::connection::netcode::ClientId;
 use crate::connection::server::{NetServer, ServerConnection};
 use crate::packet::message::Message;
 use crate::prelude::PreSpawnedPlayerObject;
@@ -29,7 +25,7 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 use crate::transport::io::Io;
-use crate::transport::{PacketSender, Transport};
+use crate::transport::Transport;
 
 use super::config::ServerConfig;
 use super::connection::ConnectionManager;
@@ -45,8 +41,6 @@ pub struct Server<'w, 's, P: Protocol> {
     netcode: Res<'w, crate::connection::netcode::Server>,
     // Connections
     pub(crate) connection_manager: Res<'w, ConnectionManager<P>>,
-    // Protocol
-    pub protocol: Res<'w, P>,
     // Rooms
     pub(crate) room_manager: Res<'w, RoomManager>,
     // Time
@@ -63,8 +57,6 @@ pub struct ServerMut<'w, 's, P: Protocol> {
     netcode: ResMut<'w, ServerConnection>,
     // Connections
     pub(crate) connection_manager: ResMut<'w, ConnectionManager<P>>,
-    // Protocol
-    pub protocol: ResMut<'w, P>,
     // Rooms
     pub(crate) room_manager: ResMut<'w, RoomManager>,
     // Time
@@ -453,5 +445,40 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
 
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>> {
         &mut self.replicate_component_cache
+    }
+
+    fn cleanup(&mut self, tick: Tick) {
+        debug!("Running replication clean");
+        for connection in self.connections.values_mut() {
+            // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
+            // (meaning that there's no need when we receive the update to check if we have already received a previous action)
+            for group_channel in connection.replication_sender.group_channels.values_mut() {
+                debug!("Checking group channel: {:?}", group_channel);
+                if let Some(last_action_tick) = group_channel.last_action_tick {
+                    if tick - last_action_tick > (i16::MAX / 2) {
+                        debug!(
+                    ?tick,
+                    ?last_action_tick,
+                    ?group_channel,
+                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
+                        group_channel.last_action_tick = None;
+                    }
+                }
+            }
+            // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
+            for group_channel in connection.replication_receiver.group_channels.values_mut() {
+                debug!("Checking group channel: {:?}", group_channel);
+                if let Some(latest_tick) = group_channel.latest_tick {
+                    if tick - latest_tick > (i16::MAX / 2) {
+                        debug!(
+                    ?tick,
+                    ?latest_tick,
+                    ?group_channel,
+                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                        group_channel.latest_tick = Some(tick);
+                    }
+                }
+            }
+        }
     }
 }

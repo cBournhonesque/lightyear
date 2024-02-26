@@ -1,15 +1,20 @@
 //! Handles logic related to prespawning entities
 
+use std::any::TypeId;
+use std::hash::{BuildHasher, Hash, Hasher};
+
+use bevy::ecs::component::Components;
+use bevy::prelude::*;
+
 use crate::_reexport::ComponentProtocol;
 use crate::prelude::{PreSpawnedPlayerObject, Protocol, ShouldBePredicted, TickManager};
 use crate::shared::replication::components::{DespawnTracker, Replicate};
-use bevy::ecs::component::Components;
-use bevy::prelude::*;
-use std::any::TypeId;
-use std::hash::{BuildHasher, Hash, Hasher};
-use tracing::info;
 
 /// Compute the hash of the spawned entity by hashing the type of all its components along with the tick at which it was created
+/// 1. Client spawns an entity and adds the PreSpawnedPlayerObject component
+/// 2. Client will compute the hash of the entity and store it internally
+/// 3. Server (later) spawns the entity, computes the hash and replicates the PreSpawnedPlayerObject component
+/// 4. When the client receives the PreSpawnedPlayerObject component, it will compare the hash with the one it computed
 pub(crate) fn compute_hash<P: Protocol>(
     // we need a param-set because of https://github.com/bevyengine/bevy/issues/7255
     // (entity-mut conflicts with resources)

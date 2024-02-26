@@ -9,10 +9,6 @@ use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::interpolation::visual_interpolation::{
-    restore_from_visual_interpolation, update_visual_interpolation_status, visual_interpolation,
-};
-use crate::prelude::FixedUpdateSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 

@@ -2,7 +2,7 @@
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use tracing::{error, info};
+use tracing::error;
 
 pub use despawn::PredictionDespawnCommandsExt;
 pub use plugin::add_prediction_systems;

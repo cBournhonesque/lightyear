@@ -24,8 +24,8 @@
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
 use bevy::prelude::{
-    not, App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, FixedUpdate,
-    IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, SystemSet,
+    not, App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs,
+    IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
 use tracing::{debug, error, trace};
 
@@ -39,7 +39,7 @@ use crate::client::sync::client_is_synced;
 use crate::inputs::native::UserAction;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
-use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::sets::MainSet;
 use crate::shared::tick_manager::TickEvent;
 
 #[derive(Debug, Clone)]

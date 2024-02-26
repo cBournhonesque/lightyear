@@ -46,18 +46,19 @@ pub mod _reexport {
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     pub use crate::serialize::wordbuffer::writer::WriteWordBuffer;
     pub use crate::serialize::writer::WriteBuffer;
-    pub use crate::shared::events::{
-        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    pub use crate::shared::events::components::{
+        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
     };
-    pub use crate::shared::events::{
+    pub use crate::shared::events::connection::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+        IterMessageEvent,
+    };
+    pub use crate::shared::events::systems::{
+        push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
-    pub use crate::shared::systems::events::{
-        push_component_insert_events, push_component_remove_events, push_component_update_events,
-    };
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;

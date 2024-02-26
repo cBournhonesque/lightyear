@@ -5,12 +5,12 @@ use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
-    PreUpdate, Query, Ref, RemovedComponents, ResMut, Without,
+    PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, Without,
 };
 use tracing::{debug, error, trace};
 
 use crate::_reexport::FromType;
-use crate::prelude::{MainSet, NetworkTarget};
+use crate::prelude::{MainSet, NetworkTarget, TickManager};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
@@ -34,7 +34,7 @@ fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
     }
 }
 
-// TODO: maybe only store the import thing for despawn, which is just replication-target and group-id?
+// TODO: maybe only store in the replicate_component_cache the things we need for despawn, which are just replication-target and group-id?
 //  the rest is a waste of memory
 /// This system adds DespawnTracker to each entity that was every replicated,
 /// so that we can track when they are despawned
@@ -480,4 +480,12 @@ pub fn add_per_component_replication_send_systems<
             send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),
         ),
     );
+}
+
+pub(crate) fn cleanup<P: Protocol, R: ReplicationSend<P>>(
+    mut sender: ResMut<R>,
+    tick_manager: Res<TickManager>,
+) {
+    let tick = tick_manager.tick();
+    sender.cleanup(tick);
 }

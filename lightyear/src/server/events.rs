@@ -1,7 +1,6 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
-use std::collections::HashMap;
-
-use bevy::prelude::{Component, Entity};
+use bevy::ecs::entity::EntityHash;
+use bevy::prelude::*;
 use tracing::trace;
 
 use crate::_reexport::{
@@ -11,18 +10,47 @@ use crate::connection::netcode::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
+use crate::prelude::MainSet;
 use crate::protocol::Protocol;
+use crate::server::networking::clear_events;
 #[cfg(feature = "leafwing")]
-use crate::shared::events::IterInputMessageEvent;
-use crate::shared::events::{
+use crate::shared::events::connection::IterInputMessageEvent;
+use crate::shared::events::connection::{
     ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
 };
+use crate::shared::events::plugin::EventsPlugin;
+
+type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+
+/// Plugin that handles generating bevy [`Events`] related to networking and replication
+pub struct ServerEventsPlugin<P: Protocol> {
+    marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> Default for ServerEventsPlugin<P> {
+    fn default() -> Self {
+        Self {
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<P: Protocol> Plugin for ServerEventsPlugin<P> {
+    fn build(&self, app: &mut App) {
+        app
+            // PLUGIN
+            .add_plugins(EventsPlugin::<P, ClientId>::default())
+            // SYSTEM_SET
+            .configure_sets(PostUpdate, MainSet::ClearEvents)
+            .add_systems(PostUpdate, clear_events::<P>.in_set(MainSet::ClearEvents));
+    }
+}
 
 #[derive(Debug)]
 pub struct ServerEvents<P: Protocol> {
     // have to handle disconnects separately because the [`ConnectionEvents`] are removed upon disconnection
     pub disconnects: Vec<ClientId>,
-    pub events: HashMap<ClientId, ConnectionEvents<P>>,
+    pub events: EntityHashMap<ClientId, ConnectionEvents<P>>,
     pub empty: bool,
 }
 
@@ -30,7 +58,7 @@ impl<P: Protocol> ServerEvents<P> {
     pub(crate) fn new() -> Self {
         Self {
             disconnects: Vec::new(),
-            events: HashMap::new(),
+            events: EntityHashMap::default(),
             empty: true,
         }
     }
@@ -39,8 +67,7 @@ impl<P: Protocol> ServerEvents<P> {
     pub(crate) fn clear(&mut self) {
         self.disconnects = Vec::new();
         self.empty = true;
-        self.events = HashMap::new();
-        // self.events.values_mut().for_each(|events| events.clear());
+        self.events = EntityHashMap::default();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -81,28 +108,6 @@ impl<P: Protocol> ServerEvents<P> {
             .any(|(_, connection_events)| connection_events.has_connection())
     }
 
-    // /// Pop the inputs for all clients for the given tick
-    // pub fn pop_inputs(
-    //     &mut self,
-    //     tick: Tick,
-    // ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-    //     self.events.iter_mut().map(move |(client_id, events)| {
-    //         let input = events.pop_input(tick);
-    //         (input, client_id.clone())
-    //     })
-    // }
-    //
-    // /// Get the inputs for all clients for the given tick
-    // pub fn get_inputs(
-    //     &mut self,
-    //     tick: Tick,
-    // ) -> impl Iterator<Item = (Option<&P::Input>, ClientId)> + '_ {
-    //     self.events.iter_mut().map(move |(client_id, events)| {
-    //         let input = events.get_input(tick);
-    //         (input, client_id.clone())
-    //     })
-    // }
-
     pub fn iter_disconnections(&mut self) -> impl Iterator<Item = ClientId> + '_ {
         std::mem::take(&mut self.disconnects).into_iter()
     }
@@ -110,18 +115,6 @@ impl<P: Protocol> ServerEvents<P> {
     pub fn has_disconnections(&self) -> bool {
         !self.disconnects.is_empty()
     }
-
-    // pub fn into_iter<V: for<'a> IterEvent<'a, P>>(&mut self) -> <V as IterEvent<'_, P>>::IntoIter {
-    //     return V::into_iter(self);
-    // }
-    //
-    // pub fn iter<'a, V: IterEvent<'a, P>>(&'a self) -> V::Iter {
-    //     return V::iter(self);
-    // }
-    //
-    // pub fn has<V: for<'a> IterEvent<'a, P>>(&self) -> bool {
-    //     return V::has(self);
-    // }
 
     // Cannot only use the 'disconnect' field in the events, because we remove the events
     // upon disconnection
@@ -295,27 +288,31 @@ impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
 }
 
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a client is connected
-pub type ConnectEvent = crate::shared::events::ConnectEvent<ClientId>;
+pub type ConnectEvent = crate::shared::events::components::ConnectEvent<ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a client is disconnected
-pub type DisconnectEvent = crate::shared::events::DisconnectEvent<ClientId>;
+pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where an input message from a client is received
-pub type InputEvent<I> = crate::shared::events::InputEvent<I, ClientId>;
+pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a EntitySpawn replication message is received
-pub type EntitySpawnEvent = crate::shared::events::EntitySpawnEvent<ClientId>;
+pub type EntitySpawnEvent = crate::shared::events::components::EntitySpawnEvent<ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a EntityDepawn replication message is received
-pub type EntityDespawnEvent = crate::shared::events::EntityDespawnEvent<ClientId>;
+pub type EntityDespawnEvent = crate::shared::events::components::EntityDespawnEvent<ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a ComponentUpdate replication message is received
-pub type ComponentUpdateEvent<C> = crate::shared::events::ComponentUpdateEvent<C, ClientId>;
+pub type ComponentUpdateEvent<C> =
+    crate::shared::events::components::ComponentUpdateEvent<C, ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a ComponentInsert replication message is received
-pub type ComponentInsertEvent<C> = crate::shared::events::ComponentInsertEvent<C, ClientId>;
+pub type ComponentInsertEvent<C> =
+    crate::shared::events::components::ComponentInsertEvent<C, ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a ComponentRemove replication message is received
-pub type ComponentRemoveEvent<C> = crate::shared::events::ComponentRemoveEvent<C, ClientId>;
+pub type ComponentRemoveEvent<C> =
+    crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
 #[cfg(feature = "leafwing")]
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where an input message from a client is received
-pub(crate) type InputMessageEvent<A> = crate::shared::events::InputMessageEvent<A, ClientId>;
+pub(crate) type InputMessageEvent<A> =
+    crate::shared::events::components::InputMessageEvent<A, ClientId>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the server on the frame where a (non-replication) message is received
-pub type MessageEvent<M> = crate::shared::events::MessageEvent<M, ClientId>;
+pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
 
 #[cfg(test)]
 mod tests {

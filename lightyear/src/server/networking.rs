@@ -1,22 +1,55 @@
 //! Defines the server bevy systems and run conditions
-use bevy::ecs::system::{SystemChangeTick, SystemState};
-use bevy::prelude::{Events, Fixed, Mut, ParamSet, Res, ResMut, Time, Virtual, World};
-use bevy::utils::Duration;
-use std::ops::DerefMut;
-use tracing::{debug, error, info, trace, trace_span};
+use bevy::ecs::system::SystemChangeTick;
+use bevy::prelude::*;
+use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
-use crate::client::resource::ClientMut;
 use crate::connection::server::{NetServer, ServerConnection};
-use crate::prelude::{Io, TickManager, TimeManager};
+use crate::prelude::{MainSet, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
-use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::room::RoomManager;
-use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
+use crate::shared::time_manager::is_ready_to_send;
+
+pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
+    marker: std::marker::PhantomData<P>,
+}
+impl<P: Protocol> Default for ServerNetworkingPlugin<P> {
+    fn default() -> Self {
+        Self {
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
+    fn build(&self, app: &mut App) {
+        app
+            // SYSTEM SETS
+            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PostUpdate,
+                (
+                    // we don't send packets every frame, but on a timer instead
+                    MainSet::Send.run_if(is_ready_to_send),
+                    MainSet::SendPackets.in_set(MainSet::Send),
+                ),
+            )
+            // SYSTEMS //
+            .add_systems(
+                PreUpdate,
+                (
+                    receive::<P>.in_set(MainSet::Receive),
+                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                ),
+            )
+            .add_systems(PostUpdate, (send::<P>.in_set(MainSet::SendPackets),));
+    }
+}
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");

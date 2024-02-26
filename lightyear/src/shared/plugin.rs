@@ -48,8 +48,6 @@ impl<P: Protocol> Plugin for SharedPlugin<P> {
         ));
 
         // PLUGINS
-        // TODO: increment_tick should be shared
-        // app.add_systems(FixedUpdate, increment_tick);
         app.add_plugins(HierarchySyncPlugin::<P>::default());
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
