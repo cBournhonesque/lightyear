@@ -34,7 +34,7 @@ mock_time = ["lightyear/mock_time"]
 
 [dependencies]
 leafwing-input-manager = "0.13"
-bevy_xpbd_2d = "0.3.2"
+bevy_xpbd_2d = "0.4.2"
 
 lightyear = { path = "../../lightyear", features = ["webtransport", "render"] }
 serde = { version = "1.0.188", features = ["derive"] }
