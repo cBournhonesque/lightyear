@@ -7,6 +7,14 @@
 - TODO: create an example related to cheating, where the server can validate inputs
 
 
+- CROSS-TRANSPORT:
+  - make sure that the clients id are unique even across the different netconnections
+    - or can maintain a mapping from each network connection's id to a global client id
+  - should I create a separate NetworkingPlugin<T> per transport? or just use a Vec<NetConfig>?
+    sounds like Vec<NetConfig> is the easier way, because some things should only run once and would be shared across all transports (for example ConnectionManager)
+  - send-side: need to maintain a mapping from client_Id to the transport id
+
+
 - PRESPAWNING:
   - STATUS:
     - seems to kind of work but not really

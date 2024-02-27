@@ -1,0 +1,19 @@
+    Finished dev [unoptimized + debuginfo] target(s) in 0.29s
+     Running `/Users/cbournhonesque/Snapchat/dev/rust/lightyear/target/debug/simple_box client -c 1`
+[2m2024-02-10T21:40:39.309392Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "Apple M1 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+[2m2024-02-10T21:40:39.708141Z[0m [32m INFO[0m [2mlightyear::connection::netcode::client[0m[2m:[0m building io
+[2m2024-02-10T21:40:39.708158Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "MacOS 14.3 ", kernel: "23.3.0", cpu: "Apple M1 Max", core_count: "10", memory: "64.0 GiB" }
+[2m2024-02-10T21:40:39.708975Z[0m [32m INFO[0m [2mlightyear::transport::webtransport::client_native[0m[2m:[0m Starting client webtransport task with server url: https://127.0.0.1:5000
+[2m2024-02-10T21:40:39.709050Z[0m [32m INFO[0m [2mlightyear::transport::webtransport::client_native[0m[2m:[0m fail
+[2m2024-02-10T21:40:39.709062Z[0m [32m INFO[0m [2mlightyear::connection::netcode::client[0m[2m:[0m building io done
+[2m2024-02-10T21:40:39.709094Z[0m [32m INFO[0m [2mlightyear::connection::netcode::client[0m[2m:[0m client connecting to server 127.0.0.1:5000 [1/1]
+[lightyear/src/transport/webtransport/client_native.rs:61:17] "create endpoint" = "create endpoint"
+[2m2024-02-10T21:40:39.709243Z[0m [32m INFO[0m [2mlightyear::transport::webtransport::client_native[0m[2m:[0m creating endpoint
+[2m2024-02-10T21:40:39.709908Z[0m [32m INFO[0m [2mlightyear::transport::webtransport::client_native[0m[2m:[0m before wtransport connect
+[2m2024-02-10T21:40:39.730127Z[0m [32m INFO[0m [2mlightyear::transport::webtransport::client_native[0m[2m:[0m after wtransport connect
+[2m2024-02-10T21:40:39.777465Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window "App" (0v0)
+[2m2024-02-10T21:40:40.805073Z[0m [32m INFO[0m [2mlightyear::connection::netcode::client[0m[2m:[0m client connected to server
+[2m2024-02-10T21:40:41.580925Z[0m [32m INFO[0m [2msimple_box::client[0m[2m:[0m Received entity spawn: 3v0
+[2m2024-02-10T21:41:52.256571Z[0m [34mDEBUG[0m [2mbevy_ecs::world::entity_ref[0m[2m:[0m Despawning entity 0v0
+[2m2024-02-10T21:41:52.257154Z[0m [32m INFO[0m [2mbevy_window::system[0m[2m:[0m No windows are open, exiting
+[2m2024-02-10T21:41:52.258082Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Closing window 0v0

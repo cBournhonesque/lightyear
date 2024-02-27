@@ -1,10 +1,12 @@
 use anyhow::Result;
-use bevy::prelude::Resource;
+use bevy::ecs::entity::EntityHash;
+use bevy::prelude::{Entity, Resource};
 
 use crate::_reexport::ReadWordBuffer;
 use crate::connection::netcode::ClientId;
 use crate::prelude::{Io, IoConfig};
 use crate::server::config::NetcodeConfig;
+use crate::utils::free_list::FreeList;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
@@ -29,6 +31,33 @@ pub trait NetServer: Send + Sync {
     fn io(&self) -> &Io;
 }
 
+type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+
+/// On the server we allow the use of multiple types of ServerConnection at the same time
+/// This resource keeps track of which client is using which ServerConnection
+#[derive(Resource)]
+pub struct ServerConnections {
+    /// list of the various `ServerConnection`s available. Will be static after first insertion.
+    pub(crate) servers: Vec<ServerConnection>,
+    /// mapping from client id to the index of the server connection in the `servers` list
+    pub(crate) client_mapping: EntityHashMap<ClientId, usize>,
+}
+
+impl ServerConnections {
+    pub fn new(config: Vec<NetConfig>) -> Self {
+        let mut servers = vec![];
+        for config in config {
+            let server = config.build_server();
+            servers.push(server);
+        }
+        ServerConnections {
+            servers,
+            client_mapping: EntityHashMap::default(),
+        }
+    }
+}
+
+/// A wrapper around a `Box<dyn NetServer>`
 #[derive(Resource)]
 pub struct ServerConnection {
     server: Box<dyn NetServer>,
