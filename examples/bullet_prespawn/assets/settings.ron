@@ -1,0 +1,27 @@
+Settings(
+   client: ClientSettings(
+       inspector: true,
+       client_id: 0,
+       client_port: 0, // the OS will assign a random open port
+       server_addr: "127.0.0.1",
+       server_port: 5000,
+       transport: WebTransport(
+           local_port: 0,  // unused for clients
+       ),
+   ),
+   server: ServerSettings(
+       headless: true,
+       inspector: false,
+       transport: [
+           WebTransport(
+               local_port: 5000
+           ),
+           Udp(
+               local_port: 5001
+           ),
+           WebSocket(
+               local_port: 5002
+           )
+       ],
+   )
+)

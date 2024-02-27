@@ -107,12 +107,13 @@ impl NetServer for ServerConnection {
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
+// TODO: add a way to get the server of a given type?
 /// On the server we allow the use of multiple types of ServerConnection at the same time
 /// This resource holds the list of all the [`ServerConnection`]s, and maps client ids to the index of the server connection in the list
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub(crate) servers: Vec<ServerConnection>,
+    pub servers: Vec<ServerConnection>,
     /// mapping from the connection's [`ClientId`] into a global [`ClientId`]-space (in case multiple transports use the same id)
     pub(crate) global_id_map: client_map::GlobalClientIdMap,
 }

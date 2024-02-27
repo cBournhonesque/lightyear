@@ -33,26 +33,26 @@ impl ClientPluginGroup {
         server_addr: SocketAddr,
         transport: Transports,
     ) -> ClientPluginGroup {
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: KEY,
-            protocol_id: PROTOCOL_ID,
-        };
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
         let certificate_digest =
             String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
                 .replace(":", "");
         let transport_config = match transport {
             #[cfg(not(target_family = "wasm"))]
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport => TransportConfig::WebTransportClient {
+            Transports::Udp { .. } => TransportConfig::UdpSocket(client_addr),
+            Transports::WebTransport { .. } => TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
                 certificate_digest,
             },
-            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
+            Transports::WebSocket { .. } => TransportConfig::WebSocketClient { server_addr },
+        };
+        let auth = Authentication::Manual {
+            server_addr,
+            client_id,
+            private_key: KEY,
+            protocol_id: PROTOCOL_ID,
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(150),

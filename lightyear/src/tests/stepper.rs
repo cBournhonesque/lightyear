@@ -81,7 +81,7 @@ impl BevyStepper {
         };
         let config = ServerConfig {
             shared: shared_config.clone(),
-            net: net_config,
+            net: vec![net_config],
             ping: PingConfig::default(),
             packet: Default::default(),
         };

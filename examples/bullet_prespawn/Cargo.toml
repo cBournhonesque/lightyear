@@ -32,3 +32,8 @@ mock_instant = "0.3"
 metrics-exporter-prometheus = { version = "0.13.0", optional = true }
 bevy-inspector-egui = "0.23"
 cfg-if = "1.0.0"
+ron = "0.8.1"
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+web-sys = "0.3"
+wasm-bindgen = "0.2"

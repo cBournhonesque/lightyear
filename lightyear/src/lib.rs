@@ -139,7 +139,9 @@ pub mod prelude {
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
-        pub use crate::connection::server::{NetConfig, NetServer, ServerConnection};
+        pub use crate::connection::server::{
+            NetConfig, NetServer, ServerConnection, ServerConnections,
+        };
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

@@ -14,7 +14,7 @@ use lightyear::prelude::client::{
     PredictionConfig, SyncConfig,
 };
 use lightyear::prelude::server::{
-    NetConfig, NetServer, NetcodeConfig, ServerConfig, ServerConnection,
+    NetConfig, NetServer, NetcodeConfig, ServerConfig, ServerConnection, ServerConnections,
 };
 use lightyear::prelude::*;
 use lightyear::server as lightyear_server;
@@ -68,10 +68,10 @@ impl BevyStepper {
             .with_key(private_key);
         let config = ServerConfig {
             shared: shared_config.clone(),
-            net: NetConfig::Netcode {
+            net: vec![NetConfig::Netcode {
                 config: netcode_config,
                 io: IoConfig::from_transport(TransportConfig::UdpSocket(local_addr)),
-            },
+            }],
             ..default()
         };
         let plugin_config = server::PluginConfig::new(config, protocol());
@@ -79,7 +79,10 @@ impl BevyStepper {
         server_app.add_plugins(plugin);
         let server_addr = server_app
             .world
-            .resource::<ServerConnection>()
+            .resource::<ServerConnections>()
+            .servers
+            .first()
+            .unwrap()
             .io()
             .local_addr();
 

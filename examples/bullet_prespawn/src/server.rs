@@ -18,41 +18,52 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(port: u16, transport: Transports) -> ServerPluginGroup {
+    pub(crate) async fn new(transports: Vec<Transports>) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
-        let transport_config = match transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            // if using webtransport, we load the certificate keys
-            Transports::WebTransport => {
-                let certificate =
-                    Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                        .await
-                        .unwrap();
-                let digest = &certificate.hashes()[0];
-                println!("Generated self-signed certificate with digest: {}", digest);
-                TransportConfig::WebTransportServer {
-                    server_addr,
-                    certificate,
-                }
-            }
-            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
-        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(150),
             incoming_jitter: Duration::from_millis(10),
             incoming_loss: 0.02,
         };
+        let mut net_configs = vec![];
+        for transport in &transports {
+            let transport_config = match transport {
+                Transports::Udp { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
+                    TransportConfig::UdpSocket(server_addr)
+                }
+                // if using webtransport, we load the certificate keys
+                Transports::WebTransport { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
+                    let certificate =
+                        Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
+                            .await
+                            .unwrap();
+                    let digest = &certificate.hashes()[0];
+                    println!("Generated self-signed certificate with digest: {}", digest);
+                    TransportConfig::WebTransportServer {
+                        server_addr,
+                        certificate,
+                    }
+                }
+                Transports::WebSocket { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
+                    TransportConfig::WebSocketServer { server_addr }
+                }
+            };
+            net_configs.push(NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(PROTOCOL_ID)
+                    .with_key(KEY),
+                io: IoConfig::from_transport(transport_config)
+                    .with_conditioner(link_conditioner.clone()),
+            });
+        }
 
         // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
-            net: NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(PROTOCOL_ID)
-                    .with_key(KEY),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            net: net_configs,
             ..default()
         };
 
