@@ -84,23 +84,23 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             // update server net connections
                                             // reborrow trick to enable split borrows
                                             let netservers = &mut *netservers;
-                                            for (idx, netserver) in netservers.servers.iter_mut().enumerate() {
+                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
                                                 let _ = netserver
                                                     .try_update(delta.as_secs_f64())
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));
-                                                // TODO: map the netserver's client id mapping to a global client id map
-                                                for client_id in netserver.new_connections().iter().copied() {
-                                                    // let client_addr = self.netcode.client_addr(client_id).unwrap();
-                                                    // info!("New connection from {} (id: {})", client_addr, client_id);
-                                                    connection_manager.add(client_id);
-                                                    netservers.client_mapping.insert(client_id, idx);
+                                                for local_client_id in netserver.new_connections().iter().copied() {
+                                                    // map the netserver's client id to a global client id (in case multiple transports assign the same client id)
+                                                    let global_id = netservers.global_id_map.insert(server_idx, local_client_id);
+                                                    connection_manager.add(global_id);
                                                 }
                                                 // handle disconnections
-                                                for client_id in netserver.new_disconnections().iter().copied() {
-                                                    netservers.client_mapping.remove(&client_id);
-                                                    connection_manager.remove(client_id);
-                                                    // TODO: do the client mapping as well
-                                                    room_manager.client_disconnect(client_id);
+                                                for local_client_id in netserver.new_disconnections().iter().copied() {
+                                                    if let Some(global_id) = netservers.global_id_map.remove_by_local(server_idx, local_client_id) {
+                                                        connection_manager.remove(global_id);
+                                                        room_manager.client_disconnect(global_id);
+                                                    } else {
+                                                        error!("Client disconnected but could not map client_id to global_id");
+                                                    }
                                                 };
                                             }
 
@@ -109,14 +109,18 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                 .update(time_manager.as_ref(), tick_manager.as_ref());
 
                                             // RECV_PACKETS: buffer packets into message managers
-                                            for netserver in netservers.servers.iter_mut() {
+                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
                                                 while let Some((mut reader, client_id)) = netserver.recv() {
-                                                    // TODO: use connection to apply on BOTH message manager and replication manager
-                                                    connection_manager
-                                                        .connection_mut(client_id)
-                                                        .expect("connection not found")
-                                                        .recv_packet(&mut reader, tick_manager.as_ref())
-                                                        .expect("could not recv packet");
+                                                    if let Some(global_id) = netservers.global_id_map.get_global(server_idx, client_id) {
+                                                        // TODO: use connection to apply on BOTH message manager and replication manager
+                                                        connection_manager
+                                                            .connection_mut(global_id)
+                                                            .expect("connection not found")
+                                                            .recv_packet(&mut reader, tick_manager.as_ref())
+                                                            .expect("could not recv packet");
+                                                    } else {
+                                                        error!("Global client id was not found!");
+                                                    }
                                                 }
                                             }
 
@@ -211,18 +215,16 @@ pub(crate) fn send<P: Protocol>(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
-            // TODO: map client id
-            let netserver_idx = netservers
-                .client_mapping
-                .get(client_id)
-                .copied()
-                .context("could not find netserver for client")?;
+            let (netserver_idx, local_client_id) = netservers
+                .global_id_map
+                .get_local(*client_id)
+                .context("could not find global client id")?;
             let netserver = netservers
                 .servers
                 .get_mut(netserver_idx)
                 .context("could not find netserver")?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                netserver.send(packet_byte.as_slice(), local_client_id)?;
             }
             Ok(())
         })
