@@ -90,6 +90,7 @@ pub mod prelude {
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::metadata::ClientMetadata;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
@@ -121,6 +122,7 @@ pub mod prelude {
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
+        pub use crate::client::replication::metadata::GlobalMetadata;
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{ClientConnection, NetClient, NetConfig};
@@ -137,6 +139,7 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
+        pub use crate::server::replication::metadata::GlobalMetadata;
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
         pub use crate::connection::server::{

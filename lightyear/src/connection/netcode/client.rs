@@ -491,7 +491,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         Ok(())
     }
 
-    /// Returns the global client id of the client once it is connected, or returns 0 if not connected.
+    /// Returns the netcode client id of the client once it is connected, or returns 0 if not connected.
     pub fn id(&self) -> ClientId {
         self.id
     }

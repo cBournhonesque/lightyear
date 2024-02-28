@@ -132,7 +132,11 @@ impl Plugin for ExampleClientPlugin {
         // we update the ActionState manually from cursor, so we need to put it in the ManualControl set
         app.add_systems(
             PreUpdate,
-            update_cursor_state_from_window.in_set(InputManagerSystem::ManualControl),
+            (
+                update_cursor_state_from_window.in_set(InputManagerSystem::ManualControl),
+                // TODO: make sure it happens after update metadata?
+                spawn_player,
+            ),
         );
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
     }
@@ -143,6 +147,7 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
     commands.spawn(Camera2dBundle::default());
     commands.spawn(
         TextBundle::from_section(
+            // this is the client id provided in the CLI, it might not be equal to the one used in the server
             format!("Client {}", plugin.client_id),
             TextStyle {
                 font_size: 30.0,
@@ -155,20 +160,29 @@ pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<Cl
             ..default()
         }),
     );
-    let y = (plugin.client_id as f32 * 50.0) % 500.0 - 250.0;
-    commands.spawn(PlayerBundle::new(
-        plugin.client_id,
-        Vec2::new(-50.0, y),
-        color_from_id(plugin.client_id),
-        InputMap::new([
-            (PlayerActions::Up, KeyCode::KeyW),
-            (PlayerActions::Down, KeyCode::KeyS),
-            (PlayerActions::Left, KeyCode::KeyA),
-            (PlayerActions::Right, KeyCode::KeyD),
-            (PlayerActions::Shoot, KeyCode::Space),
-        ]),
-    ));
     let _ = client.connect();
+}
+
+fn spawn_player(mut commands: Commands, metadata: Res<GlobalMetadata>) {
+    // we now have access to the client's ClientId
+    if metadata.is_changed() {
+        if let Some(client_id) = metadata.client_id {
+            info!("Spawning player with id: {}", client_id);
+            let y = (client_id as f32 * 50.0) % 500.0 - 250.0;
+            commands.spawn(PlayerBundle::new(
+                client_id,
+                Vec2::new(-50.0, y),
+                color_from_id(client_id),
+                InputMap::new([
+                    (PlayerActions::Up, KeyCode::KeyW),
+                    (PlayerActions::Down, KeyCode::KeyS),
+                    (PlayerActions::Left, KeyCode::KeyA),
+                    (PlayerActions::Right, KeyCode::KeyD),
+                    (PlayerActions::Shoot, KeyCode::Space),
+                ]),
+            ));
+        }
+    }
 }
 
 fn update_cursor_state_from_window(

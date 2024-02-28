@@ -116,20 +116,19 @@ pub fn component_protocol_impl(
 
     // Add extra variants
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         PreSpawnedPlayerObject(PreSpawnedPlayerObject)
     });
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         ParentSync(ParentSync)
+    });
+    input.variants.push(parse_quote! {
+        ClientMetadata(ClientMetadata)
     });
     #[cfg(feature = "leafwing")]
     for i in 1..3 {
