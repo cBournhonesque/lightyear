@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, ServerTransports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -18,7 +18,7 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(transports: Vec<Transports>) -> ServerPluginGroup {
+    pub(crate) async fn new(transports: Vec<ServerTransports>) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(150),
@@ -28,25 +28,25 @@ impl ServerPluginGroup {
         let mut net_configs = vec![];
         for transport in &transports {
             let transport_config = match transport {
-                Transports::Udp { local_port } => {
+                ServerTransports::Udp { local_port } => {
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
                     TransportConfig::UdpSocket(server_addr)
                 }
                 // if using webtransport, we load the certificate keys
-                Transports::WebTransport { local_port } => {
+                ServerTransports::WebTransport { local_port } => {
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
                     let certificate =
                         Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
                             .await
                             .unwrap();
-                    let digest = &certificate.hashes()[0];
+                    let digest = &certificate.hashes()[0].to_string().replace(":", "");
                     println!("Generated self-signed certificate with digest: {}", digest);
                     TransportConfig::WebTransportServer {
                         server_addr,
                         certificate,
                     }
                 }
-                Transports::WebSocket { local_port } => {
+                ServerTransports::WebSocket { local_port } => {
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
                     TransportConfig::WebSocketServer { server_addr }
                 }

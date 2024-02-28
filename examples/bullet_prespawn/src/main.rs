@@ -35,28 +35,21 @@ pub const PROTOCOL_ID: u64 = 0;
 
 pub const KEY: Key = [0; 32];
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum Transports {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
-    Udp {
-        local_port: u16,
-    },
+    Udp,
     WebTransport {
-        local_port: u16,
+        certificate_digest: String,
     },
-    WebSocket {
-        local_port: u16,
-    },
+    WebSocket,
 }
 
-#[derive(Parser, PartialEq, Debug)]
-enum Cli {
-    #[cfg(not(target_family = "wasm"))]
-    Server,
-    Client {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ServerTransports {
+    Udp { local_port: u16 },
+    WebTransport { local_port: u16 },
+    WebSocket { local_port: u16 },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -68,7 +61,7 @@ pub struct ServerSettings {
     inspector: bool,
 
     /// Which transport to use
-    transport: Vec<Transports>,
+    transport: Vec<ServerTransports>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -89,7 +82,7 @@ pub struct ClientSettings {
     server_port: u16,
 
     /// Which transport to use
-    transport: Transports,
+    transport: ClientTransports,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -98,40 +91,30 @@ pub struct Settings {
     pub client: ClientSettings,
 }
 
+#[derive(Parser, PartialEq, Debug)]
+enum Cli {
+    #[cfg(not(target_family = "wasm"))]
+    Server,
+    Client {
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
+    },
+}
+
 fn main() {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
-            use wasm_bindgen::prelude::*;
-            use web_sys::FileReader;
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             let client_id = rand::random::<u64>();
             let cli = Cli::Client {
                 client_id: Some(client_id)
             };
-            let reader = FileReader::new().unwrap();
-            let future = wasm_bindgen_futures::JsFuture::from(reader.read_as_text(&JsValue::from_str(file_url)).unwrap());
-            // wasm_bindgen_futures::spawn_local(async move {
-            //     let result = future.await;
-            //     let text = result.unwrap().as_string().unwrap();
-            //     web_sys::console::log_1(&text.into());
-            // });
-            let settings_str = IoTaskPool::get()
-                .scope(|s| {
-                    s.spawn(async move {
-                        let result = future.await;
-                        let text = result.unwrap().as_string().unwrap();
-                        web_sys::console::log_1(&text.into());
-                        text
-                    });
-                })
-                .pop()
-                .unwrap();
-            dbg!(&settings_str);
         } else {
             let cli = Cli::parse();
-            let settings_str = fs::read_to_string("assets/settings.ron").unwrap();
         }
     }
-    let settings = ron::de::from_str::<Settings>(&settings_str).unwrap();
+    let settings_str = include_str!("../assets/settings.ron");
+    let settings = ron::de::from_str::<Settings>(settings_str).unwrap();
     let mut app = App::new();
     setup(&mut app, settings, cli);
     app.run();

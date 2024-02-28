@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, ClientTransports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
@@ -31,22 +31,21 @@ impl ClientPluginGroup {
         client_id: u64,
         client_port: u16,
         server_addr: SocketAddr,
-        transport: Transports,
+        transport: ClientTransports,
     ) -> ClientPluginGroup {
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let certificate_digest =
-            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
-                .replace(":", "");
         let transport_config = match transport {
             #[cfg(not(target_family = "wasm"))]
-            Transports::Udp { .. } => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport { .. } => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-                #[cfg(target_family = "wasm")]
-                certificate_digest,
-            },
-            Transports::WebSocket { .. } => TransportConfig::WebSocketClient { server_addr },
+            ClientTransports::Udp => TransportConfig::UdpSocket(client_addr),
+            ClientTransports::WebTransport { certificate_digest } => {
+                TransportConfig::WebTransportClient {
+                    client_addr,
+                    server_addr,
+                    #[cfg(target_family = "wasm")]
+                    certificate_digest,
+                }
+            }
+            ClientTransports::WebSocket => TransportConfig::WebSocketClient { server_addr },
         };
         let auth = Authentication::Manual {
             server_addr,
