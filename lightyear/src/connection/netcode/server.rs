@@ -819,9 +819,11 @@ impl<Ctx> NetcodeServer<Ctx> {
                     self.recv_packet(buf, now, addr, sender)?;
                 }
                 Err(e) => {
-                    if e.kind() == std::io::ErrorKind::TimedOut {
-                        if let Ok(addr) = SocketAddr::from_str(e.to_string().as_str()) {
-                            self.remove_client(addr);
+                    if e.kind() == std::io::ErrorKind::Other {
+                        if let Some(e) = e.get_ref() {
+                            if let Some(err) = e.downcast_ref::<super::DisConnectionError>() {
+                                self.remove_client(err.addr);
+                            }
                         }
                     }
                     break;

@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+use std::fmt;
 use thiserror::Error;
 
 /// The result type for all the public methods that can return an error in this crate.
@@ -24,3 +26,16 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
+
+#[derive(Debug)]
+pub struct DisConnectionError {
+    pub addr: SocketAddr,
+}
+
+impl fmt::Display for DisConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Error with socket address: {:?}", self.addr)
+    }
+}
+
+impl std::error::Error for DisConnectionError {}
