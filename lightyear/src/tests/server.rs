@@ -17,12 +17,12 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
-        net: NetConfig::Netcode {
+        net: vec![NetConfig::Netcode {
             config: NetcodeConfig::default()
                 .with_protocol_id(protocol_id)
                 .with_key(private_key),
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        },
+        }],
         ping: PingConfig::default(),
         packet: Default::default(),
     };
