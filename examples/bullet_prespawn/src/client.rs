@@ -22,7 +22,6 @@ pub const INPUT_DELAY_TICKS: u16 = 0;
 pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;
 
 pub struct ClientPluginGroup {
-    client_id: ClientId,
     lightyear: ClientPlugin<MyProtocol>,
 }
 
@@ -76,7 +75,6 @@ impl ClientPluginGroup {
         };
         let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
-            client_id,
             lightyear: ClientPlugin::new(plugin_config),
         }
     }
@@ -86,9 +84,7 @@ impl PluginGroup for ClientPluginGroup {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(self.lightyear)
-            .add(ExampleClientPlugin {
-                client_id: self.client_id,
-            })
+            .add(ExampleClientPlugin)
             .add(shared::SharedPlugin)
             .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
                 LeafwingInputConfig::<PlayerActions> {
@@ -105,14 +101,7 @@ impl PluginGroup for ClientPluginGroup {
     }
 }
 
-pub struct ExampleClientPlugin {
-    client_id: ClientId,
-}
-
-#[derive(Resource)]
-pub struct ClientIdResource {
-    client_id: ClientId,
-}
+pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
@@ -123,9 +112,6 @@ impl Plugin for ExampleClientPlugin {
             (AdminActions::Reset, KeyCode::KeyR),
         ]));
 
-        app.insert_resource(ClientIdResource {
-            client_id: self.client_id,
-        });
         app.add_systems(Startup, init);
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schdule
         // app.add_systems(FixedUpdate, player_movement);
@@ -143,30 +129,31 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<ClientIdResource>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(
-        TextBundle::from_section(
-            // this is the client id provided in the CLI, it might not be equal to the one used in the server
-            format!("Client {}", plugin.client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
     let _ = client.connect();
 }
 
 fn spawn_player(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    // we now have access to the client's ClientId
+    // the `GlobalMetadata` resource holds metadata related to the client
+    // once the connection is established.
     if metadata.is_changed() {
         if let Some(client_id) = metadata.client_id {
+            commands.spawn(
+                TextBundle::from_section(
+                    format!("Client {}", client_id),
+                    TextStyle {
+                        font_size: 30.0,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    align_self: AlignSelf::End,
+                    ..default()
+                }),
+            );
+
             info!("Spawning player with id: {}", client_id);
             let y = (client_id as f32 * 50.0) % 500.0 - 250.0;
             commands.spawn(PlayerBundle::new(

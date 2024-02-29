@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Cli, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, Cli, ClientTransports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -23,28 +23,27 @@ impl ClientPluginGroup {
         client_id: u64,
         client_port: u16,
         server_addr: SocketAddr,
-        transport: Transports,
+        transport: ClientTransports,
     ) -> ClientPluginGroup {
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+        let transport_config = match transport {
+            #[cfg(not(target_family = "wasm"))]
+            ClientTransports::Udp => TransportConfig::UdpSocket(client_addr),
+            ClientTransports::WebTransport { certificate_digest } => {
+                TransportConfig::WebTransportClient {
+                    client_addr,
+                    server_addr,
+                    #[cfg(target_family = "wasm")]
+                    certificate_digest,
+                }
+            }
+            ClientTransports::WebSocket => TransportConfig::WebSocketClient { server_addr },
+        };
         let auth = Authentication::Manual {
             server_addr,
             client_id,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
-        };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let certificate_digest =
-            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
-                .replace(":", "");
-        let transport_config = match transport {
-            #[cfg(not(target_family = "wasm"))]
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-                #[cfg(target_family = "wasm")]
-                certificate_digest,
-            },
-            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(100),
@@ -78,30 +77,19 @@ impl PluginGroup for ClientPluginGroup {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(self.lightyear)
-            .add(ExampleClientPlugin {
-                client_id: self.client_id,
-            })
+            .add(ExampleClientPlugin)
             .add(shared::SharedPlugin)
             .add(LeafwingInputPlugin::<MyProtocol, Inputs>::default())
     }
 }
 
-pub struct ExampleClientPlugin {
-    client_id: ClientId,
-}
-
-#[derive(Resource)]
-pub struct Global {
-    client_id: ClientId,
-}
+pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActionState<Inputs>>();
-        app.insert_resource(Global {
-            client_id: self.client_id,
-        });
         app.add_systems(Startup, init);
+        app.add_systems(PreUpdate, add_text.after(MainSet::ReceiveFlush));
         app.add_systems(FixedUpdate, movement);
         app.add_systems(
             Update,
@@ -116,17 +104,24 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        format!("Client {}", global.client_id),
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
-            ..default()
-        },
-    ));
     let _ = client.connect();
+}
+
+pub(crate) fn add_text(mut commands: Commands, metadata: Res<GlobalMetadata>) {
+    if metadata.is_changed() {
+        if let Some(client_id) = metadata.client_id {
+            commands.spawn(TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ));
+        }
+    }
 }
 
 // The client input only gets applied to predicted entities that we own

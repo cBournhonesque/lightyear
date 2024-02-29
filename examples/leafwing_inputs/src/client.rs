@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, ClientTransports, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
@@ -28,28 +28,27 @@ impl ClientPluginGroup {
         client_id: u64,
         client_port: u16,
         server_addr: SocketAddr,
-        transport: Transports,
+        transport: ClientTransports,
     ) -> ClientPluginGroup {
+        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
+        let transport_config = match transport {
+            #[cfg(not(target_family = "wasm"))]
+            ClientTransports::Udp => TransportConfig::UdpSocket(client_addr),
+            ClientTransports::WebTransport { certificate_digest } => {
+                TransportConfig::WebTransportClient {
+                    client_addr,
+                    server_addr,
+                    #[cfg(target_family = "wasm")]
+                    certificate_digest,
+                }
+            }
+            ClientTransports::WebSocket => TransportConfig::WebSocketClient { server_addr },
+        };
         let auth = Authentication::Manual {
             server_addr,
             client_id,
             private_key: KEY,
             protocol_id: PROTOCOL_ID,
-        };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let certificate_digest =
-            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
-                .replace(":", "");
-        let transport_config = match transport {
-            #[cfg(not(target_family = "wasm"))]
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-                #[cfg(target_family = "wasm")]
-                certificate_digest,
-            },
-            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(75),
@@ -84,9 +83,7 @@ impl PluginGroup for ClientPluginGroup {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(self.lightyear)
-            .add(ExampleClientPlugin {
-                client_id: self.client_id,
-            })
+            .add(ExampleClientPlugin)
             .add(shared::SharedPlugin)
             .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
                 LeafwingInputConfig::<PlayerActions> {
@@ -103,14 +100,7 @@ impl PluginGroup for ClientPluginGroup {
     }
 }
 
-pub struct ExampleClientPlugin {
-    client_id: ClientId,
-}
-
-#[derive(Resource)]
-pub struct Global {
-    client_id: ClientId,
-}
+pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
@@ -121,10 +111,8 @@ impl Plugin for ExampleClientPlugin {
             (AdminActions::Reset, KeyCode::KeyR),
         ]));
 
-        app.insert_resource(Global {
-            client_id: self.client_id,
-        });
         app.add_systems(Startup, init);
+        app.add_systems(PreUpdate, spawn_player.after(MainSet::ReceiveFlush));
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
         app.add_systems(
@@ -141,49 +129,59 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(
-        TextBundle::from_section(
-            format!("Client {}", global.client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
-            align_self: AlignSelf::End,
-            ..default()
-        }),
-    );
-    let y = (global.client_id as f32 * 50.0) % 500.0 - 250.0;
-    // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-    // if plugin.client_id == 2 {
-    commands.spawn(PlayerBundle::new(
-        global.client_id,
-        Vec2::new(-50.0, y),
-        color_from_id(global.client_id),
-        InputMap::new([
-            (PlayerActions::Up, KeyCode::KeyW),
-            (PlayerActions::Down, KeyCode::KeyS),
-            (PlayerActions::Left, KeyCode::KeyA),
-            (PlayerActions::Right, KeyCode::KeyD),
-        ]),
-    ));
-    // }
-    commands.spawn(PlayerBundle::new(
-        global.client_id,
-        Vec2::new(50.0, y),
-        color_from_id(global.client_id),
-        InputMap::new([
-            (PlayerActions::Up, KeyCode::ArrowUp),
-            (PlayerActions::Down, KeyCode::ArrowDown),
-            (PlayerActions::Left, KeyCode::ArrowLeft),
-            (PlayerActions::Right, KeyCode::ArrowRight),
-        ]),
-    ));
     let _ = client.connect();
+}
+
+fn spawn_player(mut commands: Commands, metadata: Res<GlobalMetadata>) {
+    // TODO: instead of this, maybe emit an event?
+    // the `GlobalMetadata` resource holds metadata related to the client
+    // once the connection is established.
+    if metadata.is_changed() {
+        if let Some(client_id) = metadata.client_id {
+            commands.spawn(
+                TextBundle::from_section(
+                    format!("Client {}", client_id),
+                    TextStyle {
+                        font_size: 30.0,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    align_self: AlignSelf::End,
+                    ..default()
+                }),
+            );
+            let y = (client_id as f32 * 50.0) % 500.0 - 250.0;
+            // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
+            // if plugin.client_id == 2 {
+            commands.spawn(PlayerBundle::new(
+                client_id,
+                Vec2::new(-50.0, y),
+                color_from_id(client_id),
+                InputMap::new([
+                    (PlayerActions::Up, KeyCode::KeyW),
+                    (PlayerActions::Down, KeyCode::KeyS),
+                    (PlayerActions::Left, KeyCode::KeyA),
+                    (PlayerActions::Right, KeyCode::KeyD),
+                ]),
+            ));
+            // }
+            commands.spawn(PlayerBundle::new(
+                client_id,
+                Vec2::new(50.0, y),
+                color_from_id(client_id),
+                InputMap::new([
+                    (PlayerActions::Up, KeyCode::ArrowUp),
+                    (PlayerActions::Down, KeyCode::ArrowDown),
+                    (PlayerActions::Left, KeyCode::ArrowLeft),
+                    (PlayerActions::Right, KeyCode::ArrowRight),
+                ]),
+            ));
+        }
+    }
 }
 
 /// Blueprint pattern: when the ball gets replicated from the server, add all the components
@@ -215,7 +213,7 @@ fn add_ball_physics(
 /// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
 /// so that our predicted entities can predict collisions with them correctly
 fn add_player_physics(
-    global: Res<Global>,
+    metadata: Res<GlobalMetadata>,
     mut commands: Commands,
     mut player_query: Query<
         (Entity, &PlayerId),
@@ -226,8 +224,12 @@ fn add_player_physics(
         ),
     >,
 ) {
+    let Some(client_id) = metadata.client_id else {
+        return;
+    };
+
     for (entity, player_id) in player_query.iter_mut() {
-        if player_id.0 == global.client_id {
+        if player_id.0 == client_id {
             // only need to do this for other players' entities
             continue;
         }

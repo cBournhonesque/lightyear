@@ -13,6 +13,10 @@
   - should I create a separate NetworkingPlugin<T> per transport? or just use a Vec<NetConfig>?
     sounds like Vec<NetConfig> is the easier way, because some things should only run once and would be shared across all transports (for example ConnectionManager)
   - send-side: need to maintain a mapping from client_Id to the transport id
+  - BUGS:
+    - client_replication: the cursor replication doesn't work if shared id
+    - leafwing_inputs: ball spazzing out if client id collision
+    - ALL OTHER EXAMPLES WORK FINE EVEN WITH ID COLLISION
 
 
 - PRESPAWNING:
