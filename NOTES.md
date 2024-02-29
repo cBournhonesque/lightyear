@@ -8,11 +8,9 @@
 
 
 - CROSS-TRANSPORT:
-  - make sure that the clients id are unique even across the different netconnections
-    - or can maintain a mapping from each network connection's id to a global client id
-  - should I create a separate NetworkingPlugin<T> per transport? or just use a Vec<NetConfig>?
-    sounds like Vec<NetConfig> is the easier way, because some things should only run once and would be shared across all transports (for example ConnectionManager)
-  - send-side: need to maintain a mapping from client_Id to the transport id
+  - TODO:
+    - add unit test on metadata
+    - maybe replace Channels transport with LocalChannels and multi-connection?
   - BUGS:
     - client_replication: the cursor replication doesn't work if shared id
     - leafwing_inputs: ball spazzing out if client id collision

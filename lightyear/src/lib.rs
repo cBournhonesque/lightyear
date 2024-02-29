@@ -116,13 +116,13 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
+        pub use crate::client::metadata::GlobalMetadata;
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
         pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
-        pub use crate::client::replication::metadata::GlobalMetadata;
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{ClientConnection, NetClient, NetConfig};
@@ -138,8 +138,8 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
+        pub use crate::server::metadata::GlobalMetadata;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
-        pub use crate::server::replication::metadata::GlobalMetadata;
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
         pub use crate::connection::server::{

@@ -17,7 +17,6 @@ use crate::prelude::*;
 use crate::tests::protocol::*;
 
 /// Helpers to setup a bevy app where I can just step the world easily
-
 pub trait Step {
     /// Advance both apps by one frame duration
     fn frame_step(&mut self);

@@ -11,6 +11,7 @@ use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::ServerEventsPlugin;
 use crate::server::input::InputPlugin;
+use crate::server::metadata::ClientMetadataPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
 use crate::server::room::RoomPlugin;
@@ -71,6 +72,7 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_plugins(ServerEventsPlugin::<P>::default())
             .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
             .add_plugins(ServerReplicationPlugin::<P>::new(tick_duration))
+            .add_plugins(ClientMetadataPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             .add_plugins(TimePlugin {
