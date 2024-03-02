@@ -55,7 +55,7 @@ impl UserAction for MyInput {}
 
 // Protocol
 
-lightyear::protocolize! {
+protocolize! {
     Self = MyProtocol,
     Message = MyMessageProtocol,
     Component = MyComponentsProtocol,
