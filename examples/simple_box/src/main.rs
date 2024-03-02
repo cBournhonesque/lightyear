@@ -86,10 +86,20 @@ pub struct ClientSettings {
     transport: ClientTransports,
 }
 
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub struct SharedSettings {
+    /// An id to identify the protocol version
+    protocol_id: u64,
+
+    /// a 32-byte array to authenticate via the Netcode.io protocol
+    private_key: [u8; 32],
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Settings {
     pub server: ServerSettings,
     pub client: ClientSettings,
+    pub shared: SharedSettings,
 }
 
 #[derive(Parser, PartialEq, Debug)]
@@ -105,7 +115,6 @@ enum Cli {
 fn main() {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             let client_id = rand::random::<u64>();
             let cli = Cli::Client {
                 client_id: Some(client_id)
@@ -125,6 +134,7 @@ fn setup(app: &mut App, settings: Settings, cli: Cli) {
     match cli {
         #[cfg(not(target_family = "wasm"))]
         Cli::Server => {
+            let shared = settings.shared;
             let settings = settings.server;
             if !settings.headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
@@ -145,7 +155,7 @@ fn setup(app: &mut App, settings: Settings, cli: Cli) {
             let server_plugin_group = IoTaskPool::get()
                 .scope(|s| {
                     s.spawn(Compat::new(async {
-                        ServerPluginGroup::new(settings.transport).await
+                        ServerPluginGroup::new(settings.transport, shared).await
                     }));
                 })
                 .pop()
@@ -153,6 +163,7 @@ fn setup(app: &mut App, settings: Settings, cli: Cli) {
             app.add_plugins(server_plugin_group.build());
         }
         Cli::Client { client_id } => {
+            let shared = settings.shared;
             let settings = settings.client;
             // NOTE: create the default plugins first so that the async task pools are initialized
             // use the default bevy logger for now
@@ -171,6 +182,7 @@ fn setup(app: &mut App, settings: Settings, cli: Cli) {
                 settings.client_port,
                 server_addr,
                 settings.transport,
+                shared,
             );
             app.add_plugins(client_plugin_group.build());
         }

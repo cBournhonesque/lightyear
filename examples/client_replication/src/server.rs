@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
-use crate::{shared, ServerTransports, KEY, PROTOCOL_ID};
+use crate::{shared, ServerTransports, SharedSettings, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -15,7 +15,10 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(transports: Vec<ServerTransports>) -> ServerPluginGroup {
+    pub(crate) async fn new(
+        transports: Vec<ServerTransports>,
+        shared_settings: SharedSettings,
+    ) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
@@ -50,8 +53,8 @@ impl ServerPluginGroup {
             };
             net_configs.push(NetConfig::Netcode {
                 config: NetcodeConfig::default()
-                    .with_protocol_id(PROTOCOL_ID)
-                    .with_key(KEY),
+                    .with_protocol_id(shared_settings.protocol_id)
+                    .with_key(shared_settings.private_key),
                 io: IoConfig::from_transport(transport_config)
                     .with_conditioner(link_conditioner.clone()),
             });

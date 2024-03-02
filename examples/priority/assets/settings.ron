@@ -4,14 +4,14 @@ Settings(
        client_id: 0,
        client_port: 0, // the OS will assign a random open port
        server_addr: "127.0.0.1",
-       // server_port: 5000,
-       // transport: WebTransport(
-       //     // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
-       //     // the server will print the certificate digest on startup
-       //     certificate_digest: "1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644",
-       // ),
-       server_port: 5001,
-       transport: Udp,
+       server_port: 5000,
+       transport: WebTransport(
+           // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
+           // the server will print the certificate digest on startup
+           certificate_digest: "1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644",
+       ),
+       // server_port: 5001,
+       // transport: Udp,
        // server_port: 5002,
        // transport: WebSocket,
    ),
@@ -29,5 +29,9 @@ Settings(
                local_port: 5002
            )
        ],
+   ),
+   shared: SharedSettings(
+       protocol_id: 0,
+       private_key: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
    )
 )

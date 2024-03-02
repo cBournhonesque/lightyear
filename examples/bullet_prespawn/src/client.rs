@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, ClientTransports, KEY, PROTOCOL_ID};
+use crate::{shared, ClientTransports, SharedSettings, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
@@ -31,6 +31,7 @@ impl ClientPluginGroup {
         client_port: u16,
         server_addr: SocketAddr,
         transport: ClientTransports,
+        shared_settings: SharedSettings,
     ) -> ClientPluginGroup {
         let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
         let transport_config = match transport {
@@ -49,8 +50,8 @@ impl ClientPluginGroup {
         let auth = Authentication::Manual {
             server_addr,
             client_id,
-            private_key: KEY,
-            protocol_id: PROTOCOL_ID,
+            private_key: shared_settings.private_key,
+            protocol_id: shared_settings.protocol_id,
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(150),
