@@ -297,7 +297,7 @@ macro_rules! protocolize {
         LeafwingInput1 = $leafwing_input_1:ty,
         LeafwingInput2 = $leafwing_input_2:ty,
     ) => {
-        protocolize!{
+        lightyear::protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
@@ -314,7 +314,7 @@ macro_rules! protocolize {
         Component = $components:ty,
         LeafwingInput1 = $leafwing_input_1:ty,
     ) => {
-        protocolize!{
+        lightyear::protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
@@ -332,7 +332,7 @@ macro_rules! protocolize {
         LeafwingInput1 = $leafwing_input_1:ty,
         LeafwingInput2 = $leafwing_input_2:ty,
     ) => {
-        protocolize!{
+        lightyear::protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
@@ -349,7 +349,7 @@ macro_rules! protocolize {
         Component = $components:ty,
         Crate = $shared_crate_name:ident,
     ) => {
-        protocolize!{
+        $shared_crate_name::protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
@@ -364,7 +364,7 @@ macro_rules! protocolize {
         Component = $components:ty,
         Input = $input:ty,
     ) => {
-        protocolize!{
+        lightyear::protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
@@ -378,7 +378,7 @@ macro_rules! protocolize {
         Message = $message:ty,
         Component = $components:ty,
     ) => {
-        protocolize!{
+        lightyear::protocolize!{
             Self = $protocol,
             Message = $message,
             Component = $components,
