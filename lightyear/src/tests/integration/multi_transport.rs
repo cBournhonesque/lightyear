@@ -74,18 +74,36 @@ impl MultiBevyStepper {
         });
         let client_params = (LOCAL_SOCKET, to_server_recv, from_server_send);
         let net_config_1 = NetConfig::Netcode {
-            auth: auth,
+            auth: auth.clone(),
             config: client::NetcodeConfig::default(),
             io: client_io,
         };
 
         // TODO: maybe we don't need the server Channels transport and instead we can just have multiple
-        //  concurrant LocalChannel connections? seems easier to reason about!
-        // server with two NetConfigs: Udp and local channel
+        //  concurrent LocalChannel connections? seems easier to reason about!
         let server_io_1 = IoConfig::from_transport(TransportConfig::Channels {
             channels: vec![client_params],
         });
 
+        // client net config 2: use local channels
+        let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
+        let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
+        let client_io = IoConfig::from_transport(TransportConfig::LocalChannel {
+            recv: from_server_recv,
+            send: to_server_send,
+        });
+        let client_params = (LOCAL_SOCKET, to_server_recv, from_server_send);
+        let net_config_2 = NetConfig::Netcode {
+            auth,
+            config: client::NetcodeConfig::default(),
+            io: client_io,
+        };
+
+        let server_io_2 = IoConfig::from_transport(TransportConfig::Channels {
+            channels: vec![client_params],
+        });
+
+        // build server with two distinct transports
         let mut server_app = App::new();
         server_app.add_plugins(
             MinimalPlugins
@@ -113,7 +131,7 @@ impl MultiBevyStepper {
                 },
                 server::NetConfig::Netcode {
                     config: netcode_config,
-                    io: IoConfig::from_transport(TransportConfig::UdpSocket(LOCAL_SOCKET)),
+                    io: server_io_2,
                 },
             ],
             ..default()
@@ -137,19 +155,6 @@ impl MultiBevyStepper {
             .unwrap()
             .io()
             .local_addr();
-
-        // client net config 2: use udp
-        let auth = Authentication::Manual {
-            server_addr,
-            protocol_id,
-            private_key,
-            client_id,
-        };
-        let net_config_2 = NetConfig::Netcode {
-            auth,
-            io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr)),
-            config: client::NetcodeConfig::default(),
-        };
 
         let build_client = |net_config: NetConfig| -> App {
             let mut client_app = App::new();
@@ -294,7 +299,7 @@ fn test_multi_transport() {
         .world
         .query::<&ClientMetadata>()
         .get_single(&stepper.client_app_1.world);
-    dbg!(client_metadata_1);
+    // dbg!(client_metadata_1);
 
     // // spawn an entity on the server
     // stepper

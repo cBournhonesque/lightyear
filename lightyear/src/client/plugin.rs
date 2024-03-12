@@ -80,7 +80,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientReplicationPlugin::<P>::new(tick_duration))
-            .add_plugins(MetadataPlugin::default())
+            .add_plugins(MetadataPlugin)
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
             .add_plugins(InterpolationPlugin::<P>::new(

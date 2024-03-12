@@ -12,10 +12,6 @@
     - TODO:
         - add unit test on metadata
         - maybe replace Channels transport with LocalChannels and multi-connection?
-    - BUGS:
-        - leafwing_inputs: ball spazzing out if client id collision
-        - ALL OTHER EXAMPLES WORK FINE EVEN WITH ID COLLISION
-
 
 - PRESPAWNING:
     - STATUS:
@@ -79,7 +75,7 @@
     - C: collisions cause weird artifacts when we do rollback. Investigate why.
         - check tick 1935. On server, we have some values.
           On client, we have completely different values! After rollback, we get the server values, but only at tick
-          1936.
+            1936.
           Is there a off-by-one issue?
           Also the client value was completely different than the server value before the rollback, why?
         - SOLVED: I think I found the issue, it's because we need to run the physics after applying the Actions, but
