@@ -51,7 +51,6 @@ fn spawn_client_entity<P: Protocol>(
 ) {
     for event in event.read() {
         let client_id = *event.context();
-        dbg!("SPAWN CLIENT: {:?}", client_id);
         let client_entity = commands.spawn((
             ClientMetadata { client_id },
             // for now, only replicate to the client itself

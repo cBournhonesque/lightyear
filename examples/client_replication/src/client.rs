@@ -271,15 +271,19 @@ fn cursor_movement(
 ) {
     // return early if we still don't have access to the client id
     let Some(client_id) = metadata.client_id else {
+        info!("no client id");
         return;
     };
 
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
+        info!(?player_id, "query");
         if player_id.0 != client_id {
+            info!(?player_id, ?client_id, "no cursor!");
             return;
         }
         if let Ok(window) = window_query.get_single() {
             if let Some(mouse_position) = window_relative_mouse_position(window) {
+                info!(?mouse_position, "update cursor!");
                 // only update the cursor if it's changed
                 cursor_position.set_if_neq(CursorPosition(mouse_position));
             }
