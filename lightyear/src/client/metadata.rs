@@ -1,3 +1,4 @@
+use crate::prelude::client::PredictionSet;
 use crate::prelude::{ClientId, ClientMetadata, MainSet};
 use bevy::prelude::*;
 
@@ -6,8 +7,13 @@ pub(crate) struct MetadataPlugin;
 
 impl Plugin for MetadataPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GlobalMetadata>()
-            .add_systems(PreUpdate, update_client_id.after(MainSet::ReceiveFlush));
+        app.init_resource::<GlobalMetadata>().add_systems(
+            PreUpdate,
+            update_client_id
+                .after(MainSet::ReceiveFlush)
+                // SpawnPrediction uses the metadata to compare the client_id in ShouldBePredicted with the client_id in GlobalMetadata
+                .before(PredictionSet::SpawnPrediction),
+        );
     }
 }
 

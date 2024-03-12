@@ -173,7 +173,7 @@ fn setup(app: &mut App, settings: Settings, cli: Cli) {
             // use the default bevy logger for now
             // (the lightyear logger doesn't handle wasm)
             app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-                level: Level::INFO,
+                level: Level::WARN,
                 filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
                 update_subscriber: Some(add_log_layer),
             }));

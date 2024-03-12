@@ -113,7 +113,12 @@ impl Plugin for ExampleClientPlugin {
         ]));
 
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, spawn_player.after(MainSet::ReceiveFlush));
+        app.add_systems(
+            PreUpdate,
+            spawn_player
+                .after(MainSet::ReceiveFlush)
+                .before(PredictionSet::SpawnPrediction),
+        );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(FixedUpdate, player_movement.in_set(FixedSet::Main));
         app.add_systems(
@@ -232,6 +237,11 @@ fn add_player_physics(
     for (entity, player_id) in player_query.iter_mut() {
         if player_id.0 == client_id {
             // only need to do this for other players' entities
+            debug!(
+                ?entity,
+                ?player_id,
+                "we only want to add physics to other player! Skip."
+            );
             continue;
         }
         info!(?entity, ?player_id, "adding physics to predicted player");
@@ -256,7 +266,8 @@ fn player_movement(
     >,
 ) {
     for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
-        // note that we also apply the input to the other predicted clients!
+        // note that we also apply the input to the other predicted clients! even though
+        //  their inputs are only replicated with a delay!
         // TODO: add input decay?
         shared_movement_behaviour(velocity, action_state);
         info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");

@@ -12,7 +12,7 @@ use crate::client::components::{ComponentSyncMode, Confirmed};
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
-use crate::connection::client::{ClientConnection, NetClient};
+use crate::prelude::client::GlobalMetadata;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{PrePredicted, Replicate, ShouldBePredicted};
 use crate::shared::tick_manager::Tick;
@@ -89,7 +89,7 @@ pub(crate) fn clean_pre_predicted_entity<P: Protocol>(
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity<P: Protocol>(
     connection: Res<ConnectionManager<P>>,
-    netclient: Res<ClientConnection>,
+    metadata: Res<GlobalMetadata>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
@@ -115,34 +115,37 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
             if let Some(client_entity) = should_be_predicted.client_entity {
                 if commands.get_entity(client_entity).is_none() {
                     error!(
-                    "The pre-predicted entity has been deleted before we could receive the server's confirmation of it.\
+                    "The pre-predicted entity has been deleted before we could receive the server's confirmation of it. \
                     This is probably because `EntityCommands::despawn()` has been called.\
                     On `Predicted` entities, you should call `EntityCommands::prediction_despawn()` instead."
                 );
                     continue;
                 }
                 let client_id = should_be_predicted.client_id.unwrap();
-                if client_id != netclient.id() {
-                    debug!(
-                        local_client = ?client_id,
-                        should_be_predicted_client = ?netclient.id(),
+                // make sure that the ShouldBePredicted is destined for this client
+                if let Some(local_client_id) = metadata.client_id {
+                    if client_id != local_client_id {
+                        debug!(
+                        local_client = ?local_client_id,
+                        should_be_predicted_client = ?client_id,
                         "Received ShouldBePredicted component from server for an entity that is pre-predicted by another client: {:?}!", confirmed_entity);
-                } else {
-                    // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
-                    // just re-use the existing one!
-                    should_spawn_predicted = false;
-                    predicted_entity = Some(client_entity);
-                    debug!(
-                        "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
-                        predicted_entity, confirmed_entity
-                    );
-                    if let Ok(mut predicted) = predicted_entities.get_mut(client_entity) {
-                        predicted.confirmed_entity = Some(confirmed_entity);
-                    }
+                    } else {
+                        // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
+                        // just re-use the existing one!
+                        should_spawn_predicted = false;
+                        predicted_entity = Some(client_entity);
+                        debug!(
+                            "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
+                            predicted_entity, confirmed_entity
+                        );
+                        if let Ok(mut predicted) = predicted_entities.get_mut(client_entity) {
+                            predicted.confirmed_entity = Some(confirmed_entity);
+                        }
 
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("prespawn_predicted_entity").increment(1);
+                        #[cfg(feature = "metrics")]
+                        {
+                            metrics::counter!("prespawn_predicted_entity").increment(1);
+                        }
                     }
                 }
             }
@@ -206,18 +209,17 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
 /// - client_entity: is needed to know which entity to use as the predicted entity
 /// - client_id: is needed in case the pre-predicted entity is predicted by other players upon replication
 pub(crate) fn handle_pre_prediction(
-    netcode: Res<ClientConnection>,
+    metadata: Res<GlobalMetadata>,
     mut query: Query<(Entity, &mut ShouldBePredicted), Without<Confirmed>>,
 ) {
     for (entity, mut should_be_predicted) in query.iter_mut() {
-        assert!(netcode.is_connected());
         debug!(
-            client_id = ?netcode.id(),
+            client_id = ?metadata.client_id.unwrap(),
             entity = ?entity,
             "adding pre-prediction info!");
         // TODO: actually we don't need to add the client_entity to the message.
         //  on the server, for pre-predictions, we can just use the entity that was sent in the message to set the value of ClientEntity.
         should_be_predicted.client_entity = Some(entity);
-        should_be_predicted.client_id = Some(netcode.id());
+        should_be_predicted.client_id = Some(metadata.client_id.unwrap());
     }
 }
