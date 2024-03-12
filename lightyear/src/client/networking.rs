@@ -118,6 +118,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             tick_manager.as_ref(),
                                         );
 
+                                        // TODO: run these in EventsPlugin!
                                         // HANDLE EVENTS
                                         if !events.is_empty() {
                                             // NOTE: maybe no need to send those events, because the client knows when it's connected/disconnected?

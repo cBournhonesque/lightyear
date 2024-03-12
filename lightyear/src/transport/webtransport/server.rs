@@ -108,7 +108,6 @@ impl WebTransportServerSocket {
         info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
         debug!("Dropping tasks");
-
         // TODO: need to disconnect the client in netcode
     }
 }

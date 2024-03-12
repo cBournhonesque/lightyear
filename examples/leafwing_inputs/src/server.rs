@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use crate::{shared, ServerTransports, SharedSettings, KEY, PROTOCOL_ID};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -23,44 +23,55 @@ pub struct ServerPluginGroup {
 
 impl ServerPluginGroup {
     pub(crate) async fn new(
-        port: u16,
-        transport: Transports,
+        transports: Vec<ServerTransports>,
         predict_all: bool,
+        shared_settings: SharedSettings,
     ) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
-        let transport_config = match transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            // if using webtransport, we load the certificate keys
-            Transports::WebTransport => {
-                let certificate =
-                    Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                        .await
-                        .unwrap();
-                let digest = &certificate.hashes()[0];
-                println!("Generated self-signed certificate with digest: {}", digest);
-                TransportConfig::WebTransportServer {
-                    server_addr,
-                    certificate,
-                }
-            }
-            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
-        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
+        let mut net_configs = vec![];
+        for transport in &transports {
+            let transport_config = match transport {
+                ServerTransports::Udp { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
+                    TransportConfig::UdpSocket(server_addr)
+                }
+                // if using webtransport, we load the certificate keys
+                ServerTransports::WebTransport { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
+                    let certificate =
+                        Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
+                            .await
+                            .unwrap();
+                    let digest = &certificate.hashes()[0].to_string().replace(":", "");
+                    println!("Generated self-signed certificate with digest: {}", digest);
+                    TransportConfig::WebTransportServer {
+                        server_addr,
+                        certificate,
+                    }
+                }
+                ServerTransports::WebSocket { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
+                    TransportConfig::WebSocketServer { server_addr }
+                }
+            };
+            net_configs.push(NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(shared_settings.protocol_id)
+                    .with_key(shared_settings.private_key),
+                io: IoConfig::from_transport(transport_config)
+                    .with_conditioner(link_conditioner.clone()),
+            });
+        }
 
         // Step 2: define the server configuration
         let config = ServerConfig {
             shared: shared_config().clone(),
-            net: NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(PROTOCOL_ID)
-                    .with_key(KEY),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            net: net_configs,
             ..default()
         };
 
@@ -106,7 +117,7 @@ impl Plugin for ExampleServerPlugin {
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
-            (replicate_players).in_set(MainSet::ClientReplication),
+            replicate_players.in_set(MainSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
@@ -184,12 +195,11 @@ pub(crate) fn replicate_players(
 ) {
     for event in player_spawn_reader.read() {
         debug!("received player spawn event: {:?}", event);
-        let client_id = event.context();
+        let client_id = *event.context();
         let entity = event.entity();
 
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients
-
         if let Some(mut e) = commands.get_entity(entity) {
             let mut replicate = Replicate {
                 // we want to replicate back to the original client, since they are using a pre-spawned entity
@@ -201,9 +211,9 @@ pub(crate) fn replicate_players(
             // We don't want to replicate the ActionState to the original client, since they are updating it with
             // their own inputs (if you replicate it to the original client, it will be added on the Confirmed entity,
             // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
-            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExcept(vec![
-                *client_id,
-            ]));
+            replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExceptSingle(
+                client_id,
+            ));
             if global.predict_all {
                 replicate.prediction_target = NetworkTarget::All;
                 // // if we predict other players, we need to replicate their actions to all clients other than the original one
@@ -211,9 +221,9 @@ pub(crate) fn replicate_players(
                 // replicate.disable_replicate_once::<ActionState<PlayerActions>>();
             } else {
                 // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                replicate.prediction_target = NetworkTarget::Only(vec![*client_id]);
+                replicate.prediction_target = NetworkTarget::Single(client_id);
                 // we want the other clients to apply interpolation for the player
-                replicate.interpolation_target = NetworkTarget::AllExcept(vec![*client_id]);
+                replicate.interpolation_target = NetworkTarget::AllExceptSingle(client_id);
             }
             e.insert((
                 replicate,

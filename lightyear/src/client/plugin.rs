@@ -9,6 +9,7 @@ use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::ClientEventsPlugin;
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
+use crate::client::metadata::MetadataPlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
@@ -79,6 +80,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientReplicationPlugin::<P>::new(tick_duration))
+            .add_plugins(MetadataPlugin)
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
             .add_plugins(InterpolationPlugin::<P>::new(

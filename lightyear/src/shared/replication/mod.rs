@@ -22,6 +22,7 @@ pub mod components;
 mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
+pub mod metadata;
 pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod send;

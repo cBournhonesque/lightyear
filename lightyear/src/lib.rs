@@ -90,6 +90,7 @@ pub mod prelude {
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::metadata::ClientMetadata;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
@@ -115,6 +116,7 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
+        pub use crate::client::metadata::GlobalMetadata;
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
@@ -136,10 +138,13 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
+        pub use crate::server::metadata::GlobalMetadata;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
-        pub use crate::connection::server::{NetConfig, NetServer, ServerConnection};
+        pub use crate::connection::server::{
+            NetConfig, NetServer, ServerConnection, ServerConnections,
+        };
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

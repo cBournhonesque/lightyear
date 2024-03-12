@@ -20,10 +20,10 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
-        net: NetConfig::Netcode {
+        net: vec![NetConfig::Netcode {
             config: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        },
+        }],
         ..default()
     };
     let plugin_config = PluginConfig::new(config, protocol());

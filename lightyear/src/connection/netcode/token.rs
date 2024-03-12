@@ -12,10 +12,10 @@ use super::{
     bytes::Bytes,
     crypto::{self, Key},
     error::Error,
-    free_list::{FreeList, FreeListIter},
     utils, CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
 };
+use crate::utils::free_list::{FreeList, FreeListIter};
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;
 pub(crate) const TOKEN_EXPIRE_SEC: i32 = 30;

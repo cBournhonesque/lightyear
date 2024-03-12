@@ -11,6 +11,7 @@ use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::ServerEventsPlugin;
 use crate::server::input::InputPlugin;
+use crate::server::metadata::ClientMetadataPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
 use crate::server::room::RoomPlugin;
@@ -52,18 +53,11 @@ impl<P: Protocol> ServerPlugin<P> {
 impl<P: Protocol> PluginType for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let mut netserver = config.server_config.net.clone().build_server();
-        // TODO: maybe also don't start the io/server right away, but only here?
-        // start the server
-        netserver.start();
-
         let tick_duration = config.server_config.shared.tick.tick_duration;
 
         app
             // RESOURCES //
             .insert_resource(config.server_config.clone())
-            // TODO: move these into the Networking/Replication plugins
-            .insert_resource(netserver)
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry().clone(),
                 config.server_config.packet,
@@ -76,8 +70,9 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 ..default()
             })
             .add_plugins(ServerEventsPlugin::<P>::default())
-            .add_plugins(ServerNetworkingPlugin::<P>::default())
+            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
             .add_plugins(ServerReplicationPlugin::<P>::new(tick_duration))
+            .add_plugins(ClientMetadataPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             .add_plugins(TimePlugin {

@@ -14,6 +14,7 @@
     - [Serialization](./concepts/transport/serialization.md)
     - [Packet](./concepts/transport/packet.md)
   - [Connection](./concepts/connection/title.md)
+    - [Multi Connection](./concepts/connection/multi_connection.md)
   - [Reliability](./concepts/reliability/title.md)
     - [PacketHeader](./concepts/reliability/packet_header.md)
     - [Channels](./concepts/reliability/channels.md)

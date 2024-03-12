@@ -149,10 +149,10 @@ impl LocalBevyStepper {
             .with_key(private_key);
         let config = ServerConfig {
             shared: shared_config.clone(),
-            net: server::NetConfig::Netcode {
+            net: vec![server::NetConfig::Netcode {
                 config: netcode_config,
                 io: server_io,
-            },
+            }],
             ..default()
         };
         let plugin_config = server::PluginConfig::new(config, protocol());

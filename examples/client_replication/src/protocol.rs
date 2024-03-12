@@ -46,8 +46,6 @@ impl CursorBundle {
             color: PlayerColor(color),
             replicate: Replicate {
                 replication_target: NetworkTarget::All,
-                // prediction_target: NetworkTarget::None,
-                // prediction_target: NetworkTarget::Only(vec![id]),
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },

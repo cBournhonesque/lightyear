@@ -12,6 +12,7 @@ mod server;
 mod shared;
 
 use async_compat::Compat;
+use bevy::asset::ron;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
@@ -30,97 +31,111 @@ use lightyear::connection::netcode::{ClientId, Key};
 use lightyear::prelude::TransportConfig;
 use lightyear::shared::log::add_log_layer;
 
-// Use a port of 0 to automatically select a port
-pub const CLIENT_PORT: u16 = 0;
-pub const SERVER_PORT: u16 = 5000;
 pub const PROTOCOL_ID: u64 = 0;
 
 pub const KEY: Key = [0; 32];
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-pub enum Transports {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
-    WebTransport,
+    WebTransport {
+        certificate_digest: String,
+    },
     WebSocket,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ServerTransports {
+    Udp { local_port: u16 },
+    WebTransport { local_port: u16 },
+    WebSocket { local_port: u16 },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ServerSettings {
+    /// If true, disable any rendering-related plugins
+    headless: bool,
+
+    /// If true, enable bevy_inspector_egui
+    inspector: bool,
+
+    /// Which transport to use
+    transport: Vec<ServerTransports>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ClientSettings {
+    /// If true, enable bevy_inspector_egui
+    inspector: bool,
+
+    /// The client id
+    client_id: u64,
+
+    /// The client port to listen on
+    client_port: u16,
+
+    /// The ip address of the server
+    server_addr: Ipv4Addr,
+
+    /// The port of the server
+    server_port: u16,
+
+    /// Which transport to use
+    transport: ClientTransports,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub struct SharedSettings {
+    /// An id to identify the protocol version
+    protocol_id: u64,
+
+    /// a 32-byte array to authenticate via the Netcode.io protocol
+    private_key: [u8; 32],
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Settings {
+    pub server: ServerSettings,
+    pub client: ClientSettings,
+    pub shared: SharedSettings,
 }
 
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
-    SinglePlayer,
     #[cfg(not(target_family = "wasm"))]
-    Server {
-        #[arg(long, default_value = "false")]
-        headless: bool,
-
-        #[arg(short, long, default_value = "false")]
-        inspector: bool,
-
-        #[arg(short, long, default_value_t = SERVER_PORT)]
-        port: u16,
-
-        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
-        transport: Transports,
-    },
+    Server,
     Client {
-        #[arg(short, long, default_value = "false")]
-        inspector: bool,
-
-        #[arg(short, long, default_value_t = 0)]
-        client_id: u64,
-
-        #[arg(long, default_value_t = CLIENT_PORT)]
-        client_port: u16,
-
-        #[arg(long, default_value_t = Ipv4Addr::LOCALHOST)]
-        server_addr: Ipv4Addr,
-
-        #[arg(short, long, default_value_t = SERVER_PORT)]
-        server_port: u16,
-
-        #[arg(short, long, value_enum, default_value_t = Transports::WebTransport)]
-        transport: Transports,
+        #[arg(short, long, default_value = None)]
+        client_id: Option<u64>,
     },
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(target_family = "wasm")] {
-        fn main() {
-            // NOTE: clap argument parsing does not work on WASM
+fn main() {
+    cfg_if::cfg_if! {
+        if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
             let cli = Cli::Client {
-                inspector: false,
-                client_id,
-                client_port: CLIENT_PORT,
-                server_addr: Ipv4Addr::LOCALHOST,
-                server_port: SERVER_PORT,
-                transport: Transports::WebTransport,
+                client_id: Some(client_id)
             };
-            let mut app = App::new();
-            setup_client(&mut app, cli);
-            app.run();
-        }
-    } else {
-        fn main() {
+        } else {
             let cli = Cli::parse();
-            let mut app = App::new();
-            setup(&mut app, cli);
-            app.run();
         }
     }
+    let settings_str = include_str!("../assets/settings.ron");
+    let settings = ron::de::from_str::<Settings>(settings_str).unwrap();
+    let mut app = App::new();
+    setup(&mut app, settings, cli);
+    app.run();
 }
 
-fn setup(app: &mut App, cli: Cli) {
+fn setup(app: &mut App, settings: Settings, cli: Cli) {
     match cli {
-        Cli::SinglePlayer => {}
         #[cfg(not(target_family = "wasm"))]
-        Cli::Server {
-            headless,
-            inspector,
-            port,
-            transport,
-        } => {
-            if !headless {
+        Cli::Server => {
+            let shared = settings.shared;
+            let settings = settings.server;
+            if !settings.headless {
                 app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
             } else {
                 app.add_plugins(MinimalPlugins);
@@ -131,7 +146,7 @@ fn setup(app: &mut App, cli: Cli) {
                 update_subscriber: Some(add_log_layer),
             });
 
-            if inspector {
+            if settings.inspector {
                 app.add_plugins(WorldInspectorPlugin::new());
             }
             // this is async because we need to load the certificate from io
@@ -139,45 +154,36 @@ fn setup(app: &mut App, cli: Cli) {
             let server_plugin_group = IoTaskPool::get()
                 .scope(|s| {
                     s.spawn(Compat::new(async {
-                        ServerPluginGroup::new(port, transport).await
+                        ServerPluginGroup::new(settings.transport, shared).await
                     }));
                 })
                 .pop()
                 .unwrap();
             app.add_plugins(server_plugin_group.build());
         }
-        Cli::Client { .. } => {
-            setup_client(app, cli);
+        Cli::Client { client_id } => {
+            let shared = settings.shared;
+            let settings = settings.client;
+            // NOTE: create the default plugins first so that the async task pools are initialized
+            // use the default bevy logger for now
+            // (the lightyear logger doesn't handle wasm)
+            app.add_plugins(DefaultPlugins.build().set(LogPlugin {
+                level: Level::INFO,
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+                update_subscriber: Some(add_log_layer),
+            }));
+            if settings.inspector {
+                app.add_plugins(WorldInspectorPlugin::new());
+            }
+            let server_addr = SocketAddr::new(settings.server_addr.into(), settings.server_port);
+            let client_plugin_group = ClientPluginGroup::new(
+                client_id.unwrap_or(settings.client_id),
+                settings.client_port,
+                server_addr,
+                settings.transport,
+                shared,
+            );
+            app.add_plugins(client_plugin_group.build());
         }
     }
-}
-
-fn setup_client(app: &mut App, cli: Cli) {
-    let Cli::Client {
-        inspector,
-        client_id,
-        client_port,
-        server_addr,
-        server_port,
-        transport,
-    } = cli
-    else {
-        return;
-    };
-    // NOTE: create the default plugins first so that the async task pools are initialized
-    // use the default bevy logger for now
-    // (the lightyear logger doesn't handle wasm)
-    app.add_plugins(DefaultPlugins.set(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
-        update_subscriber: Some(add_log_layer),
-    }));
-
-    if inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
-    let server_addr = SocketAddr::new(server_addr.into(), server_port);
-    let client_plugin_group =
-        ClientPluginGroup::new(client_id, client_port, server_addr, transport);
-    app.add_plugins(client_plugin_group.build());
 }
