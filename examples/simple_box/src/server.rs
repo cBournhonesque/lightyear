@@ -1,63 +1,54 @@
-use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
+use bevy::app::PluginGroupBuilder;
+use bevy::prelude::*;
+use bevy::utils::Duration;
+
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
+
+use crate::protocol::*;
+use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::{shared, ServerTransports, SharedSettings};
+
 // Plugin group to add all server-related plugins
 pub struct ServerPluginGroup {
-    headless: bool,
     pub(crate) lightyear: ServerPlugin<MyProtocol>,
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(port: u16, transport: Transports, headless: bool) -> ServerPluginGroup {
+    pub(crate) fn new(
+        transport_configs: Vec<TransportConfig>,
+        shared_settings: SharedSettings,
+    ) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
-        let transport_config = match transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            // if using webtransport, we load the certificate keys
-            Transports::WebTransport => {
-                let certificate =
-                    Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                        .await
-                        .unwrap();
-                let digest = &certificate.hashes()[0];
-                println!("Generated self-signed certificate with digest: {}", digest);
-                TransportConfig::WebTransportServer {
-                    server_addr,
-                    certificate,
-                }
-            }
-            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
-        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
             incoming_jitter: Duration::from_millis(20),
             incoming_loss: 0.05,
         };
+        let mut net_configs = vec![];
+        for transport_config in transport_configs {
+            net_configs.push(NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(shared_settings.protocol_id)
+                    .with_key(shared_settings.private_key),
+                io: IoConfig::from_transport(transport_config)
+                    .with_conditioner(link_conditioner.clone()),
+            });
+        }
 
         // Step 2: define the server configuration
         let config = ServerConfig {
-            shared: shared_config().clone(),
-            net: NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(PROTOCOL_ID)
-                    .with_key(KEY),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            shared: shared_config(),
+            net: net_configs,
             ..default()
         };
 
         // Step 3: create the plugin
         let plugin_config = PluginConfig::new(config, protocol());
         ServerPluginGroup {
-            headless,
             lightyear: ServerPlugin::new(plugin_config),
         }
     }
@@ -67,37 +58,29 @@ impl PluginGroup for ServerPluginGroup {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(self.lightyear)
-            .add(ExampleServerPlugin {
-                headless: self.headless,
-            })
+            .add(ExampleServerPlugin)
             .add(shared::SharedPlugin)
     }
 }
 
 // Plugin for server-specific logic
-pub struct ExampleServerPlugin {
-    headless: bool,
-}
+pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Global {
-            headless: self.headless,
             client_id_to_entity_id: Default::default(),
         });
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        if !self.headless {
-            app.add_systems(Update, send_message);
-        }
+        app.add_systems(Update, send_message);
         app.add_systems(Update, handle_connections);
     }
 }
 
 #[derive(Resource)]
 pub(crate) struct Global {
-    pub headless: bool,
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
@@ -138,6 +121,10 @@ pub(crate) fn handle_connections(
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
+        // TODO: handle this automatically in lightyear
+        //  - provide a Owned component in lightyear that can specify that an entity is owned by a specific player?
+        //  - maybe have the client-id to entity-mapping in the global metadata?
+        //  - despawn automatically those entities when the client disconnects
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
             commands.entity(entity).despawn();
         }
@@ -177,10 +164,9 @@ pub(crate) fn movement(
 /// and cannot do input handling)
 pub(crate) fn send_message(
     mut server: ResMut<ServerConnectionManager>,
-    input: Res<ButtonInput<KeyCode>>,
+    input: Option<Res<ButtonInput<KeyCode>>>,
 ) {
-    if input.pressed(KeyCode::KeyM) {
-        // TODO: add way to send message to all
+    if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server

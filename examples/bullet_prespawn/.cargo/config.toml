@@ -1,6 +1,6 @@
 [build]
-#target = "wasm32-unknown-unknown"
-#target = "aarch64-apple-darwin"
+# it is a good idea to specify your target here, to avoid losing incremental compilation when compiling to wasm
+# target = "aarch64-apple-darwin"
 rustflags = ["--cfg", "web_sys_unstable_apis"]
 
 [target.wasm32-unknown-unknown]

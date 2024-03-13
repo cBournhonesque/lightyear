@@ -1,14 +1,16 @@
+use std::collections::VecDeque;
+use std::ops::Mul;
+
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
 use derive_more::{Add, Mul};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, info, trace};
+
 use lightyear::prelude::client::LerpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroup;
-use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::ops::Mul;
-use tracing::{debug, info, trace};
 
 // Player
 #[derive(Bundle)]

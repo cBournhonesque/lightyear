@@ -1,16 +1,19 @@
-use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
-use bevy::app::PluginGroupBuilder;
-use bevy::ecs::archetype::Archetype;
-use bevy::prelude::*;
-use leafwing_input_manager::prelude::ActionState;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::time::Duration;
+
+use bevy::app::PluginGroupBuilder;
+use bevy::ecs::archetype::Archetype;
+use bevy::prelude::*;
+use leafwing_input_manager::prelude::ActionState;
+
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
+
+use crate::protocol::*;
+use crate::shared::shared_config;
+use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin group to add all server-related plugins
 pub struct ServerPluginGroup {
@@ -18,31 +21,26 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(port: u16, transport: Transports) -> ServerPluginGroup {
+    pub(crate) fn new(
+        transport_configs: Vec<TransportConfig>,
+        shared_settings: SharedSettings,
+    ) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
-        let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
-        let transport_config = match transport {
-            Transports::Udp => TransportConfig::UdpSocket(server_addr),
-            // if using webtransport, we load the certificate keys
-            Transports::WebTransport => {
-                let certificate =
-                    Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                        .await
-                        .unwrap();
-                let digest = &certificate.hashes()[0];
-                println!("Generated self-signed certificate with digest: {}", digest);
-                TransportConfig::WebTransportServer {
-                    server_addr,
-                    certificate,
-                }
-            }
-            Transports::WebSocket => TransportConfig::WebSocketServer { server_addr },
-        };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
             incoming_jitter: Duration::from_millis(0),
             incoming_loss: 0.0,
         };
+        let mut net_configs = vec![];
+        for transport_config in transport_configs {
+            net_configs.push(NetConfig::Netcode {
+                config: NetcodeConfig::default()
+                    .with_protocol_id(shared_settings.protocol_id)
+                    .with_key(shared_settings.private_key),
+                io: IoConfig::from_transport(transport_config)
+                    .with_conditioner(link_conditioner.clone()),
+            });
+        }
 
         // Step 2: define the server configuration
         let config = ServerConfig {
@@ -52,12 +50,7 @@ impl ServerPluginGroup {
                 .enable_bandwidth_cap()
                 // we can set the max bandwidth to 56 KB/s
                 .with_send_bandwidth_bytes_per_second_cap(1500),
-            net: NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(PROTOCOL_ID)
-                    .with_key(KEY),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            net: net_configs,
             ping: PingConfig::default(),
         };
 
@@ -148,7 +141,7 @@ pub(crate) fn handle_connections(
     for connection in connections.read() {
         let client_id = connection.context();
         // Generate pseudo random color from client id.
-        let h = (((client_id * 30) % 360) as f32) / 360.0;
+        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
         let entity = commands.spawn(PlayerBundle::new(

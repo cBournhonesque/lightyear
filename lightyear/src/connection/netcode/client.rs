@@ -371,6 +371,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     }
     fn process_packet(&mut self, addr: SocketAddr, packet: Packet) -> Result<()> {
         if addr != self.server_addr() {
+            debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
             return Ok(());
         }
         match (packet, self.state) {
@@ -491,7 +492,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         Ok(())
     }
 
-    /// Returns the global client id of the client once it is connected, or returns 0 if not connected.
+    /// Returns the netcode client id of the client once it is connected, or returns 0 if not connected.
     pub fn id(&self) -> ClientId {
         self.id
     }

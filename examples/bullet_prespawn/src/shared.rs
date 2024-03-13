@@ -1,4 +1,3 @@
-use crate::protocol::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
@@ -6,13 +5,16 @@ use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
+use tracing::Level;
+
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use tracing::Level;
+
+use crate::protocol::*;
 
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
@@ -21,7 +23,6 @@ const EPS: f32 = 0.0001;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
         // server_send_interval: Duration::from_millis(500),
@@ -36,17 +37,6 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
-            // limit frame rate
-            // app.add_plugins(bevy_framepace::FramepacePlugin);
-            // app.world
-            //     .resource_mut::<bevy_framepace::FramepaceSettings>()
-            //     .limiter = bevy_framepace::Limiter::from_framerate(FRAME_HZ);
-
-            // show framerate
-            // use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
-            // app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-            // app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
-
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,

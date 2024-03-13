@@ -1,51 +1,50 @@
 # Introduction
 
-A simple example that shows how to use lightyear for client-replication (the entity is spawned on the client and replicated to the server):
-  - with client-authority: the cursor is replicated to the server and to other clients. Any client updates are replicated to the server.
-    If we want to replicate it to other clients, we just needs to add the `Replicate` component on the server's entity to replicate the cursor to other clients.
-  
-  - spawning pre-predicted entities on the client: when pressing the `Space` key, a square is spawned on the client. That square is a 'pre-predicted' entity:
-    it will get replicated to the server. The server can replicate it back to all clients.
-    When the original client gets the square back, it will spawn a 'Confirmed' square on the client, and will recognize
-    that the original square spawned was a prediction. From there on it's normal replication.
+A simple example that shows how to use lightyear for client-replication (the entity is spawned on the client and
+replicated to the server):
 
-  - pressing `M` will send a message from a client to other clients
+- with client-authority: the cursor is replicated to the server and to other clients. Any client updates are replicated
+  to the server.
+  If we want to replicate it to other clients, we just needs to add the `Replicate` component on the server's entity to
+  replicate the cursor to other clients.
 
-  - pressing `K` will delete the Predicted entity. You can use this to confirm various rollback edge-cases.
+- spawning pre-predicted entities on the client: when pressing the `Space` key, a square is spawned on the client. That
+  square is a 'pre-predicted' entity:
+  it will get replicated to the server. The server can replicate it back to all clients.
+  When the original client gets the square back, it will spawn a 'Confirmed' square on the client, and will recognize
+  that the original square spawned was a prediction. From there on it's normal replication.
 
+- pressing `M` will send a message from a client to other clients
+
+- pressing `K` will delete the Predicted entity. You can use this to confirm various rollback edge-cases.
 
 https://github.com/cBournhonesque/lightyear/assets/8112632/718bfa44-80b5-4d83-a360-aae076f81fc3
 
-
 ## Running the example
 
-NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
-
-
-To start the server, run `cargo run -- server`
+You can either run the example as a "Listen Server" (the program acts as both client and server)
+with: `cargo run -- listen-server`
+or as dedicated server with `cargo run -- server`
 
 Then you can launch multiple clients with the commands:
 
 - `cargo run -- client -c 1`
+- `cargo run -- client -c 2`
 
-- `cargo run -- client -c 2 --client-port 2000`
+You can modify the file `assets/settings.ron` to modify some networking settings.
 
-
-### Testing in wasm
-
+### Testing webtransport in wasm
 
 NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
 
-To test the example in wasm, you can run the following commands:
-- `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
-- `cargo run -- server --transport web-transport` to start the server
-- You will then need to copy the certificate digest string that is outputted by the server in the logs and paste it in the `examples/interest_management/client.rs` file.
-  Replace the certificate value like so:
-```
-let certificate_digest =
-String::from("09945594ec0978bb76891fb5de82106d7928191152777c9fc81bec0406055159");
-```
-- then start the client wasm test with `trunk serve`
+To test the example in wasm, you can run the following commands: `trunk serve`
 
-NOTE:
-- the wasm example seems to work better in release mode!
+You will need a valid SSL certificate to test the example in wasm using webtransport. You will need to run the following
+commands:
+
+- `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
+- `cargo run -- server` to start the server. The server will print out the certificate digest (something
+  like `1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644`)
+- You then have to replace the certificate digest in the `assets/settings.ron` file with the one that the server printed
+  out.
+- then start the client wasm test with `trunk serve`

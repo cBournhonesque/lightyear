@@ -1,20 +1,17 @@
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::prelude::{App, Mut, PluginGroup, Real, Time};
+use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
+use bevy::utils::Duration;
 use bevy::MinimalPlugins;
-use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear::client as lightyear_client;
 use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
 use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
-use lightyear::server as lightyear_server;
 
 use crate::protocol::*;
 
@@ -64,16 +61,18 @@ impl BevyStepper {
         let netcode_config = NetcodeConfig::default()
             .with_protocol_id(protocol_id)
             .with_key(private_key);
-        let io = Io::from_config(
-            IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
-                .with_conditioner(conditioner.clone()),
-        );
+
         let config = ServerConfig {
             shared: shared_config.clone(),
-            netcode: netcode_config,
+            net: server::NetConfig::Netcode {
+                config: netcode_config,
+                io: IoConfig::from_transport(TransportConfig::UdpSocket(server_addr))
+                    .with_conditioner(conditioner.clone()),
+            },
             ping: PingConfig::default(),
+            packet: Default::default(),
         };
-        let plugin_config = server::PluginConfig::new(config, io, protocol());
+        let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
         server_app.add_plugins(plugin);
 
@@ -93,14 +92,18 @@ impl BevyStepper {
         );
         let config = ClientConfig {
             shared: shared_config.clone(),
-            input: InputConfig::default(),
-            netcode: Default::default(),
-            ping: PingConfig::default(),
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
+            net: client::NetConfig::Netcode {
+                auth,
+                io: IoConfig::from_transport(TransportConfig::UdpSocket(addr))
+                    .with_conditioner(conditioner.clone()),
+                ..default()
+            },
+            ..default()
         };
-        let plugin_config = client::PluginConfig::new(config, io, protocol(), auth);
+        let plugin_config = client::PluginConfig::new(config, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);
         client_app.add_plugins(plugin);
 

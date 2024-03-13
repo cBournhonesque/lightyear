@@ -1,13 +1,12 @@
 //! Specify how a Server sends/receives messages with a Client
-use bevy::utils::Duration;
-
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Entity, Res, ResMut, Resource, World};
-use bevy::utils::{Entry, HashMap, HashSet};
+use bevy::ecs::entity::EntityHash;
+use bevy::prelude::{Entity, Resource, World};
+use bevy::utils::HashSet;
+use hashbrown::hash_map::Entry;
 use serde::Serialize;
-use tracing::{debug, debug_span, info, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
 use crate::channel::senders::ChannelSend;
@@ -23,7 +22,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::server::config::PacketConfig;
 use crate::server::events::ServerEvents;
 use crate::server::message::ServerMessage;
-use crate::shared::events::ConnectionEvents;
+use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::components::{NetworkTarget, Replicate};
@@ -35,16 +34,18 @@ use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
+type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+
 #[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
-    pub(crate) connections: HashMap<ClientId, Connection<P>>,
+    pub(crate) connections: EntityHashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents<P>,
 
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Replicate<P>>,
+    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -54,47 +55,6 @@ pub struct ConnectionManager<P: Protocol> {
     ping_config: PingConfig,
 }
 
-/// Do some regular cleanup on the internals of replication:
-/// - set the latest_tick for every group to
-pub(crate) fn replication_clean<P: Protocol>(
-    mut connection_manager: ResMut<ConnectionManager<P>>,
-    tick_manager: Res<TickManager>,
-) {
-    debug!("Running replication clean");
-    let tick = tick_manager.tick();
-    for connection in connection_manager.connections.values_mut() {
-        // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
-        // (meaning that there's no need when we receive the update to check if we have already received a previous action)
-        for group_channel in connection.replication_sender.group_channels.values_mut() {
-            debug!("Checking group channel: {:?}", group_channel);
-            if let Some(last_action_tick) = group_channel.last_action_tick {
-                if tick - last_action_tick > (i16::MAX / 2) {
-                    debug!(
-                    ?tick,
-                    ?last_action_tick,
-                    ?group_channel,
-                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
-                    group_channel.last_action_tick = None;
-                }
-            }
-        }
-        // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
-        for group_channel in connection.replication_receiver.group_channels.values_mut() {
-            debug!("Checking group channel: {:?}", group_channel);
-            if let Some(latest_tick) = group_channel.latest_tick {
-                if tick - latest_tick > (i16::MAX / 2) {
-                    debug!(
-                    ?tick,
-                    ?latest_tick,
-                    ?group_channel,
-                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
-                    group_channel.latest_tick = Some(tick);
-                }
-            }
-        }
-    }
-}
-
 impl<P: Protocol> ConnectionManager<P> {
     pub fn new(
         channel_registry: ChannelRegistry,
@@ -102,7 +62,7 @@ impl<P: Protocol> ConnectionManager<P> {
         ping_config: PingConfig,
     ) -> Self {
         Self {
-            connections: HashMap::default(),
+            connections: EntityHashMap::default(),
             channel_registry,
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
@@ -321,6 +281,7 @@ impl<P: Protocol> ConnectionManager<P> {
 
 /// Wrapper that handles the connection between the server and a client
 pub struct Connection<P: Protocol> {
+    // TODO: could this be shared across all connections?
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
     pub(crate) replication_receiver: ReplicationReceiver<P>,

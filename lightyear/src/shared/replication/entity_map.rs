@@ -1,9 +1,8 @@
 //! Map between local and remote entities
 use anyhow::Context;
-use bevy::ecs::entity::{EntityHashMap, EntityHashSet, EntityMapper, MapEntities};
+use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
 use bevy::prelude::{Entity, EntityWorldMut, World};
 use bevy::utils::hashbrown::hash_map::Entry;
-use tracing::error;
 
 // TODO: another solution to avoid the orphan rule would be to implement MapEntities directly on the enum type?
 // Wrapper trait to avoid the orphan rule (so that I can implement MapEntities for external types)
@@ -156,7 +155,6 @@ mod tests {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

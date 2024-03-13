@@ -4,7 +4,7 @@ use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
 use crate::client::interpolation::resource::InterpolationManager;
-use crate::shared::events::ComponentRemoveEvent;
+use crate::shared::events::components::ComponentRemoveEvent;
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
 pub(crate) fn removed_components<C: SyncComponent>(

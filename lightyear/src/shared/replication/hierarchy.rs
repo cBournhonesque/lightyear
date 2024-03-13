@@ -1,10 +1,12 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
+
+use lightyear_macros::MessageInternal;
+
 use crate::prelude::{LightyearMapEntities, MainSet, ReplicationGroup, ReplicationSet};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
-use bevy::prelude::*;
-use lightyear_macros::MessageInternal;
-use serde::{Deserialize, Serialize};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
 /// The `ParentSync` component will be updated automatically when the `Parent` component changes,
@@ -141,32 +143,30 @@ impl<P: Protocol> Plugin for HierarchySyncPlugin<P> {
                     (Self::propagate_replicate, Self::update_parent_sync).chain(),
                     Self::removal_system,
                 )
-                    .before(ReplicationSet::SendComponentUpdates),
+                    .before(ReplicationSet::All),
             );
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::client::interpolation::{VisualInterpolateStatus, VisualInterpolationPlugin};
+    use std::ops::Deref;
+    use std::time::Duration;
+
+    use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
+    use bevy::prelude::{default, Entity, With};
+
     use crate::client::sync::SyncConfig;
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{
-        FixedUpdateSet, LinkConditionerConfig, ReplicationGroup, SharedConfig, TickConfig,
-    };
+    use crate::prelude::{LinkConditionerConfig, ReplicationGroup, SharedConfig, TickConfig};
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
-    use bevy::prelude::{default, Entity, With};
-    use std::ops::Deref;
-    use std::time::Duration;
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let tick_duration = Duration::from_millis(10);
         let frame_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

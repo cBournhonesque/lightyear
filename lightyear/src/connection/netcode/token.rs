@@ -12,10 +12,10 @@ use super::{
     bytes::Bytes,
     crypto::{self, Key},
     error::Error,
-    free_list::{FreeList, FreeListIter},
     utils, CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
 };
+use crate::utils::free_list::{FreeList, FreeListIter};
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;
 pub(crate) const TOKEN_EXPIRE_SEC: i32 = 30;
@@ -439,6 +439,12 @@ impl ConnectToken {
             )
         })?;
         Ok(buf)
+    }
+
+    /// Tries to convert a 2048-byte array into a connect token.
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, InvalidTokenError> {
+        let mut cursor = io::Cursor::new(bytes);
+        Self::read_from(&mut cursor)
     }
 }
 

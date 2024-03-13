@@ -1,12 +1,12 @@
-use bevy::app::FixedMain;
 use std::fmt::Debug;
 
+use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::{
     Commands, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
     World,
 };
-use tracing::{debug, error, info, trace, trace_span};
+use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};

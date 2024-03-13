@@ -894,14 +894,6 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::client::sync::SyncConfig;
-    use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::server::LeafwingInputPlugin;
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::{BevyStepper, Step};
     use bevy::asset::AsyncReadExt;
     use bevy::input::InputPlugin;
     use bevy::prelude::*;
@@ -909,11 +901,20 @@ mod tests {
     use leafwing_input_manager::action_state::ActionState;
     use leafwing_input_manager::input_map::InputMap;
 
+    use crate::client::sync::SyncConfig;
+    use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
+    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
+    use crate::prelude::server::LeafwingInputPlugin;
+    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step};
+
+    use super::*;
+
     fn setup() -> (BevyStepper, Entity, Entity) {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

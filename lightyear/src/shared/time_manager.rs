@@ -25,6 +25,7 @@ pub use wrapped_time::WrappedTime;
 
 use crate::prelude::Tick;
 
+// TODO: put this in networking plugin instead?
 /// Run Condition to check if we are ready to send packets
 pub(crate) fn is_ready_to_send(time_manager: Res<TimeManager>) -> bool {
     time_manager.is_ready_to_send()

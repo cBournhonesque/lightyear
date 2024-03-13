@@ -1,11 +1,13 @@
+use anyhow::Context;
+use tracing::{info_span, trace};
+
+use bitcode::__private::Fixed;
+use bitcode::{Decode, Encode};
+
 use crate::_reexport::{BitSerializable, MessageProtocol, ReadBuffer, WriteBuffer};
 use crate::prelude::Protocol;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
-use anyhow::Context;
-use bitcode::__private::Fixed;
-use bitcode::{Decode, Encode};
-use tracing::{info_span, trace};
 
 #[derive(Encode, Decode, Clone, Debug)]
 pub enum ServerMessage<P: Protocol> {

@@ -1,14 +1,14 @@
-use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
-use tracing::Level;
+
+use crate::protocol::*;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
         // server_send_interval: Duration::from_millis(100),

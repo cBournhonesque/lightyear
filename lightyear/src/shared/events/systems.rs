@@ -3,9 +3,11 @@ use bevy::prelude::{Component, Events, World};
 use crate::_reexport::FromType;
 use crate::packet::message::Message;
 use crate::protocol::{EventContext, Protocol};
-use crate::shared::events::{
-    ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, IterComponentInsertEvent,
-    IterComponentRemoveEvent, IterComponentUpdateEvent, IterMessageEvent, MessageEvent,
+use crate::shared::events::components::{
+    ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
+};
+use crate::shared::events::connection::{
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, IterMessageEvent,
 };
 
 // TODO: would it be easier to have this be a system?

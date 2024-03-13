@@ -3,7 +3,6 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use bevy::utils::{Duration, Instant};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -11,6 +10,7 @@ use bevy::log::LogPlugin;
 use bevy::prelude::default;
 use bevy::prelude::{App, Commands, PluginGroup, Real, ResMut, Startup, Time};
 use bevy::time::TimeUpdateStrategy;
+use bevy::utils::{Duration, Instant};
 use bevy::winit::WinitPlugin;
 use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing::{debug, info};

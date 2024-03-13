@@ -76,7 +76,7 @@ impl WebTransportServerSocket {
                     Ok(data) => {
                         trace!(
                             "received datagram from client!: {:?} {:?}",
-                            &data,
+                            data.as_ref(),
                             data.len()
                         );
                         from_client_sender.send((data, client_addr)).unwrap();
@@ -84,7 +84,7 @@ impl WebTransportServerSocket {
                     Err(e) => {
                         error!("receive_datagram connection error: {:?}", e);
                         // to_client_channels.lock().unwrap().remove(&client_addr);
-                        // break;
+                        break;
                     }
                 }
             }
@@ -107,8 +107,7 @@ impl WebTransportServerSocket {
         connection.closed().await;
         info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
-        // dropping the task cancels them
-
+        debug!("Dropping tasks");
         // TODO: need to disconnect the client in netcode
     }
 }

@@ -1,28 +1,74 @@
 //! Defines the server bevy systems and run conditions
-use bevy::ecs::system::{SystemChangeTick, SystemState};
-use bevy::prelude::{Events, Fixed, Mut, ParamSet, Res, ResMut, Time, Virtual, World};
-use bevy::utils::Duration;
-use std::ops::DerefMut;
-use tracing::{debug, error, info, trace, trace_span};
+use anyhow::Context;
+use bevy::ecs::system::SystemChangeTick;
+use bevy::prelude::*;
+use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::ComponentProtocol;
-use crate::client::resource::ClientMut;
-use crate::connection::server::{NetServer, ServerConnection};
-use crate::prelude::{Io, TickManager, TimeManager};
+use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
+use crate::prelude::{MainSet, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
-use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::room::RoomManager;
-use crate::shared::events::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
+use crate::shared::time_manager::is_ready_to_send;
+
+pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
+    config: Vec<NetConfig>,
+    marker: std::marker::PhantomData<P>,
+}
+impl<P: Protocol> ServerNetworkingPlugin<P> {
+    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
+        Self {
+            config,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+// TODO: have more parallelism here
+// - receive/send packets in parallel
+// - update connections in parallel
+// - update multiple transports in parallel
+// maybe by having each connection or each transport be a separate entity? and then use par_iter?
+
+impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
+    fn build(&self, app: &mut App) {
+        app
+            // RESOURCE
+            // start the netcode servers
+            // in practice this mostly just starts the io (spawns server io tasks, etc.)
+            .insert_resource(ServerConnections::new(self.config.clone()))
+            // SYSTEM SETS
+            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PostUpdate,
+                (
+                    // we don't send packets every frame, but on a timer instead
+                    MainSet::Send.run_if(is_ready_to_send),
+                    MainSet::SendPackets.in_set(MainSet::Send),
+                ),
+            )
+            // SYSTEMS //
+            .add_systems(
+                PreUpdate,
+                (
+                    receive::<P>.in_set(MainSet::Receive),
+                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                ),
+            )
+            .add_systems(PostUpdate, (send::<P>.in_set(MainSet::SendPackets),));
+    }
+}
 
 pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("Receive client packets");
     world.resource_scope(|world: &mut World, mut connection_manager: Mut<ConnectionManager<P>>| {
         world.resource_scope(
-            |world: &mut World, mut netcode: Mut<ServerConnection>| {
+            |world: &mut World, mut netservers: Mut<ServerConnections>| {
                     world.resource_scope(
                         |world: &mut World, mut time_manager: Mut<TimeManager>| {
                             world.resource_scope(
@@ -35,40 +81,47 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             time_manager.update(delta);
                                             trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
 
-                                            // update netcode server
-                                            let _ = netcode
-                                                .try_update(delta.as_secs_f64())
-                                                .map_err(|e| error!("Error updating netcode server: {:?}", e));
-
-                                            // update connections
-                                            connection_manager
-                                                .update(time_manager.as_ref(), tick_manager.as_ref());
-
-                                            // handle connection
-                                            for client_id in netcode.new_connections().iter().copied() {
-                                                // let client_addr = self.netcode.client_addr(client_id).unwrap();
-                                                // info!("New connection from {} (id: {})", client_addr, client_id);
-                                                connection_manager.add(client_id);
+                                            // update server net connections
+                                            // reborrow trick to enable split borrows
+                                            let netservers = &mut *netservers;
+                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
+                                                let _ = netserver
+                                                    .try_update(delta.as_secs_f64())
+                                                    .map_err(|e| error!("Error updating netcode server: {:?}", e));
+                                                for local_client_id in netserver.new_connections().iter().copied() {
+                                                    // map the netserver's client id to a global client id (in case multiple transports assign the same client id)
+                                                    let global_id = netservers.global_id_map.insert(server_idx, local_client_id);
+                                                    connection_manager.add(global_id);
+                                                }
+                                                // handle disconnections
+                                                for local_client_id in netserver.new_disconnections().iter().copied() {
+                                                    if let Some(global_id) = netservers.global_id_map.remove_by_local(server_idx, local_client_id) {
+                                                        connection_manager.remove(global_id);
+                                                        room_manager.client_disconnect(global_id);
+                                                    } else {
+                                                        error!("Client disconnected but could not map client_id to global_id");
+                                                    }
+                                                };
                                             }
-
-                                            // handle disconnections
-                                            for client_id in netcode.new_disconnections().iter().copied() {
-                                                connection_manager.remove(client_id);
-                                                room_manager.client_disconnect(client_id);
-                                            };
 
                                             // update connections
                                             connection_manager
                                                 .update(time_manager.as_ref(), tick_manager.as_ref());
 
                                             // RECV_PACKETS: buffer packets into message managers
-                                            while let Some((mut reader, client_id)) = netcode.recv() {
-                                                // TODO: use connection to apply on BOTH message manager and replication manager
-                                                connection_manager
-                                                    .connection_mut(client_id)
-                                                    .expect("connection not found")
-                                                    .recv_packet(&mut reader, tick_manager.as_ref())
-                                                    .expect("could not recv packet");
+                                            for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
+                                                while let Some((mut reader, client_id)) = netserver.recv() {
+                                                    if let Some(global_id) = netservers.global_id_map.get_global(server_idx, client_id) {
+                                                        // TODO: use connection to apply on BOTH message manager and replication manager
+                                                        connection_manager
+                                                            .connection_mut(global_id)
+                                                            .expect("connection not found")
+                                                            .recv_packet(&mut reader, tick_manager.as_ref())
+                                                            .expect("could not recv packet");
+                                                    } else {
+                                                        error!("Global client id was not found!");
+                                                    }
+                                                }
                                             }
 
                                             // RECEIVE: read messages and parse them into events
@@ -141,7 +194,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 // or do additional send stuff here
 pub(crate) fn send<P: Protocol>(
     change_tick: SystemChangeTick,
-    mut netserver: ResMut<ServerConnection>,
+    mut netservers: ResMut<ServerConnections>,
     mut connection_manager: ResMut<ConnectionManager<P>>,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
@@ -162,8 +215,16 @@ pub(crate) fn send<P: Protocol>(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
+            let (netserver_idx, local_client_id) = netservers
+                .global_id_map
+                .get_local(*client_id)
+                .context("could not find global client id")?;
+            let netserver = netservers
+                .servers
+                .get_mut(netserver_idx)
+                .context("could not find netserver")?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), *client_id)?;
+                netserver.send(packet_byte.as_slice(), local_client_id)?;
             }
             Ok(())
         })

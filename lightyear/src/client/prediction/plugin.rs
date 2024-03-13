@@ -27,7 +27,7 @@ use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
-use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::sets::MainSet;
 
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
