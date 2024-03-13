@@ -1,15 +1,18 @@
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+
+use bevy::app::PluginGroupBuilder;
+use bevy::prelude::*;
+use bevy::utils::Duration;
+
+use lightyear::_reexport::ShouldBeInterpolated;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
+
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use lightyear::_reexport::ShouldBeInterpolated;
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 
 pub struct ClientPluginGroup {
     lightyear: ClientPlugin<MyProtocol>,

@@ -1,9 +1,9 @@
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::app::App;
 use bevy::prelude::default;
+use bevy::utils::Duration;
 
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;

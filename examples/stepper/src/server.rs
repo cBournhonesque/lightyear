@@ -1,14 +1,14 @@
-use bevy::utils::Duration;
 use std::default::Default;
 use std::net::SocketAddr;
-use std::str::FromStr;
 
 use bevy::app::App;
 use bevy::prelude::default;
+use bevy::utils::Duration;
 
-use crate::protocol::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+
+use crate::protocol::*;
 
 pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key: Key) {
     // create udp-socket based io

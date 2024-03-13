@@ -19,10 +19,10 @@ mock_time = ["lightyear/mock_time"]
 [dependencies]
 leafwing-input-manager = "0.13"
 lightyear = { path = "../../lightyear", features = [
-    "webtransport",
-    "websocket",
-    "render",
-    "leafwing",
+  "webtransport",
+  "websocket",
+  "render",
+  "leafwing",
 ] }
 async-compat = "0.2.3"
 serde = { version = "1.0.188", features = ["derive"] }

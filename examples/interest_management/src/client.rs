@@ -1,17 +1,20 @@
-use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Cli, ClientTransports, SharedSettings};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
+
 use lightyear::_reexport::ShouldBeInterpolated;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
+
+use crate::protocol::*;
+use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::{shared, Cli, ClientTransports, SharedSettings};
 
 pub struct ClientPluginGroup {
     client_id: ClientId,

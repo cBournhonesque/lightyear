@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
+use serde::{Deserialize, Serialize};
+
 use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
 use lightyear::utils::bevy::*;
-use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 10.0;
 pub const PLAYER_SIZE: f32 = 40.0;

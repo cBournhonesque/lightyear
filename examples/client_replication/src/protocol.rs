@@ -1,8 +1,10 @@
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Entity, Vec2};
-use derive_more::{Add, Mul};
-use lightyear::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::ops::Mul;
+
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
+use derive_more::{Add, Mul};
+use serde::{Deserialize, Serialize};
+
+use lightyear::prelude::*;
 
 // Player
 #[derive(Bundle)]

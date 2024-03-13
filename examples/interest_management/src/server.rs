@@ -1,15 +1,18 @@
-use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, ServerTransports, SharedSettings};
+use std::collections::HashMap;
+use std::net::{Ipv4Addr, SocketAddr};
+
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use leafwing_input_manager::prelude::ActionState;
+
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::server::events::ServerEvents;
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
+
+use crate::protocol::*;
+use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::{shared, ServerTransports, SharedSettings};
 
 const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 10;

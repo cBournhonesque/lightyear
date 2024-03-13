@@ -1,20 +1,17 @@
-use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time};
 use bevy::time::TimeUpdateStrategy;
+use bevy::utils::Duration;
 use bevy::MinimalPlugins;
-use tracing_subscriber::fmt::format::FmtSpan;
 
-use lightyear::client as lightyear_client;
 use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
+    Authentication, ClientConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
 use lightyear::prelude::server::{NetcodeConfig, ServerConfig};
 use lightyear::prelude::*;
-use lightyear::server as lightyear_server;
 
 use crate::protocol::*;
 

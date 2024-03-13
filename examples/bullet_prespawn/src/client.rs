@@ -1,6 +1,6 @@
-use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_player_movement};
-use crate::{shared, ClientTransports, SharedSettings};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
@@ -11,12 +11,15 @@ use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
+
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
+
+use crate::protocol::*;
+use crate::shared::{color_from_id, shared_config, shared_player_movement};
+use crate::{shared, ClientTransports, SharedSettings};
 
 pub const INPUT_DELAY_TICKS: u16 = 0;
 pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;

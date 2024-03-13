@@ -1,15 +1,18 @@
-use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ServerTransports, SharedSettings};
+use std::collections::HashMap;
+use std::net::{Ipv4Addr, SocketAddr};
+
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr};
+
+use crate::protocol::*;
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
+use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin group to add all server-related plugins
 pub struct ServerPluginGroup {
