@@ -1,7 +1,7 @@
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
-use crate::{shared, ClientTransports, SharedSettings, KEY, PROTOCOL_ID};
+use crate::{shared, ClientTransports, SharedSettings};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -18,25 +18,10 @@ pub struct ClientPluginGroup {
 impl ClientPluginGroup {
     pub(crate) fn new(
         client_id: u64,
-        client_port: u16,
         server_addr: SocketAddr,
-        transport: ClientTransports,
+        transport_config: TransportConfig,
         shared_settings: SharedSettings,
     ) -> ClientPluginGroup {
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let transport_config = match transport {
-            #[cfg(not(target_family = "wasm"))]
-            ClientTransports::Udp => TransportConfig::UdpSocket(client_addr),
-            ClientTransports::WebTransport { certificate_digest } => {
-                TransportConfig::WebTransportClient {
-                    client_addr,
-                    server_addr,
-                    #[cfg(target_family = "wasm")]
-                    certificate_digest,
-                }
-            }
-            ClientTransports::WebSocket => TransportConfig::WebSocketClient { server_addr },
-        };
         let auth = Authentication::Manual {
             server_addr,
             client_id,

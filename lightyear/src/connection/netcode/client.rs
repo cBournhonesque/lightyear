@@ -371,6 +371,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     }
     fn process_packet(&mut self, addr: SocketAddr, packet: Packet) -> Result<()> {
         if addr != self.server_addr() {
+            debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
             return Ok(());
         }
         match (packet, self.state) {

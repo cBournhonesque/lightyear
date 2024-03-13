@@ -1,10 +1,10 @@
-use crate::protocol::*;
-use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+
 use lightyear::prelude::*;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+
+use crate::protocol::*;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {

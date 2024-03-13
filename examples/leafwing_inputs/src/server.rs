@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ServerTransports, SharedSettings, KEY, PROTOCOL_ID};
+use crate::{shared, ServerTransports, SharedSettings};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -22,8 +22,8 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(
-        transports: Vec<ServerTransports>,
+    pub(crate) fn new(
+        transport_configs: Vec<TransportConfig>,
         predict_all: bool,
         shared_settings: SharedSettings,
     ) -> ServerPluginGroup {
@@ -34,31 +34,7 @@ impl ServerPluginGroup {
             incoming_loss: 0.0,
         };
         let mut net_configs = vec![];
-        for transport in &transports {
-            let transport_config = match transport {
-                ServerTransports::Udp { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
-                    TransportConfig::UdpSocket(server_addr)
-                }
-                // if using webtransport, we load the certificate keys
-                ServerTransports::WebTransport { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
-                    let certificate =
-                        Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                            .await
-                            .unwrap();
-                    let digest = &certificate.hashes()[0].to_string().replace(":", "");
-                    println!("Generated self-signed certificate with digest: {}", digest);
-                    TransportConfig::WebTransportServer {
-                        server_addr,
-                        certificate,
-                    }
-                }
-                ServerTransports::WebSocket { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
-                    TransportConfig::WebSocketServer { server_addr }
-                }
-            };
+        for transport_config in transport_configs {
             net_configs.push(NetConfig::Netcode {
                 config: NetcodeConfig::default()
                     .with_protocol_id(shared_settings.protocol_id)

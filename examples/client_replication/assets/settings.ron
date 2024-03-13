@@ -16,7 +16,7 @@ Settings(
         // transport: WebSocket,
     ),
     server: ServerSettings(
-        headless: false,
+        headless: true,
         inspector: false,
         transport: [
             WebTransport(
