@@ -1,11 +1,13 @@
+use std::ops::Mul;
+
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
 use derive_more::{Add, Mul};
-use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::ops::Mul;
+
+use lightyear::prelude::*;
 
 // Player
 #[derive(Bundle)]

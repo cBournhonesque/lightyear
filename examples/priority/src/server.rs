@@ -1,16 +1,19 @@
-use crate::protocol::*;
-use crate::shared::shared_config;
-use crate::{shared, ServerTransports, SharedSettings, KEY, PROTOCOL_ID};
-use bevy::app::PluginGroupBuilder;
-use bevy::ecs::archetype::Archetype;
-use bevy::prelude::*;
-use leafwing_input_manager::prelude::ActionState;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::time::Duration;
+
+use bevy::app::PluginGroupBuilder;
+use bevy::ecs::archetype::Archetype;
+use bevy::prelude::*;
+use leafwing_input_manager::prelude::ActionState;
+
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
+
+use crate::protocol::*;
+use crate::shared::shared_config;
+use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin group to add all server-related plugins
 pub struct ServerPluginGroup {
@@ -18,8 +21,8 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) async fn new(
-        transports: Vec<ServerTransports>,
+    pub(crate) fn new(
+        transport_configs: Vec<TransportConfig>,
         shared_settings: SharedSettings,
     ) -> ServerPluginGroup {
         // Step 1: create the io (transport + link conditioner)
@@ -29,31 +32,7 @@ impl ServerPluginGroup {
             incoming_loss: 0.0,
         };
         let mut net_configs = vec![];
-        for transport in &transports {
-            let transport_config = match transport {
-                ServerTransports::Udp { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
-                    TransportConfig::UdpSocket(server_addr)
-                }
-                // if using webtransport, we load the certificate keys
-                ServerTransports::WebTransport { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
-                    let certificate =
-                        Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
-                            .await
-                            .unwrap();
-                    let digest = &certificate.hashes()[0].to_string().replace(":", "");
-                    println!("Generated self-signed certificate with digest: {}", digest);
-                    TransportConfig::WebTransportServer {
-                        server_addr,
-                        certificate,
-                    }
-                }
-                ServerTransports::WebSocket { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port);
-                    TransportConfig::WebSocketServer { server_addr }
-                }
-            };
+        for transport_config in transport_configs {
             net_configs.push(NetConfig::Netcode {
                 config: NetcodeConfig::default()
                     .with_protocol_id(shared_settings.protocol_id)

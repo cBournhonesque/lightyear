@@ -1,4 +1,3 @@
-use crate::protocol::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
@@ -6,13 +5,16 @@ use bevy::utils::Duration;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::orientation::Orientation;
 use leafwing_input_manager::prelude::ActionState;
+use tracing::Level;
+
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use tracing::Level;
+
+use crate::protocol::*;
 
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;

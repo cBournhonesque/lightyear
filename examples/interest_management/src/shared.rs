@@ -1,13 +1,13 @@
-use crate::protocol::*;
-use bevy::prelude::*;
+use std::ops::Deref;
 
+use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::prelude::client::Confirmed;
+
 use lightyear::prelude::*;
-use std::ops::Deref;
-use tracing::Level;
+
+use crate::protocol::*;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {

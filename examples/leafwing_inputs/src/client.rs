@@ -1,6 +1,6 @@
-use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
-use crate::{shared, ClientTransports, SharedSettings, KEY, PROTOCOL_ID};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
@@ -8,12 +8,15 @@ use bevy::utils::Duration;
 use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
+
+use crate::protocol::*;
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
+use crate::{shared, ClientTransports, SharedSettings};
 
 pub const INPUT_DELAY_TICKS: u16 = 0;
 pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;
@@ -26,25 +29,10 @@ pub struct ClientPluginGroup {
 impl ClientPluginGroup {
     pub(crate) fn new(
         client_id: u64,
-        client_port: u16,
         server_addr: SocketAddr,
-        transport: ClientTransports,
+        transport_config: TransportConfig,
         shared_settings: SharedSettings,
     ) -> ClientPluginGroup {
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let transport_config = match transport {
-            #[cfg(not(target_family = "wasm"))]
-            ClientTransports::Udp => TransportConfig::UdpSocket(client_addr),
-            ClientTransports::WebTransport { certificate_digest } => {
-                TransportConfig::WebTransportClient {
-                    client_addr,
-                    server_addr,
-                    #[cfg(target_family = "wasm")]
-                    certificate_digest,
-                }
-            }
-            ClientTransports::WebSocket => TransportConfig::WebSocketClient { server_addr },
-        };
         let auth = Authentication::Manual {
             server_addr,
             client_id,

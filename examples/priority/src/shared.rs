@@ -1,15 +1,16 @@
-use crate::protocol::*;
-use bevy::prelude::*;
+use std::ops::Deref;
+use std::time::Duration;
 
+use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
+
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
-use std::ops::Deref;
-use std::time::Duration;
-use tracing::Level;
+
+use crate::protocol::*;
 
 const MOVE_SPEED: f32 = 10.0;
 const PROP_SIZE: f32 = 5.0;
