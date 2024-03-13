@@ -19,19 +19,18 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use lightyear::connection::netcode::ClientId;
+#[cfg(not(target_family = "wasm"))]
 use lightyear::prelude::server::Certificate;
 use lightyear::prelude::TransportConfig;
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::client::ClientPluginGroup;
-#[cfg(not(target_family = "wasm"))]
 use crate::server::ServerPluginGroup;
 
 mod client;
 mod protocol;
 
-#[cfg(not(target_family = "wasm"))]
 mod server;
 mod shared;
 
@@ -212,6 +211,7 @@ fn client_app(
 }
 
 /// Build the server app
+#[cfg(not(target_family = "wasm"))]
 fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>) -> App {
     let mut app = App::new();
     if !settings.server.headless {
@@ -240,6 +240,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
 }
 
 /// Parse the server transport settings into a list of `TransportConfig` that are used to configure the lightyear server
+#[cfg(not(target_family = "wasm"))]
 fn get_server_transport_configs(settings: Vec<ServerTransports>) -> Vec<TransportConfig> {
     settings
         .iter()

@@ -2,23 +2,33 @@
 
 This folder contains various examples that showcase various `lightyear` features.
 
-Each example runs in a similar way, unless specified:
-- start the server: `cargo run -- server --headless`
-- start the client: `cargo run -- client -c 1`
+Each example runs in a similar way.
 
-You can use the CLI to specify various options (client_id, transport, etc.)
+## Running an example
 
+You can either run the example as a "Listen Server" (the program acts as both client and server)
+with: `cargo run -- listen-server`
+or as dedicated server with `cargo run -- server`
 
+Then you can launch multiple clients with the commands:
 
-### Note for WebTransport
+- `cargo run -- client -c 1`
+- `cargo run -- client -c 2`
 
-By the default the transport that is used is `WebTransport`. Note that this comes with a limitation: webtransport requires that a certificate is provided to authenticate the connection.
-Self-issued certificates have a maximum duration of 2 weeks only!
+You can modify the file `assets/settings.ron` to modify some networking settings.
 
-If you need to generate a new certificate, you can run (from the root of the repository):
-- `sh examples/certificates/generate.sh`
-- then run the server, which will print the digest of the certificate being used (something like: 
-```
-Generated self-signed certificate with digest: 2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56
-```)
-- then in the client, you need to specify the certificate digest to use for webtransport (for example [here](https://github.com/cBournhonesque/lightyear/blob/main/examples/simple_box/src/client.rs#L34))
+### Testing in wasm with webtransport
+
+NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
+
+To test the example in wasm, you can run the following commands: `trunk serve`
+
+You will need a valid SSL certificate to test the example in wasm using webtransport. You will need to run the following
+commands:
+
+- `sh examples/generate.sh` (to generate the temporary SSL certificates, they are only valid for 2 weeks)
+- `cargo run -- server` to start the server. The server will print out the certificate digest (something
+  like `1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644`)
+- You then have to replace the certificate digest in the `assets/settings.ron` file with the one that the server printed
+  out.
+- then start the client wasm test with `trunk serve`

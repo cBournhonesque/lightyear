@@ -1,9 +1,9 @@
 # Adding basic functionality
 
-
 ## Initialization
 
 On the client, we can run this system on `Startup`:
+
 ```rust,noplayground
 pub(crate) fn init(
     mut commands: Commands,
@@ -20,14 +20,13 @@ pub(crate) fn init(
     ));
     client.connect();
 }
-# fn main() {
-    app.add_systems(Startup, init);
-# }
+app.add_systems(Startup, init);
 ```
 
 This spawns a camera, but also call `client.connect()` which will start the connection process with the server.
 
 On the server we can just spawn a camera:
+
 ```rust,noplayground
 pub(crate) fn init(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
@@ -40,25 +39,27 @@ pub(crate) fn init(mut commands: Commands) {
         },
     ));
 }
-# fn main() {
-    app.add_systems(Startup, init);
-# }
+
+app.add_systems(Startup, init);
 ```
 
 ## Defining replicated entities
 
 We want to have the following flow:
+
 - client connects to server
 - server spawns a player entity for the client
 - server then keeps replicating the state of that entity to the client
 - client can send inputs to the server to control the player entity (any updates will be replicated back to the client)
 
 We will start by defining what a player entity is.
-We create a bundle that contains all the components that we want to replicate. These components must be part of the `ComponentProtocol` enum that
+We create a bundle that contains all the components that we want to replicate. These components must be part of
+the `ComponentProtocol` enum that
 we defined earlier in order to be replicated.
 
 (In general it is useful to create separate bundles for components that we want to replicate, and components
-that are only used on the client or server. For example, on the client a lot of components that are only used for rendering (particles, etc.)
+that are only used on the client or server. For example, on the client a lot of components that are only used for
+rendering (particles, etc.)
 don't need to be included in the replicated bundle.)
 
 ```rust,noplayground
@@ -87,22 +88,26 @@ impl PlayerBundle {
 
 We added an extra special component called `Replicate`. Only entities that have this component will be replicated.
 This component also lets us specify some extra parameters for the replication:
-- `actions_channel`: which channel to use to replicate entity actions. I define `EntityActions` as entity events that need 
-  exclusive `World` access (entity spawn/despawn, component insertion/removal). By default, an OrderedReliable channel is used.
-- `updates_channel`: which channel to use to replicate entity updates. I define `EntityUpdates` as entity events that don't need
+
+- `actions_channel`: which channel to use to replicate entity actions. I define `EntityActions` as entity events that
+  need
+  exclusive `World` access (entity spawn/despawn, component insertion/removal). By default, an OrderedReliable channel
+  is used.
+- `updates_channel`: which channel to use to replicate entity updates. I define `EntityUpdates` as entity events that
+  don't need
   exclusive `World` access (component updates). By default, an SequencedUnreliable channel is used.
-- `replication_target`: who will the entity be replicated to? By default, the entity will be replicated to all clients, but you can use this
+- `replication_target`: who will the entity be replicated to? By default, the entity will be replicated to all clients,
+  but you can use this
   to have a more fine-grained control
 - `prediction_target`/`interpolation_target`: we will mention this later.
 
-If you remove the `Replicate` component from an entity, any updates to that entity won't be replicated anymore. (However the client entity won't get despawned)
+If you remove the `Replicate` component from an entity, any updates to that entity won't be replicated anymore. (However
+the client entity won't get despawned)
 
 Currently there is no way to specify for a given entity whether some components should be replicated or not.
 This might be added in the future.
 
-
 ## Spawning entities on server
-
 
 Most networking events are available on both the client and server as `bevy` `Events`, and can be read
 every frame using the `EventReader` `SystemParam`. This is what we will use to spawn a player on the server
@@ -151,13 +156,14 @@ The `context()` method returns the `ClientId` of the client that connected/disco
 
 We also create a map to keep track of which client is associated with which entity.
 
-
 ## Add inputs to client
 
 Then we want to be able to handle inputs from the user.
 We add a system that reads keypresses/mouse movements and converts them into `Inputs` that we can give to the `Client`.
-Inputs need to be handled with `client.add_input()`, which does some extra bookkeeping to make sure that an input on tick `n`
-for the client will be handled on the server on the same tick `n`. Inputs are also stored in a buffer for client-prediction.
+Inputs need to be handled with `client.add_input()`, which does some extra bookkeeping to make sure that an input on
+tick `n`
+for the client will be handled on the server on the same tick `n`. Inputs are also stored in a buffer for
+client-prediction.
 
 ```rust,noplayground
 pub(crate) fn buffer_input(mut client: ResMut<Client<MyProtocol>>, keypress: Res<Input<KeyCode>>) {
@@ -199,15 +205,16 @@ app.add_systems(
 ```
 
 `add_input` needs to be called in the `InputSystemSet::BufferInputs` `SystemSet`.
-Some systems need to be run in specific `SystemSet`s because of the ordering of some operations is important for the crate
+Some systems need to be run in specific `SystemSet`s because of the ordering of some operations is important for the
+crate
 to work properly. See [SystemSet Ordering](../concepts/system_sets/title.md) for more information.
-
 
 ## Handle inputs on server
 
 Once we correctly `add_inputs` on the client, we can start reading them on the server to control the player entity.
 
 We define a function that specifies how a given input updates a given player entity:
+
 ```rust,noplayground 
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
@@ -232,7 +239,8 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 ```
 
 Then we can create a system that reads the inputs and applies them to the player entity.
-Similarly, we have an event `InputEvent<I: UserAction>` that will give us on every tick the input that was sent by the client.
+Similarly, we have an event `InputEvent<I: UserAction>` that will give us on every tick the input that was sent by the
+client.
 We can use the `context()` method to get the `ClientId` of the client that sent the input,
 and `input()` to get the actual input.
 
@@ -262,6 +270,7 @@ Any fixed-update simulation system (physics, etc.) must run in the `FixedMain` `
 ## Displaying entities
 
 Finally we can add a system on both client and server to draw a box to show the player entity.
+
 ```rust,noplayground
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
@@ -279,9 +288,9 @@ pub(crate) fn draw_boxes(
 ```
 
 Now, running the server and client in parallel should give you:
+
 - server spawns a cube when client connects
 - client can send inputs to the server to control the cube
 - the movements of the cube in the server world are replicated to the client !
-
 
 In the next section, we will see a couple more systems.
