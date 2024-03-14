@@ -175,13 +175,12 @@ mod wrapped_time {
     use super::*;
 
     /// Time since start of server, in milliseconds
-    /// Serializes in a compact manner
-    /// Wraps around u32::max
+    /// Serializes in a compact manner (we only serialize up to the milliseconds)
+    /// Valid only up to u32::MAX milliseconds (46 days)
     #[derive(Default, Copy, Clone, Eq, PartialEq, Debug, PartialOrd, Ord)]
     pub struct WrappedTime {
         pub(crate) elapsed: Duration,
     }
-    // TODO: this lacks too much precision, use Duration but serialize only the millis.
 
     impl BitSerializable for WrappedTime {
         fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {

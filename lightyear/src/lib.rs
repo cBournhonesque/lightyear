@@ -3,7 +3,7 @@
 Lightyear is a networking library for Bevy.
 It is designed for server-authoritative multiplayer games; and aims to be both feature-complete and easy-to-use.
 
-You can find more information in the [book](https://cbournhonesque.github.io/lightyear/book/)!
+You can find more information in the [book](https://cbournhonesque.github.io/lightyear/book/) or check out the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples)!
 */
 #![allow(unused_imports)]
 #![allow(unused_variables)]

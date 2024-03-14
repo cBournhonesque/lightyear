@@ -138,16 +138,6 @@ pub fn component_protocol_impl(
             #[sync(simple)]
             #variant(ActionState<<#protocol as Protocol>::#ty>)
         });
-
-        // TODO: should we enable netwokring InputMap?
-        // let variant = Ident::new(&format!("InputMap{}", i), Span::call_site());
-        // let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
-        // input.variants.push(parse_quote! {
-        //     #variant(InputMap<<#protocol as Protocol>::#ty>)
-        // });
-        // input.variants.push(parse_quote! {
-        //     #variant(Wrapper<ActionState<<#protocol as Protocol>::#ty>>)
-        // });
     }
 
     // Helper Properties

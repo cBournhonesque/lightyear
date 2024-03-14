@@ -94,8 +94,7 @@ impl<I: crate::inputs::native::UserAction, Ctx> InputEvent<I, Ctx> {
 }
 
 #[derive(Event)]
-/// Event emitted on server every time a SpawnEntity replication message gets sent to a client
-// TODO: should we change this to when it is received?
+/// Event emitted whenever an replicated entity gets received
 pub struct EntitySpawnEvent<Ctx = ()> {
     entity: Entity,
     context: Ctx,

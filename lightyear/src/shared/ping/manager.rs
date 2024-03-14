@@ -89,7 +89,6 @@ impl PingManager {
             pongs_to_send: vec![],
             // sync
             sync_stats: SyncStatsBuffer::new(),
-            // TODO: should we start with a bigger RTT estimate?
             final_stats: FinalStats::default(),
             remote_tick_generation: 0,
         }

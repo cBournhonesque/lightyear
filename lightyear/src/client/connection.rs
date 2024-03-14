@@ -293,13 +293,6 @@ impl<P: Protocol> ConnectionManager<P> {
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
                 for (tick, message) in messages.into_iter() {
-                    // TODO: we shouldn't map the entities here!
-                    //  - we should: order the entities in a group by topological sort (use MapEntities to check dependencies between entities).
-                    //  - apply map_entities when we're in the stage of applying to the world.
-                    //    - because then we read the first entity in the group; spawn it, and the next component that refers to that entity can be mapped successfully!
-                    // map entities from remote to local
-                    // message.map_entities(&self.replication_manager.entity_map);
-
                     // other message-handling logic
                     match message {
                         ServerMessage::Message(mut message) => {

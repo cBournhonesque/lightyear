@@ -126,7 +126,7 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
 
     // MESSAGES
 
-    // TODO: i'm not event sure that is something we want.
+    // TODO: i'm not even sure that is something we want.
     //  it could open the door to the client flooding other players with messages
     //  maybe we should let users re-broadcast messages from the server themselves instead of using this
     //  Also it would make the code much simpler by having a single `ProtocolMessage` enum

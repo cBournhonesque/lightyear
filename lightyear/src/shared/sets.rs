@@ -12,7 +12,6 @@ pub enum ReplicationSet {
     /// because they rely on bevy events that are cleared every frame
     SendDespawnsAndRemovals,
 
-    // TODO: is it useful to separate these two system sets?
     /// System Set to gather all the replication updates to send
     /// These systems only run once every send_interval
     SendEntityUpdates,

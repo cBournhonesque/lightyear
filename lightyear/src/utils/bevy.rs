@@ -9,8 +9,6 @@ use tracing::{info, trace};
 
 use crate::prelude::{LightyearMapEntities, Message, Named};
 
-// TODO: add implementations for Parent and Children
-
 impl Named for Transform {
     const NAME: &'static str = "Transform";
 }

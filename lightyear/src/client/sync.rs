@@ -129,7 +129,6 @@ impl SyncManager {
             latest_received_server_tick: None,
             duration_since_latest_received_server_tick: Duration::default(),
             new_latest_received_server_tick: false,
-            // TODO: should we start with None?
             server_pong_generation: 0,
             server_pong_tick: Tick(0),
         }
