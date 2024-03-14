@@ -6,7 +6,10 @@ use bevy::prelude::Resource;
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::ClientId;
+
+#[cfg(feature = "steam")]
 use crate::connection::steam::client::SteamConfig;
+
 use crate::prelude::client::Authentication;
 use crate::prelude::{Io, IoConfig};
 

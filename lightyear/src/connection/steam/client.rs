@@ -75,7 +75,7 @@ impl NetClient for Client {
                 .context("failed to create connection")?,
         );
         info!(
-            "Opened connection to server at address: {}",
+            "Opened steam connection to server at address: {}",
             self.config.server_addr
         );
         Ok(())
@@ -95,6 +95,7 @@ impl NetClient for Client {
         return match self.connection_state()? {
             NetworkingConnectionState::None => Err(anyhow!("no connection")),
             NetworkingConnectionState::Connecting | NetworkingConnectionState::FindingRoute => {
+                info!("Connecting to server...");
                 Ok(())
             }
             NetworkingConnectionState::ClosedByPeer

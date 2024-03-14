@@ -5,7 +5,10 @@ use bevy::prelude::{Entity, Resource};
 use crate::_reexport::ReadWordBuffer;
 use crate::connection::client::ClientConnection;
 use crate::connection::netcode::ClientId;
+
+#[cfg(feature = "steam")]
 use crate::connection::steam::server::SteamConfig;
+
 use crate::prelude::{Io, IoConfig};
 use crate::server::config::NetcodeConfig;
 use crate::utils::free_list::FreeList;

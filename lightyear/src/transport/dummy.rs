@@ -12,7 +12,7 @@ impl Transport for DummyIo {
     }
 
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        (Box::new(self.clone()), Box::new(self))
+        (Box::new(self), Box::new(self))
     }
 }
 
