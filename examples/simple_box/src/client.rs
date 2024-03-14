@@ -7,7 +7,7 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
 use lightyear::client::resource::connect_with_token;
-use lightyear::prelude::client::*;
+pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::Direction;
@@ -16,41 +16,14 @@ use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ClientPluginGroup {
-    client_id: ClientId,
     lightyear: ClientPlugin<MyProtocol>,
 }
 
 impl ClientPluginGroup {
-    pub(crate) fn new(
-        client_id: u64,
-        server_addr: SocketAddr,
-        transport_config: TransportConfig,
-        shared_settings: SharedSettings,
-    ) -> ClientPluginGroup {
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: shared_settings.private_key,
-            protocol_id: shared_settings.protocol_id,
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
-        };
+    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
         let config = ClientConfig {
             shared: shared_config(),
-            // net: NetConfig::Netcode {
-            //     auth,
-            //     config: NetcodeConfig::default(),
-            //     io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            // },
-            net: NetConfig::Steam {
-                config: SteamConfig {
-                    server_addr,
-                    app_id: 480,
-                },
-            },
+            net: net_config,
             interpolation: InterpolationConfig {
                 delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
                 custom_interpolation_logic: false,
@@ -59,7 +32,6 @@ impl ClientPluginGroup {
         };
         let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
-            client_id,
             lightyear: ClientPlugin::new(plugin_config),
         }
     }

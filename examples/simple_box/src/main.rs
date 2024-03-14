@@ -5,6 +5,7 @@
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
+use bevy::utils::Duration;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
@@ -16,89 +17,27 @@ use bevy::tasks::IoTaskPool;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
+use lightyear::client::resource::Authentication;
 use serde::{Deserialize, Serialize};
 
 use lightyear::connection::netcode::ClientId;
+use lightyear::prelude::client::SteamConfig;
 #[cfg(not(target_family = "wasm"))]
 use lightyear::prelude::server::Certificate;
-use lightyear::prelude::TransportConfig;
+use lightyear::prelude::{IoConfig, LinkConditionerConfig, TransportConfig};
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::client::ClientPluginGroup;
 use crate::server::ServerPluginGroup;
+use crate::settings::*;
 
 mod client;
 mod protocol;
 
 mod server;
+mod settings;
 mod shared;
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum ClientTransports {
-    #[cfg(not(target_family = "wasm"))]
-    Udp,
-    WebTransport {
-        certificate_digest: String,
-    },
-    WebSocket,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum ServerTransports {
-    Udp { local_port: u16 },
-    WebTransport { local_port: u16 },
-    WebSocket { local_port: u16 },
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ServerSettings {
-    /// If true, disable any rendering-related plugins
-    headless: bool,
-
-    /// If true, enable bevy_inspector_egui
-    inspector: bool,
-
-    /// Which transport to use
-    transport: Vec<ServerTransports>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ClientSettings {
-    /// If true, enable bevy_inspector_egui
-    inspector: bool,
-
-    /// The client id
-    client_id: u64,
-
-    /// The client port to listen on
-    client_port: u16,
-
-    /// The ip address of the server
-    server_addr: Ipv4Addr,
-
-    /// The port of the server
-    server_port: u16,
-
-    /// Which transport to use
-    transport: ClientTransports,
-}
-
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
-pub struct SharedSettings {
-    /// An id to identify the protocol version
-    protocol_id: u64,
-
-    /// a 32-byte array to authenticate via the Netcode.io protocol
-    private_key: [u8; 32],
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Settings {
-    pub server: ServerSettings,
-    pub client: ClientSettings,
-    pub shared: SharedSettings,
-}
 
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
@@ -145,9 +84,15 @@ fn run(settings: Settings, cli: Cli) {
                 recv: from_server_recv,
                 send: to_server_send,
             };
-            // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
-            let mut client_app =
-                client_app(settings.clone(), LOCAL_SOCKET, client_id, transport_config);
+            let net_config = build_client_netcode_config(
+                client_id.unwrap_or(settings.client.client_id),
+                // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
+                LOCAL_SOCKET,
+                settings.client.conditioner.as_ref(),
+                &settings.shared,
+                transport_config,
+            );
+            let mut client_app = client_app(settings.clone(), net_config);
 
             // create server app
             let extra_transport_configs = vec![TransportConfig::Channels {
@@ -170,20 +115,17 @@ fn run(settings: Settings, cli: Cli) {
                 settings.client.server_addr.into(),
                 settings.client.server_port,
             );
-            let transport_config = get_client_transport_config(settings.client.clone());
-            let mut app = client_app(settings, server_addr, client_id, transport_config);
+            // use the cli-provided client id if it exists, otherwise use the settings client id
+            let client_id = client_id.unwrap_or(settings.client.client_id);
+            let net_config = get_client_net_config(&settings, client_id);
+            let mut app = client_app(settings, net_config);
             app.run();
         }
     }
 }
 
 /// Build the client app
-fn client_app(
-    settings: Settings,
-    server_addr: SocketAddr,
-    client_id: Option<ClientId>,
-    transport_config: TransportConfig,
-) -> App {
+fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let mut app = App::new();
     // NOTE: create the default plugins first so that the async task pools are initialized
     // use the default bevy logger for now
@@ -196,13 +138,7 @@ fn client_app(
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
-    let client_plugin_group = ClientPluginGroup::new(
-        // use the cli-provided client id if it exists, otherwise use the settings client id
-        client_id.unwrap_or(settings.client.client_id),
-        server_addr,
-        transport_config,
-        settings.shared,
-    );
+    let client_plugin_group = ClientPluginGroup::new(net_config);
     app.add_plugins(client_plugin_group.build());
     app
 }
@@ -225,23 +161,59 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     if settings.server.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
-    let mut transport_configs = get_server_transport_configs(settings.server.transport);
-    transport_configs.extend(extra_transport_configs);
-    let server_plugin_group = ServerPluginGroup::new(transport_configs, settings.shared);
+    let mut net_configs = get_server_net_configs(&settings);
+    let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
+        build_server_netcode_config(settings.server.conditioner.as_ref(), &settings.shared, c)
+    });
+    net_configs.extend(extra_net_configs);
+    let server_plugin_group = ServerPluginGroup::new(net_configs);
     app.add_plugins(server_plugin_group.build());
     app
 }
 
+fn build_server_netcode_config(
+    conditioner: Option<&Conditioner>,
+    shared: &SharedSettings,
+    transport_config: TransportConfig,
+) -> server::NetConfig {
+    let conditioner = conditioner.map_or(None, |c| {
+        Some(LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(c.latency_ms as u64),
+            incoming_jitter: Duration::from_millis(c.jitter_ms as u64),
+            incoming_loss: c.packet_loss,
+        })
+    });
+    let netcode_config = server::NetcodeConfig::default()
+        .with_protocol_id(shared.protocol_id)
+        .with_key(shared.private_key);
+    let io_config = IoConfig::from_transport(transport_config);
+    let io_config = if let Some(conditioner) = conditioner {
+        io_config.with_conditioner(conditioner)
+    } else {
+        io_config
+    };
+    server::NetConfig::Netcode {
+        config: netcode_config,
+        io: io_config,
+    }
+}
+
 /// Parse the server transport settings into a list of `TransportConfig` that are used to configure the lightyear server
 #[cfg(not(target_family = "wasm"))]
-fn get_server_transport_configs(settings: Vec<ServerTransports>) -> Vec<TransportConfig> {
+fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
     settings
+        .server
+        .transport
         .iter()
         .map(|t| match t {
-            ServerTransports::Udp { local_port } => TransportConfig::UdpSocket(SocketAddr::new(
-                Ipv4Addr::UNSPECIFIED.into(),
-                *local_port,
-            )),
+            ServerTransports::Udp { local_port } => build_server_netcode_config(
+                settings.server.conditioner.as_ref(),
+                &settings.shared,
+                TransportConfig::UdpSocket(SocketAddr::new(
+                    Ipv4Addr::UNSPECIFIED.into(),
+                    *local_port,
+                )),
+            ),
             ServerTransports::WebTransport { local_port } => {
                 // this is async because we need to load the certificate from io
                 // we need async_compat because wtransport expects a tokio reactor
@@ -257,34 +229,115 @@ fn get_server_transport_configs(settings: Vec<ServerTransports>) -> Vec<Transpor
                     .unwrap();
                 let digest = &certificate.hashes()[0].to_string().replace(":", "");
                 println!("Generated self-signed certificate with digest: {}", digest);
-                TransportConfig::WebTransportServer {
-                    server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
-                    certificate,
-                }
+                build_server_netcode_config(
+                    settings.server.conditioner.as_ref(),
+                    &settings.shared,
+                    TransportConfig::WebTransportServer {
+                        server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
+                        certificate,
+                    },
+                )
             }
-            ServerTransports::WebSocket { local_port } => TransportConfig::WebSocketServer {
-                server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
+            ServerTransports::WebSocket { local_port } => build_server_netcode_config(
+                settings.server.conditioner.as_ref(),
+                &settings.shared,
+                TransportConfig::WebSocketServer {
+                    server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
+                },
+            ),
+            ServerTransports::Steam {
+                app_id,
+                server_ip,
+                game_port,
+                query_port,
+            } => server::NetConfig::Steam {
+                config: server::SteamConfig {
+                    app_id: *app_id,
+                    server_ip: *server_ip,
+                    game_port: *game_port,
+                    query_port: *query_port,
+                    max_clients: 16,
+                    version: "1.0".to_string(),
+                },
             },
-            _ => todo!(),
         })
         .collect()
 }
 
+fn build_client_netcode_config(
+    client_id: ClientId,
+    server_addr: SocketAddr,
+    conditioner: Option<&Conditioner>,
+    shared: &SharedSettings,
+    transport_config: TransportConfig,
+) -> client::NetConfig {
+    let conditioner = conditioner.map_or(None, |c| {
+        Some(LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(c.latency_ms as u64),
+            incoming_jitter: Duration::from_millis(c.jitter_ms as u64),
+            incoming_loss: c.packet_loss,
+        })
+    });
+    let auth = Authentication::Manual {
+        server_addr,
+        client_id,
+        private_key: shared.private_key,
+        protocol_id: shared.protocol_id,
+    };
+    let netcode_config = client::NetcodeConfig::default();
+    let io_config = IoConfig::from_transport(transport_config);
+    let io_config = if let Some(conditioner) = conditioner {
+        io_config.with_conditioner(conditioner)
+    } else {
+        io_config
+    };
+    client::NetConfig::Netcode {
+        auth,
+        config: netcode_config,
+        io: io_config,
+    }
+}
+
 /// Parse the client transport settings into a `TransportConfig` that is used to configure the lightyear client
-fn get_client_transport_config(settings: ClientSettings) -> TransportConfig {
-    let server_addr = SocketAddr::new(settings.server_addr.into(), settings.server_port);
-    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client_port);
-    match settings.transport {
+fn get_client_net_config(settings: &Settings, client_id: ClientId) -> client::NetConfig {
+    let server_addr = SocketAddr::new(
+        settings.client.server_addr.into(),
+        settings.client.server_port,
+    );
+    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client.client_port);
+    match &settings.client.transport {
         #[cfg(not(target_family = "wasm"))]
-        ClientTransports::Udp => TransportConfig::UdpSocket(client_addr),
-        ClientTransports::WebTransport { certificate_digest } => {
+        ClientTransports::Udp => build_client_netcode_config(
+            client_id,
+            server_addr,
+            settings.client.conditioner.as_ref(),
+            &settings.shared,
+            TransportConfig::UdpSocket(client_addr),
+        ),
+        ClientTransports::WebTransport { certificate_digest } => build_client_netcode_config(
+            client_id,
+            server_addr,
+            settings.client.conditioner.as_ref(),
+            &settings.shared,
             TransportConfig::WebTransportClient {
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
                 certificate_digest,
-            }
-        }
-        ClientTransports::WebSocket => TransportConfig::WebSocketClient { server_addr },
+            },
+        ),
+        ClientTransports::WebSocket => build_client_netcode_config(
+            client_id,
+            server_addr,
+            settings.client.conditioner.as_ref(),
+            &settings.shared,
+            TransportConfig::WebSocketClient { server_addr },
+        ),
+        ClientTransports::Steam { app_id } => client::NetConfig::Steam {
+            config: SteamConfig {
+                server_addr,
+                app_id: *app_id,
+            },
+        },
     }
 }
