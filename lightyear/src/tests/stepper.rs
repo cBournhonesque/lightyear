@@ -17,7 +17,6 @@ use crate::prelude::*;
 use crate::tests::protocol::*;
 
 /// Helpers to setup a bevy app where I can just step the world easily
-
 pub trait Step {
     /// Advance both apps by one frame duration
     fn frame_step(&mut self);
@@ -46,7 +45,6 @@ impl BevyStepper {
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::DEBUG)
         //     .init();
 
@@ -82,7 +80,7 @@ impl BevyStepper {
         };
         let config = ServerConfig {
             shared: shared_config.clone(),
-            net: net_config,
+            net: vec![net_config],
             ping: PingConfig::default(),
             packet: Default::default(),
         };

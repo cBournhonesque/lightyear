@@ -12,7 +12,6 @@ use bevy::utils::{HashMap, HashSet};
 use crate::connection::netcode::ClientId;
 use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
-use crate::server::resource::Server;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::time_manager::is_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
@@ -465,12 +464,10 @@ fn clean_entity_despawns(
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::{Duration, HashMap};
-
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
+    use bevy::utils::{Duration, HashMap};
 
-    use super::*;
     use crate::prelude::client::*;
     use crate::prelude::*;
     use crate::shared::replication::components::ReplicationMode;
@@ -478,11 +475,12 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
+    use super::*;
+
     fn setup() -> BevyStepper {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

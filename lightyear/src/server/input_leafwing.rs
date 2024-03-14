@@ -10,9 +10,7 @@ use crate::prelude::{MainSet, TickManager};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
-use crate::server::resource::Server;
-use crate::shared::events::IterInputMessageEvent;
-use crate::shared::sets::FixedUpdateSet;
+use crate::shared::events::connection::IterInputMessageEvent;
 
 pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
     protocol_marker: std::marker::PhantomData<P>,
@@ -183,9 +181,8 @@ fn update_action_state<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
-
     use bevy::input::InputPlugin;
+    use bevy::utils::Duration;
     use leafwing_input_manager::prelude::ActionState;
 
     use crate::inputs::leafwing::input_buffer::ActionDiff;
@@ -204,7 +201,6 @@ mod tests {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

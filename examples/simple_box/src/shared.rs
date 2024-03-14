@@ -1,14 +1,13 @@
-use crate::protocol::*;
-use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+
 use lightyear::prelude::*;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+
+use crate::protocol::*;
 
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
-        enable_replication: true,
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
         // server_send_interval: Duration::from_millis(100),

@@ -6,7 +6,6 @@ use anyhow::Context;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
 use bevy::reflect::Reflect;
-use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::HashSet;
 use tracing::{debug, error, trace, trace_span, warn};
 
@@ -16,7 +15,7 @@ use crate::prelude::{LightyearMapEntities, Tick};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
 use crate::protocol::Protocol;
-use crate::shared::events::ConnectionEvents;
+use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::ReplicationGroupId;
 
 use super::entity_map::RemoteEntityMap;

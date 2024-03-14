@@ -1,47 +1,35 @@
-use crate::protocol::Direction;
-use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
+use bevy::app::PluginGroupBuilder;
+use bevy::prelude::*;
+use bevy::utils::Duration;
+
+use lightyear::_reexport::ShouldBeInterpolated;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
+
+use crate::protocol::Direction;
+use crate::protocol::*;
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
+use crate::{shared, ClientTransports, SharedSettings};
+
 pub struct ClientPluginGroup {
-    client_id: ClientId,
     lightyear: ClientPlugin<MyProtocol>,
 }
 
 impl ClientPluginGroup {
     pub(crate) fn new(
         client_id: u64,
-        client_port: u16,
         server_addr: SocketAddr,
-        transport: Transports,
+        transport_config: TransportConfig,
+        shared_settings: SharedSettings,
     ) -> ClientPluginGroup {
         let auth = Authentication::Manual {
             server_addr,
             client_id,
-            private_key: KEY,
-            protocol_id: PROTOCOL_ID,
-        };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let certificate_digest =
-            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
-                .replace(":", "");
-        let transport_config = match transport {
-            #[cfg(not(target_family = "wasm"))]
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-                #[cfg(target_family = "wasm")]
-                certificate_digest,
-            },
-            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
+            private_key: shared_settings.private_key,
+            protocol_id: shared_settings.protocol_id,
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(0),
@@ -61,7 +49,6 @@ impl ClientPluginGroup {
         };
         let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
-            client_id,
             lightyear: ClientPlugin::new(plugin_config),
         }
     }
@@ -71,28 +58,17 @@ impl PluginGroup for ClientPluginGroup {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(self.lightyear)
-            .add(ExampleClientPlugin {
-                client_id: self.client_id,
-            })
+            .add(ExampleClientPlugin)
             .add(shared::SharedPlugin)
     }
 }
 
-pub struct ExampleClientPlugin {
-    client_id: ClientId,
-}
-
-#[derive(Resource)]
-pub struct ClientIdResource {
-    client_id: ClientId,
-}
+pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ClientIdResource {
-            client_id: self.client_id,
-        });
         app.add_systems(Startup, init);
+        app.add_systems(PreUpdate, spawn_cursor.after(MainSet::ReceiveFlush));
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
@@ -115,23 +91,32 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, plugin: Res<ClientIdResource>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        format!("Client {}", plugin.client_id),
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
-            ..default()
-        },
-    ));
-    // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
-    commands.spawn(CursorBundle::new(
-        plugin.client_id,
-        Vec2::ZERO,
-        color_from_id(plugin.client_id),
-    ));
     let _ = client.connect();
+}
+
+pub(crate) fn spawn_cursor(mut commands: Commands, metadata: Res<GlobalMetadata>) {
+    // the `GlobalMetadata` resource holds metadata related to the client
+    // once the connection is established.
+    if metadata.is_changed() {
+        if let Some(client_id) = metadata.client_id {
+            commands.spawn(TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ));
+            // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
+            commands.spawn(CursorBundle::new(
+                client_id,
+                Vec2::ZERO,
+                color_from_id(client_id),
+            ));
+        }
+    }
 }
 
 // System that reads from peripherals and adds inputs to the buffer
@@ -193,12 +178,17 @@ fn player_movement(
 fn spawn_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    plugin: Res<ClientIdResource>,
+    metadata: Res<GlobalMetadata>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
+    // return early if we still don't have access to the client id
+    let Some(client_id) = metadata.client_id else {
+        return;
+    };
+
     // do not spawn a new player if we already have one
     for player_id in players.iter() {
-        if player_id.0 == plugin.client_id {
+        if player_id.0 == client_id {
             return;
         }
     }
@@ -208,11 +198,7 @@ fn spawn_player(
                 Inputs::Spawn => {
                     debug!("got spawn input");
                     commands.spawn((
-                        PlayerBundle::new(
-                            plugin.client_id,
-                            Vec2::ZERO,
-                            color_from_id(plugin.client_id),
-                        ),
+                        PlayerBundle::new(client_id, Vec2::ZERO, color_from_id(client_id)),
                         // IMPORTANT: this lets the server know that the entity is pre-predicted
                         // when the server replicates this entity; we will get a Confirmed entity which will use this entity
                         // as the Predicted version
@@ -229,7 +215,7 @@ fn spawn_player(
 fn delete_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    plugin: Res<ClientIdResource>,
+    metadata: Res<GlobalMetadata>,
     players: Query<
         (Entity, &PlayerId),
         (
@@ -239,12 +225,17 @@ fn delete_player(
         ),
     >,
 ) {
+    // return early if we still don't have access to the client id
+    let Some(client_id) = metadata.client_id else {
+        return;
+    };
+
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             match input {
                 Inputs::Delete => {
                     for (entity, player_id) in players.iter() {
-                        if player_id.0 == plugin.client_id {
+                        if player_id.0 == client_id {
                             if let Some(mut entity_mut) = commands.get_entity(entity) {
                                 // we need to use this special function to despawn prediction entity
                                 // the reason is that we actually keep the entity around for a while,
@@ -263,12 +254,20 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    plugin: Res<ClientIdResource>,
+    metadata: Res<GlobalMetadata>,
     window_query: Query<&Window>,
-    mut cursor_query: Query<(&mut CursorPosition, &PlayerId)>,
+    mut cursor_query: Query<
+        (&mut CursorPosition, &PlayerId),
+        (Without<Confirmed>, Without<Interpolated>),
+    >,
 ) {
+    // return early if we still don't have access to the client id
+    let Some(client_id) = metadata.client_id else {
+        return;
+    };
+
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
-        if player_id.0 != plugin.client_id {
+        if player_id.0 != client_id {
             return;
         }
         if let Ok(window) = window_query.get_single() {

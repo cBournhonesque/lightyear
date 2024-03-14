@@ -19,8 +19,11 @@ use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 pub mod components;
 
+mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
+pub mod metadata;
+pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod send;
 pub mod systems;
@@ -104,8 +107,6 @@ pub struct ReplicationMessage<C, K: Hash + Eq> {
 ///
 /// The trait is made public because it is needed in the macros
 pub trait ReplicationSend<P: Protocol>: Resource {
-    // type Manager: ReplicationManager;
-
     /// Set the priority for a given replication group, for a given client
     /// This IS the client-facing API that users must use to update the priorities for a given client.
     ///
@@ -180,6 +181,10 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()>;
 
     fn get_mut_replicate_component_cache(&mut self) -> &mut EntityHashMap<Replicate<P>>;
+
+    /// Do some regular cleanup on the internals of replication
+    /// - account for tick wrapping by resetting some internal ticks for each replication group
+    fn cleanup(&mut self, tick: Tick);
 }
 
 #[cfg(test)]
@@ -199,7 +204,6 @@ mod tests {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
-            enable_replication: true,
             tick: TickConfig::new(tick_duration),
             ..Default::default()
         };

@@ -46,18 +46,19 @@ pub mod _reexport {
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
     pub use crate::serialize::wordbuffer::writer::WriteWordBuffer;
     pub use crate::serialize::writer::WriteBuffer;
-    pub use crate::shared::events::{
-        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
+    pub use crate::shared::events::components::{
+        ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, MessageEvent,
     };
-    pub use crate::shared::events::{
+    pub use crate::shared::events::connection::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+        IterMessageEvent,
+    };
+    pub use crate::shared::events::systems::{
+        push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
-    pub use crate::shared::systems::events::{
-        push_component_insert_events, push_component_remove_events, push_component_update_events,
-    };
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;
@@ -89,6 +90,7 @@ pub mod prelude {
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::metadata::ClientMetadata;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
@@ -118,6 +120,7 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
+        pub use crate::client::metadata::GlobalMetadata;
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
@@ -136,10 +139,13 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
+        pub use crate::server::metadata::GlobalMetadata;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
-        pub use crate::connection::server::{NetConfig, NetServer, ServerConnection};
+        pub use crate::connection::server::{
+            NetConfig, NetServer, ServerConnection, ServerConnections,
+        };
         #[cfg(feature = "steam")]
         pub use crate::connection::steam::server::SteamConfig;
         #[cfg(feature = "leafwing")]

@@ -1,14 +1,14 @@
-use bevy::utils::Duration;
 use std::default::Default;
 use std::net::SocketAddr;
-use std::str::FromStr;
 
 use bevy::app::App;
 use bevy::prelude::default;
+use bevy::utils::Duration;
 
-use crate::protocol::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+
+use crate::protocol::*;
 
 pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key: Key) {
     // create udp-socket based io
@@ -17,14 +17,13 @@ pub fn bevy_setup(app: &mut App, addr: SocketAddr, protocol_id: u64, private_key
         .with_key(private_key);
     let config = ServerConfig {
         shared: SharedConfig {
-            enable_replication: false,
             tick: TickConfig::new(Duration::from_millis(10)),
             ..Default::default()
         },
-        net: NetConfig::Netcode {
+        net: vec![NetConfig::Netcode {
             config: netcode_config,
             io: IoConfig::from_transport(TransportConfig::UdpSocket(addr)),
-        },
+        }],
         ..default()
     };
     let plugin_config = PluginConfig::new(config, protocol());

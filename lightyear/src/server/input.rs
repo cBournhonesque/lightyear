@@ -8,9 +8,7 @@ use crate::connection::netcode::ClientId;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
-use crate::server::resource::Server;
-use crate::shared::events::InputEvent;
-use crate::shared::sets::FixedUpdateSet;
+use crate::shared::events::components::InputEvent;
 
 // - ClientInputs:
 // - inputs will be sent via a special message

@@ -14,9 +14,6 @@ pub mod replication;
 
 pub mod sets;
 
-// TODO: refactor this out
-pub mod systems;
-
 pub mod tick_manager;
 
 pub mod time_manager;

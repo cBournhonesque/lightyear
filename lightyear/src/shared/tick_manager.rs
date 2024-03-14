@@ -34,6 +34,8 @@ impl Plugin for TickManagerPlugin {
             // RESOURCES
             // TODO: avoid clone
             .insert_resource(TickManager::from_config(self.config.clone()))
+            // SYSTEM SETS
+            .configure_sets(FixedFirst, FixedUpdateSet::TickUpdate)
             // SYSTEMS
             .add_systems(
                 FixedFirst,

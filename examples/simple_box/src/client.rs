@@ -1,16 +1,19 @@
-use crate::protocol::Direction;
-use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
-use crate::{shared, Transports, KEY, PROTOCOL_ID};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
+
 use lightyear::client::resource::connect_with_token;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
+
+use crate::protocol::Direction;
+use crate::protocol::*;
+use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ClientPluginGroup {
     client_id: ClientId,
@@ -20,30 +23,15 @@ pub struct ClientPluginGroup {
 impl ClientPluginGroup {
     pub(crate) fn new(
         client_id: u64,
-        client_port: u16,
         server_addr: SocketAddr,
-        transport: Transports,
+        transport_config: TransportConfig,
+        shared_settings: SharedSettings,
     ) -> ClientPluginGroup {
         let auth = Authentication::Manual {
             server_addr,
             client_id,
-            private_key: KEY,
-            protocol_id: PROTOCOL_ID,
-        };
-        let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-        let certificate_digest =
-            String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
-                .replace(":", "");
-        let transport_config = match transport {
-            #[cfg(not(target_family = "wasm"))]
-            Transports::Udp => TransportConfig::UdpSocket(client_addr),
-            Transports::WebTransport => TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-                #[cfg(target_family = "wasm")]
-                certificate_digest,
-            },
-            Transports::WebSocket => TransportConfig::WebSocketClient { server_addr },
+            private_key: shared_settings.private_key,
+            protocol_id: shared_settings.protocol_id,
         };
         let link_conditioner = LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
@@ -81,28 +69,17 @@ impl PluginGroup for ClientPluginGroup {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(self.lightyear)
-            .add(ExampleClientPlugin {
-                client_id: self.client_id,
-            })
+            .add(ExampleClientPlugin)
             .add(shared::SharedPlugin)
     }
 }
 
-pub struct ExampleClientPlugin {
-    client_id: ClientId,
-}
-
-#[derive(Resource)]
-pub struct Global {
-    client_id: ClientId,
-}
+pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Global {
-            client_id: self.client_id,
-        });
         app.add_systems(Startup, init);
+        app.add_systems(PreUpdate, handle_connection.after(MainSet::ReceiveFlush));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
@@ -124,51 +101,28 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut, global: Res<Global>) {
+pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        format!("Client {}", global.client_id),
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
-            ..default()
-        },
-    ));
+
     let _ = client.connect();
 }
 
-// pub(crate) fn connect(world: &mut World) {
-//     // if world.get_resource::<Time>().unwrap().elapsed() < Duration::from_secs(3) {
-//     //     return;
-//     // }
-//     let server_addr = SocketAddr::from_str("127.0.0.1:5000").unwrap();
-//     let client_port = 0;
-//     let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), client_port);
-//     let certificate_digest =
-//         String::from("2b:08:3b:2a:2b:9a:ad:dc:ed:ba:80:43:c3:1a:43:3e:2c:06:11:a0:61:25:4b:fb:ca:32:0e:5d:85:5d:a7:56")
-//             .replace(":", "");
-//     let transport_config = TransportConfig::WebTransportClient {
-//         client_addr,
-//         server_addr,
-//     };
-//     let link_conditioner = LinkConditionerConfig {
-//         incoming_latency: Duration::from_millis(200),
-//         incoming_jitter: Duration::from_millis(20),
-//         incoming_loss: 0.05,
-//     };
-//     let io = Io::from_config(
-//         IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-//     );
-//     info!("CONNECT");
-//     let auth = Authentication::Manual {
-//         server_addr,
-//         client_id: 1,
-//         private_key: KEY,
-//         protocol_id: PROTOCOL_ID,
-//     };
-//     let token = auth.get_token(20).unwrap();
-//     let _ = connect_with_token(world, token, io);
-// }
+pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMetadata>) {
+    // the `GlobalMetadata` resource holds metadata related to the client
+    // once the connection is established.
+    if metadata.is_changed() {
+        if let Some(client_id) = metadata.client_id {
+            commands.spawn(TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ));
+        }
+    }
+}
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {

@@ -133,8 +133,6 @@ mod bytes;
 mod client;
 mod crypto;
 mod error;
-
-mod free_list;
 mod packet;
 mod replay;
 mod server;

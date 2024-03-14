@@ -1,6 +1,5 @@
 //! Defines server-specific configuration options
 use bevy::prelude::Resource;
-use bevy::utils::Duration;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
@@ -89,7 +88,9 @@ impl PacketConfig {
 #[derive(Clone, Debug, Default, Resource)]
 pub struct ServerConfig {
     pub shared: SharedConfig,
-    pub net: NetConfig,
+    /// The server can support multiple transport at the same time (e.g. UDP and WebTransport) so that
+    /// clients can connect using the transport they prefer, and still play with each other!
+    pub net: Vec<NetConfig>,
     pub packet: PacketConfig,
     pub ping: PingConfig,
 }

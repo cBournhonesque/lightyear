@@ -116,20 +116,19 @@ pub fn component_protocol_impl(
 
     // Add extra variants
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         PreSpawnedPlayerObject(PreSpawnedPlayerObject)
     });
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     input.variants.push(parse_quote! {
-        // #[sync(external)]
         ParentSync(ParentSync)
+    });
+    input.variants.push(parse_quote! {
+        ClientMetadata(ClientMetadata)
     });
     #[cfg(feature = "leafwing")]
     for i in 1..3 {
@@ -207,7 +206,7 @@ pub fn component_protocol_impl(
             use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
             use bevy::utils::HashMap;
             use std::any::TypeId;
-            use #shared_crate_name::shared::events::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
+            use #shared_crate_name::shared::events::components::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
             #[cfg(feature = "leafwing")]
             use leafwing_input_manager::prelude::*;
 
