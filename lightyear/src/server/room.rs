@@ -4,8 +4,8 @@
 //! You can also find more information in the [book](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/interest_management.html).
 use bevy::app::App;
 use bevy::prelude::{
-    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, RemovedComponents,
-    Res, ResMut, Resource, SystemSet,
+    Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, Reflect,
+    RemovedComponents, Res, ResMut, Resource, SystemSet,
 };
 use bevy::utils::{HashMap, HashSet};
 
@@ -352,7 +352,7 @@ impl RoomEvents {
 }
 
 // TODO: this should not be public
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Reflect)]
 pub enum ClientVisibility {
     /// the entity was not replicated to the client, but now is
     Gained,

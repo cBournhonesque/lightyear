@@ -40,7 +40,7 @@ pub trait Channel: 'static + Named {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct ChannelBuilder {
     pub(crate) settings: ChannelSettings,
 }
@@ -95,7 +95,7 @@ impl ChannelContainer {
 }
 
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct ChannelSettings {
     pub mode: ChannelMode,
     pub direction: ChannelDirection,
@@ -113,7 +113,7 @@ impl Default for ChannelSettings {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 /// ChannelMode specifies how messages are sent and received
 /// See more information [here](http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
 pub enum ChannelMode {
@@ -164,7 +164,7 @@ impl ChannelMode {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Reflect)]
 /// [`ChannelDirection`] specifies in which direction the packets can be sent
 pub enum ChannelDirection {
     ClientToServer,
@@ -172,7 +172,7 @@ pub enum ChannelDirection {
     Bidirectional,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct ReliableSettings {
     /// Duration to wait before resending a packet if it has not been acked
     pub rtt_resend_factor: f32,

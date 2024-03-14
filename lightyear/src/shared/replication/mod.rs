@@ -28,24 +28,6 @@ pub(crate) mod receive;
 pub(crate) mod send;
 pub mod systems;
 
-// // NOTE: cannot add trait bounds on C: ComponentProtocol and K: ComponentProtocolKind because of https://github.com/serde-rs/serde/issues/1296
-// //  better to not add trait bounds on structs directly anyway
-// #[cfg_attr(feature = "debug", derive(Debug))]
-// #[derive(Serialize, Deserialize, Clone)]
-// pub enum ReplicationMessage<C, K> {
-//     // TODO: maybe include Vec<C> for SpawnEntity? All the components that already exist on this entity
-//     SpawnEntity(Entity, Vec<C>),
-//     DespawnEntity(Entity),
-//     // TODO: maybe ComponentActions (Insert/Remove) in the same message? same logic, we might want to receive all of them at the same time
-//     //  unfortunately can't really put entity-updates in the same message because it uses a different channel
-//     /// All the components that are inserted on this entity
-//     InsertComponent(Entity, Vec<C>),
-//     /// All the components that are removed from this entity
-//     RemoveComponent(Entity, Vec<K>),
-//     // TODO: add the tick of the update? maybe this makes no sense if we gather updates only at the end of the tick
-//     EntityUpdate(Entity, Vec<C>),
-// }
-
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EntityActions<C, K: Hash + Eq> {
     pub(crate) spawn: bool,

@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -14,7 +15,7 @@ pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 // type TypeKind = From<TypeId> + Copy + PartialEq + Eq + Hash {};
 
 /// Struct to map a type to an id that can be serialized over the network
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct TypeMapper<K: TypeKind> {
     pub(in crate::protocol) next_net_id: NetId,
     pub(in crate::protocol) kind_map: HashMap<K, NetId>,

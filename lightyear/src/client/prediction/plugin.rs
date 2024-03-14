@@ -24,7 +24,7 @@ use crate::client::prediction::prespawn::{
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::ReplicationSet;
+use crate::prelude::{PreSpawnedPlayerObject, ReplicationSet};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::MainSet;

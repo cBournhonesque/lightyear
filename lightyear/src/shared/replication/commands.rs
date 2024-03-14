@@ -20,10 +20,11 @@ fn remove_replicate<P: Protocol, R: ReplicationSend<P>>(entity: Entity, world: &
 
 pub trait RemoveReplicateCommandsExt<P: Protocol, R: ReplicationSend<P>> {
     /// Remove the replicate component from the entity.
-    /// This also makes sure that if you despawn the entity right after, the despawn won't be replicated.
+    /// Also updates internal bookkeeping data so that the despawn won't be replicated (even if the entity
+    /// is despawned right after).
     ///
     /// This can be useful when you want to despawn an entity on the server, but you don't want the despawn to be replicated
-    /// immediately to clients (for example because clients are playing a despawn animation)/
+    /// immediately to clients (for example because clients are playing a despawn animation).
     fn remove_replicate(&mut self);
 }
 impl<P: Protocol, R: ReplicationSend<P>> RemoveReplicateCommandsExt<P, R> for EntityCommands<'_> {

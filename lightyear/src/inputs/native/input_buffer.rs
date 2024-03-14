@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Reflect, Resource};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
 
@@ -20,7 +20,7 @@ pub struct InputBuffer<T: UserAction> {
 
 // TODO: add encode directive to encode even more efficiently
 /// We use this structure to efficiently compress the inputs that we send to the server
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
 pub(crate) enum InputData<T: UserAction> {
     Absent,
     SameAsPrecedent,
@@ -28,7 +28,7 @@ pub(crate) enum InputData<T: UserAction> {
 }
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
-#[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
 pub struct InputMessage<T: UserAction> {

@@ -6,7 +6,7 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use bevy::ecs::system::Command;
 use bevy::prelude::{
     Commands, Component, DespawnRecursiveExt, DetectChanges, EntityRef, EventReader, Mut, Query,
-    Ref, Res, ResMut, Without, World,
+    Ref, Reflect, Res, ResMut, Without, World,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
@@ -24,7 +24,17 @@ use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 
 #[derive(
-    MessageInternal, Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq,
+    MessageInternal,
+    Component,
+    Serialize,
+    Deserialize,
+    Default,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Reflect,
 )]
 pub struct PreSpawnedPlayerObject {
     /// The hash that will identify the spawned entity

@@ -10,10 +10,10 @@ use crate::_reexport::*;
 use crate::prelude::*;
 
 // Messages
-#[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Message1(pub String);
 
-#[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(MessageInternal, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub struct Message2(pub u32);
 
 #[message_protocol_internal(protocol = "MyProtocol")]
@@ -23,7 +23,9 @@ pub enum MyMessageProtocol {
 }
 
 // Components
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(
+    Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, Add, Mul,
+)]
 pub struct Component1(pub f32);
 
 impl Mul<f32> for &Component1 {
@@ -33,13 +35,17 @@ impl Mul<f32> for &Component1 {
     }
 }
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(
+    Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, Add, Mul,
+)]
 pub struct Component2(pub f32);
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(
+    Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, Add, Mul,
+)]
 pub struct Component3(pub f32);
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[message(custom_map)]
 pub struct Component4(pub Entity);
 
@@ -63,7 +69,7 @@ pub enum MyComponentsProtocol {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct MyInput(pub i16);
 
 impl UserAction for MyInput {}

@@ -148,13 +148,13 @@ pub fn message_protocol_impl(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use bevy::prelude::{App, Entity, World};
+            use bevy::prelude::{App, Entity, World, Reflect};
             use bevy::ecs::entity::{MapEntities, EntityMapper};
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::shared::events::systems::push_message_events;
 
-            #[derive(Serialize, Deserialize, Clone, PartialEq)]
+            #[derive(Serialize, Deserialize, Clone, PartialEq, Reflect)]
             #extra_derives
             #input
 

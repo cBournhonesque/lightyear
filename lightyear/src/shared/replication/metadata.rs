@@ -4,11 +4,11 @@
 //! - send information to clients about themselves (such as their global ClientId, independent from the connection's ClientId) or about other clients
 
 use crate::prelude::ClientId;
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Reflect};
 use lightyear_macros::MessageInternal;
 use serde::{Deserialize, Serialize};
 
-#[derive(MessageInternal, Component, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(MessageInternal, Component, Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct ClientMetadata {
     /// global ClientId that is used by the server to identify the client
     pub(crate) client_id: ClientId,

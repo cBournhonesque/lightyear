@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use bevy::prelude::{default, App, Plugin as PluginType};
 
 use crate::connection::server::NetServer;
+use crate::prelude::ReplicationMode::Room;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -14,7 +15,7 @@ use crate::server::input::InputPlugin;
 use crate::server::metadata::ClientMetadataPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
-use crate::server::room::RoomPlugin;
+use crate::server::room::{ClientVisibility, RoomPlugin};
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::time_manager::TimePlugin;
@@ -56,6 +57,8 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
         let tick_duration = config.server_config.shared.tick.tick_duration;
 
         app
+            // REFLECTION //
+            .register_type::<ClientVisibility>()
             // RESOURCES //
             .insert_resource(config.server_config.clone())
             .insert_resource(ConnectionManager::<P>::new(

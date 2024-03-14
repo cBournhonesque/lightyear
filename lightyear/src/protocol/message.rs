@@ -1,7 +1,7 @@
 use std::any::TypeId;
 use std::fmt::Debug;
 
-use bevy::prelude::{App, World};
+use bevy::prelude::{App, FromReflect, Reflect, TypePath, World};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -35,6 +35,8 @@ pub trait MessageProtocol:
     + Debug
     + Send
     + Sync
+    + FromReflect
+    + TypePath
     + From<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>>
     + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
 {

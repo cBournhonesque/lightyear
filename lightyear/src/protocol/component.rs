@@ -2,7 +2,9 @@ use std::any::TypeId;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use bevy::prelude::{App, Component, Entity, EntityWorldMut, World};
+use bevy::prelude::{
+    App, Component, Entity, EntityWorldMut, FromReflect, Reflect, TypePath, World,
+};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
@@ -34,6 +36,8 @@ pub trait ComponentProtocol:
     + Debug
     + Send
     + Sync
+    + FromReflect
+    + TypePath
     + From<ShouldBePredicted>
     + From<ShouldBeInterpolated>
     + TryInto<ShouldBePredicted>
@@ -201,6 +205,8 @@ cfg_if!(
             + Send
             + Sync
             + Display
+            + FromReflect
+            + TypePath
             + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
             + ComponentKindBehaviour
             + FromType<ShouldBePredicted>
@@ -228,6 +234,9 @@ cfg_if!(
             + Send
             + Sync
             + Display
+            + Reflect
+            + FromReflect
+            + TypePath
             + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
             + ComponentKindBehaviour
             + FromType<ShouldBePredicted>
