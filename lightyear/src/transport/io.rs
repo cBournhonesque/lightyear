@@ -284,8 +284,6 @@ impl Debug for Io {
 impl PacketReceiver for Io {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         // todo: compression + bandwidth monitoring
-        // TODO: INSPECT IS UNSTABLE
-
         self.receiver.recv().map(|x| {
             if let Some((ref buffer, _)) = x {
                 #[cfg(feature = "metrics")]

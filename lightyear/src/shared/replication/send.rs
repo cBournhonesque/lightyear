@@ -427,6 +427,8 @@ impl Default for GroupChannel {
 }
 
 impl GroupChannel {
+    /// Update the bevy_tick at which we received entity updates for this group
+    /// (we will only collect updates since this tick)
     pub(crate) fn update_collect_changes_since_this_tick(&mut self, bevy_tick: BevyTick) {
         // the bevy_tick passed is either at receive or send, and is always more recent
         // than the previous bevy_tick

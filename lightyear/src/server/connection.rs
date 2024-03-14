@@ -77,8 +77,7 @@ impl<P: Protocol> ConnectionManager<P> {
         &mut self,
         target: NetworkTarget,
     ) -> Box<dyn Iterator<Item = ClientId>> {
-        // TODO: avoid this vec allocation
-        let connected_clients: Vec<ClientId> = self.connections.keys().copied().collect();
+        let connected_clients = self.connections.keys().copied().collect::<Vec<_>>();
         match target {
             NetworkTarget::All => {
                 // TODO: maybe only send stuff when the client is time-synced ?
@@ -281,7 +280,6 @@ impl<P: Protocol> ConnectionManager<P> {
 
 /// Wrapper that handles the connection between the server and a client
 pub struct Connection<P: Protocol> {
-    // TODO: could this be shared across all connections?
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
     pub(crate) replication_receiver: ReplicationReceiver<P>,
