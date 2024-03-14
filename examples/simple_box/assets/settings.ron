@@ -4,25 +4,25 @@ Settings(
         client_id: 0,
         client_port: 0, // the OS will assign a random open port
         server_addr: "127.0.0.1",
-        server_port: 5000,
         conditioner: Some(Conditioner(
             latency_ms: 200,
             jitter_ms: 20,
             packet_loss: 0.05
         )),
-        transport: WebTransport(
-            // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
-            // the server will print the certificate digest on startup
-            certificate_digest: "81631824c5b07c957893c936895c7807efd2470787449043b934ab006090e290",
-        ),
+        // server_port: 5000,
+        // transport: WebTransport(
+        //     // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
+        //     // the server will print the certificate digest on startup
+        //     certificate_digest: "81631824c5b07c957893c936895c7807efd2470787449043b934ab006090e290",
+        // ),
         // server_port: 5001,
         // transport: Udp,
         // server_port: 5002,
         // transport: WebSocket,
-        // server_port: 5003,
-        // transport: Steam(
-        //     app_id: 480,
-        // )
+        server_port: 5003,
+        transport: Steam(
+            app_id: 480,
+        )
     ),
     server: ServerSettings(
         headless: true,
@@ -47,9 +47,6 @@ Settings(
                 server_ip: "0.0.0.0",
                 game_port: 5003,
                 query_port: 27016,
-                max_clients: 16,
-                // mode: ServerMode::NoAuthentication,
-                version: 0,
             ),
         ],
     ),
