@@ -164,7 +164,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
                     // map any entities from confirmed to predicted
                     let mut component = confirmed_component.deref().clone();
                     component.map_entities(&mut manager.interpolated_entity_map);
-                    trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
+                    trace!(component = ?C::short_type_path(), tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
                     history.buffer.add_item(tick, component);
 

@@ -145,7 +145,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                 // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
                     if confirmed_component.is_added() {
-                        debug!(kind = ?confirmed_component.name(), "Component added on confirmed side");
+                        debug!(kind = ?C::short_type_path(), "Component added on confirmed side");
                         // safety: we know the entity exists
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();
@@ -164,7 +164,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
-                                debug!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
+                                debug!(kind = ?C::short_type_path(), "Component simple synced between confirmed and predicted");
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(new_component);
                             }
@@ -222,7 +222,7 @@ fn add_history<C: SyncComponent, P: Protocol>(
 ) where
     P::Components: SyncMetadata<C>,
 {
-    let kind = C::type_name();
+    let kind = C::short_type_path();
     if P::Components::mode() == ComponentSyncMode::Full {
         if let Some(predicted_component) = predicted_component {
             // component got added on predicted side, add history

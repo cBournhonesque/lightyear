@@ -210,10 +210,11 @@ macro_rules! protocolize {
             use bevy::prelude::*;
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
-            use $shared_crate_name::inputs::leafwing::{NoAction1, NoAction2};
 
-            #[derive(Debug, Clone, Resource, PartialEq)]
+            #[derive(Debug, Clone, Resource, PartialEq, Reflect)]
+            #[reflect(Resource)]
             pub struct $protocol {
+                #[reflect(ignore)]
                 channel_registry: ChannelRegistry,
             }
 
@@ -320,7 +321,7 @@ macro_rules! protocolize {
             Self = $protocol,
             Message = $message,
             Component = $components,
-            Input = (),
+            Input = NoAction,
             LeafwingInput1 = $leafwing_input_1,
             LeafwingInput2 = NoAction2,
             Crate = lightyear,
@@ -338,7 +339,7 @@ macro_rules! protocolize {
             Self = $protocol,
             Message = $message,
             Component = $components,
-            Input = (),
+            Input = NoAction,
             LeafwingInput1 = $leafwing_input_1,
             LeafwingInput2 = $leafwing_input_2,
             Crate = lightyear,
@@ -355,7 +356,7 @@ macro_rules! protocolize {
             Self = $protocol,
             Message = $message,
             Component = $components,
-            Input = (),
+            Input = NoAction,
             Crate = $shared_crate_name,
         }
     };

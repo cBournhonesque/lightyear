@@ -1,25 +1,36 @@
 pub mod some_component {
-    use bevy::prelude::Component;
+    use bevy::prelude::{Component, Reflect};
     use derive_more::{Add, Mul};
     use serde::{Deserialize, Serialize};
+    use std::ops::Mul;
 
     use lightyear::prelude::client::LerpFn;
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Mul)]
+    #[derive(
+        Component, Message, Serialize, Deserialize, Debug, PartialEq, Reflect, Clone, Add, Mul,
+    )]
     pub struct Component1(pub f32);
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    impl Mul<f32> for &Component1 {
+        type Output = Component1;
+
+        fn mul(self, rhs: f32) -> Self::Output {
+            Component1(self.0 * rhs)
+        }
+    }
+
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Reflect, Clone)]
     pub struct Component2(pub f32);
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Reflect, Clone)]
     pub struct Component3(String);
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Reflect, Clone)]
     pub struct Component4(String);
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Reflect, Clone)]
     pub struct Component5(pub f32);
 
     #[component_protocol(protocol = "MyProtocol")]
@@ -37,13 +48,13 @@ pub mod some_component {
 
     // custom interpolation logic
     pub struct MyCustomInterpolator;
-    impl<C> LerpFn<C> for MyCustomInterpolator {
-        fn lerp(start: C, _other: C, _t: f32) -> C {
-            start
+    impl<C: Clone> LerpFn<C> for MyCustomInterpolator {
+        fn lerp(start: &C, _other: &C, _t: f32) -> C {
+            start.clone()
         }
     }
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Reflect, Clone)]
     pub struct Message1(pub u32);
 
     #[message_protocol(protocol = "MyProtocol")]
@@ -84,13 +95,13 @@ mod tests {
         let component5 = Component5(0.1);
         assert_eq!(
             component5.clone(),
-            MyComponentProtocol::lerp(component5, Component5(0.0), 0.5)
+            MyComponentProtocol::lerp(&component5, &Component5(0.0), 0.5)
         );
 
         let component1 = Component1(0.0);
         assert_eq!(
             Component1(0.5),
-            MyComponentProtocol::lerp(component1, Component1(1.0), 0.5)
+            MyComponentProtocol::lerp(&component1, &Component1(1.0), 0.5)
         );
 
         Ok(())

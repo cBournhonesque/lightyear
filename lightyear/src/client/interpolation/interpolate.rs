@@ -64,7 +64,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
 ) where
     P::Components: SyncMetadata<C>,
 {
-    let kind = C::type_name();
+    let kind = C::short_type_path();
     if !connection.is_synced() {
         return;
     }

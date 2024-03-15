@@ -2,6 +2,7 @@ use std::any::TypeId;
 use std::fmt::Debug;
 
 use bevy::prelude::{App, FromReflect, Reflect, TypePath, World};
+use bevy::reflect::Enum;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -37,13 +38,16 @@ pub trait MessageProtocol:
     + Sync
     + FromReflect
     + TypePath
+    + Enum
     + From<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>>
     + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
 {
     type Protocol: Protocol;
 
     /// Get the name of the Message
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str {
+        self.variant_name()
+    }
 
     /// Returns the MessageKind of the Message
     fn kind(&self) -> MessageKind;

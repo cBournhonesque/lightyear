@@ -1,14 +1,14 @@
 pub mod some_message {
-    use bevy::prelude::Component;
+    use bevy::prelude::{Component, Reflect};
     use serde::{Deserialize, Serialize};
 
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Message1(pub u8);
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Message2(pub u32);
 
     #[message_protocol(protocol = "MyProtocol")]
@@ -17,7 +17,7 @@ pub mod some_message {
         Message2(Message2),
     }
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component1(pub u8);
 
     #[component_protocol(protocol = "MyProtocol")]
@@ -36,9 +36,8 @@ pub mod some_message {
 mod tests {
     use super::some_message::*;
     use lightyear::_reexport::{
-        BitSerializable, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
+        BitSerializable, MessageProtocol, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
     };
-    use lightyear::prelude::*;
 
     #[test]
     fn test_message_derive() -> anyhow::Result<()> {

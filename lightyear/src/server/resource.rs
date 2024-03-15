@@ -134,7 +134,7 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
         P::Message: From<M>,
     {
         let _span =
-            debug_span!("send_message", channel = ?C::type_name(), message = ?message.name(), ?target)
+            debug_span!("send_message", channel = ?C::short_type_path(), message = ?M::short_type_path(), ?target)
                 .entered();
         self.connection_manager
             .buffer_message(message.into(), ChannelKind::of::<C>(), target)

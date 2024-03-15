@@ -99,12 +99,12 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
             debug!(
                 ?t,
                 "Correction is over. Removing Correction for: {:?}",
-                component.name()
+                C::short_type_path()
             );
             // correction is over
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
+            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", C::short_type_path());
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
@@ -125,12 +125,12 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
 ) {
     for (mut component, mut correction) in query.iter_mut() {
         if let Some(correction) = std::mem::take(&mut correction.current_correction) {
-            debug!("restoring corrected component: {:?}", component.name());
+            debug!("restoring corrected component: {:?}", C::short_type_path());
             *component.bypass_change_detection() = correction;
         } else {
             debug!(
                 "Corrected component was None so couldn't restore: {:?}",
-                component.name()
+                C::short_type_path()
             );
         }
     }

@@ -1,7 +1,8 @@
 pub mod some_channel {
+    use bevy::prelude::Reflect;
     use lightyear_macros::Channel;
 
-    #[derive(Channel)]
+    #[derive(Channel, Reflect)]
     pub struct SomeChannel;
 }
 

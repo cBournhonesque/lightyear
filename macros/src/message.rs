@@ -148,7 +148,7 @@ pub fn message_protocol_impl(
         mod #module_name {
             use super::*;
             use serde::{Serialize, Deserialize};
-            use bevy::prelude::{App, Entity, World, Reflect};
+            use bevy::prelude::*;
             use bevy::ecs::entity::{MapEntities, EntityMapper};
             use #shared_crate_name::_reexport::*;
             use #shared_crate_name::prelude::*;
@@ -161,7 +161,7 @@ pub fn message_protocol_impl(
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
 
-                #name_method
+                // #name_method
                 #message_kind_method
                 #input_message_kind_method
                 #add_events_method
@@ -333,9 +333,10 @@ fn name_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
     let mut body = quote! {};
     for field in fields.iter() {
         let ident = &field.ident;
+        let ty = &field.ty;
         body = quote! {
             #body
-            &#enum_name::#ident(ref x) => x.name(),
+            &#enum_name::#ident(ref x) => <#ty>::short_type_path(),
         };
     }
 

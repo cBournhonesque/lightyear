@@ -3,6 +3,7 @@ Handles dealing with inputs (keyboard presses, mouse clicks) sent from a player 
 */
 
 use bevy::prelude::{FromReflect, Reflect, TypePath};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 pub use input_buffer::InputMessage;
@@ -18,4 +19,7 @@ pub trait UserAction:
 {
 }
 
-impl UserAction for () {}
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Hash, Reflect)]
+pub struct NoAction;
+
+impl UserAction for NoAction {}

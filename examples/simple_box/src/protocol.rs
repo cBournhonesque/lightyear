@@ -2,7 +2,7 @@ use std::ops::Mul;
 
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
+    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
@@ -36,11 +36,22 @@ impl PlayerBundle {
 
 // Components
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(ClientId);
 
 #[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
+    Component,
+    Message,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Reflect,
+    Deref,
+    DerefMut,
+    Add,
+    Mul,
 )]
 pub struct PlayerPosition(Vec2);
 
@@ -52,7 +63,7 @@ impl Mul<f32> for &PlayerPosition {
     }
 }
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerColor(pub(crate) Color);
 
 // Example of a component that contains an entity.
@@ -60,7 +71,7 @@ pub struct PlayerColor(pub(crate) Color);
 // to the client World.
 // This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
 // deriving the `MapEntities` trait for the component.
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 #[message(custom_map)]
 pub struct PlayerParent(Entity);
 
@@ -82,12 +93,12 @@ pub enum Components {
 
 // Channels
 
-#[derive(Channel)]
+#[derive(Channel, Reflect)]
 pub struct Channel1;
 
 // Messages
 
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Message1(pub usize);
 
 #[message_protocol(protocol = "MyProtocol")]
@@ -97,7 +108,7 @@ pub enum Messages {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -111,7 +122,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
     Delete,

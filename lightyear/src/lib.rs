@@ -35,6 +35,9 @@ pub mod _reexport {
     pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
     pub use crate::client::prediction::add_prediction_systems;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
+    #[cfg(feature = "leafwing")]
+    pub use crate::inputs::leafwing::{NoAction1, NoAction2};
+    pub use crate::inputs::native::{InputMessage, NoAction};
     pub use crate::protocol::component::{
         ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
         FromType,

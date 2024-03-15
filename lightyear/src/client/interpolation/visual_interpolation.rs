@@ -132,7 +132,7 @@ pub(crate) fn visual_interpolation<C: SyncComponent, P: Protocol>(
 ) where
     P::Components: SyncMetadata<C>,
 {
-    let kind = C::type_name();
+    let kind = C::short_type_path();
     let tick = tick_manager.tick();
     let overstep = time_manager.overstep();
     for (mut component, interpolate_status) in query.iter_mut() {
@@ -179,10 +179,9 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
 pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>)>,
 ) {
-    let kind = C::type_name();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
-            trace!(?kind, "Restoring visual interpolation");
+            trace!(kind = ?C::short_type_path(), "Restoring visual interpolation");
             *component.bypass_change_detection() = current_value.clone();
         }
     }

@@ -13,6 +13,7 @@ use crate::shared::tick_manager::Tick;
 use crate::utils::named::Named;
 use crate::utils::wrapping_id::wrapping_id;
 use bevy::ecs::entity::MapEntities;
+use bevy::prelude::TypePath;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
@@ -289,8 +290,8 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + Named + LightyearMapEntities {}
-impl<T: EventContext + Named + LightyearMapEntities> Message for T {}
+pub trait Message: EventContext + TypePath + LightyearMapEntities {}
+impl<T: EventContext + TypePath + LightyearMapEntities> Message for T {}
 
 #[cfg(test)]
 mod tests {
