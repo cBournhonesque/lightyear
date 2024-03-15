@@ -9,7 +9,7 @@ use crate::connection::netcode::ClientId;
 #[cfg(feature = "steam")]
 use crate::connection::steam::server::SteamConfig;
 
-use crate::prelude::{Io, IoConfig};
+use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
 use crate::utils::free_list::FreeList;
 
@@ -52,6 +52,7 @@ pub enum NetConfig {
     #[cfg(feature = "steam")]
     Steam {
         config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
     },
 }
 
@@ -77,9 +78,12 @@ impl NetConfig {
             // TODO: might want to distinguish between steam with direct ip connections
             //  vs steam with p2p connections
             #[cfg(feature = "steam")]
-            NetConfig::Steam { config } => {
+            NetConfig::Steam {
+                config,
+                conditioner,
+            } => {
                 // TODO: handle errors
-                let server = super::steam::server::Server::new(config)
+                let server = super::steam::server::Server::new(config, conditioner)
                     .expect("could not create steam server");
                 ServerConnection {
                     server: Box::new(server),

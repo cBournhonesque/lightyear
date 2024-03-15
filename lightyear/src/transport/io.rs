@@ -56,13 +56,9 @@ pub enum TransportConfig {
         certificate: Certificate,
     },
     #[cfg(feature = "websocket")]
-    WebSocketClient {
-        server_addr: SocketAddr,
-    },
+    WebSocketClient { server_addr: SocketAddr },
     #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-    WebSocketServer {
-        server_addr: SocketAddr,
-    },
+    WebSocketServer { server_addr: SocketAddr },
     Channels {
         channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>,
     },
@@ -70,6 +66,7 @@ pub enum TransportConfig {
         recv: Receiver<Vec<u8>>,
         send: Sender<Vec<u8>>,
     },
+    /// Dummy transport if the connection handles its own io (for example steamworks)
     Dummy,
 }
 

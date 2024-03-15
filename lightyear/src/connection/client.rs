@@ -11,7 +11,7 @@ use crate::connection::netcode::ClientId;
 use crate::connection::steam::client::SteamConfig;
 
 use crate::prelude::client::Authentication;
-use crate::prelude::{Io, IoConfig};
+use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {
@@ -61,7 +61,10 @@ pub enum NetConfig {
     },
     // TODO: for steam, we can use a pass-through io that just computes stats?
     #[cfg(feature = "steam")]
-    Steam { config: SteamConfig },
+    Steam {
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    },
 }
 
 impl Default for NetConfig {
@@ -100,9 +103,12 @@ impl NetConfig {
                 }
             }
             #[cfg(feature = "steam")]
-            NetConfig::Steam { config } => {
+            NetConfig::Steam {
+                config,
+                conditioner,
+            } => {
                 // TODO: handle errors
-                let client = super::steam::client::Client::new(config)
+                let client = super::steam::client::Client::new(config, conditioner)
                     .expect("could not create steam client");
                 ClientConnection {
                     client: Box::new(client),

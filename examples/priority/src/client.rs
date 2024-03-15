@@ -9,7 +9,7 @@ use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 
 use lightyear::_reexport::ShouldBeInterpolated;
-use lightyear::prelude::client::*;
+pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -21,30 +21,10 @@ pub struct ClientPluginGroup {
 }
 
 impl ClientPluginGroup {
-    pub(crate) fn new(
-        client_id: u64,
-        server_addr: SocketAddr,
-        transport_config: TransportConfig,
-        shared_settings: SharedSettings,
-    ) -> ClientPluginGroup {
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: shared_settings.private_key,
-            protocol_id: shared_settings.protocol_id,
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
+    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
         let config = ClientConfig {
             shared: shared_config(),
-            net: NetConfig::Netcode {
-                auth,
-                config: NetcodeConfig::default(),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            net: net_config,
             packet: PacketConfig::default()
                 // by default there is no bandwidth limit so we need to enable it
                 .enable_bandwidth_cap()
@@ -52,8 +32,7 @@ impl ClientPluginGroup {
                 .with_send_bandwidth_bytes_per_second_cap(56000),
             interpolation: InterpolationConfig {
                 delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-                // do not do linear interpolation per component, instead we provide our own interpolation logic
-                custom_interpolation_logic: true,
+                custom_interpolation_logic: false,
             },
             ..default()
         };

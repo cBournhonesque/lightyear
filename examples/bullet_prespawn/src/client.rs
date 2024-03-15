@@ -14,7 +14,7 @@ use leafwing_input_manager::prelude::*;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;
-use lightyear::prelude::client::*;
+pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -29,30 +29,10 @@ pub struct ClientPluginGroup {
 }
 
 impl ClientPluginGroup {
-    pub(crate) fn new(
-        client_id: u64,
-        server_addr: SocketAddr,
-        transport_config: TransportConfig,
-        shared_settings: SharedSettings,
-    ) -> ClientPluginGroup {
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: shared_settings.private_key,
-            protocol_id: shared_settings.protocol_id,
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(150),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.02,
-        };
+    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
         let config = ClientConfig {
             shared: shared_config(),
-            net: NetConfig::Netcode {
-                auth,
-                config: NetcodeConfig::default(),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            net: net_config,
             prediction: PredictionConfig {
                 input_delay_ticks: INPUT_DELAY_TICKS,
                 correction_ticks_factor: CORRECTION_TICKS_FACTOR,

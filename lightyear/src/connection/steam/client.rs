@@ -1,6 +1,6 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::client::NetClient;
-use crate::prelude::{ClientId, Io};
+use crate::prelude::{ClientId, Io, LinkConditionerConfig};
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use std::collections::VecDeque;
@@ -8,12 +8,13 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, RwLock};
 use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
-    NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, SendFlags,
+    NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
+    NetworkingConnectionState, SendFlags,
 };
 use steamworks::{ClientManager, SingleClient};
 use tracing::{info, warn};
 
-use super::SingleClientThreadSafe;
+use super::{get_networking_options, SingleClientThreadSafe};
 
 const MAX_MESSAGE_BATCH_SIZE: usize = 512;
 
@@ -34,22 +35,25 @@ impl Default for SteamConfig {
 
 pub struct Client {
     client: steamworks::Client<ClientManager>,
-    single_client: Arc<RwLock<SingleClient>>,
+    single_client: SingleClientThreadSafe,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
     packet_queue: VecDeque<ReadWordBuffer>,
+    conditioner: Option<LinkConditionerConfig>,
 }
 
 impl Client {
-    pub fn new(config: SteamConfig) -> Result<Self> {
+    pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
         let (client, single) = steamworks::Client::init_app(config.app_id)
             .context("could not initialize steam client")?;
+
         Ok(Self {
             client,
-            single_client: Arc::new(RwLock::new(single)),
+            single_client: SingleClientThreadSafe(single),
             config,
             connection: None,
             packet_queue: VecDeque::new(),
+            conditioner,
         })
     }
 
@@ -72,7 +76,7 @@ impl Client {
 
 impl NetClient for Client {
     fn connect(&mut self) -> Result<()> {
-        let options = vec![];
+        let options = get_networking_options(&self.conditioner);
         self.connection = Some(
             self.client
                 .networking_sockets()
@@ -94,9 +98,7 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        if let Ok(single) = self.single_client.read() {
-            single.run_callbacks();
-        };
+        self.single_client.0.run_callbacks();
 
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
         // update connection state

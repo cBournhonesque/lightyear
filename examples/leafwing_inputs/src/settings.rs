@@ -70,6 +70,9 @@ pub struct ServerSettings {
     /// If true, enable bevy_inspector_egui
     pub(crate) inspector: bool,
 
+    /// If true, apply prediction to all clients (even other clients)
+    pub(crate) predict_all: bool,
+
     /// Possibly add a conditioner to simulate network conditions
     pub(crate) conditioner: Option<Conditioner>,
 
