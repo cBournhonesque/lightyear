@@ -122,69 +122,13 @@ pub trait ComponentProtocol:
     }
 }
 
-// /// Helper trait to wrap a component to replicate so that you can circumvent the orphan rule
-// /// and implement new traits for an existing component.
-// ///
-// /// When replicating, the inner component will be replicated
-// #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-// pub struct Wrapper<T: Message>(pub T);
-//
-// impl<T: Message> Named for Wrapper<T> {
-//     fn name(&self) -> &'static str {
-//         self.0.name()
-//     }
-// }
-//
-// impl<'a, T: Message> MapEntities<'a> for Wrapper<T> {
-//     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {
-//         self.0.map_entities(entity_mapper)
-//     }
-//
-//     fn entities(&self) -> EntityHashSet<Entity> {
-//         self.0.entities()
-//     }
-// }
-//
-// impl<T: Message> Message for Wrapper<T> {}
-//
 // TODO: enum_delegate doesn't work with generics + cannot be used multiple times since it derives a bunch of Into/From traits
 /// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
 ///  We use it mainly for the IntoKind, From implementations
 #[enum_delegate::register]
 pub trait ComponentBehaviour {}
 
-impl<T: Component + Message> ComponentBehaviour for T {
-    // // Apply a ComponentInsert to an entity
-    // fn insert(self, entity: &mut EntityWorldMut) {
-    //     // only insert if the entity didn't have the component
-    //     // because otherwise the insert could override an component-update that was received later?
-    //
-    //     // but this could cause some issues if we wanted the component to be updated from the insert
-    //     // if entity.get::<T>().is_none() {
-    //     entity.insert(self);
-    //     // }
-    // }
-    //
-    // // Apply a ComponentUpdate to an entity
-    // fn update(self, entity: &mut EntityWorldMut) {
-    //     if let Some(mut c) = entity.get_mut::<T>() {
-    //         *c = self;
-    //     }
-    //     // match entity.get_mut::<T>() {
-    //     //     Some(mut c) => *c = self,
-    //     //     None => {
-    //     //         entity.insert(self);
-    //     //     }
-    //     // }
-    // }
-}
-
-// Trait that lets us convert a component type into the corresponding ComponentProtocolKind
-// #[cfg(feature = "leafwing")]
-// pub trait FromTypes: FromType<ShouldBePredicted> + FromType<ShouldBeInterpolated> {}
-//
-// #[cfg(not(feature = "leafwing"))]
-// pub trait FromTypes: FromType<ShouldBePredicted> + FromType<ShouldBeInterpolated> {}
+impl<T: Component + Message> ComponentBehaviour for T {}
 
 cfg_if!(
     if #[cfg(feature = "leafwing")] {
@@ -254,15 +198,26 @@ pub trait ComponentKindBehaviour {
     fn remove(self, entity: &mut EntityWorldMut);
 }
 
-// /// Trait to convert a component type into the corresponding ComponentProtocolKind
-// pub trait IntoKind<K: ComponentProtocolKind> {
-//     fn into_kind() -> K;
-// }
-
-// TODO: prefer FromType to IntoKind because IntoKind requires adding an additional bound to the component type,
-//  which is not possible for external components.
-//  (e.g. impl IntoKind for ActionState both the trait and the type are external to the user's crate)
 /// Trait to convert a component type into the corresponding ComponentProtocolKind
+pub trait IntoKind<K: ComponentProtocolKind> {
+    fn into_kind() -> K;
+}
+
+// Implement IntoKind for every component T where the ComponentKind implements FromType<T>
+impl<K: ComponentProtocolKind, T> IntoKind<K> for T
+where
+    K: FromType<T>,
+{
+    fn into_kind() -> K {
+        K::from_type()
+    }
+}
+
+/// Trait to convert a component type into the corresponding ComponentProtocolKind
+///
+/// NOTE: prefer FromType to IntoKind because IntoKind requires adding an additional bound to the component type,
+/// which is not possible for external components.
+/// (e.g. impl IntoKind for ActionState both the trait and the type are external to the user's crate)
 pub trait FromType<T> {
     fn from_type() -> Self;
 }
