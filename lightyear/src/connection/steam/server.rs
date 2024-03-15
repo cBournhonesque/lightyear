@@ -2,6 +2,7 @@ use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::NetServer;
 use crate::prelude::{ClientId, Io};
+use crate::transport::dummy::DummyIo;
 use anyhow::{Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
@@ -11,7 +12,7 @@ use steamworks::networking_sockets::{ListenSocket, NetConnection};
 use steamworks::networking_types::{
     ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, SendFlags,
 };
-use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SteamError};
+use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
 use tracing::{error, info};
 
 use super::SingleClientThreadSafe;
@@ -47,7 +48,7 @@ impl Default for SteamConfig {
 pub struct Server {
     // TODO: update to use ServerManager...
     client: steamworks::Client<ClientManager>,
-    single_client: SingleClientThreadSafe,
+    single_client: Arc<RwLock<SingleClient>>,
     server: steamworks::Server,
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
@@ -73,7 +74,7 @@ impl Server {
 
         Ok(Self {
             client,
-            single_client: SingleClientThreadSafe(Arc::new(RwLock::new(single))),
+            single_client: Arc::new(RwLock::new(single)),
             server,
             config,
             listen_socket: None,
@@ -104,8 +105,7 @@ impl NetServer for Server {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        if let Ok(single) = self.single_client.0.read() {
-            // TODO: the rest of the function probably shouldn't run when we can't get the lock?
+        if let Ok(single) = self.single_client.read() {
             single.run_callbacks();
         }
         // reset connection events

@@ -74,6 +74,8 @@ impl NetConfig {
                     server: Box::new(server),
                 }
             }
+            // TODO: might want to distinguish between steam with direct ip connections
+            //  vs steam with p2p connections
             #[cfg(feature = "steam")]
             NetConfig::Steam { config } => {
                 // TODO: handle errors

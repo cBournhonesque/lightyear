@@ -10,8 +10,8 @@ use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, SendFlags,
 };
-use steamworks::ClientManager;
-use tracing::info;
+use steamworks::{ClientManager, SingleClient};
+use tracing::{info, warn};
 
 use super::SingleClientThreadSafe;
 
@@ -34,7 +34,7 @@ impl Default for SteamConfig {
 
 pub struct Client {
     client: steamworks::Client<ClientManager>,
-    single_client: SingleClientThreadSafe,
+    single_client: Arc<RwLock<SingleClient>>,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
     packet_queue: VecDeque<ReadWordBuffer>,
@@ -46,7 +46,7 @@ impl Client {
             .context("could not initialize steam client")?;
         Ok(Self {
             client,
-            single_client: SingleClientThreadSafe(Arc::new(RwLock::new(single))),
+            single_client: Arc::new(RwLock::new(single)),
             config,
             connection: None,
             packet_queue: VecDeque::new(),
@@ -94,18 +94,15 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        if let Ok(single) = self.single_client.0.read() {
-            // TODO: the rest of the function probably shouldn't run when we can't get the lock?
+        if let Ok(single) = self.single_client.read() {
             single.run_callbacks();
-        }
+        };
 
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
-
         // update connection state
         return match self.connection_state()? {
             NetworkingConnectionState::None => Err(anyhow!("no connection")),
             NetworkingConnectionState::Connecting | NetworkingConnectionState::FindingRoute => {
-                info!("Connecting to server...");
                 Ok(())
             }
             NetworkingConnectionState::ClosedByPeer
@@ -113,7 +110,6 @@ impl NetClient for Client {
                 Err(anyhow!("connection closed"))
             }
             NetworkingConnectionState::Connected => {
-                info!("Client is connected!");
                 // receive packet
                 let connection = self.connection.as_mut().unwrap();
                 for message in connection
