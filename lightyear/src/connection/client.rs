@@ -6,8 +6,12 @@ use bevy::prelude::Resource;
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::ClientId;
+
+#[cfg(feature = "steam")]
+use crate::connection::steam::client::SteamConfig;
+
 use crate::prelude::client::Authentication;
-use crate::prelude::{Io, IoConfig};
+use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {
@@ -55,9 +59,12 @@ pub enum NetConfig {
         config: NetcodeConfig,
         io: IoConfig,
     },
-    // TODO: add steam-specific config
     // TODO: for steam, we can use a pass-through io that just computes stats?
-    Steam,
+    #[cfg(feature = "steam")]
+    Steam {
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    },
 }
 
 impl Default for NetConfig {
@@ -95,11 +102,17 @@ impl NetConfig {
                     client: Box::new(client),
                 }
             }
-            NetConfig::Steam => {
-                unimplemented!()
-                // // TODO: handle errors
-                // let (steam_client, _) = steamworks::Client::init().unwrap();
-                // Box::new(super::steam::Client::new(steam_client))
+            #[cfg(feature = "steam")]
+            NetConfig::Steam {
+                config,
+                conditioner,
+            } => {
+                // TODO: handle errors
+                let client = super::steam::client::Client::new(config, conditioner)
+                    .expect("could not create steam client");
+                ClientConnection {
+                    client: Box::new(client),
+                }
             }
         }
     }

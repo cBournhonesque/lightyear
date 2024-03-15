@@ -3,6 +3,7 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::{default, App, Plugin as PluginType};
+use tracing::error;
 
 use crate::connection::server::NetServer;
 use crate::protocol::component::ComponentProtocol;

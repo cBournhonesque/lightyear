@@ -5,7 +5,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::prelude::server::*;
+pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -18,35 +18,12 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) fn new(
-        transport_configs: Vec<TransportConfig>,
-        shared_settings: SharedSettings,
-    ) -> ServerPluginGroup {
-        // Step 1: create the io (transport + link conditioner)
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(200),
-            incoming_jitter: Duration::from_millis(20),
-            incoming_loss: 0.05,
-        };
-        let mut net_configs = vec![];
-        for transport_config in transport_configs {
-            net_configs.push(NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(shared_settings.protocol_id)
-                    .with_key(shared_settings.private_key),
-                io: IoConfig::from_transport(transport_config)
-                    .with_conditioner(link_conditioner.clone()),
-            });
-        }
-
-        // Step 2: define the server configuration
+    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
         let config = ServerConfig {
             shared: shared_config(),
             net: net_configs,
             ..default()
         };
-
-        // Step 3: create the plugin
         let plugin_config = PluginConfig::new(config, protocol());
         ServerPluginGroup {
             lightyear: ServerPlugin::new(plugin_config),
@@ -84,7 +61,12 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands) {
+pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
+    for connection in &mut connections.servers {
+        let _ = connection.start().inspect_err(|e| {
+            error!("Failed to start server: {:?}", e);
+        });
+    }
     commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         "Server",

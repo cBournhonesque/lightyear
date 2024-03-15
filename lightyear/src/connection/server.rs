@@ -3,14 +3,19 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
 
 use crate::_reexport::ReadWordBuffer;
+use crate::connection::client::ClientConnection;
 use crate::connection::netcode::ClientId;
-use crate::prelude::{Io, IoConfig};
+
+#[cfg(feature = "steam")]
+use crate::connection::steam::server::SteamConfig;
+
+use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
 use crate::utils::free_list::FreeList;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
-    fn start(&mut self);
+    fn start(&mut self) -> Result<()>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
@@ -40,9 +45,15 @@ pub struct ServerConnection {
 /// Configuration for the server connection
 #[derive(Clone, Debug)]
 pub enum NetConfig {
-    Netcode { config: NetcodeConfig, io: IoConfig },
-    // TODO: add steam-specific config
-    Steam,
+    Netcode {
+        config: NetcodeConfig,
+        io: IoConfig,
+    },
+    #[cfg(feature = "steam")]
+    Steam {
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    },
 }
 
 impl Default for NetConfig {
@@ -64,15 +75,26 @@ impl NetConfig {
                     server: Box::new(server),
                 }
             }
-            NetConfig::Steam => {
-                unimplemented!()
+            // TODO: might want to distinguish between steam with direct ip connections
+            //  vs steam with p2p connections
+            #[cfg(feature = "steam")]
+            NetConfig::Steam {
+                config,
+                conditioner,
+            } => {
+                // TODO: handle errors
+                let server = super::steam::server::Server::new(config, conditioner)
+                    .expect("could not create steam server");
+                ServerConnection {
+                    server: Box::new(server),
+                }
             }
         }
     }
 }
 
 impl NetServer for ServerConnection {
-    fn start(&mut self) {
+    fn start(&mut self) -> Result<()> {
         self.server.start()
     }
 

@@ -4,6 +4,11 @@ Settings(
         client_id: 0,
         client_port: 0, // the OS will assign a random open port
         server_addr: "127.0.0.1",
+        conditioner: Some(Conditioner(
+            latency_ms: 200,
+            jitter_ms: 20,
+            packet_loss: 0.05
+        )),
         server_port: 5000,
         transport: WebTransport(
             // this is only needed for wasm, the self-signed certificates are only valid for 2 weeks
@@ -14,10 +19,19 @@ Settings(
         // transport: Udp,
         // server_port: 5002,
         // transport: WebSocket,
+        // server_port: 5003,
+        // transport: Steam(
+        //     app_id: 480,
+        // )
     ),
     server: ServerSettings(
         headless: true,
         inspector: false,
+        conditioner: Some(Conditioner(
+            latency_ms: 200,
+            jitter_ms: 20,
+            packet_loss: 0.05
+        )),
         transport: [
             WebTransport(
                 local_port: 5000
@@ -27,7 +41,13 @@ Settings(
             ),
             WebSocket(
                 local_port: 5002
-            )
+            ),
+            // Steam(
+            //     app_id: 480,
+            //     server_ip: "0.0.0.0",
+            //     game_port: 5003,
+            //     query_port: 27016,
+            // ),
         ],
     ),
     shared: SharedSettings(

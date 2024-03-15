@@ -4,3 +4,6 @@ pub(crate) mod client;
 pub mod netcode;
 
 pub(crate) mod server;
+
+#[cfg(feature = "steam")]
+pub(crate) mod steam;

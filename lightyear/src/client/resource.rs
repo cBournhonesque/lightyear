@@ -73,6 +73,7 @@ pub fn connect_with_token(world: &mut World, connect_token: ConnectToken) -> Res
             NetConfig::Netcode { auth, .. } => {
                 *auth = Authentication::Token(connect_token);
             }
+            #[cfg(feature = "steam")]
             _ => {
                 panic!("Invalid netcode config");
             }

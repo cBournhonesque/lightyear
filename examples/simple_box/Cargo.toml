@@ -18,6 +18,7 @@ mock_time = ["lightyear/mock_time"]
 
 [dependencies]
 lightyear = { path = "../../lightyear", features = [
+  "steam",
   "webtransport",
   "websocket",
   "render",

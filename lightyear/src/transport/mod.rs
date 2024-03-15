@@ -25,6 +25,7 @@ pub(crate) mod channels;
 #[cfg(feature = "webtransport")]
 pub(crate) mod webtransport;
 
+pub(crate) mod dummy;
 #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
 #[cfg(feature = "websocket")]
 pub(crate) mod websocket;

@@ -109,6 +109,10 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::client::input::{InputConfig, InputSystemSet};
+        #[cfg(feature = "leafwing")]
+        pub use crate::client::input_leafwing::{
+            LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,
+        };
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{
             InterpolationConfig, InterpolationDelay, InterpolationSet,
@@ -126,11 +130,8 @@ pub mod prelude {
         pub use crate::client::resource::Authentication;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{ClientConnection, NetClient, NetConfig};
-
-        #[cfg(feature = "leafwing")]
-        pub use crate::client::input_leafwing::{
-            LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,
-        };
+        #[cfg(feature = "steam")]
+        pub use crate::connection::steam::client::SteamConfig;
     }
     pub mod server {
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
@@ -145,6 +146,8 @@ pub mod prelude {
         pub use crate::connection::server::{
             NetConfig, NetServer, ServerConnection, ServerConnections,
         };
+        #[cfg(feature = "steam")]
+        pub use crate::connection::steam::server::SteamConfig;
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

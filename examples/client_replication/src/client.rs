@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use lightyear::_reexport::ShouldBeInterpolated;
-use lightyear::prelude::client::*;
+pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::Direction;
@@ -19,30 +19,10 @@ pub struct ClientPluginGroup {
 }
 
 impl ClientPluginGroup {
-    pub(crate) fn new(
-        client_id: u64,
-        server_addr: SocketAddr,
-        transport_config: TransportConfig,
-        shared_settings: SharedSettings,
-    ) -> ClientPluginGroup {
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: shared_settings.private_key,
-            protocol_id: shared_settings.protocol_id,
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.00,
-        };
+    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
         let config = ClientConfig {
             shared: shared_config(),
-            net: NetConfig::Netcode {
-                auth,
-                config: NetcodeConfig::default(),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
+            net: net_config,
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
             ..default()

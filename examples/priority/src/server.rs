@@ -8,7 +8,7 @@ use bevy::ecs::archetype::Archetype;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 
-use lightyear::prelude::server::*;
+pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -21,40 +21,17 @@ pub struct ServerPluginGroup {
 }
 
 impl ServerPluginGroup {
-    pub(crate) fn new(
-        transport_configs: Vec<TransportConfig>,
-        shared_settings: SharedSettings,
-    ) -> ServerPluginGroup {
-        // Step 1: create the io (transport + link conditioner)
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let mut net_configs = vec![];
-        for transport_config in transport_configs {
-            net_configs.push(NetConfig::Netcode {
-                config: NetcodeConfig::default()
-                    .with_protocol_id(shared_settings.protocol_id)
-                    .with_key(shared_settings.private_key),
-                io: IoConfig::from_transport(transport_config)
-                    .with_conditioner(link_conditioner.clone()),
-            });
-        }
-
-        // Step 2: define the server configuration
+    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
         let config = ServerConfig {
-            shared: shared_config().clone(),
+            shared: shared_config(),
             packet: PacketConfig::default()
                 // by default there is no bandwidth limit so we need to enable it
                 .enable_bandwidth_cap()
                 // we can set the max bandwidth to 56 KB/s
                 .with_send_bandwidth_bytes_per_second_cap(1500),
             net: net_configs,
-            ping: PingConfig::default(),
+            ..default()
         };
-
-        // Step 3: create the plugin
         let plugin_config = PluginConfig::new(config, protocol());
         ServerPluginGroup {
             lightyear: ServerPlugin::new(plugin_config),
