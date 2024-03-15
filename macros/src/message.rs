@@ -45,11 +45,6 @@ pub fn message_impl(
             use #shared_crate_name::prelude::*;
 
             #map_entities_trait
-
-            // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
-            impl #impl_generics Named for #struct_name #type_generics #where_clause {
-                const NAME: &'static str = #struct_name_str;
-            }
         }
     };
 
@@ -138,7 +133,6 @@ pub fn message_protocol_impl(
     let input_message_kind_method = input_message_kind_method(&input);
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
-    let name_method = name_method(&input, &fields);
     let map_entities_impl = map_entities_impl(&input);
     let encode_method = encode_method();
     let decode_method = decode_method();
@@ -161,7 +155,6 @@ pub fn message_protocol_impl(
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
 
-                // #name_method
                 #message_kind_method
                 #input_message_kind_method
                 #add_events_method
@@ -324,27 +317,6 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
         fn add_events<Ctx: EventContext>(app: &mut App)
         {
             #body
-        }
-    }
-}
-
-fn name_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
-    let enum_name = &input.ident;
-    let mut body = quote! {};
-    for field in fields.iter() {
-        let ident = &field.ident;
-        let ty = &field.ty;
-        body = quote! {
-            #body
-            &#enum_name::#ident(ref x) => <#ty>::short_type_path(),
-        };
-    }
-
-    quote! {
-        fn name(&self) -> &'static str {
-            match self {
-                #body
-            }
         }
     }
 }

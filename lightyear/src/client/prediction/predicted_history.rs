@@ -8,7 +8,7 @@ use tracing::{debug, error};
 
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::{Named, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
+use crate::prelude::{PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;

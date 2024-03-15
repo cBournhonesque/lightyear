@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
-use crate::prelude::{LightyearMapEntities, Message, Named, PreSpawnedPlayerObject};
+use crate::prelude::{LightyearMapEntities, Message, PreSpawnedPlayerObject};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::events::connection::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,

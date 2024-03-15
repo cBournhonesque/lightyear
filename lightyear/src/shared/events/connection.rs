@@ -10,7 +10,7 @@ use crate::_reexport::{FromType, MessageProtocol};
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
-use crate::prelude::{Named, Tick};
+use crate::prelude::Tick;
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::message::MessageKind;
 use crate::protocol::{EventContext, Protocol};

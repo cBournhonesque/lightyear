@@ -10,7 +10,6 @@ use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
-use crate::utils::named::Named;
 use crate::utils::wrapping_id::wrapping_id;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::TypePath;

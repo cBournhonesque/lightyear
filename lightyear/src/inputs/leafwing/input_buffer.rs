@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::prelude::client::SyncComponent;
-use crate::prelude::{LightyearMapEntities, Message, Named};
+use crate::prelude::{LightyearMapEntities, Message};
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
@@ -38,12 +38,6 @@ impl<A: LeafwingUserAction> LightyearMapEntities for ActionState<A> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
-impl<A: LeafwingUserAction> Named for ActionState<A> {
-    // const NAME: &'static str = formatcp!("ActionState<{}>", A::short_type_path());
-    const NAME: &'static str = "ActionState";
-    // const NAME: &'static str = Self::short_type_path();
-}
-
 // impl<A: LeafwingUserAction> SyncComponent for ActionState<A> {
 //     fn mode() -> ComponentSyncMode {
 //         // For client-side prediction of other clients, we need the ActionState to be synced from the Confirmed
@@ -57,14 +51,6 @@ impl<A: LeafwingUserAction> Named for ActionState<A> {
 //     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
 //     fn entities(&self) -> EntityHashSet<Entity> {
 //         EntityHashSet::default()
-//     }
-// }
-// impl<A: UserAction> Named for InputMap<A> {
-//     fn name(&self) -> &'static str {
-//         std::any::type_name::<InputMap<A>>()
-//         // <A as TypePath>::short_type_path()
-//         // const SHORT_TYPE_PATH: &'static str = <A as TypePath>::short_type_path();
-//         // formatcp!("ActionState<{}>", SHORT_TYPE_PATH)
 //     }
 // }
 //
@@ -231,12 +217,6 @@ pub enum InputTarget {
     Entity(Entity),
     /// the input is for a pre-predicted entity: on the server, the server's local entity is mapped to the client's pre-predicted entity
     PrePredictedEntity(Entity),
-}
-
-impl<A: LeafwingUserAction> Named for InputMessage<A> {
-    // const NAME: &'static str = formatcp!("InputMessage<{}>", A::short_type_path());
-    const NAME: &'static str = "InputMessage";
-    // const NAME: &'static str = <Self as TypePath>::short_type_path();
 }
 
 impl<A: LeafwingUserAction> LightyearMapEntities for InputMessage<A> {
