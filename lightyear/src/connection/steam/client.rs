@@ -5,12 +5,15 @@ use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::{Arc, RwLock};
 use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, SendFlags,
 };
 use steamworks::ClientManager;
 use tracing::info;
+
+use super::SingleClientThreadSafe;
 
 const MAX_MESSAGE_BATCH_SIZE: usize = 512;
 
@@ -31,6 +34,7 @@ impl Default for SteamConfig {
 
 pub struct Client {
     client: steamworks::Client<ClientManager>,
+    single_client: SingleClientThreadSafe,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
     packet_queue: VecDeque<ReadWordBuffer>,
@@ -38,10 +42,11 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: SteamConfig) -> Result<Self> {
-        let (client, _) = steamworks::Client::init_app(config.app_id)
+        let (client, single) = steamworks::Client::init_app(config.app_id)
             .context("could not initialize steam client")?;
         Ok(Self {
             client,
+            single_client: SingleClientThreadSafe(Arc::new(RwLock::new(single))),
             config,
             connection: None,
             packet_queue: VecDeque::new(),
@@ -89,6 +94,11 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
+        if let Ok(single) = self.single_client.0.read() {
+            // TODO: the rest of the function probably shouldn't run when we can't get the lock?
+            single.run_callbacks();
+        }
+
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
 
         // update connection state

@@ -6,12 +6,15 @@ use anyhow::{Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::{Arc, RwLock};
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
 use steamworks::networking_types::{
     ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, SendFlags,
 };
 use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SteamError};
 use tracing::{error, info};
+
+use super::SingleClientThreadSafe;
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {
@@ -44,6 +47,7 @@ impl Default for SteamConfig {
 pub struct Server {
     // TODO: update to use ServerManager...
     client: steamworks::Client<ClientManager>,
+    single_client: SingleClientThreadSafe,
     server: steamworks::Server,
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
@@ -55,7 +59,7 @@ pub struct Server {
 
 impl Server {
     pub fn new(config: SteamConfig) -> Result<Self> {
-        let (client, _) = steamworks::Client::init_app(config.app_id)
+        let (client, single) = steamworks::Client::init_app(config.app_id)
             .context("could not initialize steam client")?;
         let (server, _) = steamworks::Server::init(
             config.server_ip,
@@ -69,6 +73,7 @@ impl Server {
 
         Ok(Self {
             client,
+            single_client: SingleClientThreadSafe(Arc::new(RwLock::new(single))),
             server,
             config,
             listen_socket: None,
@@ -99,6 +104,10 @@ impl NetServer for Server {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
+        if let Ok(single) = self.single_client.0.read() {
+            // TODO: the rest of the function probably shouldn't run when we can't get the lock?
+            single.run_callbacks();
+        }
         // reset connection events
         self.new_connections.clear();
         self.new_disconnections.clear();
