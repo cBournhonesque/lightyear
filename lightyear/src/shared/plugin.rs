@@ -64,6 +64,7 @@ impl<P: Protocol> Plugin for SharedPlugin<P> {
         app.register_type::<ReliableSettings>();
         app.register_type::<PreSpawnedPlayerObject>();
         app.register_type::<InputData<P::Input>>();
+        // input
         app.register_type::<crate::inputs::native::InputMessage<P::Input>>();
         #[cfg(feature = "leafwing")]
         {

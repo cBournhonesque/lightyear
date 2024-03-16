@@ -12,7 +12,7 @@ use crate::shared::tick_manager::Tick;
 
 use super::UserAction;
 
-#[derive(Resource, Debug)]
+#[derive(Resource, Debug, Reflect)]
 pub struct InputBuffer<T: UserAction> {
     pub buffer: VecDeque<Option<T>>,
     pub start_tick: Option<Tick>,

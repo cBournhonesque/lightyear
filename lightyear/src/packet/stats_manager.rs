@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use bevy::utils::Duration;
 use derive_more::{AddAssign, SubAssign};
 use tracing::trace;
@@ -7,7 +8,7 @@ use crate::utils::ready_buffer::ReadyBuffer;
 
 type PacketStatsBuffer = ReadyBuffer<WrappedTime, PacketStats>;
 
-#[derive(Default, Copy, Clone, Debug, PartialEq, AddAssign, SubAssign)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Reflect, AddAssign, SubAssign)]
 struct PacketStats {
     num_sent_packets: u32,
     num_sent_packets_acked: u32,
@@ -15,12 +16,14 @@ struct PacketStats {
     num_received_packets: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Reflect)]
 struct FinalStats {
     packet_loss: f32,
 }
 
+#[derive(Reflect)]
 pub(crate) struct PacketStatsManager {
+    #[reflect(ignore)]
     stats_buffer: PacketStatsBuffer,
     /// sum of the stats over the stats_buffer
     rolling_stats: PacketStats,

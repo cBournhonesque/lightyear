@@ -31,16 +31,22 @@ pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 
 /// Wrapper to: send/receive messages via channels to a remote address
 /// By splitting the data into packets and sending them through a given transport
+#[derive(Reflect)]
 pub struct MessageManager {
     /// Handles sending/receiving packets (including acks)
     packet_manager: PacketBuilder,
+    #[reflect(ignore)]
     priority_manager: PriorityManager,
+    #[reflect(ignore)]
     pub(crate) channels: HashMap<ChannelKind, ChannelContainer>,
+    #[reflect(ignore)]
     pub(crate) channel_registry: ChannelRegistry,
     // TODO: can use Vec<ChannelKind, Vec<MessageId>> to be more efficient?
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
+    #[reflect(ignore)]
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
+    #[reflect(ignore)]
     writer: WriteWordBuffer,
 }
 

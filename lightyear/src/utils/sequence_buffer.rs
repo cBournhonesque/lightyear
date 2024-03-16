@@ -1,4 +1,5 @@
 //! Wrapper around a list where the index is a wrapping key
+use bevy::prelude::Reflect;
 use std::marker::PhantomData;
 
 use crate::utils::wrapping_id::WrappedId;
@@ -10,9 +11,10 @@ use crate::utils::wrapping_id::WrappedId;
 ///
 /// The key must be a WrappedId, we update the buffer by using the key modulo the buffer size
 /// More optimized than HashMap
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 pub struct SequenceBuffer<K: WrappedId, T, const N: usize> {
     buffer: [Option<T>; N],
+    #[reflect(ignore)]
     _marker: PhantomData<K>,
 }
 

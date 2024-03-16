@@ -4,7 +4,7 @@ use std::hash::Hash;
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Component, Entity, Resource};
+use bevy::prelude::{Component, Entity, Reflect, Resource};
 use bevy::reflect::Map;
 use bevy::utils::HashSet;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub(crate) mod receive;
 pub(crate) mod send;
 pub mod systems;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct EntityActions<C, K: Hash + Eq> {
     pub(crate) spawn: bool,
     pub(crate) despawn: bool,
@@ -53,14 +53,14 @@ impl<C, K: Hash + Eq> Default for EntityActions<C, K> {
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap, and there's only 1 entity
 //  have an optimization for that
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct EntityActionMessage<C, K: Hash + Eq> {
     sequence_id: MessageId,
     // we use vec but the order of entities should not matter
     pub(crate) actions: Vec<(Entity, EntityActions<C, K>)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct EntityUpdatesMessage<C> {
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
@@ -69,7 +69,7 @@ pub struct EntityUpdatesMessage<C> {
     pub(crate) updates: Vec<(Entity, Vec<C>)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub enum ReplicationMessageData<C, K: Hash + Eq> {
     /// All the entity actions (Spawn/despawn/inserts/removals) for a given group
     Actions(EntityActionMessage<C, K>),
@@ -77,7 +77,7 @@ pub enum ReplicationMessageData<C, K: Hash + Eq> {
     Updates(EntityUpdatesMessage<C>),
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct ReplicationMessage<C, K: Hash + Eq> {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) data: ReplicationMessageData<C, K>,

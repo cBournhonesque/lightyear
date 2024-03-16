@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
@@ -23,11 +24,14 @@ pub type Payload = Vec<u8>;
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)
+#[derive(Reflect)]
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     // Pre-allocated buffer to encode/decode without allocation.
     // TODO: should this be associated with Packet?
+    #[reflect(ignore)]
     try_write_buffer: WriteWordBuffer,
+    #[reflect(ignore)]
     write_buffer: WriteWordBuffer,
 }
 

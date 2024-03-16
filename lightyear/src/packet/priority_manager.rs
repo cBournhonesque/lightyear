@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU32;
 
@@ -63,6 +64,18 @@ pub(crate) struct PriorityManager {
     // buffered_data: Vec<BufferedMessage>,
     /// List of senders to notify when a replication update message is actually sent (included in packet)
     replication_update_senders: Vec<Sender<MessageId>>,
+}
+
+impl Default for PriorityManager {
+    fn default() -> Self {
+        let config = PriorityConfig::default();
+        Self {
+            config: config.clone(),
+            limiter: DefaultDirectRateLimiter::direct(config.bandwidth_quota),
+            // buffered_data: Vec::new(),
+            replication_update_senders: Vec::new(),
+        }
+    }
 }
 
 impl PriorityManager {

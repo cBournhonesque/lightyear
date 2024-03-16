@@ -27,6 +27,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
+#[derive(Reflect)]
 pub(crate) struct ReplicationReceiver<P: Protocol> {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
@@ -365,23 +366,27 @@ impl<P: Protocol> ReplicationReceiver<P> {
     }
 }
 
+// TODO: remove reflect(ignore) once we move to bevy 13.1
 /// Channel to keep track of receiving/sending replication messages for a given Group
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 pub struct GroupChannel<P: Protocol> {
     // entities
     // set of remote entities that are part of the same Replication Group
     remote_entities: HashSet<Entity>,
     // actions
     pub actions_pending_recv_message_id: MessageId,
+    #[reflect(ignore)]
     pub actions_recv_message_buffer:
         BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
     // updates
     // map from necessary_last_action_tick to the buffered message
     // the first tick is the last_action_tick (we can only apply the update if the last action tick has been reached)
     // the second tick is the update's server tick when it was sent
+    #[reflect(ignore)]
     pub buffered_updates_with_last_action_tick:
         BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
     // updates for which there is no condition on the last_action_tick: we can apply them immediately
+    #[reflect(ignore)]
     pub buffered_updates_without_last_action_tick:
         BTreeMap<Tick, EntityUpdatesMessage<P::Components>>,
     /// remote tick of the latest update/action that we applied to the local group

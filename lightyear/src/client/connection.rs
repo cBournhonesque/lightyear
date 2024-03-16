@@ -1,8 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::prelude::{Resource, World};
-use bevy::reflect::Reflect;
+use bevy::prelude::*;
 use bevy::utils::Duration;
 use serde::Serialize;
 use tracing::{debug, trace, trace_span};
@@ -15,6 +14,7 @@ use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_manager::Payload;
+use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::{Channel, ChannelKind, LightyearMapEntities, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
@@ -53,7 +53,8 @@ use super::sync::SyncManager;
 ///    connection.add_input(MyInput::new(), tick_manager.tick());
 /// }
 /// ```
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 pub struct ConnectionManager<P: Protocol> {
     pub(crate) message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
@@ -64,6 +65,24 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
+}
+
+impl<P: Protocol> Default for ConnectionManager<P> {
+    fn default() -> Self {
+        let channel_registry = ChannelRegistry::default();
+        Self {
+            message_manager: MessageManager::new(&channel_registry, PriorityConfig::default()),
+            replication_sender: ReplicationSender::new(
+                crossbeam_channel::never(),
+                crossbeam_channel::never(),
+            ),
+            replication_receiver: ReplicationReceiver::new(),
+            ping_manager: PingManager::new(PingConfig::default()),
+            input_buffer: InputBuffer::default(),
+            sync_manager: SyncManager::new(SyncConfig::default(), 0),
+            events: ConnectionEvents::default(),
+        }
+    }
 }
 
 impl<P: Protocol> ConnectionManager<P> {

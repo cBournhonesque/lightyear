@@ -5,6 +5,7 @@ use std::hash::Hash;
 use bevy::prelude::{
     App, Component, Entity, EntityWorldMut, FromReflect, Reflect, TypePath, World,
 };
+use bevy::reflect::GetTypeRegistration;
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 

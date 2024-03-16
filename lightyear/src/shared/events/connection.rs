@@ -2,7 +2,7 @@
  */
 use std::iter;
 
-use bevy::prelude::{Component, Entity, Resource};
+use bevy::prelude::{Component, Entity, Reflect, Resource};
 use bevy::utils::HashMap;
 use tracing::trace;
 
@@ -16,7 +16,7 @@ use crate::protocol::message::MessageKind;
 use crate::protocol::{EventContext, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
-#[derive(Debug, Resource)]
+#[derive(Debug, Resource, Reflect)]
 pub struct ConnectionEvents<P: Protocol> {
     // netcode
     // we put disconnections outside of there because `ConnectionEvents` gets removed upon disconnection
@@ -24,9 +24,11 @@ pub struct ConnectionEvents<P: Protocol> {
 
     // inputs (used only for leafwing messages for now)
     #[cfg(feature = "leafwing")]
+    #[reflect(ignore)]
     pub input_messages: HashMap<MessageKind, Vec<P::Message>>,
 
     // messages
+    #[reflect(ignore)]
     pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
     pub spawns: Vec<Entity>,

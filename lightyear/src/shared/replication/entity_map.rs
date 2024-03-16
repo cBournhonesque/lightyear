@@ -10,7 +10,7 @@ pub trait LightyearMapEntities {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M);
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
     remote_to_local: EntityHashMap<Entity>,

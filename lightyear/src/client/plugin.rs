@@ -61,6 +61,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
         let tick_duration = config.client_config.shared.tick.tick_duration;
 
         app
+            // REFLECTION //
+            .register_type::<ConnectionEvents<P>>()
+            .register_type::<ConnectionManager<P>>()
             // RESOURCES //
             .insert_resource(config.client_config.clone())
             // TODO: move these into the Networking/Replication plugins

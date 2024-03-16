@@ -259,7 +259,7 @@ impl ReplicationGroup {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct ReplicationGroupId(pub u64);
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]

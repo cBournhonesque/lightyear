@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use bevy::utils::HashMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,7 @@ const CLEAR_UNACKED_PACKETS_DELAY: chrono::Duration = chrono::Duration::millisec
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
-#[derive(Default)]
+#[derive(Default, Reflect)]
 pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
@@ -198,11 +199,13 @@ impl PacketHeaderManager {
 }
 
 /// Data structure to keep track of the ids of the received packets
+#[derive(Reflect)]
 pub struct ReceiveBuffer {
     /// The packet id of the most recent packet received
     last_recv_packet_id: Option<PacketId>,
     /// Use a ring buffer of ACK_BITFIELD_SIZE to track if we received the last
     /// ACK_BITFIELD_SIZE packets prior to the last received packet
+    #[reflect(ignore)]
     buffer: ConstGenericRingBuffer<bool, { ACK_BITFIELD_SIZE as usize }>,
 }
 

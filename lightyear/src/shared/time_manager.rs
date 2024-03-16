@@ -164,6 +164,7 @@ impl TimeManager {
 
 mod wrapped_time {
     use anyhow::Context;
+    use bevy::prelude::Reflect;
 
     use bitcode::encoding::{Encoding, Fixed};
     use bitcode::read::Read;
@@ -177,7 +178,7 @@ mod wrapped_time {
     /// Time since start of server, in milliseconds
     /// Serializes in a compact manner (we only serialize up to the milliseconds)
     /// Valid only up to u32::MAX milliseconds (46 days)
-    #[derive(Default, Copy, Clone, Eq, PartialEq, Debug, PartialOrd, Ord)]
+    #[derive(Default, Copy, Clone, Eq, PartialEq, Debug, PartialOrd, Ord, Reflect)]
     pub struct WrappedTime {
         pub(crate) elapsed: Duration,
     }

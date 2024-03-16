@@ -16,8 +16,8 @@ Settings(
         // transport: WebSocket,
     ),
     server: ServerSettings(
-        headless: false,
-        inspector: true,
+        headless: true,
+        inspector: false,
         transport: [
             WebTransport(
                 local_port: 5000

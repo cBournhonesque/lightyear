@@ -25,6 +25,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
+#[derive(Reflect)]
 pub(crate) struct ReplicationSender<P: Protocol> {
     // TODO: this is unused by server-send, should we just move it to client-connection?
     //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
@@ -32,6 +33,7 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
     pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
     /// Get notified whenever a message-id that was sent has been received by the remote
+    #[reflect(ignore, default = "crossbeam_channel::never::<MessageId>")]
     pub updates_ack_tracker: Receiver<MessageId>,
 
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the bevy ChangeTick
@@ -56,6 +58,7 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     // PRIORITY
     /// Get notified whenever a message for a given ReplicationGroup was actually sent
     /// (sometimes they might not be sent because of bandwidth constraints
+    #[reflect(ignore, default = "crossbeam_channel::never::<MessageId>")]
     pub message_send_receiver: Receiver<MessageId>,
 }
 
@@ -397,7 +400,7 @@ impl<P: Protocol> ReplicationSender<P> {
 }
 
 /// Channel to keep track of sending replication messages for a given Group
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 pub struct GroupChannel {
     pub actions_next_send_message_id: MessageId,
     // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)

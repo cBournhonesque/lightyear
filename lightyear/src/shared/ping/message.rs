@@ -1,4 +1,5 @@
 //! Defines the actual ping/pong messages
+use bevy::prelude::Reflect;
 use bitcode::{Decode, Encode};
 
 use crate::shared::ping::store::PingId;
@@ -6,13 +7,13 @@ use crate::shared::time_manager::WrappedTime;
 
 // TODO: do we need the ping ids? we could just re-use the message id ?
 /// Ping message; the remote should respond immediately with a pong
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Reflect)]
 pub struct Ping {
     pub id: PingId,
 }
 
 /// Pong message sent in response to a ping
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, Reflect)]
 pub struct Pong {
     /// id of the ping message that triggered this pong
     pub ping_id: PingId,
@@ -22,7 +23,7 @@ pub struct Pong {
     pub pong_sent_time: WrappedTime,
 }
 
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, Reflect)]
 pub enum SyncMessage {
     Ping(Ping),
     Pong(Pong),

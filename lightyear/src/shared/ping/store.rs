@@ -2,12 +2,14 @@
 use crate::shared::time_manager::WrappedTime;
 use crate::utils::sequence_buffer::SequenceBuffer;
 use crate::utils::wrapping_id::wrapping_id;
+use bevy::prelude::Reflect;
 
 wrapping_id!(PingId);
 
 const PING_BUFFER_SIZE: usize = 128;
 
 /// Data structure to store the latest pings sent to remote
+#[derive(Reflect)]
 pub struct PingStore {
     /// Id that will be assigned to the next ping sent
     latest_ping_id: PingId,
