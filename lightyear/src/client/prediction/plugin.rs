@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use bevy::prelude::{
     apply_deferred, App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Res, SystemSet,
+    PostUpdate, PreUpdate, Reflect, Res, SystemSet,
 };
 use bevy::transform::TransformSystem;
 
@@ -13,7 +13,7 @@ use crate::client::prediction::correction::{
 };
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back,
+    restore_components_if_despawn_rolled_back, PredictionDespawnMarker, RemovedCache,
 };
 use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
@@ -24,6 +24,7 @@ use crate::client::prediction::prespawn::{
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
+use crate::prelude::client::Correction;
 use crate::prelude::{PreSpawnedPlayerObject, ReplicationSet};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -36,11 +37,11 @@ use super::rollback::{
 };
 use super::{
     clean_pre_predicted_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
-    Rollback, RollbackState,
+    Predicted, PredictionHistory, Rollback, RollbackState,
 };
 
 /// Configuration to specify how the prediction plugin should behave
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Reflect)]
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin
     pub disable: bool,
@@ -164,6 +165,10 @@ where
     P::ComponentKinds: FromType<C>,
     P::Components: SyncMetadata<C>,
 {
+    // REFLECTION
+    app.register_type::<RemovedCache<C>>()
+        .register_type::<PredictionHistory<C>>();
+
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
@@ -174,6 +179,7 @@ where
     );
     match P::Components::mode() {
         ComponentSyncMode::Full => {
+            app.register_type::<Correction<C>>();
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -238,6 +244,15 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             return;
         }
         P::Components::add_prediction_systems(app);
+
+        // REFLECTION
+        app.register_type::<Predicted>()
+            .register_type::<Rollback>()
+            .register_type::<RollbackState>()
+            .register_type::<PredictionDespawnMarker>()
+            .register_type::<PredictionConfig>()
+            .register_type::<PreSpawnedPlayerObject>();
+        // .register_type::<PredictionManager>();
 
         // RESOURCES
         app.init_resource::<PredictionManager>();

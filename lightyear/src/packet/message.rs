@@ -12,7 +12,7 @@ use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::TypePath;
+use bevy::prelude::{FromReflect, TypePath};
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
@@ -289,8 +289,8 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
-pub trait Message: EventContext + TypePath + LightyearMapEntities {}
-impl<T: EventContext + TypePath + LightyearMapEntities> Message for T {}
+pub trait Message: EventContext + FromReflect + TypePath + LightyearMapEntities {}
+impl<T: EventContext + FromReflect + TypePath + LightyearMapEntities> Message for T {}
 
 #[cfg(test)]
 mod tests {

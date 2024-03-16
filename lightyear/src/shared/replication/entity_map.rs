@@ -1,7 +1,7 @@
 //! Map between local and remote entities
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
-use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::prelude::{Entity, EntityWorldMut, Reflect, World};
 use bevy::utils::hashbrown::hash_map::Entry;
 
 // TODO: another solution to avoid the orphan rule would be to implement MapEntities directly on the enum type?
@@ -17,7 +17,7 @@ pub struct RemoteEntityMap {
     local_to_remote: EntityHashMap<Entity>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 pub struct PredictedEntityMap {
     // map from the confirmed entity to the predicted entity
     // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore

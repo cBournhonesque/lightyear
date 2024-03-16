@@ -1,9 +1,6 @@
 use std::ops::Deref;
 
-use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
-    With, Without,
-};
+use bevy::prelude::*;
 use tracing::{debug, error};
 
 use crate::client::components::{SyncComponent, SyncMetadata};
@@ -16,7 +13,7 @@ use crate::utils::ready_buffer::ReadyBuffer;
 use super::{ComponentSyncMode, Confirmed, Predicted, Rollback, RollbackState};
 
 // TODO: maybe just option<T> ?
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Reflect)]
 pub enum ComponentState<T> {
     // the component got just removed
     Removed,
@@ -25,7 +22,8 @@ pub enum ComponentState<T> {
 }
 
 /// To know if we need to do rollback, we need to compare the predicted entity's history with the server's state updates
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct PredictionHistory<T: PartialEq> {
     // TODO: add a max size for the buffer
     // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
@@ -33,6 +31,8 @@ pub struct PredictionHistory<T: PartialEq> {
     // therefore we can get rid of the old ticks before the server update
 
     // We will only store the history for the ticks where the component got updated
+    // TODO: add reflect once it's supported for binary heap
+    #[reflect(ignore)]
     pub buffer: ReadyBuffer<Tick, ComponentState<T>>,
 }
 

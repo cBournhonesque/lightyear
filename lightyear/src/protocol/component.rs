@@ -209,7 +209,7 @@ where
     K: FromType<T>,
 {
     fn into_kind() -> K {
-        K::from_type()
+        <K as FromType<T>>::from_type()
     }
 }
 

@@ -1,9 +1,7 @@
 use std::marker::PhantomData;
 
 use bevy::ecs::system::{Command, EntityCommands};
-use bevy::prelude::{
-    Commands, Component, Entity, Query, RemovedComponents, ResMut, With, Without, World,
-};
+use bevy::prelude::*;
 use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
@@ -24,7 +22,8 @@ pub struct PredictionDespawnCommand<P: Protocol> {
     _marker: PhantomData<P>,
 }
 
-#[derive(Component, PartialEq, Debug)]
+#[derive(Component, PartialEq, Debug, Reflect)]
+#[reflect(Component)]
 pub(crate) struct PredictionDespawnMarker {
     // TODO: do we need this?
     // TODO: it's pub just for integration tests right now
@@ -103,8 +102,9 @@ pub(crate) fn despawn_confirmed(
     }
 }
 
-#[derive(Component)]
-pub struct RemovedCache<C: Component>(pub Option<C>);
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct RemovedCache<C: SyncComponent>(pub Option<C>);
 
 #[allow(clippy::type_complexity)]
 /// Instead of despawning the entity, we remove all components except the history and the predicted marker

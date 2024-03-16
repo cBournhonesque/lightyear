@@ -6,7 +6,7 @@
 // - interpolate (provided)
 // - custom
 
-use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
+use bevy::prelude::*;
 use tracing::debug;
 
 use crate::_reexport::ComponentProtocol;
@@ -61,8 +61,9 @@ pub struct InterpolatedCorrector;
 //     // }
 // }
 
-#[derive(Component, Debug)]
-pub struct Correction<C: Component> {
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
+pub struct Correction<C: SyncComponent> {
     /// This is what the original predicted value was before any correction was applied
     pub original_prediction: C,
     /// This is the tick at which we started the correction (i.e. where we found that a rollback was necessary)

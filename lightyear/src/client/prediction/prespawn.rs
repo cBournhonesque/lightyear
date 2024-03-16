@@ -4,10 +4,7 @@ use std::any::{Any, TypeId};
 use std::hash::{BuildHasher, Hash, Hasher};
 
 use bevy::ecs::system::Command;
-use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, DetectChanges, EntityRef, EventReader, Mut, Query,
-    Ref, Reflect, Res, ResMut, Without, World,
-};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
@@ -36,6 +33,7 @@ use crate::shared::replication::components::{DespawnTracker, Replicate};
     Eq,
     Reflect,
 )]
+#[reflect(Component)]
 pub struct PreSpawnedPlayerObject {
     /// The hash that will identify the spawned entity
     /// By default, if the hash is not set, it will be generated from the entity's archetype (list of components) and spawn tick

@@ -24,7 +24,6 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-// TODO: add TypeNamed as well
 pub trait SyncComponent: Component + Clone + PartialEq + Message {}
 impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
 

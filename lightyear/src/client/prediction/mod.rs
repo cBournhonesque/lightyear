@@ -26,7 +26,8 @@ pub(crate) mod resource;
 pub(crate) mod rollback;
 
 /// Marks an entity that is being predicted by the client
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
 pub struct Predicted {
     // This is an option because we could spawn pre-predicted entities on the client that exist before we receive
     // the corresponding confirmed entity
@@ -34,7 +35,8 @@ pub struct Predicted {
 }
 
 /// Resource that indicates whether we are in a rollback state or not
-#[derive(Resource)]
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
 pub struct Rollback {
     pub state: RollbackState,
     // pub rollback_groups: EntityHashMap<ReplicationGroupId, RollbackState>,
@@ -42,8 +44,9 @@ pub struct Rollback {
 
 /// Resource that will track whether we should do rollback or not
 /// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Reflect)]
 pub enum RollbackState {
+    #[default]
     /// We are not in a rollback state
     Default,
     /// We should do a rollback starting from the current_tick
