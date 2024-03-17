@@ -196,7 +196,7 @@ impl Packer for InterpolationPacker {
     fn pack(mut messages: &[Message]) -> Vec<Packet> {
         const SAMPLE: usize = 32; // Tune based on expected message size and variance.
         const PRECISION: usize = 30; // More precision will take longer, but get closer to max packet size.
-        const MAX_ATTEMPTS: usize = 2; // Maximum number of attempts before giving up.
+        const MAX_ATTEMPTS: usize = 4; // Maximum number of attempts before giving up.
         const TARGET_SIZE: usize = Packet::MAX_SIZE * PRECISION / (PRECISION + 1);
         const MIN_SIZE: usize = TARGET_SIZE * PRECISION / (PRECISION + 1);
         const DEBUG: bool = false;
