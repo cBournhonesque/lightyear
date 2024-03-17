@@ -71,7 +71,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
+pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
     commands.spawn(Camera2dBundle::default());
     let _ = client.connect();
 }
@@ -100,7 +100,12 @@ pub(crate) fn spawn_cursor(mut commands: Commands, metadata: Res<GlobalMetadata>
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {
+pub(crate) fn buffer_input(
+    tick_manager: Res<TickManager>,
+    mut connection_manager: ResMut<ClientConnectionManager>,
+    keypress: Res<ButtonInput<KeyCode>>,
+) {
+    let tick = tick_manager.tick();
     let mut direction = Direction {
         up: false,
         down: false,
@@ -120,16 +125,16 @@ pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyC
         direction.right = true;
     }
     if !direction.is_none() {
-        return client.add_input(Inputs::Direction(direction));
+        return connection_manager.add_input(Inputs::Direction(direction), tick);
     }
     if keypress.pressed(KeyCode::KeyK) {
         // currently, directions is an enum and we can only add one input per tick
-        return client.add_input(Inputs::Delete);
+        return connection_manager.add_input(Inputs::Delete, tick);
     }
     if keypress.pressed(KeyCode::Space) {
-        return client.add_input(Inputs::Spawn);
+        return connection_manager.add_input(Inputs::Spawn, tick);
     }
-    return client.add_input(Inputs::None);
+    return connection_manager.add_input(Inputs::None, tick);
 }
 
 // The client input only gets applied to predicted entities that we own
