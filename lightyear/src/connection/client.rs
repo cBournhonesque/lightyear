@@ -9,6 +9,7 @@ use crate::connection::netcode::ClientId;
 
 #[cfg(feature = "steam")]
 use crate::connection::steam::client::SteamConfig;
+use crate::packet::packet::Packet;
 
 use crate::prelude::client::Authentication;
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
@@ -27,7 +28,7 @@ pub trait NetClient: Send + Sync {
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
 
     /// Receive a packet from the server
-    fn recv(&mut self) -> Option<ReadWordBuffer>;
+    fn recv(&mut self) -> Option<Packet>;
 
     /// Send a packet to the server
     fn send(&mut self, buf: &[u8]) -> Result<()>;
@@ -131,7 +132,7 @@ impl NetClient for ClientConnection {
         self.client.try_update(delta_ms)
     }
 
-    fn recv(&mut self) -> Option<ReadWordBuffer> {
+    fn recv(&mut self) -> Option<Packet> {
         self.client.recv()
     }
 

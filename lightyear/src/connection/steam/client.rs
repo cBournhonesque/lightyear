@@ -1,6 +1,8 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::client::NetClient;
+use crate::packet::packet::Packet;
 use crate::prelude::{ClientId, Io, LinkConditionerConfig};
+use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use std::collections::VecDeque;
@@ -38,7 +40,8 @@ pub struct Client {
     single_client: SingleClientThreadSafe,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
-    packet_queue: VecDeque<ReadWordBuffer>,
+    packet_queue: VecDeque<Packet>,
+    buffer_pool: BufferPool,
     conditioner: Option<LinkConditionerConfig>,
 }
 
@@ -53,6 +56,7 @@ impl Client {
             config,
             connection: None,
             packet_queue: VecDeque::new(),
+            buffer_pool: BufferPool::default(),
             conditioner,
         })
     }
@@ -118,15 +122,19 @@ impl NetClient for Client {
                     .receive_messages(MAX_MESSAGE_BATCH_SIZE)
                     .context("failed to receive messages")?
                 {
-                    let reader = ReadWordBuffer::start_read(message.data());
-                    self.packet_queue.push_back(reader);
+                    // get a buffer from the pool to avoid new allocations
+                    let mut reader = self.buffer_pool.start_read(message.data());
+                    let packet = Packet::decode(&mut reader).context("could not decode packet")?;
+                    // return the buffer to the pool
+                    self.buffer_pool.attach(reader);
+                    self.packet_queue.push_back(packet);
                 }
                 Ok(())
             }
         };
     }
 
-    fn recv(&mut self) -> Option<ReadWordBuffer> {
+    fn recv(&mut self) -> Option<Packet> {
         self.packet_queue.pop_front()
     }
 

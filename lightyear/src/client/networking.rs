@@ -105,9 +105,9 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         }
 
                                         // RECV PACKETS: buffer packets into message managers
-                                        while let Some(mut reader) = netcode.recv() {
+                                        while let Some(packet) = netcode.recv() {
                                             connection
-                                                .recv_packet(&mut reader, tick_manager.as_ref())
+                                                .recv_packet(packet, tick_manager.as_ref())
                                                 .unwrap();
                                         }
 

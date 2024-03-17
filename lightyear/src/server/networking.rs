@@ -110,13 +110,13 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
 
                                             // RECV_PACKETS: buffer packets into message managers
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
-                                                while let Some((mut reader, client_id)) = netserver.recv() {
+                                                while let Some((packet, client_id)) = netserver.recv() {
                                                     if let Some(global_id) = netservers.global_id_map.get_global(server_idx, client_id) {
                                                         // TODO: use connection to apply on BOTH message manager and replication manager
                                                         connection_manager
                                                             .connection_mut(global_id)
                                                             .expect("connection not found")
-                                                            .recv_packet(&mut reader, tick_manager.as_ref())
+                                                            .recv_packet(packet, tick_manager.as_ref())
                                                             .expect("could not recv packet");
                                                     } else {
                                                         error!("Global client id was not found!");

@@ -100,22 +100,6 @@ impl<'w, 's, P: Protocol> ClientMut<'w, 's, P> {
         Ok(())
     }
 
-    /// Receive messages from the server
-    pub(crate) fn receive(&mut self, world: &mut World) -> ConnectionEvents<P> {
-        trace!("Receive server packets");
-        self.connection
-            .receive(world, &self.time_manager, &self.tick_manager)
-    }
-
-    /// Receive packets from the transport layer and buffer them with the message manager
-    pub(crate) fn recv_packets(&mut self) -> Result<()> {
-        while let Some(mut reader) = self.netcode.recv() {
-            self.connection
-                .recv_packet(&mut reader, &self.tick_manager)?;
-        }
-        Ok(())
-    }
-
     // NETCODE
 
     /// Start the connection process with the server

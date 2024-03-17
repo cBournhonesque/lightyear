@@ -73,6 +73,7 @@ bitcode = { version = "0.5.1", package = "bitcode_lightyear_patch", path = "../v
   "serde",
 ] }
 bytes = { version = "1.5", features = ["serde"] }
+object-pool = { version = "0.5.4" }
 self_cell = "1.0"
 serde = { version = "1.0.193", features = ["derive"] }
 

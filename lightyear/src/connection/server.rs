@@ -8,6 +8,7 @@ use crate::connection::netcode::ClientId;
 
 #[cfg(feature = "steam")]
 use crate::connection::steam::server::SteamConfig;
+use crate::packet::packet::Packet;
 
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
@@ -24,7 +25,7 @@ pub trait NetServer: Send + Sync {
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
 
     /// Receive a packet from one of the connected clients
-    fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)>;
+    fn recv(&mut self) -> Option<(Packet, ClientId)>;
 
     /// Send a packet to one of the connected clients
     fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<()>;
@@ -106,7 +107,7 @@ impl NetServer for ServerConnection {
         self.server.try_update(delta_ms)
     }
 
-    fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)> {
+    fn recv(&mut self) -> Option<(Packet, ClientId)> {
         self.server.recv()
     }
 

@@ -42,7 +42,7 @@ pub trait Channel: 'static + Named {
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelBuilder {
-    pub(crate) settings: ChannelSettings,
+    pub settings: ChannelSettings,
 }
 
 impl ChannelBuilder {

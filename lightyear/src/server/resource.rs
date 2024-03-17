@@ -101,26 +101,6 @@ impl<'w, 's, P: Protocol> ServerMut<'w, 's, P> {
         Ok(())
     }
 
-    /// Receive packets from the transport layer and buffer them with the message manager
-    pub(crate) fn recv_packets(&mut self) -> Result<()> {
-        while let Some((mut reader, client_id)) = self.netcode.recv() {
-            // TODO: use connection to apply on BOTH message manager and replication manager
-            self.connection_manager
-                .connection_mut(client_id)?
-                .recv_packet(&mut reader, &self.tick_manager)?;
-        }
-        Ok(())
-    }
-
-    /// Receive messages from each connection, and update the events buffer
-    pub(crate) fn receive(&mut self, world: &mut World) {
-        self.connection_manager
-            .receive(world, &self.time_manager, &self.tick_manager)
-            .unwrap_or_else(|e| {
-                error!("Error during receive: {}", e);
-            });
-    }
-
     // MESSAGES
 
     /// Queues up a message to be sent to all clients

@@ -6,7 +6,7 @@ use bitcode::write::Write;
 use bitcode::Encode;
 use serde::Serialize;
 
-use crate::serialize::writer::{BitWrite, WriteBuffer};
+use crate::serialize::writer::WriteBuffer;
 
 // strategy for message/channels
 
@@ -49,10 +49,6 @@ impl WriteBuffer for WriteWordBuffer {
             .context("error encoding")
     }
 
-    fn capacity(&self) -> usize {
-        self.buffer.capacity()
-    }
-
     fn with_capacity(capacity: usize) -> Self {
         let mut buffer = WordBuffer::with_capacity(capacity);
         let writer = buffer.start_write();
@@ -89,20 +85,6 @@ impl WriteBuffer for WriteWordBuffer {
 
     fn set_reserved_bits(&mut self, num_bits: usize) {
         self.max_bits = num_bits;
-    }
-}
-
-impl BitWrite for WriteWordBuffer {
-    fn write_bit(&mut self, bit: bool) {
-        self.writer.write_bit(bit)
-    }
-
-    fn write_bits(&mut self, _bits: u32) {
-        todo!()
-    }
-
-    fn write_bytes(&mut self, bytes: &[u8]) {
-        self.writer.write_bytes(bytes)
     }
 }
 
