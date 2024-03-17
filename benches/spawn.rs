@@ -1,6 +1,8 @@
 //! Benchmark to measure the performance of replicating Entity spawns
 #![allow(unused_imports)]
 
+mod bitcode_packing;
+
 use bevy::log::info;
 use bevy::prelude::default;
 use bevy::utils::tracing;
@@ -12,7 +14,6 @@ use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
 use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
-use lightyear_benches::stepper::{BevyStepper, Step};
 
 fn main() {
     divan::main()
