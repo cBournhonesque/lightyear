@@ -1,12 +1,9 @@
 //! Benchmark for how to use bitcode to pack messages into packets of MTU bytes
 #![allow(unused_variables)]
-use bevy::app::App;
-use bevy::prelude::In;
 use divan::counter::ItemsCount;
 use divan::Bencher;
 use rand::distributions::Standard;
 use rand::prelude::*;
-use std::time::Instant;
 
 trait Packer {
     /// packet the messages into packets (preferably of size <=MAX_SIZE)
@@ -52,7 +49,6 @@ impl Packet {
     const MAX_SIZE: usize = 1200;
 }
 
-#[allow(dead_code)]
 fn main() {
     divan::main();
 }
@@ -81,7 +77,7 @@ impl GenMessages for RandomGen {
 }
 
 #[divan::bench(
-    types = [NaivePacker, AppendedPacker, ExponentialPacker, InterpolationPacker],
+    types = [NaivePacker, AppendedPacker, ExponentialPacker, BinarySearchPacker],
     sample_count = 10,
 )]
 fn run_packer<P: Packer>(bencher: Bencher) {
@@ -191,9 +187,9 @@ impl Packer for ExponentialPacker {
     }
 }
 
-struct InterpolationPacker;
+struct BinarySearchPacker;
 
-impl Packer for InterpolationPacker {
+impl Packer for BinarySearchPacker {
     fn pack(mut messages: &[Message]) -> Vec<Packet> {
         const SAMPLE: usize = 32; // Tune based on expected message size and variance.
         const PRECISION: usize = 30; // More precision will take longer, but get closer to max packet size.

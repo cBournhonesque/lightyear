@@ -1,8 +1,6 @@
 //! Benchmark to measure the performance of replicating Entity spawns
 #![allow(unused_imports)]
 
-mod bitcode_packing;
-
 use bevy::log::info;
 use bevy::prelude::default;
 use bevy::utils::tracing;
