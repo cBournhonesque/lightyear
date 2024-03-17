@@ -31,3 +31,8 @@ lz4_flex = { version = "0.11.2", default-features = false }
 name = "spawn"
 path = "spawn.rs"
 harness = false
+
+[[bench]]
+name = "bitcode_packing"
+path = "bitcode_packing.rs"
+harness = false
