@@ -13,7 +13,7 @@ trait Packer {
 #[derive(bitcode::Encode, bitcode::Decode)]
 enum Message {
     A(bool),
-    B(u8),
+    B(Vec<u8>),
     C { name: String, x: i16, y: i16 },
 }
 
@@ -22,7 +22,8 @@ impl Distribution<Message> for Standard {
         if rng.gen_bool(0.5) {
             Message::A(rng.gen_bool(0.1))
         } else if rng.gen_bool(0.4) {
-            Message::B(rng.gen_range(9..15))
+            let len = rng.gen_range(1..=100);
+            Message::B((0..len).map(|_| rng.gen_range(9..15)).collect())
         } else {
             Message::C {
                 name: if rng.gen_bool(0.0001) {
@@ -77,7 +78,7 @@ impl GenMessages for RandomGen {
 }
 
 #[divan::bench(
-    types = [NaivePacker, AppendedPacker, ExponentialPacker, BinarySearchPacker],
+    types = [NaivePacker, AppendedPacker, ExponentialPacker, InterpolationPacker],
     sample_count = 10,
 )]
 fn run_packer<P: Packer>(bencher: Bencher) {
@@ -187,13 +188,15 @@ impl Packer for ExponentialPacker {
     }
 }
 
-struct BinarySearchPacker;
+// https://en.wikipedia.org/wiki/Interpolation_search
+// Check the average message size to guess how many more messages we can add.
+struct InterpolationPacker;
 
-impl Packer for BinarySearchPacker {
+impl Packer for InterpolationPacker {
     fn pack(mut messages: &[Message]) -> Vec<Packet> {
         const SAMPLE: usize = 32; // Tune based on expected message size and variance.
         const PRECISION: usize = 30; // More precision will take longer, but get closer to max packet size.
-        const MAX_ATTEMPTS: usize = 4; // Maximum number of attempts before giving up.
+        const MAX_ATTEMPTS: usize = 2; // Maximum number of attempts before giving up.
         const TARGET_SIZE: usize = Packet::MAX_SIZE * PRECISION / (PRECISION + 1);
         const MIN_SIZE: usize = TARGET_SIZE * PRECISION / (PRECISION + 1);
         const DEBUG: bool = false;
