@@ -317,7 +317,7 @@ impl Packet {
     }
 
     // #[cfg(test)]
-    pub fn header(&self) -> &PacketHeader {
+    pub(crate) fn header(&self) -> &PacketHeader {
         &self.header
     }
 
@@ -350,7 +350,7 @@ impl Packet {
         }
     }
 
-    pub fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
+    pub(crate) fn message_acks(&self) -> HashMap<ChannelId, Vec<MessageAck>> {
         match &self.data {
             PacketData::Single(single_packet) => single_packet.message_acks(),
             PacketData::Fragmented(fragmented_packet) => fragmented_packet.message_acks(),

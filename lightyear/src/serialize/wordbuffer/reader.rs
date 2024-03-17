@@ -50,7 +50,7 @@ impl BufferPool {
 
     pub fn start_read(&self, bytes: &[u8]) -> ReadWordBuffer {
         trace!("buffer pool length: {}", self.0.len());
-        let mut buffer = self.0.pull(new_buffer);
+        let buffer = self.0.pull(new_buffer);
         // let (reader, context) = buffer.start_read(bytes);
         // ReadWordBuffer { reader, context }
         let (_, buffer) = buffer.detach();

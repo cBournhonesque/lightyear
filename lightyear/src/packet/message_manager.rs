@@ -291,7 +291,7 @@ impl MessageManager {
                 trace!(?channel_kind, "reading message: {:?}", single_data);
                 // TODO: in this case, it looks like we might not need the pool?
                 //  we can just have a single buffer, and keep re-using that buffer
-                info!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
+                trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
                 let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
                 let message = M::decode(&mut reader).expect("Could not decode message");
                 // return the buffer to the pool
@@ -366,7 +366,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
@@ -403,7 +403,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
@@ -469,7 +469,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
@@ -514,7 +514,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
@@ -564,7 +564,7 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in payloads.iter_mut() {
-            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
             server_message_manager.recv_packet(packet)?;
         }
 
@@ -575,7 +575,7 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            let packet = Packet::decode(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
             client_message_manager.recv_packet(packet)?;
         }
 
