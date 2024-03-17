@@ -269,7 +269,7 @@ impl PacketData {
 }
 
 #[derive(Debug)]
-pub(crate) struct Packet {
+pub struct Packet {
     pub(crate) header: PacketHeader,
     pub(crate) data: PacketData,
 }

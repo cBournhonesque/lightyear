@@ -1,22 +1,25 @@
 use std::collections::{HashMap, VecDeque};
 
 use anyhow::{anyhow, Context};
+use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
+use bitcode::buffer::BufferTrait;
+use bitcode::word_buffer::WordBuffer;
 use crossbeam_channel::Receiver;
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SingleData};
-use crate::packet::packet::{Packet, PacketId};
+use crate::packet::packet::{Packet, PacketId, MTU_PAYLOAD_BYTES};
 use crate::packet::packet_manager::{PacketBuilder, Payload, PACKET_BUFFER_CAPACITY};
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::serialize::wordbuffer::writer::WriteWordBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::ping::manager::PingManager;
@@ -42,6 +45,8 @@ pub struct MessageManager {
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
     writer: WriteWordBuffer,
+    // read_buffer: WordBuffer,
+    reader_pool: BufferPool,
 }
 
 impl MessageManager {
@@ -53,6 +58,9 @@ impl MessageManager {
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
+            reader_pool: BufferPool::new(1),
+            // read_buffer: WordBuffer::with_capacity(MTU_PAYLOAD_BYTES),
         }
     }
 
@@ -213,9 +221,8 @@ impl MessageManager {
     /// Process packet received over the network as raw bytes
     /// Update the acks, and put the messages from the packets in internal buffers
     /// Returns the tick of the packet
-    pub fn recv_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<Tick> {
+    pub fn recv_packet(&mut self, packet: Packet) -> anyhow::Result<Tick> {
         // Step 1. Parse the packet
-        let packet: Packet = self.packet_manager.decode_packet(reader)?;
         let tick = packet.header().tick;
         trace!(?packet, "Received packet");
 
@@ -282,10 +289,13 @@ impl MessageManager {
             let mut messages = vec![];
             while let Some(single_data) = channel.receiver.read_message() {
                 trace!(?channel_kind, "reading message: {:?}", single_data);
-                let mut reader = ReadWordBuffer::start_read(single_data.bytes.as_ref());
+                // TODO: in this case, it looks like we might not need the pool?
+                //  we can just have a single buffer, and keep re-using that buffer
+                info!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
+                let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
                 let message = M::decode(&mut reader).expect("Could not decode message");
-                // TODO: why do we need finish read? to check for errors?
-                // reader.finish_read()?;
+                // return the buffer to the pool
+                self.reader_pool.attach(reader);
 
                 // SAFETY: when we receive the message, we set the tick of the message to the header tick
                 // so every message has a tick
@@ -356,8 +366,8 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            server_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(
@@ -393,8 +403,8 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            client_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            client_message_manager.recv_packet(packet)?;
         }
 
         // Check that reliability works correctly
@@ -459,8 +469,8 @@ mod tests {
 
         // server: receive bytes from the sent messages, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            server_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            server_message_manager.recv_packet(packet)?;
         }
         let mut data = server_message_manager.read_messages();
         assert_eq!(
@@ -504,8 +514,8 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            client_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            client_message_manager.recv_packet(packet)?;
         }
 
         // Check that reliability works correctly
@@ -553,9 +563,9 @@ mod tests {
         );
 
         // server: receive bytes from the sent messages, then process them into messages
-        for payload in payloads.iter_mut() {
-            server_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(payload.as_slice()))?;
+        for packet_byte in payloads.iter_mut() {
+            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            server_message_manager.recv_packet(packet)?;
         }
 
         // Server sends back a message (to ack the message)
@@ -565,8 +575,8 @@ mod tests {
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
         for packet_byte in packet_bytes.iter_mut() {
-            client_message_manager
-                .recv_packet(&mut ReadWordBuffer::start_read(packet_byte.as_slice()))?;
+            let packet = ReadWordBuffer::start_read(packet_byte.as_slice())?;
+            client_message_manager.recv_packet(packet)?;
         }
 
         assert_eq!(update_acks_tracker.try_recv()?, message_id);

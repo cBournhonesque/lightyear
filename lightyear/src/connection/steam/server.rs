@@ -1,7 +1,9 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::NetServer;
+use crate::packet::packet::Packet;
 use crate::prelude::{ClientId, Io, LinkConditionerConfig};
+use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::dummy::DummyIo;
 use anyhow::{Context, Result};
 use bevy::utils::HashMap;
@@ -53,7 +55,8 @@ pub struct Server {
     config: SteamConfig,
     listen_socket: Option<ListenSocket<ClientManager>>,
     connections: HashMap<ClientId, NetConnection<ClientManager>>,
-    packet_queue: VecDeque<(ReadWordBuffer, ClientId)>,
+    packet_queue: VecDeque<(Packet, ClientId)>,
+    buffer_pool: BufferPool,
     new_connections: Vec<ClientId>,
     new_disconnections: Vec<ClientId>,
     conditioner: Option<LinkConditionerConfig>,
@@ -80,6 +83,7 @@ impl Server {
             listen_socket: None,
             connections: HashMap::new(),
             packet_queue: VecDeque::new(),
+            buffer_pool: BufferPool::default(),
             new_connections: Vec::new(),
             new_disconnections: Vec::new(),
             conditioner,
@@ -170,8 +174,12 @@ impl NetServer for Server {
                 .receive_messages(MAX_PACKET_SIZE)
                 .context("Failed to receive messages")?
             {
-                self.packet_queue
-                    .push_back((ReadWordBuffer::start_read(message.data()), *client_id));
+                // get a buffer from the pool to avoid new allocations
+                let mut reader = self.buffer_pool.start_read(message.data());
+                let packet = Packet::decode(&mut reader).context("could not decode packet")?;
+                // return the buffer to the pool
+                self.buffer_pool.attach(reader);
+                self.packet_queue.push_back((packet, *client_id));
             }
             // TODO: is this necessary since I disabled nagle?
             connection
@@ -183,7 +191,7 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)> {
+    fn recv(&mut self) -> Option<(Packet, ClientId)> {
         self.packet_queue.pop_front()
     }
 

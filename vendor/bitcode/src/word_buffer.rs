@@ -10,6 +10,7 @@ use std::num::NonZeroUsize;
 
 /// A fast `Buffer` that operates on [`Word`]s.
 #[derive(Debug, Default)]
+
 pub struct WordBuffer {
     allocation: Allocation,
     read_bytes_buf: Box<[Word]>,

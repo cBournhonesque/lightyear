@@ -9,7 +9,7 @@ use tracing::{debug, error, trace};
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::NetServer;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::server::config::NetcodeConfig;
 use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender};
@@ -123,7 +123,10 @@ struct ConnectionCache {
     replay_protection: HashMap<ClientId, ReplayProtection>,
 
     // packet queue for all clients
-    packet_queue: VecDeque<(ReadWordBuffer, ClientId)>,
+    packet_queue: VecDeque<(crate::packet::packet::Packet, ClientId)>,
+
+    // pool of buffers to re-use for decoding packets
+    buffer_pool: BufferPool,
 
     // corresponds to the server time
     time: f64,
@@ -136,6 +139,7 @@ impl ConnectionCache {
             client_id_map: HashMap::with_capacity(MAX_CLIENTS),
             replay_protection: HashMap::with_capacity(MAX_CLIENTS),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
+            buffer_pool: BufferPool::default(),
             time: server_time,
         }
     }
@@ -488,9 +492,13 @@ impl<Ctx> NetcodeServer<Ctx> {
             Packet::Payload(packet) => {
                 self.touch_client(client_id)?;
                 if let Some(idx) = client_id {
-                    self.conn_cache
-                        .packet_queue
-                        .push_back((ReadWordBuffer::start_read(packet.buf), idx));
+                    // use a buffer from the pool to avoid re-allocating
+                    let mut reader = self.conn_cache.buffer_pool.start_read(packet.buf);
+                    let packet = crate::packet::packet::Packet::decode(&mut reader)
+                        .map_err(|_| super::packet::Error::InvalidPayload)?;
+                    // return the buffer to the pool
+                    self.conn_cache.buffer_pool.attach(reader);
+                    self.conn_cache.packet_queue.push_back((packet, idx));
                 }
                 Ok(())
             }
@@ -863,7 +871,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)> {
+    pub fn recv(&mut self) -> Option<(crate::packet::packet::Packet, ClientId)> {
         self.conn_cache.packet_queue.pop_front()
     }
     /// Sends a packet to a client.
@@ -1033,7 +1041,7 @@ impl NetServer for Server {
             .context("could not update server")
     }
 
-    fn recv(&mut self) -> Option<(ReadWordBuffer, ClientId)> {
+    fn recv(&mut self) -> Option<(crate::packet::packet::Packet, ClientId)> {
         self.server.recv()
     }
 

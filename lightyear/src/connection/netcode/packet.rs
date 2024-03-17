@@ -38,6 +38,8 @@ pub enum Error {
     TokenExpired,
     #[error("sequence {0} already received")]
     AlreadyReceived(u64),
+    #[error("invalid packet payload")]
+    InvalidPayload,
 }
 
 trait WriteSequence {
