@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use async_compat::Compat;
-use bevy::tasks::IoTaskPool;
+use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::hashbrown::HashMap;
 
 use tracing::{info, trace};
@@ -87,7 +87,7 @@ impl Transport for WebSocketServerSocket {
                     let clientbound_tx_map = clientbound_tx_map.clone();
                     let serverbound_tx = serverbound_tx.clone();
                     IoTaskPool::get()
-                        .spawn(Compat::new(async move {
+                        .spawn(async move {
                             let ws_stream = tokio_tungstenite::accept_async(stream)
                                 .await
                                 .expect("Error during the websocket handshake occurred");
@@ -105,9 +105,6 @@ impl Transport for WebSocketServerSocket {
 
                             let serverbound_tx = serverbound_tx.clone();
 
-                            let (close_tx, mut close_rx) = tokio::sync::mpsc::channel(1);
-                            let close_tx_clone = close_tx.clone();
-
                             let clientbound_handle = IoTaskPool::get().spawn(async move {
                                 while let Some(msg) = clientbound_rx.recv().await {
                                     write
@@ -124,7 +121,6 @@ impl Transport for WebSocketServerSocket {
                                 write.close().await.unwrap_or_else(|e| {
                                     error!("Error closing websocket: {:?}", e);
                                 });
-                                let _ = close_tx_clone.send(());
                             });
                             let serverbound_handle = IoTaskPool::get().spawn(async move {
                                 while let Some(msg) = read.next().await {
@@ -139,15 +135,16 @@ impl Transport for WebSocketServerSocket {
                                         }
                                     }
                                 }
-                                // TODO: how to cancel the clientbound_handle?
-                                let _ = close_tx.clone().send(());
                             });
-                            // wait until the websocket is done
-                            let _ = close_rx.recv().await;
+
+                            let _closed =
+                                futures_lite::future::or(clientbound_handle, serverbound_handle)
+                                    .await;
+
                             info!("Connection with {} closed", addr);
                             clientbound_tx_map.lock().unwrap().remove(&addr);
                             // dropping the task handles cancels them
-                        }))
+                        })
                         .detach();
                 }
             }))
