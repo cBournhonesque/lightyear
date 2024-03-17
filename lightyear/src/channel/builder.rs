@@ -27,7 +27,22 @@ pub struct ChannelContainer {
 }
 
 /// A Channel is an abstraction for a way to send messages over the network
-/// You can define the direction, ordering, reliability of the channel
+/// You can define the direction, ordering, reliability of the channel.
+///
+/// # Example
+///
+/// Here is how you can add a new channel to the protocol. Messages sent on this channel will be unordered;
+/// they can be lost (no reliability guarantee) and they can be sent in both directions.
+///
+/// ```rust,ignore
+/// struct MyChannel;
+///
+/// protocol.add_channel::<MyChannel>(ChannelSettings {
+///     mode: ChannelMode::UnorderedUnreliable,
+///     direction: ChannelDirection::Bidirectional,
+///     priority: 1.0,
+/// });
+/// ```
 pub trait Channel: 'static + Named {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
 

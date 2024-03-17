@@ -6,7 +6,6 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-use lightyear::client::resource::connect_with_token;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -73,7 +72,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
+pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
     commands.spawn(Camera2dBundle::default());
 
     let _ = client.connect();
@@ -97,7 +96,12 @@ pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMeta
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {
+pub(crate) fn buffer_input(
+    tick_manager: Res<TickManager>,
+    mut connection_manager: ResMut<ClientConnectionManager>,
+    keypress: Res<ButtonInput<KeyCode>>,
+) {
+    let tick = tick_manager.tick();
     let mut direction = Direction {
         up: false,
         down: false,
@@ -117,17 +121,16 @@ pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyC
         direction.right = true;
     }
     if !direction.is_none() {
-        return client.add_input(Inputs::Direction(direction));
+        return connection_manager.add_input(Inputs::Direction(direction), tick);
     }
     if keypress.pressed(KeyCode::Backspace) {
         // currently, inputs is an enum and we can only add one input per tick
-        return client.add_input(Inputs::Delete);
+        return connection_manager.add_input(Inputs::Delete, tick);
     }
     if keypress.pressed(KeyCode::Space) {
-        return client.add_input(Inputs::Spawn);
+        return connection_manager.add_input(Inputs::Spawn, tick);
     }
-    // info!("Sending input: {:?} on tick: {:?}", &input, client.tick());
-    return client.add_input(Inputs::None);
+    return connection_manager.add_input(Inputs::None, tick);
 }
 
 // The client input only gets applied to predicted entities that we own

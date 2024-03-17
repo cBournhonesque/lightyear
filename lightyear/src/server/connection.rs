@@ -8,7 +8,10 @@ use hashbrown::hash_map::Entry;
 use serde::Serialize;
 use tracing::{debug, info, trace, trace_span};
 
-use crate::_reexport::{EntityUpdatesChannel, InputMessageKind, MessageProtocol, PingChannel};
+use crate::_reexport::{
+    EntityUpdatesChannel, FromType, InputMessageKind, MessageProtocol, PingChannel,
+    ReplicationSend, ShouldBeInterpolated,
+};
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
 use crate::connection::netcode::ClientId;
@@ -16,7 +19,9 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{Channel, ChannelKind, LightyearMapEntities, Message};
+use crate::prelude::{
+    Channel, ChannelKind, LightyearMapEntities, Message, PreSpawnedPlayerObject, ShouldBePredicted,
+};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -26,7 +31,7 @@ use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
-use crate::shared::replication::components::{NetworkTarget, Replicate};
+use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::ReplicationMessage;
@@ -543,5 +548,286 @@ impl<P: Protocol> Connection<P> {
         self.replication_sender.recv_update_acks();
         debug!("Received server packet with tick: {:?}", tick);
         Ok(())
+    }
+}
+
+impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+    fn update_priority(
+        &mut self,
+        replication_group_id: ReplicationGroupId,
+        client_id: ClientId,
+        priority: f32,
+    ) -> Result<()> {
+        debug!(
+            ?client_id,
+            ?replication_group_id,
+            "Set priority to {:?}",
+            priority
+        );
+        let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+        replication_sender.update_base_priority(replication_group_id, priority);
+        Ok(())
+    }
+
+    fn new_connected_clients(&self) -> Vec<ClientId> {
+        self.new_clients.clone()
+    }
+
+    fn prepare_entity_spawn(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate<P>,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        // debug!(?entity, "Spawning entity");
+        let group_id = replicate.replication_group.group_id(Some(entity));
+        // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+        self.apply_replication(target).try_for_each(|client_id| {
+            // trace!(
+            //     ?client_id,
+            //     ?entity,
+            //     "Send entity spawn for tick {:?}",
+            //     self.tick_manager.tick()
+            // );
+            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+            // update the collect changes tick
+            // replication_sender
+            //     .group_channels
+            //     .entry(group)
+            //     .or_default()
+            //     .update_collect_changes_since_this_tick(system_current_tick);
+            replication_sender.prepare_entity_spawn(entity, group_id);
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if replicate.prediction_target.should_send_to(&client_id) {
+                replication_sender.prepare_component_insert(
+                    entity,
+                    group_id,
+                    P::Components::from(ShouldBePredicted::default()),
+                );
+            }
+            if replicate.interpolation_target.should_send_to(&client_id) {
+                replication_sender.prepare_component_insert(
+                    entity,
+                    group_id,
+                    P::Components::from(ShouldBeInterpolated),
+                );
+            }
+            // also set the priority for the group when we spawn it
+            self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
+
+            Ok(())
+        })
+    }
+
+    fn prepare_entity_despawn(
+        &mut self,
+        entity: Entity,
+        replicate: &Replicate<P>,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let group_id = replicate.replication_group.group_id(Some(entity));
+        self.apply_replication(target).try_for_each(|client_id| {
+            // trace!(
+            //     ?entity,
+            //     ?client_id,
+            //     "Send entity despawn for tick {:?}",
+            //     self.tick_manager.tick()
+            // );
+            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+            // update the collect changes tick
+            // replication_sender
+            //     .group_channels
+            //     .entry(group)
+            //     .or_default()
+            //     .update_collect_changes_since_this_tick(system_current_tick);
+            replication_sender.prepare_entity_despawn(entity, group_id);
+            Ok(())
+        })
+    }
+
+    // TODO: perf gain if we batch this? (send vec of components) (same for update/removes)
+    fn prepare_component_insert(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate<P>,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let group_id = replicate.replication_group.group_id(Some(entity));
+        let kind: P::ComponentKinds = (&component).into();
+
+        // TODO: think about this. this feels a bit clumsy
+
+        // handle ShouldBePredicted separately because of pre-spawning behaviour
+        // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.
+        // Then we rebroadcast it to other clients. If an entity `1` already exists on other clients; we will start using that entity
+        //     as our Prediction target! That means that we should:
+        // - even if pre-spawned replication, require users to set the `prediction_target` correctly
+        //     - only broadcast `ShouldBePredicted` to the clients who have `prediction_target` set.
+        // let should_be_predicted_kind =
+        //     P::ComponentKinds::from(P::Components::from(ShouldBePredicted {
+        //         client_entity: None,
+        //     }));
+
+        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
+        let mut actual_target = target;
+        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
+            || kind == <P::ComponentKinds as FromType<PreSpawnedPlayerObject>>::from_type()
+        {
+            actual_target = replicate.prediction_target.clone();
+        }
+
+        self.apply_replication(actual_target)
+            .try_for_each(|client_id| {
+                // trace!(
+                //     ?entity,
+                //     component = ?kind,
+                //     tick = ?self.tick_manager.tick(),
+                //     "Inserting single component"
+                // );
+                let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+                // update the collect changes tick
+                // replication_sender
+                //     .group_channels
+                //     .entry(group)
+                //     .or_default()
+                //     .update_collect_changes_since_this_tick(system_current_tick);
+                replication_sender.prepare_component_insert(entity, group_id, component.clone());
+                Ok(())
+            })
+    }
+
+    fn prepare_component_remove(
+        &mut self,
+        entity: Entity,
+        component_kind: P::ComponentKinds,
+        replicate: &Replicate<P>,
+        target: NetworkTarget,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let group_id = replicate.replication_group.group_id(Some(entity));
+        debug!(?entity, ?component_kind, "Sending RemoveComponent");
+        self.apply_replication(target).try_for_each(|client_id| {
+            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+            // TODO: I don't think it's actually correct to only correct the changes since that action.
+            // what if we do:
+            // - Frame 1: update is ACKED
+            // - Frame 2: update
+            // - Frame 3: action
+            // - Frame 4: send
+            // then we won't send the frame-2 update because we only collect changes since frame 3
+            // replication_sender
+            //     .group_channels
+            //     .entry(group)
+            //     .or_default()
+            //     .update_collect_changes_since_this_tick(system_current_tick);
+            replication_sender.prepare_component_remove(entity, group_id, component_kind);
+            Ok(())
+        })
+    }
+
+    fn prepare_entity_update(
+        &mut self,
+        entity: Entity,
+        component: P::Components,
+        replicate: &Replicate<P>,
+        target: NetworkTarget,
+        component_change_tick: BevyTick,
+        system_current_tick: BevyTick,
+    ) -> Result<()> {
+        let kind: P::ComponentKinds = (&component).into();
+        trace!(
+            ?kind,
+            ?entity,
+            ?component_change_tick,
+            ?system_current_tick,
+            "Prepare entity update"
+        );
+
+        let group_id = replicate.group_id(Some(entity));
+        self.apply_replication(target).try_for_each(|client_id| {
+            // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+            let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
+            let collect_changes_since_this_tick = replication_sender
+                .group_channels
+                .entry(group_id)
+                .or_default()
+                .collect_changes_since_this_tick;
+            // send the update for all changes newer than the last ack bevy tick for the group
+            debug!(
+                ?kind,
+                change_tick = ?component_change_tick,
+                ?collect_changes_since_this_tick,
+                "prepare entity update changed check (we want the component-change-tick to be higher than collect-changes-since-this-tick)"
+            );
+
+            if collect_changes_since_this_tick.map_or(true, |tick| {
+                component_change_tick.is_newer_than(tick, system_current_tick)
+            }) {
+                trace!(
+                    change_tick = ?component_change_tick,
+                    ?collect_changes_since_this_tick,
+                    current_tick = ?system_current_tick,
+                    "prepare entity update changed check"
+                );
+                // trace!(
+                //     ?entity,
+                //     component = ?kind,
+                //     tick = ?self.tick_manager.tick(),
+                //     "Updating single component"
+                // );
+                replication_sender.prepare_entity_update(entity, group_id, component.clone());
+            }
+            Ok(())
+        })
+    }
+
+    /// Buffer the replication messages
+    fn buffer_replication_messages(&mut self, tick: Tick, bevy_tick: BevyTick) -> Result<()> {
+        self.buffer_replication_messages(tick, bevy_tick)
+    }
+
+    fn get_mut_replicate_component_cache(
+        &mut self,
+    ) -> &mut bevy::ecs::entity::EntityHashMap<Replicate<P>> {
+        &mut self.replicate_component_cache
+    }
+
+    fn cleanup(&mut self, tick: Tick) {
+        debug!("Running replication clean");
+        for connection in self.connections.values_mut() {
+            // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
+            // (meaning that there's no need when we receive the update to check if we have already received a previous action)
+            for group_channel in connection.replication_sender.group_channels.values_mut() {
+                debug!("Checking group channel: {:?}", group_channel);
+                if let Some(last_action_tick) = group_channel.last_action_tick {
+                    if tick - last_action_tick > (i16::MAX / 2) {
+                        debug!(
+                    ?tick,
+                    ?last_action_tick,
+                    ?group_channel,
+                    "Setting the last_action tick to None because there hasn't been any new actions in a while");
+                        group_channel.last_action_tick = None;
+                    }
+                }
+            }
+            // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
+            for group_channel in connection.replication_receiver.group_channels.values_mut() {
+                debug!("Checking group channel: {:?}", group_channel);
+                if let Some(latest_tick) = group_channel.latest_tick {
+                    if tick - latest_tick > (i16::MAX / 2) {
+                        debug!(
+                    ?tick,
+                    ?latest_tick,
+                    ?group_channel,
+                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                        group_channel.latest_tick = Some(tick);
+                    }
+                }
+            }
+        }
     }
 }

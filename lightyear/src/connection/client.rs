@@ -1,18 +1,18 @@
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use anyhow::Result;
 use bevy::prelude::Resource;
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
-use crate::connection::netcode::ClientId;
+use crate::connection::netcode::{ClientId, ConnectToken};
 
 #[cfg(feature = "steam")]
 use crate::connection::steam::client::SteamConfig;
 use crate::packet::packet::Packet;
 
-use crate::prelude::client::Authentication;
-use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
+use crate::prelude::{generate_key, Io, IoConfig, Key, LinkConditionerConfig};
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {
@@ -154,5 +154,52 @@ impl NetClient for ClientConnection {
 
     fn io_mut(&mut self) -> Option<&mut Io> {
         self.client.io_mut()
+    }
+}
+
+#[derive(Resource, Default, Clone)]
+#[allow(clippy::large_enum_variant)]
+/// Struct used to authenticate with the server
+pub enum Authentication {
+    /// Use a `ConnectToken` that was already received (usually from a secure-connection to a webserver)
+    Token(ConnectToken),
+    /// Or build a `ConnectToken` manually from the given parameters
+    Manual {
+        server_addr: SocketAddr,
+        client_id: u64,
+        private_key: Key,
+        protocol_id: u64,
+    },
+    #[default]
+    /// Request a connect token from the backend
+    RequestConnectToken,
+}
+
+impl Authentication {
+    pub fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+        match self {
+            Authentication::Token(token) => Some(token),
+            Authentication::Manual {
+                server_addr,
+                client_id,
+                private_key,
+                protocol_id,
+            } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
+                .timeout_seconds(client_timeout_secs)
+                .generate()
+                .ok(),
+            Authentication::RequestConnectToken => {
+                // create a fake connect token so that we have a NetcodeClient
+                ConnectToken::build(
+                    SocketAddr::from_str("0.0.0.0:0").unwrap(),
+                    0,
+                    0,
+                    generate_key(),
+                )
+                .timeout_seconds(client_timeout_secs)
+                .generate()
+                .ok()
+            }
+        }
     }
 }

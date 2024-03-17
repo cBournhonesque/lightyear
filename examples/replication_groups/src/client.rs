@@ -116,27 +116,32 @@ pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMeta
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(mut client: ClientMut, keypress: Res<ButtonInput<KeyCode>>) {
+pub(crate) fn buffer_input(
+    tick_manager: Res<TickManager>,
+    mut connection_manager: ResMut<ClientConnectionManager>,
+    keypress: Res<ButtonInput<KeyCode>>,
+) {
+    let tick = tick_manager.tick();
     if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-        return client.add_input(Inputs::Direction(Direction::Up));
+        return connection_manager.add_input(Inputs::Direction(Direction::Up), tick);
     }
     if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-        return client.add_input(Inputs::Direction(Direction::Down));
+        return connection_manager.add_input(Inputs::Direction(Direction::Down), tick);
     }
     if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-        return client.add_input(Inputs::Direction(Direction::Left));
+        return connection_manager.add_input(Inputs::Direction(Direction::Left), tick);
     }
     if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-        return client.add_input(Inputs::Direction(Direction::Right));
+        return connection_manager.add_input(Inputs::Direction(Direction::Right), tick);
     }
     if keypress.pressed(KeyCode::Backspace) {
         // currently, inputs is an enum and we can only add one input per tick
-        return client.add_input(Inputs::Delete);
+        return connection_manager.add_input(Inputs::Delete, tick);
     }
     if keypress.pressed(KeyCode::Space) {
-        return client.add_input(Inputs::Spawn);
+        return connection_manager.add_input(Inputs::Spawn, tick);
     }
-    return client.add_input(Inputs::None);
+    return connection_manager.add_input(Inputs::None, tick);
 }
 
 // The client input only gets applied to predicted entities that we own
@@ -192,12 +197,10 @@ pub(crate) fn handle_interpolated_spawn(
 
 pub(crate) fn debug_prediction_pre_rollback(
     tick_manager: Res<TickManager>,
-    client: Client,
     parent_query: Query<&PredictionHistory<PlayerPosition>>,
     tail_query: Query<(&PlayerParent, &PredictionHistory<TailPoints>)>,
 ) {
     trace!(tick = ?tick_manager.tick(),
-        inputs = ?client.get_input_buffer(),
         "prediction pre rollback debug");
     for (parent, tail_history) in tail_query.iter() {
         let parent_history = parent_query

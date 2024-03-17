@@ -101,7 +101,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
+pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
     commands.spawn(Camera2dBundle::default());
     let _ = client.connect();
 }

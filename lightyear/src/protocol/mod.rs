@@ -35,7 +35,19 @@ pub(crate) mod message;
 pub(crate) mod registry;
 
 // TODO: how to make components or messages or inputs optional? Just by having an implementation for () ?
-/// The [`Protocol`] trait defines the various channels, inputs, messages and components that will be used in the game.
+/// The [`Protocol`] trait defines the various channels, inputs, messages and components that will be used to transmit information between
+/// the client and server.
+///
+/// ## What is a Protocol?
+///
+/// A protocol will contain:
+/// - a [`ChannelRegistry`]: a registry to list all the [`Channel`]s that will be used to send data over the network
+/// - a [`MessageProtocol`]: an enum containing all the [`Message`]s that can be sent over the network
+/// - a [`ComponentProtocol`]: an enum containing all the [`Component`]s that can be sent over the network for automatic world replication. Each [`Component`] must also be a [`Message`].
+/// - optionally, one or multiple enums that represent a list of user actions that can be sent over the network. It is recommended to use the "leafwing" feature and provide
+///   a [`crate::inputs::leafwing::LeafwingUserAction`] enum
+///
+/// It is required to provide a [`MessageProtocol`] and a [`ComponentProtocol`]; providing an Input protocol is optional.
 ///
 /// # Examples
 ///
@@ -86,14 +98,13 @@ pub trait Protocol: Send + Sync + Clone + Debug + 'static {
 }
 
 // TODO: give an option to change names of types
-
-/// This macro is used to build the Protocol struct.
+/// This macro is used to build the [`Protocol`] struct.
 /// For convenience, it will re-export some types that need to have the Protocol as a generic parameter, so that you
 /// don't have to type `<MyProtocol>` everywhere.
 /// Notably:
 /// - `Replicate` is a type alias for [`Replicate<Protocol>`](crate::shared::replication::components::Replicate)
-/// - `Client` is a type alias for [`Client<Protocol>`](crate::client::resource::Client)
-/// - `Server` is a type alias for [`Server<Protocol>`](crate::server::resource::Server)
+/// - `ClientConnectionManager` is a type alias for [`ConnectionManager<Protocol>`](crate::client::connection::ConnectionManager)
+/// - `ServerConnectionManager` is a type alias for [`ConnectionManager<Protocol>`](crate::server::connection::ConnectionManager)
 #[macro_export]
 macro_rules! protocolize {
         (
@@ -183,10 +194,6 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type Client<'w, 's> = $shared_crate_name::client::resource::Client<'w, 's, $protocol>;
-        pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
-        pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
-        pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
         pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
         pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }
@@ -280,10 +287,6 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type Client<'w, 's> = $shared_crate_name::client::resource::Client<'w, 's, $protocol>;
-        pub type Server<'w, 's> = $shared_crate_name::server::resource::Server<'w, 's, $protocol>;
-        pub type ClientMut<'w, 's> = $shared_crate_name::client::resource::ClientMut<'w, 's, $protocol>;
-        pub type ServerMut<'w, 's> = $shared_crate_name::server::resource::ServerMut<'w, 's, $protocol>;
         pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
         pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
         }

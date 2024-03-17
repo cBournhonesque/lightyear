@@ -17,8 +17,6 @@ pub mod plugin;
 
 pub mod prediction;
 
-pub mod resource;
-
 pub mod sync;
 
 mod diagnostics;
