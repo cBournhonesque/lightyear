@@ -79,6 +79,7 @@ impl FragmentConstructor {
             num_fragments,
             num_received_fragments: 0,
             received: vec![false; num_fragments],
+            // TODO: do not do a new allocation here, but instead get the bytes from a pool!
             bytes: vec![0; num_fragments * FRAGMENT_SIZE],
             last_received: None,
         }
