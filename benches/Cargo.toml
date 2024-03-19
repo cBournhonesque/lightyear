@@ -36,3 +36,8 @@ harness = false
 name = "bitcode_packing"
 path = "bitcode_packing.rs"
 harness = false
+
+[[bench]]
+name = "reflect"
+path = "reflect.rs"
+harness = false
