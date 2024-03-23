@@ -19,10 +19,17 @@ use wtransport::{Connection, Endpoint};
 use crate::transport::webtransport::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
+use super::super::super::connection::netcode::DisConnectionError;
+
 /// WebTransport client socket
 pub struct WebTransportServerSocket {
     server_addr: SocketAddr,
     certificate: Option<Certificate>,
+}
+
+enum MessageDatagram {
+    Datagram(Datagram),
+    Close,
 }
 
 impl WebTransportServerSocket {
@@ -35,7 +42,7 @@ impl WebTransportServerSocket {
 
     pub async fn handle_client(
         incoming_session: IncomingSession,
-        from_client_sender: UnboundedSender<(Datagram, SocketAddr)>,
+        from_client_sender: UnboundedSender<(MessageDatagram, SocketAddr)>,
         to_client_channels: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<Box<[u8]>>>>>,
     ) {
         let session_request = incoming_session
@@ -69,6 +76,7 @@ impl WebTransportServerSocket {
 
         // connection established, waiting for data from client
         let connection_recv = connection.clone();
+        let client_sender = from_client_sender.clone();
         let from_client_handle = IoTaskPool::get().spawn(async move {
             loop {
                 // receive messages from client
@@ -79,12 +87,15 @@ impl WebTransportServerSocket {
                             data.as_ref(),
                             data.len()
                         );
-                        from_client_sender.send((data, client_addr)).unwrap();
+                        client_sender
+                            .send((MessageDatagram::Datagram(data), client_addr))
+                            .unwrap();
                     }
                     Err(e) => {
                         error!("receive_datagram connection error: {:?}", e);
                         // to_client_channels.lock().unwrap().remove(&client_addr);
-                        break;
+                        // from_client_sender.send((MessageDatagram::Close, client_addr)).unwrap();
+                        // break;
                     }
                 }
             }
@@ -105,6 +116,12 @@ impl WebTransportServerSocket {
 
         // await for the quic connection to be closed for any reason
         connection.closed().await;
+
+        from_client_sender
+            .send((MessageDatagram::Close, client_addr))
+            .unwrap();
+        from_client_handle.cancel().await;
+        to_client_handle.cancel().await;
         info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
         debug!("Dropping tasks");
@@ -193,15 +210,21 @@ impl PacketSender for WebTransportServerSocketSender {
 struct WebTransportServerSocketReceiver {
     buffer: [u8; MTU],
     server_addr: SocketAddr,
-    from_client_receiver: UnboundedReceiver<(Datagram, SocketAddr)>,
+    from_client_receiver: UnboundedReceiver<(MessageDatagram, SocketAddr)>,
 }
 impl PacketReceiver for WebTransportServerSocketReceiver {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_client_receiver.try_recv() {
-            Ok((data, addr)) => {
-                self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
-                Ok(Some((&mut self.buffer[..data.len()], addr)))
-            }
+            Ok((datagram, addr)) => match datagram {
+                MessageDatagram::Datagram(data) => {
+                    self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
+                    Ok(Some((&mut self.buffer[..data.len()], addr)))
+                }
+                MessageDatagram::Close => Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    DisConnectionError { addr },
+                )),
+            },
             Err(e) => {
                 if e == TryRecvError::Empty {
                     Ok(None)

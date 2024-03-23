@@ -125,7 +125,7 @@ loop {
 
 pub use client::{Client, ClientConfig, ClientState, NetcodeClient};
 pub use crypto::{generate_key, try_generate_key, Key};
-pub use error::{Error, Result};
+pub use error::{Error, Result, DisConnectionError};
 pub use server::{Callback, ClientId, NetcodeServer, Server, ServerConfig};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
