@@ -1,14 +1,16 @@
 //! This module parses the settings.ron file and builds a lightyear configuration from it
-use crate::server::Certificate;
-use crate::{client, server};
+use bevy::utils::Duration;
+use std::net::{Ipv4Addr, SocketAddr};
+
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
-use lightyear::client::resource::Authentication;
-use lightyear::prelude::client::SteamConfig;
-use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
 use serde::{Deserialize, Serialize};
-use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
+
+use lightyear::prelude::client::{Authentication, SteamConfig};
+use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
+
+use crate::server::Certificate;
+use crate::{client, server};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {
@@ -55,8 +57,8 @@ pub struct Conditioner {
 impl Conditioner {
     pub fn build(&self) -> LinkConditionerConfig {
         LinkConditionerConfig {
-            incoming_latency: std::time::Duration::from_millis(self.latency_ms as u64),
-            incoming_jitter: std::time::Duration::from_millis(self.jitter_ms as u64),
+            incoming_latency: Duration::from_millis(self.latency_ms as u64),
+            incoming_jitter: Duration::from_millis(self.jitter_ms as u64),
             incoming_loss: self.packet_loss,
         }
     }
@@ -153,7 +155,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
         .transport
         .iter()
         .map(|t| match t {
-            ServerTransports::Udp { local_port } => crate::build_server_netcode_config(
+            ServerTransports::Udp { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
                 TransportConfig::UdpSocket(SocketAddr::new(
@@ -176,7 +178,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                     .unwrap();
                 let digest = &certificate.hashes()[0].to_string().replace(":", "");
                 println!("Generated self-signed certificate with digest: {}", digest);
-                crate::build_server_netcode_config(
+                build_server_netcode_config(
                     settings.server.conditioner.as_ref(),
                     &settings.shared,
                     TransportConfig::WebTransportServer {
@@ -185,7 +187,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                     },
                 )
             }
-            ServerTransports::WebSocket { local_port } => crate::build_server_netcode_config(
+            ServerTransports::WebSocket { local_port } => build_server_netcode_config(
                 settings.server.conditioner.as_ref(),
                 &settings.shared,
                 TransportConfig::WebSocketServer {

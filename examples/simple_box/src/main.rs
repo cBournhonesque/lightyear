@@ -5,26 +5,18 @@
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
-use bevy::utils::Duration;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::str::FromStr;
 
-use async_compat::Compat;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use bevy::tasks::IoTaskPool;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
-use lightyear::client::resource::Authentication;
 use serde::{Deserialize, Serialize};
 
-use lightyear::connection::netcode::ClientId;
-use lightyear::prelude::client::SteamConfig;
-#[cfg(not(target_family = "wasm"))]
-use lightyear::prelude::server::Certificate;
-use lightyear::prelude::{IoConfig, LinkConditionerConfig, TransportConfig};
+use lightyear::prelude::TransportConfig;
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
@@ -42,7 +34,8 @@ mod shared;
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
     #[cfg(not(target_family = "wasm"))]
-    /// The program will act both as a server and as a client
+    /// The program will act both as a server and as a client.
+    /// Data gets passed between the two via channels.
     ListenServer {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
@@ -80,6 +73,7 @@ fn run(settings: Settings, cli: Cli) {
             // create client app
             let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
             let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
+            // we will communicate between the client and server apps via channels
             let transport_config = TransportConfig::LocalChannel {
                 recv: from_server_recv,
                 send: to_server_send,
