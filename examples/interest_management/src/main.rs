@@ -5,26 +5,19 @@
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
-use bevy::utils::Duration;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::str::FromStr;
 
-use async_compat::Compat;
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
-use bevy::tasks::IoTaskPool;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
-use lightyear::client::resource::Authentication;
 use serde::{Deserialize, Serialize};
 
-use lightyear::connection::netcode::ClientId;
-use lightyear::prelude::client::SteamConfig;
-#[cfg(not(target_family = "wasm"))]
-use lightyear::prelude::server::Certificate;
-use lightyear::prelude::{IoConfig, LinkConditionerConfig, TransportConfig};
+use lightyear::client::resource::Authentication;
+use lightyear::prelude::TransportConfig;
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 

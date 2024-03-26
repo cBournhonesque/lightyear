@@ -1,14 +1,16 @@
 //! This module parses the settings.ron file and builds a lightyear configuration from it
-use crate::server::Certificate;
-use crate::{client, server};
+use bevy::utils::Duration;
+use std::net::{Ipv4Addr, SocketAddr};
+
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
-use lightyear::client::resource::Authentication;
-use lightyear::prelude::client::SteamConfig;
-use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
 use serde::{Deserialize, Serialize};
-use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
+
+use lightyear::prelude::client::{Authentication, SteamConfig};
+use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
+
+use crate::server::Certificate;
+use crate::{client, server};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {
