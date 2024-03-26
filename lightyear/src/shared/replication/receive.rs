@@ -413,12 +413,9 @@ impl<P: Protocol> GroupChannel<P> {
         current_tick: Tick,
     ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
-        let Some(message) = self
+        let message = self
             .actions_recv_message_buffer
-            .get(&self.actions_pending_recv_message_id)
-        else {
-            return None;
-        };
+            .get(&self.actions_pending_recv_message_id)?;
         // if the message is from the future, keep it there
         if message.0 > current_tick {
             trace!("message tick is from the future compared to our tick");

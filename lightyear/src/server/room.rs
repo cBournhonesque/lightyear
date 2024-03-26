@@ -581,16 +581,20 @@ mod tests {
             .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_entity(server_entity);
+        assert!(stepper
+            .server_app
+            .world
+            .resource::<RoomManager>()
+            .events
+            .entity_enter_room
+            .get(&server_entity)
+            .unwrap()
+            .contains(&room_id));
         // Run update replication cache once
         stepper
             .server_app
             .world
             .run_system_once(update_entity_replication_cache::<MyProtocol>);
-        assert!(stepper
-            .server_app
-            .world
-            .resource::<RoomManager>()
-            .has_entity(server_entity, room_id));
         assert_eq!(
             stepper
                 .server_app
@@ -647,10 +651,6 @@ mod tests {
             .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .remove_entity(server_entity);
-        stepper
-            .server_app
-            .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
             .server_app
             .world
@@ -660,6 +660,10 @@ mod tests {
             .get(&server_entity)
             .unwrap()
             .contains(&room_id));
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert_eq!(
             stepper
                 .server_app
@@ -737,11 +741,6 @@ mod tests {
             .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .add_client(client_id);
-        // Run update replication cache once
-        stepper
-            .server_app
-            .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
             .server_app
             .world
@@ -751,6 +750,11 @@ mod tests {
             .get(&client_id)
             .unwrap()
             .contains(&room_id));
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert_eq!(
             stepper
                 .server_app
@@ -807,10 +811,6 @@ mod tests {
             .resource_mut::<RoomManager>()
             .room_mut(room_id)
             .remove_client(client_id);
-        stepper
-            .server_app
-            .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert!(stepper
             .server_app
             .world
@@ -820,6 +820,10 @@ mod tests {
             .get(&client_id)
             .unwrap()
             .contains(&room_id));
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert_eq!(
             stepper
                 .server_app
@@ -935,7 +939,11 @@ mod tests {
             .world
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
-        stepper.frame_step();
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
         assert_eq!(
             stepper
                 .server_app
