@@ -34,6 +34,35 @@ pub struct BevyStepper {
     pub current_time: bevy::utils::Instant,
 }
 
+impl Default for BevyStepper {
+    fn default() -> Self {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = Self::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper.init();
+        stepper
+    }
+}
+
 // Do not forget to use --features mock_time when using the LinkConditioner
 impl BevyStepper {
     pub fn new(
