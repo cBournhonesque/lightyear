@@ -8,7 +8,7 @@ The main things to keep in mind are:
 - All packets are sent during the `PostUpdate` schedule. All messages that were buffered are then sent to the remote, and all replication messages (entity spawn, component updated, etc.) are also sent
 - There are 2 [`SystemSets`](bevy::prelude::SystemSet) that you should interact with:
   - [`BufferInputs`](crate::prelude::BufferInputs): this is where you should be running `client.add_inputs()` so that they are buffered and sent to the server correctly
-  - [`Main`](crate::prelude::Main): this is where all your [`FixedUpdate`] Schedule systems (physics, etc.) should be run, so that they interact correctly with client-side prediction, etc.
+  - [`Main`](crate::prelude::Main): this is where all your [`FixedUpdate`](bevy::prelude::FixedUpdate) Schedule systems (physics, etc.) should be run, so that they interact correctly with client-side prediction, etc.
 
 Here is a simplified version of the system order:
 ```mermaid

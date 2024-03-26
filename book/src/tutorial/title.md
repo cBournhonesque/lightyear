@@ -9,13 +9,13 @@ In this tutorial, we will reproduce the [simple box example](https://github.com/
 
 ## Setup
 
-First, you will need to define a [Protocol](../concepts/protocol/title.md) for your game.
+First, you will need to define a [Protocol](../concepts/replication/protocol.md) for your game.
 This is where you define the contract of what is going to be send across the network between your client and server.
 
 A protocol is composed of 
-- [Input](../concepts/inputs/title.md): Defines the client's input type, i.e. the different actions that a user can perform
+- [Input](../concepts/advanced_replication/inputs.md): Defines the client's input type, i.e. the different actions that a user can perform
  (e.g. move, jump, shoot, etc.). 
-- [Message](../concepts/events/title.md): Defines the message protocol, i.e. the messages that can be exchanged between the client and server. A
+- [Message](../concepts/bevy_integration/events.md): Defines the message protocol, i.e. the messages that can be exchanged between the client and server. A
   message is any type that is `Send + Sync + 'static` and can be serialized
 - [Components](../concepts/replication/title.md): Defines the component protocol, i.e. the list of components that can be replicated between the client and server.
 
@@ -90,7 +90,7 @@ Similarly to message protocol, the enum must contain the `#[component_protocol(p
 
 ## Channels
 
-We now need to define the [channels](../packet/channels.md) that we will use to send messages between the client and server.
+We now need to define the [channels](../concepts/reliability/channels.md) that we will use to send messages between the client and server.
 A `Channel` defines how the packets will be sent over the network: reliably? in-order? etc.
 ```rust
 #[derive(Channel)]

@@ -207,7 +207,7 @@ app.add_systems(
 `add_input` needs to be called in the `InputSystemSet::BufferInputs` `SystemSet`.
 Some systems need to be run in specific `SystemSet`s because of the ordering of some operations is important for the
 crate
-to work properly. See [SystemSet Ordering](../concepts/system_sets/title.md) for more information.
+to work properly. See [SystemSet Ordering](../concepts/bevy_integration/system_order.md) for more information.
 
 ## Handle inputs on server
 
