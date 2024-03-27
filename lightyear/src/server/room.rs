@@ -329,6 +329,12 @@ impl<'s> RoomRef<'s> {
 }
 
 impl RoomEvents {
+    fn is_empty(&self) -> bool {
+        self.client_enter_room.is_empty()
+            && self.client_leave_room.is_empty()
+            && self.entity_enter_room.is_empty()
+            && self.entity_leave_room.is_empty()
+    }
     fn clear(&mut self) {
         self.client_enter_room.clear();
         self.client_leave_room.clear();
@@ -432,9 +438,30 @@ fn update_entity_replication_cache<P: Protocol>(
     mut room_manager: ResMut<RoomManager>,
     mut query: Query<&mut Replicate<P>>,
 ) {
-    info!(?room_manager.events, "Room events");
+    if !room_manager.events.is_empty() {
+        info!(?room_manager.events, "Room events");
+    }
     // enable split borrows by reborrowing Mut
     let room_manager = &mut *room_manager;
+
+    // NOTE: we handle leave room events before join room events so that if an entity leaves room 1 to join room 2
+    //  and the client is in both rooms, the entity does not get despawned
+
+    // entity left room
+    for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
+        // for each room left, update the entity's client visibility list if the client was in the room
+        rooms.into_iter().for_each(|room_id| {
+            let room = room_manager.data.rooms.get(&room_id).unwrap();
+            room.clients.iter().for_each(|client_id| {
+                if let Ok(mut replicate) = query.get_mut(entity) {
+                    if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
+                    {
+                        *visibility = ClientVisibility::Lost;
+                    }
+                }
+            });
+        });
+    }
     // entity joined room
     for (entity, rooms) in room_manager.events.entity_enter_room.drain() {
         // for each room joined, update the entity's client visibility list
@@ -451,14 +478,14 @@ fn update_entity_replication_cache<P: Protocol>(
             });
         });
     }
-    // entity left room
-    for (entity, rooms) in room_manager.events.entity_leave_room.drain() {
-        // for each room left, update the entity's client visibility list if the client was in the room
+    // client left room: update all the entities that are in that room
+    for (client_id, rooms) in room_manager.events.client_leave_room.drain() {
         rooms.into_iter().for_each(|room_id| {
             let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.clients.iter().for_each(|client_id| {
-                if let Ok(mut replicate) = query.get_mut(entity) {
-                    if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
+            room.entities.iter().for_each(|entity| {
+                if let Ok(mut replicate) = query.get_mut(*entity) {
+                    if let Some(visibility) =
+                        replicate.replication_clients_cache.get_mut(&client_id)
                     {
                         *visibility = ClientVisibility::Lost;
                     }
@@ -476,21 +503,6 @@ fn update_entity_replication_cache<P: Protocol>(
                         .replication_clients_cache
                         .entry(client_id)
                         .or_insert(ClientVisibility::Gained);
-                }
-            });
-        });
-    }
-    // client left room: update all the entities that are in that room
-    for (client_id, rooms) in room_manager.events.client_leave_room.drain() {
-        rooms.into_iter().for_each(|room_id| {
-            let room = room_manager.data.rooms.get(&room_id).unwrap();
-            room.entities.iter().for_each(|entity| {
-                if let Ok(mut replicate) = query.get_mut(*entity) {
-                    if let Some(visibility) =
-                        replicate.replication_clients_cache.get_mut(&client_id)
-                    {
-                        *visibility = ClientVisibility::Lost;
-                    }
                 }
             });
         });
