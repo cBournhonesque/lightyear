@@ -29,6 +29,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install mdbook-mermaid
         run: cargo install mdbook-mermaid
+      - name: Install mdbook-linkcheck
+        run: cargo install mdbook-linkcheck
       - name: Build Book
         run: |
           cd book

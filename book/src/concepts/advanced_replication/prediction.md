@@ -63,7 +63,7 @@ Status: added unit test. Need to reconfirm that it works.
 
 ### Pre-predicted entity gets spawned
 
-See more information in the [client-replication](../client_replication.md#pre-spawned-predicted-entities) section.
+See more information in the [client-replication](./client_replication.md#pre-spawned-predicted-entities) section.
 
 Status:
 - the pre-predicted entity get spawned. Upon server replication, we re-use it as Predicted entity: no unit tests but tested in an example that it works.
