@@ -6,6 +6,7 @@ use nonzero_ext::nonzero;
 use crate::client::input::InputConfig;
 use crate::client::interpolation::plugin::InterpolationConfig;
 use crate::client::prediction::plugin::PredictionConfig;
+use crate::client::replication::ReplicationConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::client::NetConfig;
 use crate::shared::config::SharedConfig;
@@ -97,4 +98,5 @@ pub struct ClientConfig {
     pub sync: SyncConfig,
     pub prediction: PredictionConfig,
     pub interpolation: InterpolationConfig,
+    pub replication: ReplicationConfig,
 }

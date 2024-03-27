@@ -85,6 +85,7 @@ impl TickManager {
     pub(crate) fn set_tick_to(&mut self, tick: Tick) -> TickEvent {
         let old_tick = self.tick;
         self.tick = tick;
+        // info!(?old_tick, new_tick =?tick, "tick snap event");
         TickEvent::TickSnap {
             old_tick,
             new_tick: tick,

@@ -67,7 +67,6 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
             error!("Failed to start server: {:?}", e);
         });
     }
-    commands.spawn(Camera2dBundle::default());
     commands.spawn(TextBundle::from_section(
         "Server",
         TextStyle {
@@ -123,7 +122,7 @@ pub(crate) fn movement(
     for input in input_reader.read() {
         let client_id = input.context();
         if let Some(input) = input.input() {
-            debug!(
+            info!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
                 client_id,
@@ -138,10 +137,6 @@ pub(crate) fn movement(
     }
 }
 
-// NOTE: you can use either:
-// - ServerMut (which is a wrapper around a bunch of resources used in lightyear)
-// - ResMut<ConnectionManager>, which is the actual resource used to send the message in this case. This is more optimized
-//   because it enables more parallelism
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)
 pub(crate) fn send_message(

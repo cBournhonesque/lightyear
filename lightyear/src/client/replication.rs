@@ -3,8 +3,15 @@ use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
 use crate::client::sync::client_is_synced;
+use crate::prelude::client::InterpolationDelay;
 use crate::prelude::{Protocol, ReplicationSet};
 use crate::shared::replication::plugin::ReplicationPlugin;
+
+#[derive(Clone, Default, Debug)]
+pub struct ReplicationConfig {
+    /// Set to true to enable replicating this client's entities to the server
+    pub enable: bool,
+}
 
 pub struct ClientReplicationPlugin<P: Protocol> {
     tick_duration: Duration,

@@ -6,6 +6,13 @@ use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::plugin::ReplicationPlugin;
 
+/// Configuration related to replicating the server's World to clients
+#[derive(Clone, Default, Debug)]
+pub struct ReplicationConfig {
+    /// Set to true to disable replicating this server's entities to clients
+    pub disable: bool,
+}
+
 pub struct ServerReplicationPlugin<P: Protocol> {
     tick_duration: Duration,
     marker: std::marker::PhantomData<P>,

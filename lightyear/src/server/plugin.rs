@@ -65,19 +65,23 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 config.server_config.ping,
             ))
             // PLUGINS
-            .add_plugins(SharedPlugin::<P> {
+            .add_plugins(ServerEventsPlugin::<P>::default())
+            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
+            .add_plugins(ClientMetadataPlugin::<P>::default())
+            .add_plugins(InputPlugin::<P>::default())
+            .add_plugins(RoomPlugin::<P>::default());
+
+        if !config.server_config.replication.disable {
+            app.add_plugins(ServerReplicationPlugin::<P>::new(tick_duration));
+        }
+
+        // check if are running both client and server plugins in the same app
+        if !app.is_plugin_added::<SharedPlugin<P>>() {
+            app.add_plugins(SharedPlugin::<P> {
                 // TODO: move shared config out of server_config?
                 config: config.server_config.shared.clone(),
                 ..default()
-            })
-            .add_plugins(ServerEventsPlugin::<P>::default())
-            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
-            .add_plugins(ServerReplicationPlugin::<P>::new(tick_duration))
-            .add_plugins(ClientMetadataPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(RoomPlugin::<P>::default())
-            .add_plugins(TimePlugin {
-                send_interval: config.server_config.shared.server_send_interval,
             });
+        }
     }
 }

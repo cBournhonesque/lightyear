@@ -27,7 +27,7 @@ use bevy::prelude::{
     not, App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs,
     IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, SystemSet,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
@@ -248,7 +248,10 @@ fn prepare_input_message<P: Protocol>(
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        debug!("sending input message: {:?}", message.end_tick);
+        info!(
+            ?current_tick,
+            "sending input message: {:?}", message.end_tick
+        );
         connection
             .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {

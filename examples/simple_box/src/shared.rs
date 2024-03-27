@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -22,6 +23,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(Update, draw_boxes);
             // app.add_plugins(LogDiagnosticsPlugin {
             //     filter: Some(vec![
@@ -32,6 +34,10 @@ impl Plugin for SharedPlugin {
             // });
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -56,9 +62,15 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
     }
 }
 
-/// System that draws the boxed of the player positions.
+/// System that draws the boxes of the player positions.
 /// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
+pub(crate) fn draw_boxes(
+    mut gizmos: Gizmos,
+    players: Query<
+        (&PlayerPosition, &PlayerColor),
+        Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>,
+    >,
+) {
     for (position, color) in &players {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),

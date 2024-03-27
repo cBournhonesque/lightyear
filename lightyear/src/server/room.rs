@@ -15,7 +15,7 @@ use crate::connection::netcode::ClientId;
 use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::is_server_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
@@ -126,7 +126,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                     RoomSystemSets::UpdateReplicationCaches,
                     RoomSystemSets::RoomBookkeeping,
                 )
-                    .run_if(is_ready_to_send),
+                    .run_if(is_server_ready_to_send),
             ),
         );
         // SYSTEMS

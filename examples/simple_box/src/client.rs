@@ -72,9 +72,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
-
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
@@ -98,10 +96,16 @@ pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMeta
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
+    metadata: Res<GlobalMetadata>,
     mut connection_manager: ResMut<ClientConnectionManager>,
+    server_input_event: Option<ResMut<Events<server::InputEvent<Inputs>>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
+    let Some(client_id) = metadata.client_id else {
+        return;
+    };
     let tick = tick_manager.tick();
+    let mut input = Inputs::None;
     let mut direction = Direction {
         up: false,
         down: false,
@@ -121,16 +125,24 @@ pub(crate) fn buffer_input(
         direction.right = true;
     }
     if !direction.is_none() {
-        return connection_manager.add_input(Inputs::Direction(direction), tick);
+        input = Inputs::Direction(direction);
     }
     if keypress.pressed(KeyCode::Backspace) {
-        // currently, inputs is an enum and we can only add one input per tick
-        return connection_manager.add_input(Inputs::Delete, tick);
+        input = Inputs::Delete;
     }
     if keypress.pressed(KeyCode::Space) {
-        return connection_manager.add_input(Inputs::Spawn, tick);
+        input = Inputs::Spawn;
     }
-    return connection_manager.add_input(Inputs::None, tick);
+    // if we run in listen-server mode and the server/client are running in the same app
+    // emit the input event directly to the server
+    if let Some(mut server_input_event) = server_input_event {
+        info!(?tick, "send client input");
+        // TODO: should we still add the event to the buffer, for rollbacks?
+        //  maybe not, because there cannot be mispredictions?
+        let _ = server_input_event.send(server::InputEvent::new(Some(input), client_id));
+    } else {
+        return connection_manager.add_input(input, tick);
+    }
 }
 
 // The client input only gets applied to predicted entities that we own
