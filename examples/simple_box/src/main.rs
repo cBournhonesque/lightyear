@@ -26,7 +26,6 @@ use crate::settings::*;
 
 mod client;
 mod protocol;
-
 mod server;
 mod settings;
 mod shared;

@@ -5,5 +5,6 @@ pub mod netcode;
 
 pub(crate) mod server;
 
+#[cfg_attr(docsrs, doc(cfg(all(feature = "steam", not(target_family = "wasm")))))]
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 pub(crate) mod steam;
