@@ -25,7 +25,8 @@ pub enum InputMessageKind {
     None,
 }
 
-// that big enum will implement MessageProtocol via a proc macro
+/// A [`MessageProtocol`] is basically an enum that contains all the [`Message`] that can be sent
+/// over the network.
 pub trait MessageProtocol:
     BitSerializable
     + Serialize
@@ -60,7 +61,7 @@ pub trait MessageProtocol:
     );
 }
 
-/// MessageKind - internal wrapper around the type of the message
+/// [`MessageKind`] is an internal wrapper around the type of the message
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct MessageKind(TypeId);
 

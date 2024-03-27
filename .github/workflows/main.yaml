@@ -124,3 +124,26 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+  
+  build-book:
+    name: Build book
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install latest mdbook
+        run: |
+          tag=$(curl 'https://api.github.com/repos/rust-lang/mdbook/releases/latest' | jq -r '.tag_name')
+          url="https://github.com/rust-lang/mdbook/releases/download/${tag}/mdbook-${tag}-x86_64-unknown-linux-gnu.tar.gz"
+          mkdir mdbook
+          curl -sSL $url | tar -xz --directory=./mdbook
+          echo `pwd`/mdbook >> $GITHUB_PATH
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install mdbook-mermaid
+        run: cargo install mdbook-mermaid
+      - name: Install mdbook-linkcheck
+        run: cargo install mdbook-linkcheck
+      - name: Build Book
+        run: |
+          cd book
+          mdbook build

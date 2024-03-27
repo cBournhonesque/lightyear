@@ -289,6 +289,10 @@ impl MessageContainer {
 }
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
+/// A [`Message`] is basically any type that can be (de)serialized over the network.
+///
+/// Every type that can be sent over the network must implement this trait.
+///
 pub trait Message: EventContext + Named + LightyearMapEntities {}
 impl<T: EventContext + Named + LightyearMapEntities> Message for T {}
 

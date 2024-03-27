@@ -13,6 +13,9 @@ use crate::protocol::BitSerializable;
 
 pub(crate) mod input_buffer;
 
+/// An enum that represents a list of user actions.
+///
+/// See more information in the leafwing_input_manager crate: [`Actionlike`]
 pub trait LeafwingUserAction:
     BitSerializable
     + Copy

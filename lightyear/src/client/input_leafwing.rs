@@ -112,9 +112,8 @@ impl<A> Default for LeafwingInputConfig<A> {
         LeafwingInputConfig {
             // input_delay_ticks: 0,
             packet_redundancy: 10,
-            // TODO: false IS BROKEN!
             send_diffs_only: true,
-            _marker: std::marker::PhantomData,
+            _marker: PhantomData,
         }
     }
 }

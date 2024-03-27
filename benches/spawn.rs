@@ -12,14 +12,13 @@ use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
 use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
-use lightyear_benches::stepper::{BevyStepper, Step};
 
 fn main() {
     divan::main()
 }
 
-#[global_allocator]
-static ALLOC: AllocProfiler = AllocProfiler::system();
+// #[global_allocator]
+// static ALLOC: AllocProfiler = AllocProfiler::system();
 
 const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
 const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
@@ -75,7 +74,7 @@ fn spawn_local(bencher: Bencher, n: usize) {
                     .world
                     .entities()
                     .len(),
-                n as u32
+                1 + n as u32
             );
             // assert_eq!(stepper.client_app.world.entities().len(), n as u32);
             // dbg!(stepper.client().io().stats());
@@ -136,7 +135,7 @@ fn spawn(bencher: Bencher, n: usize) {
                         .world
                         .entities()
                         .len(),
-                    FIXED_NUM_ENTITIES as u32
+                    1 + FIXED_NUM_ENTITIES as u32
                 );
             }
             // dbg!(stepper.client().io().stats());

@@ -9,7 +9,7 @@ use leafwing_input_manager::prelude::*;
 use leafwing_input_manager::systems::{run_if_enabled, tick_action_state};
 
 use lightyear::_reexport::ShouldBeInterpolated;
-use lightyear::prelude::client::*;
+pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -17,36 +17,14 @@ use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Cli, ClientTransports, SharedSettings};
 
 pub struct ClientPluginGroup {
-    client_id: ClientId,
     lightyear: ClientPlugin<MyProtocol>,
 }
 
 impl ClientPluginGroup {
-    pub(crate) fn new(
-        client_id: u64,
-        server_addr: SocketAddr,
-        transport_config: TransportConfig,
-        shared_settings: SharedSettings,
-    ) -> ClientPluginGroup {
-        let auth = Authentication::Manual {
-            server_addr,
-            client_id,
-            private_key: shared_settings.private_key,
-            protocol_id: shared_settings.protocol_id,
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(100),
-            incoming_jitter: Duration::from_millis(10),
-            incoming_loss: 0.00,
-        };
+    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
         let config = ClientConfig {
             shared: shared_config(),
-            net: NetConfig::Netcode {
-                auth,
-                config: NetcodeConfig::default(),
-                io: IoConfig::from_transport(transport_config).with_conditioner(link_conditioner),
-            },
-            prediction: PredictionConfig::default(),
+            net: net_config,
             interpolation: InterpolationConfig::default().with_delay(
                 InterpolationDelay::default()
                     .with_min_delay(Duration::from_millis(50))
@@ -56,7 +34,6 @@ impl ClientPluginGroup {
         };
         let plugin_config = PluginConfig::new(config, protocol());
         ClientPluginGroup {
-            client_id,
             lightyear: ClientPlugin::new(plugin_config),
         }
     }
@@ -93,7 +70,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ClientMut) {
+pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
     commands.spawn(Camera2dBundle::default());
     let _ = client.connect();
 }

@@ -3,9 +3,7 @@ use bitcode::Encode;
 use serde::Serialize;
 
 /// Buffer to facilitate writing bits
-pub trait WriteBuffer: BitWrite {
-    // type Writer: BitWrite;
-
+pub trait WriteBuffer {
     /// Serialize the given value into the buffer
     /// There is no padding when we serialize a value (i.e. it's possible to add a single bit
     /// to the buffer)
@@ -14,7 +12,6 @@ pub trait WriteBuffer: BitWrite {
 
     fn encode<T: Encode + ?Sized>(&mut self, t: &T, encoding: impl Encoding) -> anyhow::Result<()>;
 
-    fn capacity(&self) -> usize;
     fn with_capacity(capacity: usize) -> Self;
 
     /// Clears the buffer.
@@ -36,10 +33,4 @@ pub trait WriteBuffer: BitWrite {
 
     /// Set the number of bits that can be written to this buffer
     fn set_reserved_bits(&mut self, num_bits: usize);
-}
-
-pub trait BitWrite {
-    fn write_bit(&mut self, bit: bool);
-    fn write_bits(&mut self, bits: u32);
-    fn write_bytes(&mut self, bytes: &[u8]);
 }

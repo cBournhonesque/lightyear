@@ -13,8 +13,6 @@ mod input;
 
 pub mod plugin;
 
-pub mod resource;
-
 pub mod room;
 
 #[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]

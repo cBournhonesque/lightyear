@@ -1,13 +1,18 @@
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use anyhow::Result;
 use bevy::prelude::Resource;
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
-use crate::connection::netcode::ClientId;
-use crate::prelude::client::Authentication;
-use crate::prelude::{Io, IoConfig};
+use crate::connection::netcode::{ClientId, ConnectToken};
+
+#[cfg(feature = "steam")]
+use crate::connection::steam::client::SteamConfig;
+use crate::packet::packet::Packet;
+
+use crate::prelude::{generate_key, Io, IoConfig, Key, LinkConditionerConfig};
 
 // TODO: add diagnostics methods?
 pub trait NetClient: Send + Sync {
@@ -23,7 +28,7 @@ pub trait NetClient: Send + Sync {
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
 
     /// Receive a packet from the server
-    fn recv(&mut self) -> Option<ReadWordBuffer>;
+    fn recv(&mut self) -> Option<Packet>;
 
     /// Send a packet to the server
     fn send(&mut self, buf: &[u8]) -> Result<()>;
@@ -55,9 +60,12 @@ pub enum NetConfig {
         config: NetcodeConfig,
         io: IoConfig,
     },
-    // TODO: add steam-specific config
     // TODO: for steam, we can use a pass-through io that just computes stats?
-    Steam,
+    #[cfg(feature = "steam")]
+    Steam {
+        config: SteamConfig,
+        conditioner: Option<LinkConditionerConfig>,
+    },
 }
 
 impl Default for NetConfig {
@@ -95,11 +103,17 @@ impl NetConfig {
                     client: Box::new(client),
                 }
             }
-            NetConfig::Steam => {
-                unimplemented!()
-                // // TODO: handle errors
-                // let (steam_client, _) = steamworks::Client::init().unwrap();
-                // Box::new(super::steam::Client::new(steam_client))
+            #[cfg(feature = "steam")]
+            NetConfig::Steam {
+                config,
+                conditioner,
+            } => {
+                // TODO: handle errors
+                let client = super::steam::client::Client::new(config, conditioner)
+                    .expect("could not create steam client");
+                ClientConnection {
+                    client: Box::new(client),
+                }
             }
         }
     }
@@ -118,7 +132,7 @@ impl NetClient for ClientConnection {
         self.client.try_update(delta_ms)
     }
 
-    fn recv(&mut self) -> Option<ReadWordBuffer> {
+    fn recv(&mut self) -> Option<Packet> {
         self.client.recv()
     }
 
@@ -140,5 +154,52 @@ impl NetClient for ClientConnection {
 
     fn io_mut(&mut self) -> Option<&mut Io> {
         self.client.io_mut()
+    }
+}
+
+#[derive(Resource, Default, Clone)]
+#[allow(clippy::large_enum_variant)]
+/// Struct used to authenticate with the server
+pub enum Authentication {
+    /// Use a `ConnectToken` that was already received (usually from a secure-connection to a webserver)
+    Token(ConnectToken),
+    /// Or build a `ConnectToken` manually from the given parameters
+    Manual {
+        server_addr: SocketAddr,
+        client_id: u64,
+        private_key: Key,
+        protocol_id: u64,
+    },
+    #[default]
+    /// Request a connect token from the backend
+    RequestConnectToken,
+}
+
+impl Authentication {
+    pub fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+        match self {
+            Authentication::Token(token) => Some(token),
+            Authentication::Manual {
+                server_addr,
+                client_id,
+                private_key,
+                protocol_id,
+            } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
+                .timeout_seconds(client_timeout_secs)
+                .generate()
+                .ok(),
+            Authentication::RequestConnectToken => {
+                // create a fake connect token so that we have a NetcodeClient
+                ConnectToken::build(
+                    SocketAddr::from_str("0.0.0.0:0").unwrap(),
+                    0,
+                    0,
+                    generate_key(),
+                )
+                .timeout_seconds(client_timeout_secs)
+                .generate()
+                .ok()
+            }
+        }
     }
 }

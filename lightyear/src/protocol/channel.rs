@@ -27,6 +27,7 @@ impl From<TypeId> for ChannelKind {
     }
 }
 
+/// Registry to store metadata about the various [`Channel`]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel

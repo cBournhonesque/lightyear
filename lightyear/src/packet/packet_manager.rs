@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use bitcode::encoding::Gamma;
+use bitcode::word_buffer::WordBuffer;
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::packet::header::PacketHeaderManager;
@@ -75,13 +76,6 @@ impl PacketBuilder {
         // packet.encode(&mut self.write_buffer)?;
         // let bytes = self.write_buffer.finish_write();
         // Ok(bytes)
-    }
-
-    /// Decode a packet from raw bytes
-    // TODO: the reader buffer will be created from the io (we copy the io bytes into a buffer)
-    // Should we decode the packet and get ChannelKinds directly?
-    pub(crate) fn decode_packet(&mut self, reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
-        Packet::decode(reader)
     }
 
     /// Start building new packet, we start with an empty packet

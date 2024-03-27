@@ -32,7 +32,7 @@ I will give two relevant examples:
 The only way to guarantee that these rules are respected is to send all the updates for a given "replication group" as a single message.
 (if we send multiple messages, they could be added to multiple packets, and therefore arrive in a different time/order on the client because of jitter and packet loss)
 
-Lightyear introduces the concept of a [`ReplicationGroup`] which is a group of entity whose `EntityActions` and `EntityUpdates` will be sent 
+Lightyear introduces the concept of a [`ReplicationGroup`](crate::prelude::ReplicationGroup) which is a group of entity whose `EntityActions` and `EntityUpdates` will be sent 
 over the network as a single message.
 It is **guaranteed** that the state of all entities in a given `ReplicationGroup` will be consistent on the client, i.e.
 will be equivalent to the state of the group on the server at a given previous tick T.
@@ -41,12 +41,12 @@ will be equivalent to the state of the group on the server at a given previous t
 
 ## Entity Actions
 
-For each [`ReplicationGroup`], Entity Actions are replicated in an `OrderedReliable` manner:
+For each [`ReplicationGroup`](crate::prelude::ReplicationGroup), Entity Actions are replicated in an `OrderedReliable` manner:
 - we apply each action message *in order*
 
 ### Send
 
-Whenever there are any actions for a given [`ReplicationGroup`], we send them as a single message AND we include any updates for this group as well.
+Whenever there are any actions for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), we send them as a single message AND we include any updates for this group as well.
 This is to guarantee consistency; if we sent them as 2 separate messages, the packet containing the updates could get lost and we would be in an inconsistent state.
 
 ## Entity Updates
@@ -69,9 +69,9 @@ The reason for this is:
 ### Receive
 
 
-For each [`ReplicationGroup`], Entity Updates are replicated in a `SequencedUnreliable` manner.
+For each [`ReplicationGroup`](crate::prelude::ReplicationGroup), Entity Updates are replicated in a `SequencedUnreliable` manner.
 We have some additional constraints:
-- we only apply EntityUpdates if we have already applied all the EntityActions for the given [`ReplicationGroup`] that were sent when the Updates were sent.
+- we only apply EntityUpdates if we have already applied all the EntityActions for the given [`ReplicationGroup`](crate::prelude::ReplicationGroup) that were sent when the Updates were sent.
   - for example we send A1, U2, A3, U4; we receive U4 first, but we only apply it if we have applied A3, as those are the latest EntityActions sent when U4 was sent
 - if we received a more rencet updates that can be applied, we discard the older one (Sequencing)
   - for example if we send A1, U2, U3 and we receive A1 then U3, we discard U2 because it is older than U3

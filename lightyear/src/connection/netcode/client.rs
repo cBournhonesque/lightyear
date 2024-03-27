@@ -9,7 +9,7 @@ use tracing::{debug, error, info, trace};
 use crate::connection::client::NetClient;
 use crate::prelude::IoConfig;
 use crate::serialize::reader::ReadBuffer;
-use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::transport::io::Io;
 use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
 
@@ -194,7 +194,8 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    packet_queue: VecDeque<ReadWordBuffer>,
+    packet_queue: VecDeque<crate::packet::packet::Packet>,
+    buffer_pool: BufferPool,
     cfg: ClientConfig<Ctx>,
 }
 
@@ -229,6 +230,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
             packet_queue: VecDeque::new(),
+            buffer_pool: BufferPool::default(),
             cfg,
         })
     }
@@ -399,8 +401,21 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
-                let reader = ReadWordBuffer::start_read(pkt.buf);
-                self.packet_queue.push_back(reader);
+                // TODO: we decode the data immediately so we don't need to keep the buffer around!
+                //  we could just
+                // instead of allocating a new buffer, fetch one from the pool
+                trace!("read from netcode client pre");
+                let mut reader = self.buffer_pool.start_read(pkt.buf);
+                let packet = crate::packet::packet::Packet::decode(&mut reader)
+                    .map_err(|_| super::packet::Error::InvalidPayload)?;
+                trace!(
+                    "read from netcode client post; pool len: {}",
+                    self.buffer_pool.0.len()
+                );
+                // return the buffer to the pool
+                self.buffer_pool.attach(reader);
+                // TODO: control the size/memory of the packet queue?
+                self.packet_queue.push_back(packet);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -571,7 +586,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv(&mut self) -> Option<ReadWordBuffer> {
+    pub fn recv(&mut self) -> Option<crate::packet::packet::Packet> {
         self.packet_queue.pop_front()
     }
 
@@ -656,7 +671,7 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
             .context("could not update client")
     }
 
-    fn recv(&mut self) -> Option<ReadWordBuffer> {
+    fn recv(&mut self) -> Option<crate::packet::packet::Packet> {
         self.client.recv()
     }
 

@@ -143,6 +143,8 @@ impl<P: Protocol> Plugin for HierarchySyncPlugin<P> {
                     (Self::propagate_replicate, Self::update_parent_sync).chain(),
                     Self::removal_system,
                 )
+                    // we don't need to run these every frame, only every send_interval
+                    .in_set(MainSet::Send)
                     .before(ReplicationSet::All),
             );
     }

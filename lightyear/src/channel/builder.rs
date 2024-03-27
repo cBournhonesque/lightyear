@@ -27,7 +27,22 @@ pub struct ChannelContainer {
 }
 
 /// A Channel is an abstraction for a way to send messages over the network
-/// You can define the direction, ordering, reliability of the channel
+/// You can define the direction, ordering, reliability of the channel.
+///
+/// # Example
+///
+/// Here is how you can add a new channel to the protocol. Messages sent on this channel will be unordered;
+/// they can be lost (no reliability guarantee) and they can be sent in both directions.
+///
+/// ```rust,ignore
+/// struct MyChannel;
+///
+/// protocol.add_channel::<MyChannel>(ChannelSettings {
+///     mode: ChannelMode::UnorderedUnreliable,
+///     direction: ChannelDirection::Bidirectional,
+///     priority: 1.0,
+/// });
+/// ```
 pub trait Channel: 'static + Named {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
 
@@ -42,7 +57,6 @@ pub trait Channel: 'static + Named {
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelBuilder {
-    // TODO: this has been made public just for testing integration tests
     pub settings: ChannelSettings,
 }
 
@@ -98,7 +112,6 @@ impl ChannelContainer {
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelSettings {
-    // TODO: split into Ordering and Reliability? Or not because we might to add new modes like TickBuffered
     pub mode: ChannelMode,
     pub direction: ChannelDirection,
     /// Sets the priority of the channel. The final priority of a message will be `MessagePriority * ChannelPriority`
@@ -214,7 +227,6 @@ pub struct EntityUpdatesChannel;
 #[derive(ChannelInternal)]
 pub struct PingChannel;
 
-// TODO: should we use sequenced or unordered?
 #[derive(ChannelInternal)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
