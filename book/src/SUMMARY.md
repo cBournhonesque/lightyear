@@ -32,7 +32,7 @@
     - [Bandwidth Management](./concepts/advanced_replication/bandwidth_management.md)
     - [Replication Logic](./concepts/advanced_replication/replication_logic.md)
     - [Inputs](./concepts/advanced_replication/inputs.md)
-    - [Interpolation](./boncepts/advanced_replication/interpolation.md)
+    - [Interpolation](./concepts/advanced_replication/interpolation.md)
     - [Prediction](./concepts/advanced_replication/prediction.md)
     - [Visual Interpolation](./concepts/advanced_replication/visual_interpolation.md)
     - [Prespawning](./concepts/advanced_replication/prespawning.md)

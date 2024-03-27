@@ -80,7 +80,7 @@ jobs:
     steps:
       - name: Install packages
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
-        
+
       - name: Clone repo
         uses: actions/checkout@v4
 
@@ -109,7 +109,7 @@ jobs:
   codecov:
     name: Upload to Codecov
     if: github.actor != 'dependabot[bot]'
-    needs: [test]
+    needs: [ test ]
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo

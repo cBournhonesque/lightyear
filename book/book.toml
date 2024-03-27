@@ -11,3 +11,5 @@ title = "Lightyear cheatbook"
 command = "mdbook-mermaid"
 
 [output]
+
+[output.linkcheck]
