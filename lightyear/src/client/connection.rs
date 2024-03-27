@@ -6,7 +6,7 @@ use bevy::prelude::{Entity, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use serde::Serialize;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, info, trace, trace_span};
 
 use crate::_reexport::{EntityUpdatesChannel, PingChannel, ReplicationSend};
 use crate::channel::senders::ChannelSend;
@@ -246,7 +246,7 @@ impl<P: Protocol> ConnectionManager<P> {
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
-        if time_manager.is_ready_to_send() {
+        if time_manager.is_client_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
             // (and not have the delay between when we prepare the ping and when we send the packet)
@@ -423,7 +423,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // trace!(?entity, "Send entity spawn for tick {:?}", self.tick());
+        info!(?entity, "Send entity spawn to server");
         let group_id = replicate.replication_group.group_id(Some(entity));
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick

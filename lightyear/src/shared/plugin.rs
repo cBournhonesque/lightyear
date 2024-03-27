@@ -5,10 +5,11 @@ use bevy::prelude::*;
 use replication::hierarchy::HierarchySyncPlugin;
 
 use crate::client::config::ClientConfig;
-use crate::prelude::Protocol;
+use crate::prelude::{Protocol, TimeManager};
 use crate::shared::config::SharedConfig;
 use crate::shared::replication;
 use crate::shared::tick_manager::TickManagerPlugin;
+use crate::shared::time_manager::TimePlugin;
 
 pub struct SharedPlugin<P: Protocol> {
     pub config: SharedConfig,
@@ -52,6 +53,10 @@ impl<P: Protocol> Plugin for SharedPlugin<P> {
         app.add_plugins(HierarchySyncPlugin::<P>::default());
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
+        });
+        app.add_plugins(TimePlugin {
+            server_send_interval: self.config.server_send_interval,
+            client_send_interval: self.config.client_send_interval,
         });
     }
 }

@@ -14,15 +14,18 @@ use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
+use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay};
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::TransportConfig;
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
-use crate::client::ClientPluginGroup;
-use crate::server::ServerPluginGroup;
+use crate::client::{ClientPluginGroup, ExampleClientPlugin};
+use crate::protocol::protocol;
+use crate::server::{ExampleServerPlugin, ServerPluginGroup};
 use crate::settings::*;
+use crate::shared::{shared_config, SharedPlugin};
 
 mod client;
 mod protocol;
@@ -67,6 +70,7 @@ fn main() {
 
 fn run(settings: Settings, cli: Cli) {
     match cli {
+        // ListenServer using a single app
         #[cfg(not(target_family = "wasm"))]
         Cli::ListenServer { client_id } => {
             // create client app
@@ -77,7 +81,7 @@ fn run(settings: Settings, cli: Cli) {
                 recv: from_server_recv,
                 send: to_server_send,
             };
-            let net_config = build_client_netcode_config(
+            let client_net_config = build_client_netcode_config(
                 client_id.unwrap_or(settings.client.client_id),
                 // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
                 LOCAL_SOCKET,
@@ -85,19 +89,44 @@ fn run(settings: Settings, cli: Cli) {
                 &settings.shared,
                 transport_config,
             );
-            let mut client_app = client_app(settings.clone(), net_config);
-
-            // create server app
-            let extra_transport_configs = vec![TransportConfig::Channels {
+            let server_extra_transport_configs = vec![TransportConfig::Channels {
                 // even if we communicate via channels, we need to provide a socket address for the client
                 channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
             }];
-            let mut server_app = server_app(settings, extra_transport_configs);
-
-            // run both the client and server apps
-            std::thread::spawn(move || server_app.run());
-            client_app.run();
+            let mut app = combined_app(settings, server_extra_transport_configs, client_net_config);
+            app.run();
         }
+        // #[cfg(not(target_family = "wasm"))]
+        // Cli::ListenServer { client_id } => {
+        //     // create client app
+        //     let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
+        //     let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
+        //     // we will communicate between the client and server apps via channels
+        //     let transport_config = TransportConfig::LocalChannel {
+        //         recv: from_server_recv,
+        //         send: to_server_send,
+        //     };
+        //     let net_config = build_client_netcode_config(
+        //         client_id.unwrap_or(settings.client.client_id),
+        //         // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
+        //         LOCAL_SOCKET,
+        //         settings.client.conditioner.as_ref(),
+        //         &settings.shared,
+        //         transport_config,
+        //     );
+        //     let mut client_app = client_app(settings.clone(), net_config);
+        //
+        //     // create server app
+        //     let extra_transport_configs = vec![TransportConfig::Channels {
+        //         // even if we communicate via channels, we need to provide a socket address for the client
+        //         channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
+        //     }];
+        //     let mut server_app = server_app(settings, extra_transport_configs);
+        //
+        //     // run both the client and server apps
+        //     std::thread::spawn(move || server_app.run());
+        //     client_app.run();
+        // }
         #[cfg(not(target_family = "wasm"))]
         Cli::Server => {
             let mut app = server_app(settings, vec![]);
@@ -161,5 +190,61 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     net_configs.extend(extra_net_configs);
     let server_plugin_group = ServerPluginGroup::new(net_configs);
     app.add_plugins(server_plugin_group.build());
+    app
+}
+
+/// An app that contains both the client and server plugins
+/// (useful for running the client and server in the same process)
+fn combined_app(
+    settings: Settings,
+    extra_transport_configs: Vec<TransportConfig>,
+    client_net_config: client::NetConfig,
+) -> App {
+    let mut app = App::new();
+    // NOTE: create the default plugins first so that the async task pools are initialized
+    // use the default bevy logger for now
+    // (the lightyear logger doesn't handle wasm)
+    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
+        level: Level::INFO,
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        update_subscriber: Some(add_log_layer),
+    }));
+    if settings.client.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
+
+    // server plugin
+    let mut net_configs = get_server_net_configs(&settings);
+    let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
+        build_server_netcode_config(settings.server.conditioner.as_ref(), &settings.shared, c)
+    });
+    net_configs.extend(extra_net_configs);
+    let server_config = server::ServerConfig {
+        shared: shared_config(),
+        net: net_configs,
+        ..default()
+    };
+    app.add_plugins((
+        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
+        ExampleServerPlugin,
+    ));
+
+    // client plugin
+    let client_config = client::ClientConfig {
+        shared: shared_config(),
+        net: client_net_config,
+        interpolation: InterpolationConfig {
+            delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
+            custom_interpolation_logic: false,
+        },
+        ..default()
+    };
+    let plugin_config = client::PluginConfig::new(client_config, protocol());
+    app.add_plugins((
+        client::ClientPlugin::new(plugin_config),
+        ExampleClientPlugin,
+    ));
+    // shared plugin
+    app.add_plugins(SharedPlugin);
     app
 }

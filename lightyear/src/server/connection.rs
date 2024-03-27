@@ -172,6 +172,7 @@ impl<P: Protocol> ConnectionManager<P> {
         self.connections
             .iter_mut()
             .map(move |(client_id, connection)| {
+                trace!(input_buffer = ?connection.input_buffer, ?tick, ?client_id, "input buffer for client");
                 let received_input = connection.input_buffer.pop(tick);
                 let fallback = received_input.is_none();
 
@@ -408,8 +409,8 @@ impl<P: Protocol> Connection<P> {
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
 
-        // no need to check if `time_manager.is_ready_to_send()` since we only send packets when we are ready to send
-        if time_manager.is_ready_to_send() {
+        // no need to check if `time_manager.is_server_ready_to_send()` since we only send packets when we are ready to send
+        if time_manager.is_server_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
             // (and not have the delay between when we prepare the ping and when we send the packet)

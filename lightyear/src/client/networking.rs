@@ -19,7 +19,7 @@ use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::tick_manager::TickEvent;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::is_client_ready_to_send;
 
 pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
     marker: std::marker::PhantomData<P>,
@@ -43,7 +43,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 (
                     // run sync before send because some send systems need to know if the client is synced
                     // we don't send packets every frame, but on a timer instead
-                    (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send)).chain(),
+                    (MainSet::Sync, MainSet::Send.run_if(is_client_ready_to_send)).chain(),
                     MainSet::SendPackets.in_set(MainSet::Send),
                 ),
             )

@@ -25,6 +25,10 @@ impl ClientPluginGroup {
             net: net_config,
             interpolation: InterpolationConfig::default()
                 .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
+            replication: ReplicationConfig {
+                // need to specify that we want to turn on client replication
+                enable: true,
+            },
             ..default()
         };
         let plugin_config = PluginConfig::new(config, protocol());

@@ -14,7 +14,7 @@ use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, E
 use crate::server::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::is_server_ready_to_send;
 
 pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
     config: Vec<NetConfig>,
@@ -48,7 +48,7 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
                 PostUpdate,
                 (
                     // we don't send packets every frame, but on a timer instead
-                    MainSet::Send.run_if(is_ready_to_send),
+                    MainSet::Send.run_if(is_server_ready_to_send),
                     MainSet::SendPackets.in_set(MainSet::Send),
                 ),
             )

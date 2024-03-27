@@ -73,22 +73,26 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                 config.client_config.prediction.input_delay_ticks,
             ))
             // PLUGINS //
-            .add_plugins(SharedPlugin::<P> {
-                config: config.client_config.shared.clone(),
-                ..default()
-            })
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(ClientNetworkingPlugin::<P>::default())
-            .add_plugins(ClientReplicationPlugin::<P>::new(tick_duration))
             .add_plugins(MetadataPlugin)
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),
             ))
-            .add_plugins(TimePlugin {
-                send_interval: config.client_config.shared.client_send_interval,
-            })
             .add_plugins(ClientDiagnosticsPlugin::<P>::default());
+
+        if config.client_config.replication.enable {
+            app.add_plugins(ClientReplicationPlugin::<P>::new(tick_duration));
+        }
+
+        // check if are running both client and server plugins in the same app
+        if !app.is_plugin_added::<SharedPlugin<P>>() {
+            app.add_plugins(SharedPlugin::<P> {
+                config: config.client_config.shared.clone(),
+                ..default()
+            });
+        }
     }
 }
