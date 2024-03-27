@@ -456,6 +456,12 @@ fn update_entity_replication_cache<P: Protocol>(
                 if let Ok(mut replicate) = query.get_mut(entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
                     {
+                        info!(
+                            ?entity,
+                            ?client_id,
+                            ?room_id,
+                            "Entity left room, visibility lost"
+                        );
                         *visibility = ClientVisibility::Lost;
                     }
                 }
@@ -469,10 +475,17 @@ fn update_entity_replication_cache<P: Protocol>(
             let room = room_manager.data.rooms.get(&room_id).unwrap();
             room.clients.iter().for_each(|client_id| {
                 if let Ok(mut replicate) = query.get_mut(entity) {
-                    // only set it to gained if it wasn't present before
                     replicate
                         .replication_clients_cache
                         .entry(*client_id)
+                        .and_modify(|vis| {
+                            // if the visibility was lost above, then that means that the entity was visible
+                            // for this client, so we just maintain it instead
+                            if *vis == ClientVisibility::Lost {
+                                *vis = ClientVisibility::Maintained
+                            }
+                        })
+                        // if the entity was not visible, the visibility is gained
                         .or_insert(ClientVisibility::Gained);
                 }
             });
@@ -502,6 +515,14 @@ fn update_entity_replication_cache<P: Protocol>(
                     replicate
                         .replication_clients_cache
                         .entry(client_id)
+                        .and_modify(|vis| {
+                            // if the visibility was lost above, then that means that the entity was visible
+                            // for this client, so we just maintain it instead
+                            if *vis == ClientVisibility::Lost {
+                                *vis = ClientVisibility::Maintained
+                            }
+                        })
+                        // if the entity was not visible, the visibility is gained
                         .or_insert(ClientVisibility::Gained);
                 }
             });
