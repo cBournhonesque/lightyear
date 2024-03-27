@@ -80,7 +80,7 @@ jobs:
     steps:
       - name: Install packages
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
-        
+
       - name: Clone repo
         uses: actions/checkout@v4
 
@@ -109,7 +109,7 @@ jobs:
   codecov:
     name: Upload to Codecov
     if: github.actor != 'dependabot[bot]'
-    needs: [test]
+    needs: [ test ]
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo
@@ -124,26 +124,3 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-  
-  build-book:
-    name: Build book
-    if: github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install latest mdbook
-        run: |
-          tag=$(curl 'https://api.github.com/repos/rust-lang/mdbook/releases/latest' | jq -r '.tag_name')
-          url="https://github.com/rust-lang/mdbook/releases/download/${tag}/mdbook-${tag}-x86_64-unknown-linux-gnu.tar.gz"
-          mkdir mdbook
-          curl -sSL $url | tar -xz --directory=./mdbook
-          echo `pwd`/mdbook >> $GITHUB_PATH
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install mdbook-mermaid
-        run: cargo install mdbook-mermaid
-      - name: Install mdbook-linkcheck
-        run: cargo install mdbook-linkcheck
-      - name: Build Book
-        run: |
-          cd book
-          mdbook build
