@@ -6,7 +6,7 @@ use crate::_reexport::ReadWordBuffer;
 use crate::connection::client::ClientConnection;
 use crate::connection::netcode::ClientId;
 
-#[cfg(feature = "steam")]
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::server::SteamConfig;
 use crate::packet::packet::Packet;
 
@@ -50,7 +50,7 @@ pub enum NetConfig {
         config: NetcodeConfig,
         io: IoConfig,
     },
-    #[cfg(feature = "steam")]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
@@ -78,7 +78,7 @@ impl NetConfig {
             }
             // TODO: might want to distinguish between steam with direct ip connections
             //  vs steam with p2p connections
-            #[cfg(feature = "steam")]
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
                 config,
                 conditioner,

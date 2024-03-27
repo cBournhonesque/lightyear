@@ -72,9 +72,7 @@ impl<T: UserAction> InputBuffer<T> {
     /// Remove all the inputs that are older than the given tick, then return the input
     /// for the given tick
     pub(crate) fn pop(&mut self, tick: Tick) -> Option<T> {
-        let Some(start_tick) = self.start_tick else {
-            return None;
-        };
+        let start_tick = self.start_tick?;
         if tick < start_tick {
             return None;
         }
@@ -96,9 +94,7 @@ impl<T: UserAction> InputBuffer<T> {
     }
 
     pub(crate) fn get(&self, tick: Tick) -> Option<&T> {
-        let Some(start_tick) = self.start_tick else {
-            return None;
-        };
+        let start_tick = self.start_tick?;
         if self.buffer.is_empty() {
             return None;
         }

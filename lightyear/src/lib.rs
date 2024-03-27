@@ -131,7 +131,7 @@ pub mod prelude {
         pub use crate::connection::client::{
             Authentication, ClientConnection, NetClient, NetConfig,
         };
-        #[cfg(feature = "steam")]
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::SteamConfig;
     }
     pub mod server {
@@ -147,7 +147,7 @@ pub mod prelude {
         pub use crate::connection::server::{
             NetConfig, NetServer, ServerConnection, ServerConnections,
         };
-        #[cfg(feature = "steam")]
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::SteamConfig;
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;
