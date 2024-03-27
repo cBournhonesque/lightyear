@@ -9,6 +9,7 @@ use bevy::prelude::{
     Res, ResMut, Resource, SystemSet,
 };
 use bevy::utils::{HashMap, HashSet};
+use tracing::info;
 
 use crate::connection::netcode::ClientId;
 use crate::prelude::ReplicationSet;
@@ -30,7 +31,7 @@ wrapping_id!(RoomId);
 ///
 /// This will be cleared every time the Server sends updates to the Client (every send_interval)
 #[derive(Resource, Debug, Default)]
-pub struct RoomEvents {
+struct RoomEvents {
     client_enter_room: EntityHashMap<ClientId, HashSet<RoomId>>,
     client_leave_room: EntityHashMap<ClientId, HashSet<RoomId>>,
     entity_enter_room: EntityHashMap<Entity, HashSet<RoomId>>,
@@ -38,7 +39,7 @@ pub struct RoomEvents {
 }
 
 #[derive(Default, Debug)]
-pub(crate) struct RoomData {
+struct RoomData {
     /// List of rooms that a client is in
     client_to_rooms: EntityHashMap<ClientId, HashSet<RoomId>>,
     /// List of rooms that an entity is in
@@ -431,6 +432,7 @@ fn update_entity_replication_cache<P: Protocol>(
     mut room_manager: ResMut<RoomManager>,
     mut query: Query<&mut Replicate<P>>,
 ) {
+    info!(?room_manager.events, "Room events");
     // enable split borrows by reborrowing Mut
     let room_manager = &mut *room_manager;
     // entity joined room
