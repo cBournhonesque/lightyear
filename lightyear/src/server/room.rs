@@ -456,12 +456,6 @@ fn update_entity_replication_cache<P: Protocol>(
                 if let Ok(mut replicate) = query.get_mut(entity) {
                     if let Some(visibility) = replicate.replication_clients_cache.get_mut(client_id)
                     {
-                        info!(
-                            ?entity,
-                            ?client_id,
-                            ?room_id,
-                            "Entity left room, visibility lost"
-                        );
                         *visibility = ClientVisibility::Lost;
                     }
                 }
@@ -897,7 +891,7 @@ mod tests {
     /// We move the client and the entity to a different room (client first, then entity)
     /// There should be no change in visibility
     #[test]
-    fn test_move_entity_room() {
+    fn test_move_client_entity_room() {
         let mut stepper = BevyStepper::default();
         // Client join room
         let client_id = 111;
@@ -974,6 +968,186 @@ mod tests {
             .world
             .resource_mut::<RoomManager>()
             .add_entity(server_entity, new_room_id);
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Maintained)])
+        );
+    }
+
+    /// The client is in room A and B
+    /// Entity is in room A and moves to room B
+    /// There should be no change in visibility
+    #[test]
+    fn test_move_entity_room() {
+        let mut stepper = BevyStepper::default();
+        // Client joins room 0 and 1
+        let client_id = 111;
+        let room_id = RoomId(0);
+        let new_room_id = RoomId(1);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_client(client_id, room_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_client(client_id, new_room_id);
+        // Spawn an entity on server, in room 1
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                replication_mode: ReplicationMode::Room,
+                ..Default::default()
+            })
+            .id();
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_entity(server_entity, room_id);
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Gained)])
+        );
+        // apply bookkeeping
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Maintained)])
+        );
+
+        // entity leaves previous room and joins new room
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .remove_entity(server_entity, room_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_entity(server_entity, new_room_id);
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Maintained)])
+        );
+    }
+
+    /// The entity is in room A and B
+    /// Client is in room A and moves to room B
+    /// There should be no change in visibility
+    #[test]
+    fn test_move_client_room() {
+        let mut stepper = BevyStepper::default();
+        // Client joins room 0 and 1
+        let client_id = 111;
+        let room_id = RoomId(0);
+        let new_room_id = RoomId(1);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_client(client_id, room_id);
+        // Spawn an entity on server, in room 1
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn(Replicate {
+                replication_mode: ReplicationMode::Room,
+                ..Default::default()
+            })
+            .id();
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_entity(server_entity, room_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_entity(server_entity, new_room_id);
+        // Run update replication cache once
+        stepper
+            .server_app
+            .world
+            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Gained)])
+        );
+        // apply bookkeeping
+        stepper.frame_step();
+        assert_eq!(
+            stepper
+                .server_app
+                .world
+                .entity(server_entity)
+                .get::<Replicate>()
+                .unwrap()
+                .replication_clients_cache,
+            HashMap::from([(client_id, ClientVisibility::Maintained)])
+        );
+
+        // client leaves previous room and joins new room
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .remove_client(client_id, room_id);
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_client(client_id, new_room_id);
         // Run update replication cache once
         stepper
             .server_app
