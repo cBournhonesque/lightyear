@@ -8,7 +8,7 @@ use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
 use crate::connection::netcode::{ClientId, ConnectToken};
 
-#[cfg(feature = "steam")]
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::client::SteamConfig;
 use crate::packet::packet::Packet;
 
@@ -61,7 +61,7 @@ pub enum NetConfig {
         io: IoConfig,
     },
     // TODO: for steam, we can use a pass-through io that just computes stats?
-    #[cfg(feature = "steam")]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
@@ -103,7 +103,7 @@ impl NetConfig {
                     client: Box::new(client),
                 }
             }
-            #[cfg(feature = "steam")]
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
                 config,
                 conditioner,

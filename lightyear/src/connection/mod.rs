@@ -5,5 +5,5 @@ pub mod netcode;
 
 pub(crate) mod server;
 
-#[cfg(feature = "steam")]
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 pub(crate) mod steam;
