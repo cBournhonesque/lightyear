@@ -54,7 +54,6 @@ pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
     mut disconnections: EventReader<DisconnectEvent>,
     mut global: ResMut<Global>,
-    unified: Res<UnifiedManager>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
@@ -64,17 +63,10 @@ pub(crate) fn handle_connections(
         let s = 0.8;
         let l = 0.5;
         // server and client are running in the same app, no need to replicate to the local client
-        let replicate = if unified.is_unified() {
-            Replicate {
-                replication_target: NetworkTarget::AllExceptSingle(*client_id),
-                ..default()
-            }
-        } else {
-            Replicate {
-                prediction_target: NetworkTarget::Single(*client_id),
-                interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
-                ..default()
-            }
+        let replicate = Replicate {
+            prediction_target: NetworkTarget::Single(*client_id),
+            interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
+            ..default()
         };
         let entity = commands.spawn((
             PlayerBundle::new(*client_id, Vec2::ZERO, Color::hsl(h, s, l)),
@@ -84,6 +76,7 @@ pub(crate) fn handle_connections(
         global
             .client_id_to_entity_id
             .insert(*client_id, entity.id());
+        info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();

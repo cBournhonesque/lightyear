@@ -25,8 +25,8 @@ pub const LOCAL_CLIENT_ID: ClientId = 0;
 
 impl SharedConfig {
     /// Run condition that returns true if we are running in unified mode
-    pub fn is_unified_condition(config: Res<ServerConfig>) -> bool {
-        config.shared.unified
+    pub fn is_unified_condition(config: Option<Res<ServerConfig>>) -> bool {
+        config.map_or(false, |config| config.shared.unified)
     }
 }
 

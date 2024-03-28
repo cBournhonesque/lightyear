@@ -24,6 +24,7 @@ pub struct GlobalMetadata {
     pub client_id: Option<ClientId>,
 }
 
+// TODO: only run this if the client id is not known?
 fn update_client_id(
     mut metadata: ResMut<GlobalMetadata>,
     query: Query<&ClientMetadata, Added<ClientMetadata>>,

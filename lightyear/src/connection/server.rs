@@ -12,6 +12,7 @@ use crate::packet::packet::Packet;
 
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
+use crate::shared::config::LOCAL_CLIENT_ID;
 use crate::utils::free_list::FreeList;
 
 pub trait NetServer: Send + Sync {
@@ -161,6 +162,7 @@ impl ServerConnections {
 pub(crate) mod client_map {
     use super::EntityHashMap;
     use crate::prelude::ClientId;
+    use crate::shared::config::LOCAL_CLIENT_ID;
     use bevy::prelude::Entity;
     use bevy::utils::HashMap;
     use tracing::info;
@@ -192,7 +194,10 @@ pub(crate) mod client_map {
             // generate a new global id for the newly-connected client
 
             // by default, try to reuse the same id as the connection's id
-            let global_id = if !self.global_to_connection.contains_key(&client_id) {
+            // using LOCAL_CLIENT_ID is forbidden, that id is reserved for the local client
+            let global_id = if !self.global_to_connection.contains_key(&client_id)
+                && client_id != LOCAL_CLIENT_ID
+            {
                 client_id as GlobalClientId
             } else {
                 // there is a conflict! we need to find a new id

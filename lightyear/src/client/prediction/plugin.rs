@@ -7,7 +7,8 @@ use bevy::prelude::{
 use bevy::transform::TransformSystem;
 
 use crate::_reexport::FromType;
-use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
@@ -29,15 +30,13 @@ use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::MainSet;
 
+use super::pre_prediction::{clean_pre_predicted_entity, handle_pre_prediction};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
-    run_rollback,
+    run_rollback, Rollback, RollbackState,
 };
-use super::{
-    clean_pre_predicted_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
-    Rollback, RollbackState,
-};
+use super::spawn::{spawn_predicted_entity, unified_add_predicted};
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Default)]
@@ -237,6 +236,31 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         if self.config.disable {
             return;
         }
+        // In unified mode, the predicted entity is the same as the confirmed entity
+        if app.world.resource::<ClientConfig>().is_unified() {
+            app.configure_sets(
+                PreUpdate,
+                (
+                    MainSet::ReceiveFlush,
+                    PredictionSet::SpawnPrediction,
+                    PredictionSet::SpawnPredictionFlush,
+                )
+                    .chain(),
+            );
+            app.add_systems(
+                PreUpdate,
+                (
+                    // TODO: we want to run this flushes only if something actually happened in the previous set!
+                    //  because running the flush-system is expensive (needs exclusive world access)
+                    //  check how I can do this in bevy
+                    apply_deferred.in_set(PredictionSet::SpawnPredictionFlush),
+                ),
+            );
+            app.add_systems(PreUpdate, unified_add_predicted::<P>);
+            // TODO: add pre-spawned-player-object logic.
+            return;
+        };
+
         P::Components::add_prediction_systems(app);
 
         // RESOURCES

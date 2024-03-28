@@ -173,6 +173,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     app.add_plugins((
         client::ClientPlugin::new(plugin_config),
         ExampleClientPlugin,
+        SharedPlugin,
     ));
     app
 }
@@ -208,6 +209,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     app.add_plugins((
         server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
         ExampleServerPlugin,
+        SharedPlugin,
     ));
     app
 }

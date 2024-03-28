@@ -4,11 +4,13 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::prelude::SharedConfig;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
@@ -201,6 +203,17 @@ where
 
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
+        // in unified mode, the interpolated entity is the same as the confirmed entity
+        // there is no need for actual interpolation
+        if app.world.resource::<ClientConfig>().is_unified() {
+            app.configure_sets(Update, InterpolationSet::SpawnInterpolation);
+            app.add_systems(
+                Update,
+                spawn_interpolated_entity::<P>.in_set(InterpolationSet::SpawnInterpolation),
+            );
+            return;
+        };
+
         P::Components::add_prepare_interpolation_systems(app);
         if !self.config.custom_interpolation_logic {
             P::Components::add_interpolation_systems(app);
@@ -213,13 +226,15 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             Update,
             (
                 InterpolationSet::SpawnInterpolation,
-                InterpolationSet::SpawnInterpolationFlush,
-                InterpolationSet::SpawnHistory,
-                InterpolationSet::SpawnHistoryFlush,
-                InterpolationSet::Despawn,
-                InterpolationSet::DespawnFlush,
-                InterpolationSet::PrepareInterpolation,
-                InterpolationSet::Interpolate,
+                InterpolationSet::SpawnInterpolationFlush
+                    .run_if(not(SharedConfig::is_unified_condition)),
+                InterpolationSet::SpawnHistory.run_if(not(SharedConfig::is_unified_condition)),
+                InterpolationSet::SpawnHistoryFlush.run_if(not(SharedConfig::is_unified_condition)),
+                InterpolationSet::Despawn.run_if(not(SharedConfig::is_unified_condition)),
+                InterpolationSet::DespawnFlush.run_if(not(SharedConfig::is_unified_condition)),
+                InterpolationSet::PrepareInterpolation
+                    .run_if(not(SharedConfig::is_unified_condition)),
+                InterpolationSet::Interpolate.run_if(not(SharedConfig::is_unified_condition)),
             )
                 .chain(),
         );

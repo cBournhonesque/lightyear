@@ -4,8 +4,6 @@ use std::ops::DerefMut;
 use bevy::ecs::system::{SystemChangeTick, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
-#[cfg(feature = "xpbd_2d")]
-use bevy_xpbd_2d::prelude::PhysicsTime;
 use tracing::{error, trace};
 
 use crate::_reexport::ReplicationSend;
@@ -14,7 +12,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::client::GlobalMetadata;
-use crate::prelude::{MainSet, TickManager, TimeManager};
+use crate::prelude::{MainSet, SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -64,9 +62,9 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                     send::<P>.in_set(MainSet::SendPackets),
                     unified_sync_update::<P>
                         .in_set(MainSet::Sync)
-                        .run_if(is_client_connected.and_then(UnifiedManager::is_unified_condition)),
+                        .run_if(is_client_connected.and_then(SharedConfig::is_unified_condition)),
                     sync_update::<P>.in_set(MainSet::Sync).run_if(
-                        is_client_connected.and_then(not(UnifiedManager::is_unified_condition)),
+                        is_client_connected.and_then(not(SharedConfig::is_unified_condition)),
                     ),
                 ),
             );

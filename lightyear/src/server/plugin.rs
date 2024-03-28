@@ -2,7 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use bevy::prelude::{default, App, Plugin as PluginType};
+use bevy::prelude::*;
 use tracing::error;
 
 use crate::connection::server::NetServer;
@@ -10,12 +10,13 @@ use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::ServerEventsPlugin;
+use crate::server::events::{ConnectEvent, ServerEventsPlugin};
 use crate::server::input::InputPlugin;
 use crate::server::metadata::ClientMetadataPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
 use crate::server::room::RoomPlugin;
+use crate::shared::config::LOCAL_CLIENT_ID;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::time_manager::TimePlugin;
@@ -52,7 +53,7 @@ impl<P: Protocol> ServerPlugin<P> {
     }
 }
 
-impl<P: Protocol> PluginType for ServerPlugin<P> {
+impl<P: Protocol> Plugin for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let tick_duration = config.server_config.shared.tick.tick_duration;
@@ -70,20 +71,25 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
             .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
             .add_plugins(ClientMetadataPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(RoomPlugin::<P>::default());
+            .add_plugins(RoomPlugin::<P>::default())
+            .add_plugins(SharedPlugin::<P> {
+                // TODO: move shared config out of server_config?
+                config: config.server_config.shared.clone(),
+                ..default()
+            });
 
         if !config.server_config.replication.disable {
             app.add_plugins(ServerReplicationPlugin::<P>::new(tick_duration));
         }
 
-        // check if are running both client and server plugins in the same app
-        if !app.is_plugin_added::<SharedPlugin<P>>() {
-            app.add_plugins(SharedPlugin::<P> {
-                // TODO: move shared config out of server_config?
-                config: config.server_config.shared.clone(),
-                ..default()
-            });
+        // if we are running in unified mode, send a connect event to notify that the
+        // local client is connected (even though we don't actually create a connection)
+        if config.server_config.shared.unified {
+            app.world
+                .resource_mut::<Events<ConnectEvent>>()
+                .send(ConnectEvent::new(LOCAL_CLIENT_ID));
         }
-        UnifiedManager::add_or_increment(app);
+
+        // UnifiedManager::add_or_increment(app);
     }
 }

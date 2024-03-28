@@ -65,6 +65,8 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
 
         app
             // RESOURCES //
+            // TODO: move these into the Networking/Replication plugins
+            .insert_resource(netclient)
             .insert_resource(config.client_config.clone())
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),
@@ -74,36 +76,28 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                 config.client_config.prediction.input_delay_ticks,
             ))
             // PLUGINS //
+            .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(MetadataPlugin)
             .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(ClientDiagnosticsPlugin::<P>::default());
+            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
+            .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
+            .add_plugins(InterpolationPlugin::<P>::new(
+                config.client_config.interpolation.clone(),
+            ));
 
         if !config.client_config.shared.unified {
             app
-                // RESOURCES
-                // TODO: move these into the Networking/Replication plugins
-                .insert_resource(netclient)
                 // PLUGINS
-                .add_plugins(ClientNetworkingPlugin::<P>::default())
-                // TODO: there might be cases where we still want prediction even in unified mode
-                .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
-                .add_plugins(InterpolationPlugin::<P>::new(
-                    config.client_config.interpolation.clone(),
-                ));
+                .add_plugins(SharedPlugin::<P> {
+                    config: config.client_config.shared.clone(),
+                    ..default()
+                });
         }
 
         if config.client_config.replication.enable {
             app.add_plugins(ClientReplicationPlugin::<P>::new(tick_duration));
         }
-
-        // check if are running both client and server plugins in the same app
-        if !app.is_plugin_added::<SharedPlugin<P>>() {
-            app.add_plugins(SharedPlugin::<P> {
-                config: config.client_config.shared.clone(),
-                ..default()
-            });
-        }
-        UnifiedManager::add_or_increment(app);
+        // UnifiedManager::add_or_increment(app);
     }
 }

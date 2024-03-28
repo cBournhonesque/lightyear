@@ -104,7 +104,7 @@ pub struct LeafwingInputConfig<A> {
     /// Turn this on if you want to optimize the bandwidth that the client sends to the server.
     pub send_diffs_only: bool,
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub _marker: std::marker::PhantomData<A>,
+    pub _marker: PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputConfig<A> {

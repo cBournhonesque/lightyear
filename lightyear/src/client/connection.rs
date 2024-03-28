@@ -140,6 +140,7 @@ impl<P: Protocol> ConnectionManager<P> {
     where
         P::Message: From<M>,
     {
+        // IF UNIFIED; send message directly
         let channel = ChannelKind::of::<C>();
         self.buffer_message(message.into(), channel, NetworkTarget::None)
     }
