@@ -109,7 +109,7 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
-        pub use crate::client::input::{InputConfig, InputSystemSet};
+        pub use crate::client::input::{InputConfig, InputManager, InputSystemSet};
         #[cfg(feature = "leafwing")]
         pub use crate::client::input_leafwing::{
             LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,

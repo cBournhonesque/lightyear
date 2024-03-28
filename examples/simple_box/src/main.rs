@@ -21,9 +21,9 @@ use lightyear::prelude::TransportConfig;
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
-use crate::client::{ClientPluginGroup, ExampleClientPlugin};
+use crate::client::ExampleClientPlugin;
 use crate::protocol::protocol;
-use crate::server::{ExampleServerPlugin, ServerPluginGroup};
+use crate::server::ExampleServerPlugin;
 use crate::settings::*;
 use crate::shared::{shared_config, SharedPlugin};
 
@@ -160,8 +160,20 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     if settings.client.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
-    let client_plugin_group = ClientPluginGroup::new(net_config);
-    app.add_plugins(client_plugin_group.build());
+    let client_config = client::ClientConfig {
+        shared: shared_config(false),
+        net: net_config,
+        interpolation: InterpolationConfig {
+            delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
+            custom_interpolation_logic: false,
+        },
+        ..default()
+    };
+    let plugin_config = client::PluginConfig::new(client_config, protocol());
+    app.add_plugins((
+        client::ClientPlugin::new(plugin_config),
+        ExampleClientPlugin,
+    ));
     app
 }
 
@@ -188,8 +200,15 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
         build_server_netcode_config(settings.server.conditioner.as_ref(), &settings.shared, c)
     });
     net_configs.extend(extra_net_configs);
-    let server_plugin_group = ServerPluginGroup::new(net_configs);
-    app.add_plugins(server_plugin_group.build());
+    let server_config = server::ServerConfig {
+        shared: shared_config(false),
+        net: net_configs,
+        ..default()
+    };
+    app.add_plugins((
+        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
+        ExampleServerPlugin,
+    ));
     app
 }
 
@@ -220,7 +239,7 @@ fn combined_app(
     });
     net_configs.extend(extra_net_configs);
     let server_config = server::ServerConfig {
-        shared: shared_config(),
+        shared: shared_config(true),
         net: net_configs,
         ..default()
     };
@@ -231,7 +250,7 @@ fn combined_app(
 
     // client plugin
     let client_config = client::ClientConfig {
-        shared: shared_config(),
+        shared: shared_config(true),
         net: client_net_config,
         interpolation: InterpolationConfig {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),

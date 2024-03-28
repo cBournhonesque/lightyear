@@ -12,34 +12,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
@@ -61,11 +33,7 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(
-    mut commands: Commands,
-    mut connections: ResMut<ServerConnections>,
-    unified: Res<UnifiedManager>,
-) {
+pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
     for connection in &mut connections.servers {
         let _ = connection.start().inspect_err(|e| {
             error!("Failed to start server: {:?}", e);
@@ -79,21 +47,6 @@ pub(crate) fn init(
             ..default()
         },
     ));
-    if unified.is_unified() {
-        // choose a client id for the local client
-        let client_id: u64 = 0;
-        // Generate pseudo random color from client id.
-        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let entity = commands.spawn((
-            PlayerBundle::new(client_id, Vec2::ZERO, Color::hsl(h, s, l)),
-            Replicate {
-                interpolation_target: NetworkTarget::All,
-                ..default()
-            },
-        ));
-    }
 }
 
 /// Server connection system, create a player upon connection

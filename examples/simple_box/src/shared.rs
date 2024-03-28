@@ -7,7 +7,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(unified: bool) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
@@ -15,6 +15,7 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        unified,
     }
 }
 

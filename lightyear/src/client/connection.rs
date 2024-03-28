@@ -66,7 +66,6 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) events: ConnectionEvents<P>,
 
     pub(crate) ping_manager: PingManager,
-    pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
 }
@@ -99,7 +98,6 @@ impl<P: Protocol> ConnectionManager<P> {
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
-            input_buffer: InputBuffer::default(),
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
         }
@@ -124,19 +122,8 @@ impl<P: Protocol> ConnectionManager<P> {
             .unwrap_or(Tick(0))
     }
 
-    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
-    /// to keep it for rollback)
-    pub(crate) fn get_input(&self, tick: Tick) -> Option<P::Input> {
-        self.input_buffer.get(tick).cloned()
-    }
-
     pub(crate) fn clear(&mut self) {
         self.events.clear();
-    }
-
-    /// Add an input for the given tick
-    pub fn add_input(&mut self, input: P::Input, tick: Tick) {
-        self.input_buffer.set(tick, Some(input));
     }
 
     pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {

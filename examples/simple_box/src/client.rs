@@ -14,37 +14,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig {
-                delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-                custom_interpolation_logic: false,
-            },
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
@@ -72,9 +41,10 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut client: ResMut<ClientConnection>, unified: Res<UnifiedManager>) {
-    // if client and server are running in the same app, there is no need to connect!
-    if !unified.is_unified() {
+pub(crate) fn init(client: Option<ResMut<ClientConnection>>) {
+    // client is optional because there is no need to have a connection if we are running in
+    // unified mode (client and server in the same process)
+    if let Some(mut client) = client {
         let _ = client.connect();
     }
 }
@@ -100,8 +70,7 @@ pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMeta
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
     metadata: Res<GlobalMetadata>,
-    mut connection_manager: ResMut<ClientConnectionManager>,
-    server_input_event: Option<ResMut<Events<server::InputEvent<Inputs>>>>,
+    mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     let Some(client_id) = metadata.client_id else {
@@ -136,16 +105,7 @@ pub(crate) fn buffer_input(
     if keypress.pressed(KeyCode::Space) {
         input = Inputs::Spawn;
     }
-    // if we run in listen-server mode and the server/client are running in the same app
-    // emit the input event directly to the server
-    if let Some(mut server_input_event) = server_input_event {
-        trace!(?tick, "send client input directly to server");
-        // TODO: should we still add the event to the buffer, for rollbacks?
-        //  maybe not, because there cannot be mispredictions?
-        let _ = server_input_event.send(server::InputEvent::new(Some(input), client_id));
-    } else {
-        return connection_manager.add_input(input, tick);
-    }
+    input_manager.add_input(input, tick)
 }
 
 // The client input only gets applied to predicted entities that we own

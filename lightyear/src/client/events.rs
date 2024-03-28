@@ -51,6 +51,7 @@ impl<P: Protocol> Plugin for ClientEventsPlugin<P> {
 pub type ConnectEvent = crate::shared::events::components::ConnectEvent<()>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the client on the frame where the connection is disconnected
 pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<()>;
+/// Bevy [`Event`](bevy::prelude::Event) emitted on the client to indicate the user input for the tick
 pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ()>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a EntitySpawn replication message is received
 pub type EntitySpawnEvent = crate::shared::events::components::EntitySpawnEvent<()>;

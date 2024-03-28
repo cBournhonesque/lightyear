@@ -19,12 +19,14 @@ impl<P> Default for ClientDiagnosticsPlugin<P> {
 }
 
 fn io_diagnostics_system(
-    mut netclient: ResMut<ClientConnection>,
+    netclient: Option<ResMut<ClientConnection>>,
     time: Res<Time<Real>>,
     mut diagnostics: Diagnostics,
 ) {
-    if let Some(io) = netclient.io_mut() {
-        IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
+    if let Some(mut netclient) = netclient {
+        if let Some(io) = netclient.io_mut() {
+            IoDiagnosticsPlugin::update_diagnostics(&mut io.stats, &time, &mut diagnostics);
+        }
     }
 }
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
