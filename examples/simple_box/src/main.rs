@@ -165,7 +165,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         net: net_config,
         interpolation: InterpolationConfig {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-            custom_interpolation_logic: false,
+            ..default()
         },
         ..default()
     };
@@ -256,7 +256,7 @@ fn combined_app(
         net: client_net_config,
         interpolation: InterpolationConfig {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-            custom_interpolation_logic: false,
+            ..default()
         },
         ..default()
     };

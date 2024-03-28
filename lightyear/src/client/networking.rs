@@ -59,12 +59,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
         if app.world.resource::<ClientConfig>().is_unified() {
             app.world.run_system_once(unified_sync_init::<P>);
-            app.add_systems(
-                PostUpdate,
-                unified_sync_update::<P>
-                    .in_set(MainSet::Sync)
-                    .run_if(is_client_connected),
-            );
+            app.add_systems(PostUpdate, unified_sync_update::<P>.in_set(MainSet::Sync));
         } else {
             app.add_systems(
                 PostUpdate,
@@ -86,6 +81,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
     //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
     //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
+    let unified = world.resource::<ClientConfig>().is_unified();
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
@@ -97,7 +93,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         let delta = world.resource::<Time<Virtual>>().delta();
 
                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                        time_manager.update(delta);
+                                        if !unified {
+                                            // careful: do not call time_manager.update() twice if we are unified!
+                                            time_manager.update(delta);
+                                        }
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
                                         let _ = netcode
                                             .try_update(delta.as_secs_f64())
@@ -272,12 +271,14 @@ pub(crate) fn unified_sync_update<P: Protocol>(
         .duration_since_latest_received_server_tick += time_manager.delta();
     // TODO: check if we are doing an extra update (maybe on the first run, we shouldn't add delta()?)
     connection.sync_manager.interpolation_time += time_manager.delta();
+    trace!(current_time = ?time_manager.current_time(), interpolation_time = ?connection.sync_manager.interpolation_time, "Unified sync update");
 }
 
 pub(crate) fn unified_sync_init<P: Protocol>(
     config: Res<ClientConfig>,
     mut connection: ResMut<ConnectionManager<P>>,
     time_manager: Res<TimeManager>,
+    tick_manager: Res<TickManager>,
 ) {
     connection.sync_manager.synced = true;
     // how much behind the server time should the interpolation time be?
