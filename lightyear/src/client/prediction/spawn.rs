@@ -17,11 +17,11 @@ pub(crate) fn unified_add_predicted<P: Protocol>(
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
 ) {
     // TODO: handle pre-prediction!
-    for (entity, mut confirmed) in confirmed_entities.iter_mut() {
+    for (entity, confirmed) in confirmed_entities.iter_mut() {
         commands.entity(entity).insert(Predicted {
             confirmed_entity: Some(entity),
         });
-        if let Some(confirmed) = confirmed {
+        if let Some(mut confirmed) = confirmed {
             confirmed.predicted = Some(entity);
         } else {
             // TODO: this is the same as the current tick no? or maybe not because we could have received updates before the spawn

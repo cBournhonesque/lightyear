@@ -4,7 +4,7 @@ use bevy::utils::Duration;
 use tracing::trace;
 
 use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::Rollback;
+use crate::client::prediction::rollback::Rollback;
 use crate::prelude::FixedUpdateSet;
 use crate::utils::wrapping_id::wrapping_id;
 

@@ -3,7 +3,7 @@
 use bevy::prelude::Res;
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::plugin::InterpolationDelay;
@@ -463,7 +463,7 @@ impl SyncManager {
         .unwrap();
 
         if error > max_error_margin_time || error < -max_error_margin_time {
-            debug!(
+            info!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,

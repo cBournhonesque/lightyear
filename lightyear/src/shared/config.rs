@@ -1,5 +1,5 @@
 //! Configuration that has to be the same between the server and the client.
-use crate::prelude::{ClientId, UnifiedManager};
+use crate::prelude::ClientId;
 use crate::server::config::ServerConfig;
 use bevy::prelude::Res;
 use bevy::utils::Duration;
@@ -20,8 +20,6 @@ pub struct SharedConfig {
     /// do we run in unified mode? (client and server in the same process)
     pub unified: bool,
 }
-
-pub const LOCAL_CLIENT_ID: ClientId = 0;
 
 impl SharedConfig {
     /// Run condition that returns true if we are running in unified mode

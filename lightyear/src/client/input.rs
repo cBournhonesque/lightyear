@@ -37,13 +37,11 @@ use crate::client::events::InputEvent;
 use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
-use crate::client::prediction::{Rollback, RollbackState};
 use crate::client::sync::client_is_synced;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
 use crate::prelude::{server, SharedConfig, Tick, TickManager};
 use crate::protocol::Protocol;
-use crate::shared::config::LOCAL_CLIENT_ID;
 use crate::shared::sets::MainSet;
 use crate::shared::tick_manager::TickEvent;
 
@@ -242,6 +240,10 @@ fn write_input_event<A: UserAction>(
     client_input_events.send(InputEvent::new(input_manager.get_input(tick), ()));
     if let Some(mut server_input_events) = server_input_events {
         if let Some(client_id) = metadata.client_id {
+            trace!(
+                "Send client input to server for local client: {}",
+                client_id
+            );
             server_input_events.send(server::InputEvent::new(input, client_id));
         }
         // in unified mode, there is no prediction, so we can just pop the inputs instantly
@@ -311,9 +313,10 @@ fn prepare_input_message<P: Protocol>(
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        info!(
+        trace!(
             ?current_tick,
-            "sending input message: {:?}", message.end_tick
+            "sending input message: {:?}",
+            message.end_tick
         );
         connection
             .send_message::<InputChannel, _>(message)

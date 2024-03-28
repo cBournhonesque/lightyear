@@ -16,16 +16,17 @@ pub fn spawn_interpolated_entity<P: Protocol>(
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
 ) {
     for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
-        let interpolated = if !config.shared.unified {
-            // normal mode: spawn a new interpolated entity
-            commands.spawn(Interpolated { confirmed_entity }).id()
-        } else {
-            // unified mode: re-use the same entity for Interpolated and Confirmed
-            confirmed_entity
-        };
+        // let interpolated = if !config.shared.unified {
+        //     // normal mode: spawn a new interpolated entity
+        //     commands.spawn(Interpolated { confirmed_entity }).id()
+        // } else {
+        //     // unified mode: re-use the same entity for Interpolated and Confirmed
+        //     confirmed_entity
+        // };
+        let interpolated = commands.spawn(Interpolated { confirmed_entity }).id();
 
         // update the entity mapping
-        if let Some(mut manager) = manager.as_mut() {
+        if let Some(manager) = manager.as_mut() {
             manager
                 .interpolated_entity_map
                 .confirmed_to_interpolated

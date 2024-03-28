@@ -6,14 +6,15 @@ use bevy::prelude::{
 };
 use tracing::{debug, error};
 
-use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
+use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::prelude::{Named, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 
-use super::{ComponentSyncMode, Confirmed, Predicted, Rollback, RollbackState};
+use super::{Confirmed, Predicted};
 
 // TODO: maybe just option<T> ?
 #[derive(Debug, PartialEq, Clone)]

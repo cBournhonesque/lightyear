@@ -7,7 +7,6 @@ use bevy::utils::Duration;
 use crate::prelude::{MainSet, Protocol, ReplicationSet, SharedConfig, Tick};
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
-use crate::shared::config::LOCAL_CLIENT_ID;
 use crate::shared::replication::components::Replicate;
 use crate::shared::replication::plugin::ReplicationPlugin;
 
@@ -58,46 +57,46 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
             .add_systems(
                 PostUpdate,
                 (
-                    add_predicted_interpolated_unified::<P>
-                        .run_if(SharedConfig::is_unified_condition),
+                    // add_predicted_interpolated_unified::<P>
+                    //     .run_if(SharedConfig::is_unified_condition),
                     compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
                 ),
             );
     }
 }
 
-/// If we are running in unified mode, we want the also add Predicted/Interpolated/Confirmed to the server entities
-/// if they need to be replicated to the Client, so that the client code has to change as little as possible
-fn add_predicted_interpolated_unified<P: Protocol>(
-    mut commands: Commands,
-    entities: Query<(Entity, &Replicate<P>), Changed<Replicate<P>>>,
-) {
-    for (entity, replicate) in entities.iter() {
-        if replicate
-            .replication_target
-            .should_send_to(&LOCAL_CLIENT_ID)
-        {
-            commands.entity(entity).insert(Confirmed {
-                predicted: Some(entity),
-                interpolated: Some(entity),
-                tick: Tick(0),
-            });
-        } else {
-            // TODO: handle this case! the entity should not be visible to the local client
-            continue;
-        }
-        if replicate.prediction_target.should_send_to(&LOCAL_CLIENT_ID) {
-            commands.entity(entity).insert(Predicted {
-                confirmed_entity: Some(entity),
-            });
-        }
-        if replicate
-            .interpolation_target
-            .should_send_to(&LOCAL_CLIENT_ID)
-        {
-            commands.entity(entity).insert(Interpolated {
-                confirmed_entity: entity,
-            });
-        }
-    }
-}
+// /// If we are running in unified mode, we want the also add Predicted/Interpolated/Confirmed to the server entities
+// /// if they need to be replicated to the Client, so that the client code has to change as little as possible
+// fn add_predicted_interpolated_unified<P: Protocol>(
+//     mut commands: Commands,
+//     entities: Query<(Entity, &Replicate<P>), Changed<Replicate<P>>>,
+// ) {
+//     for (entity, replicate) in entities.iter() {
+//         if replicate
+//             .replication_target
+//             .should_send_to(&LOCAL_CLIENT_ID)
+//         {
+//             commands.entity(entity).insert(Confirmed {
+//                 predicted: Some(entity),
+//                 interpolated: Some(entity),
+//                 tick: Tick(0),
+//             });
+//         } else {
+//             // TODO: handle this case! the entity should not be visible to the local client
+//             continue;
+//         }
+//         if replicate.prediction_target.should_send_to(&LOCAL_CLIENT_ID) {
+//             commands.entity(entity).insert(Predicted {
+//                 confirmed_entity: Some(entity),
+//             });
+//         }
+//         if replicate
+//             .interpolation_target
+//             .should_send_to(&LOCAL_CLIENT_ID)
+//         {
+//             commands.entity(entity).insert(Interpolated {
+//                 confirmed_entity: entity,
+//             });
+//         }
+//     }
+// }

@@ -16,11 +16,9 @@ use crate::server::metadata::ClientMetadataPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
 use crate::server::room::RoomPlugin;
-use crate::shared::config::LOCAL_CLIENT_ID;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::time_manager::TimePlugin;
-use crate::shared::unified::UnifiedManager;
 
 use super::config::ServerConfig;
 
@@ -81,15 +79,5 @@ impl<P: Protocol> Plugin for ServerPlugin<P> {
         if !config.server_config.replication.disable {
             app.add_plugins(ServerReplicationPlugin::<P>::new(tick_duration));
         }
-
-        // if we are running in unified mode, send a connect event to notify that the
-        // local client is connected (even though we don't actually create a connection)
-        if config.server_config.shared.unified {
-            app.world
-                .resource_mut::<Events<ConnectEvent>>()
-                .send(ConnectEvent::new(LOCAL_CLIENT_ID));
-        }
-
-        // UnifiedManager::add_or_increment(app);
     }
 }

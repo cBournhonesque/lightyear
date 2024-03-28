@@ -21,7 +21,6 @@ use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::time_manager::TimePlugin;
-use crate::shared::unified::UnifiedManager;
 use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
@@ -78,7 +77,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(MetadataPlugin)
+            .add_plugins(MetadataPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
@@ -98,6 +97,5 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
         if config.client_config.replication.enable {
             app.add_plugins(ClientReplicationPlugin::<P>::new(tick_duration));
         }
-        // UnifiedManager::add_or_increment(app);
     }
 }

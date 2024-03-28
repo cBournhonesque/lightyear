@@ -9,7 +9,7 @@ use bevy::prelude::{
     Ref, Res, ResMut, Without, World,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use lightyear_macros::MessageInternal;
 
@@ -18,7 +18,8 @@ use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::{Predicted, Rollback, RollbackState};
+use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::Predicted;
 use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
@@ -224,6 +225,11 @@ pub(crate) fn pre_spawned_player_object_cleanup<P: Protocol>(
     // TODO: for some reason at interpolation_tick we often haven't received the update from the server yet!
     //  use a tick that it's even more in the past
     let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
+    trace!(
+        ?tick,
+        ?interpolation_tick,
+        "cleaning up prespawned player objects"
+    );
     let tick_diff = ((tick - interpolation_tick) * 2) as u16;
     let past_tick = tick - tick_diff;
     // remove all the prespawned entities that have not been matched with a server entity

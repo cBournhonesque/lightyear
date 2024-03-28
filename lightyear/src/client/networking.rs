@@ -1,7 +1,7 @@
 //! Defines the client bevy systems and run conditions
 use std::ops::DerefMut;
 
-use bevy::ecs::system::{SystemChangeTick, SystemState};
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
@@ -19,7 +19,6 @@ use crate::protocol::Protocol;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
-use crate::shared::unified::UnifiedManager;
 
 pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
     marker: std::marker::PhantomData<P>,
@@ -55,19 +54,25 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                     apply_deferred.in_set(MainSet::ReceiveFlush),
                 ),
             )
-            // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
-            .add_systems(
+            .add_systems(PostUpdate, send::<P>.in_set(MainSet::SendPackets));
+
+        // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+        if app.world.resource::<ClientConfig>().is_unified() {
+            app.world.run_system_once(unified_sync_init::<P>);
+            app.add_systems(
                 PostUpdate,
-                (
-                    send::<P>.in_set(MainSet::SendPackets),
-                    unified_sync_update::<P>
-                        .in_set(MainSet::Sync)
-                        .run_if(is_client_connected.and_then(SharedConfig::is_unified_condition)),
-                    sync_update::<P>.in_set(MainSet::Sync).run_if(
-                        is_client_connected.and_then(not(SharedConfig::is_unified_condition)),
-                    ),
-                ),
+                unified_sync_update::<P>
+                    .in_set(MainSet::Sync)
+                    .run_if(is_client_connected),
             );
+        } else {
+            app.add_systems(
+                PostUpdate,
+                sync_update::<P>
+                    .in_set(MainSet::Sync)
+                    .run_if(is_client_connected),
+            );
+        }
     }
 }
 
@@ -257,15 +262,34 @@ pub(crate) fn sync_update<P: Protocol>(
 /// There is not much need for syncing since the client and server time is the same:
 /// - client is immediately synced
 /// - there is no need for a separate prediction time, the server and client time are the same
+/// - we still want to update the interpolation time
 pub(crate) fn unified_sync_update<P: Protocol>(
     mut connection: ResMut<ConnectionManager<P>>,
     time_manager: Res<TimeManager>,
 ) {
-    connection.sync_manager.synced = true;
     connection
         .sync_manager
         .duration_since_latest_received_server_tick += time_manager.delta();
+    // TODO: check if we are doing an extra update (maybe on the first run, we shouldn't add delta()?)
     connection.sync_manager.interpolation_time += time_manager.delta();
+}
+
+pub(crate) fn unified_sync_init<P: Protocol>(
+    config: Res<ClientConfig>,
+    mut connection: ResMut<ConnectionManager<P>>,
+    time_manager: Res<TimeManager>,
+) {
+    connection.sync_manager.synced = true;
+    // how much behind the server time should the interpolation time be?
+    let interpolation_delay = chrono::Duration::from_std(
+        config
+            .interpolation
+            .delay
+            .to_duration(config.shared.server_send_interval),
+    )
+    .unwrap();
+    // update the interpolation time using the server time directly
+    connection.sync_manager.interpolation_time = time_manager.current_time() - interpolation_delay;
 }
 
 /// Run Condition that returns true if the client is connected
