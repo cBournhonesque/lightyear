@@ -172,6 +172,31 @@ impl SyncManager {
         None
     }
 
+    // /// If we have not finished synced, try to complete the syncing process
+    // pub(crate) fn try_to_sync(
+    //     &mut self,
+    //     time_manager: &mut TimeManager,
+    //     tick_manager: &mut TickManager,
+    //     ping_manager: &PingManager,
+    //     interpolation_delay: &InterpolationDelay,
+    //     server_send_interval: Duration,
+    // ) -> Option<TickEvent> {
+    //     if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
+    //         self.synced = true;
+    //         self.interpolation_time = self.interpolation_objective(
+    //             interpolation_delay,
+    //             server_send_interval,
+    //             tick_manager,
+    //         );
+    //         debug!(
+    //             "interpolation_tick: {:?}",
+    //             self.interpolation_tick(tick_manager)
+    //         );
+    //         return self.finalize(time_manager, tick_manager, ping_manager);
+    //     }
+    //     None
+    // }
+
     pub(crate) fn is_synced(&self) -> bool {
         self.synced
     }

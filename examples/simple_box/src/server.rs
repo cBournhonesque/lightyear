@@ -61,7 +61,11 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
+pub(crate) fn init(
+    mut commands: Commands,
+    mut connections: ResMut<ServerConnections>,
+    unified: Res<UnifiedManager>,
+) {
     for connection in &mut connections.servers {
         let _ = connection.start().inspect_err(|e| {
             error!("Failed to start server: {:?}", e);
@@ -75,6 +79,21 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
             ..default()
         },
     ));
+    if unified.is_unified() {
+        // choose a client id for the local client
+        let client_id: u64 = 0;
+        // Generate pseudo random color from client id.
+        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
+        let s = 0.8;
+        let l = 0.5;
+        let entity = commands.spawn((
+            PlayerBundle::new(client_id, Vec2::ZERO, Color::hsl(h, s, l)),
+            Replicate {
+                interpolation_target: NetworkTarget::All,
+                ..default()
+            },
+        ));
+    }
 }
 
 /// Server connection system, create a player upon connection
@@ -82,6 +101,7 @@ pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
     mut disconnections: EventReader<DisconnectEvent>,
     mut global: ResMut<Global>,
+    unified: Res<UnifiedManager>,
     mut commands: Commands,
 ) {
     for connection in connections.read() {
@@ -90,10 +110,22 @@ pub(crate) fn handle_connections(
         let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
-        let entity = commands.spawn(PlayerBundle::new(
-            *client_id,
-            Vec2::ZERO,
-            Color::hsl(h, s, l),
+        // server and client are running in the same app, no need to replicate to the local client
+        let replicate = if unified.is_unified() {
+            Replicate {
+                replication_target: NetworkTarget::AllExceptSingle(*client_id),
+                ..default()
+            }
+        } else {
+            Replicate {
+                prediction_target: NetworkTarget::Single(*client_id),
+                interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
+                ..default()
+            }
+        };
+        let entity = commands.spawn((
+            PlayerBundle::new(*client_id, Vec2::ZERO, Color::hsl(h, s, l)),
+            replicate,
         ));
         // Add a mapping from client id to entity id
         global
@@ -122,7 +154,7 @@ pub(crate) fn movement(
     for input in input_reader.read() {
         let client_id = input.context();
         if let Some(input) = input.input() {
-            info!(
+            trace!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
                 client_id,

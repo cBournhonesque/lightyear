@@ -4,9 +4,10 @@ use std::str::FromStr;
 
 use crate::connection::client::{ClientConnection, NetClient};
 use bevy::ecs::system::SystemState;
-use bevy::prelude::{App, Mut, PluginGroup, Real, Time, World};
+use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
 use bevy::{DefaultPlugins, MinimalPlugins};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
@@ -74,7 +75,8 @@ impl BevyStepper {
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::DEBUG)
+        //     // .with_span_events(FmtSpan::ENTER)
+        //     .with_max_level(tracing::Level::INFO)
         //     .init();
 
         // Use local channels instead of UDP for testing
@@ -111,7 +113,7 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: vec![net_config],
             ping: PingConfig::default(),
-            packet: Default::default(),
+            ..default()
         };
         let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
@@ -132,13 +134,11 @@ impl BevyStepper {
         };
         let config = ClientConfig {
             shared: shared_config.clone(),
-            input: InputConfig::default(),
             net: net_config,
-            ping: PingConfig::default(),
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
-            packet: Default::default(),
+            ..default()
         };
         let plugin_config = client::PluginConfig::new(config, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);

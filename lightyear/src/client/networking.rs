@@ -1,7 +1,7 @@
 //! Defines the client bevy systems and run conditions
 use std::ops::DerefMut;
 
-use bevy::ecs::system::SystemChangeTick;
+use bevy::ecs::system::{SystemChangeTick, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 #[cfg(feature = "xpbd_2d")]
@@ -13,6 +13,7 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::connection::client::{ClientConnection, NetClient};
+use crate::prelude::client::GlobalMetadata;
 use crate::prelude::{MainSet, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -20,6 +21,7 @@ use crate::protocol::Protocol;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
+use crate::shared::unified::UnifiedManager;
 
 pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
     marker: std::marker::PhantomData<P>,
@@ -60,7 +62,12 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 PostUpdate,
                 (
                     send::<P>.in_set(MainSet::SendPackets),
-                    sync_update::<P>.in_set(MainSet::Sync),
+                    unified_sync_update::<P>
+                        .in_set(MainSet::Sync)
+                        .run_if(is_client_connected.and_then(UnifiedManager::is_unified_condition)),
+                    sync_update::<P>.in_set(MainSet::Sync).run_if(
+                        is_client_connected.and_then(not(UnifiedManager::is_unified_condition)),
+                    ),
                 ),
             );
     }
@@ -223,44 +230,47 @@ pub(crate) fn sync_update<P: Protocol>(
     mut tick_events: EventWriter<TickEvent>,
 ) {
     let connection = connection.into_inner();
-    if netclient.is_connected() {
-        // NOTE: this triggers change detection
-        // Handle pongs, update RTT estimates, update client prediction time
-        if let Some(tick_event) = connection.sync_manager.update(
+    // NOTE: this triggers change detection
+    // Handle pongs, update RTT estimates, update client prediction time
+    if let Some(tick_event) = connection.sync_manager.update(
+        time_manager.deref_mut(),
+        tick_manager.deref_mut(),
+        &connection.ping_manager,
+        &config.interpolation.delay,
+        config.shared.server_send_interval,
+    ) {
+        tick_events.send(tick_event);
+    }
+
+    if connection.sync_manager.is_synced() {
+        if let Some(tick_event) = connection.sync_manager.update_prediction_time(
             time_manager.deref_mut(),
             tick_manager.deref_mut(),
             &connection.ping_manager,
-            &config.interpolation.delay,
-            config.shared.server_send_interval,
         ) {
             tick_events.send(tick_event);
         }
-
-        if connection.sync_manager.is_synced() {
-            if let Some(tick_event) = connection.sync_manager.update_prediction_time(
-                time_manager.deref_mut(),
-                tick_manager.deref_mut(),
-                &connection.ping_manager,
-            ) {
-                tick_events.send(tick_event);
-            }
-        }
-    }
-
-    // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-    if connection.sync_manager.is_synced() {
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);
+    }
+}
 
-        // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
-        // //  client and server. Enabling this will cause the simulations to diverge
-        // cfg_if! {
-        //     if #[cfg(feature = "xpbd_2d")] {
-        //         use bevy_xpbd_2d::prelude::Physics;
-        //         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-        //             physics_time.set_relative_speed(relative_speed);
-        //         }
-        //     }
-        // }
-    };
+/// Update the sync manager, if client and server are running in the same app
+/// There is not much need for syncing since the client and server time is the same:
+/// - client is immediately synced
+/// - there is no need for a separate prediction time, the server and client time are the same
+pub(crate) fn unified_sync_update<P: Protocol>(
+    mut connection: ResMut<ConnectionManager<P>>,
+    time_manager: Res<TimeManager>,
+) {
+    connection.sync_manager.synced = true;
+    connection
+        .sync_manager
+        .duration_since_latest_received_server_tick += time_manager.delta();
+    connection.sync_manager.interpolation_time += time_manager.delta();
+}
+
+/// Run Condition that returns true if the client is connected
+pub fn is_client_connected(netclient: Res<ClientConnection>) -> bool {
+    netclient.is_connected()
 }

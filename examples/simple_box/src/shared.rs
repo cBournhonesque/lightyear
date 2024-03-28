@@ -68,7 +68,7 @@ pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
     players: Query<
         (&PlayerPosition, &PlayerColor),
-        Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>,
+        // Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>,
     >,
 ) {
     for (position, color) in &players {

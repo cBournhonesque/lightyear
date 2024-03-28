@@ -95,6 +95,7 @@ pub mod prelude {
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::shared::time_manager::TimeManager;
+    pub use crate::shared::unified::UnifiedManager;
     pub use crate::transport::conditioner::LinkConditionerConfig;
     pub use crate::transport::io::{Io, IoConfig, TransportConfig};
     pub use crate::utils::named::Named;

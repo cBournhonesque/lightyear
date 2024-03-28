@@ -88,6 +88,12 @@ pub struct TimeManager {
     frame_start: Option<Instant>,
 }
 
+impl Default for TimeManager {
+    fn default() -> Self {
+        Self::new(Duration::default(), Duration::default())
+    }
+}
+
 impl TimeManager {
     pub fn new(server_send_interval: Duration, client_send_interval: Duration) -> Self {
         let server_send_timer = (server_send_interval != Duration::default())

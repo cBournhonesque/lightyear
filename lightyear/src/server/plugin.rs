@@ -19,6 +19,7 @@ use crate::server::room::RoomPlugin;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::time_manager::TimePlugin;
+use crate::shared::unified::UnifiedManager;
 
 use super::config::ServerConfig;
 
@@ -83,5 +84,6 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 ..default()
             });
         }
+        UnifiedManager::add_or_increment(app);
     }
 }

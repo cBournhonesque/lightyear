@@ -12,6 +12,8 @@ pub struct SharedConfig {
     pub server_send_interval: Duration,
     /// configuration for the [`FixedUpdate`](bevy::prelude::FixedUpdate) schedule
     pub tick: TickConfig,
+    /// do we run in unified mode? (client and server in the same process)
+    pub unified: bool,
 }
 
 impl Default for SharedConfig {
@@ -21,6 +23,7 @@ impl Default for SharedConfig {
             client_send_interval: Duration::from_millis(0),
             server_send_interval: Duration::from_millis(0),
             tick: TickConfig::new(Duration::from_millis(16)),
+            unified: false,
         }
     }
 }

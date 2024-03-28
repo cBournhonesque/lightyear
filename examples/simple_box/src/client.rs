@@ -72,8 +72,11 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut client: ResMut<ClientConnection>) {
-    let _ = client.connect();
+pub(crate) fn init(mut client: ResMut<ClientConnection>, unified: Res<UnifiedManager>) {
+    // if client and server are running in the same app, there is no need to connect!
+    if !unified.is_unified() {
+        let _ = client.connect();
+    }
 }
 
 pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMetadata>) {
@@ -136,7 +139,7 @@ pub(crate) fn buffer_input(
     // if we run in listen-server mode and the server/client are running in the same app
     // emit the input event directly to the server
     if let Some(mut server_input_event) = server_input_event {
-        info!(?tick, "send client input");
+        trace!(?tick, "send client input directly to server");
         // TODO: should we still add the event to the buffer, for rollbacks?
         //  maybe not, because there cannot be mispredictions?
         let _ = server_input_event.send(server::InputEvent::new(Some(input), client_id));

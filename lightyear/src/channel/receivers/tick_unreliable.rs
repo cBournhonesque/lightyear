@@ -103,7 +103,7 @@ mod tests {
         let mut tick_manager = TickManager::from_config(TickConfig {
             tick_duration: Duration::from_millis(10),
         });
-        let time_manager = TimeManager::new(Duration::default());
+        let time_manager = TimeManager::default();
 
         let single1 = SingleData::new(None, Bytes::from("hello"), 1.0);
         let mut single2 = SingleData::new(None, Bytes::from("world"), 1.0);

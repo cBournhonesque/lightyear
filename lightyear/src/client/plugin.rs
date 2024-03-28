@@ -9,17 +9,19 @@ use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::ClientEventsPlugin;
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
-use crate::client::metadata::MetadataPlugin;
+use crate::client::metadata::{GlobalMetadata, MetadataPlugin};
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::server::plugin::ServerPlugin;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::plugin::SharedPlugin;
 use crate::shared::time_manager::TimePlugin;
+use crate::shared::unified::UnifiedManager;
 use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
@@ -51,6 +53,7 @@ impl<P: Protocol> ClientPlugin<P> {
     }
 }
 
+// TODO: create this as PluginGroup so that users can easily disable sub plugins?
 // TODO: override `ready` and `finish` to make sure that the transport/backend is connected
 //  before the plugin is ready
 impl<P: Protocol> Plugin for ClientPlugin<P> {
@@ -94,5 +97,6 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                 ..default()
             });
         }
+        UnifiedManager::add_or_increment(app);
     }
 }
