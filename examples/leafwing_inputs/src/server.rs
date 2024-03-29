@@ -11,50 +11,12 @@ pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet, GameLayer};
 use crate::{shared, ServerTransports, SharedSettings};
-
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    /// If this is true, we will predict the client's entities, but also the ball and other clients' entities!
-    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
-    ///
-    /// If this is false, we will predict the client's entites but simple interpolate everything else.
-    pub(crate) predict_all: bool,
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>, predict_all: bool) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            predict_all,
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin {
-                predict_all: self.predict_all,
-            })
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default())
-            .add(LeafwingInputPlugin::<MyProtocol, AdminActions>::default())
-    }
-}
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
-    predict_all: bool,
+    pub(crate) predict_all: bool,
 }
 
 #[derive(Resource)]
@@ -65,6 +27,10 @@ pub struct Global {
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         // add leafwing plugins to handle inputs
+        app.add_plugins((
+            LeafwingInputPlugin::<MyProtocol, PlayerActions>::default(),
+            LeafwingInputPlugin::<MyProtocol, AdminActions>::default(),
+        ));
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
@@ -106,11 +72,14 @@ pub(crate) fn init(
     );
 
     // the ball is server-authoritative
-    commands.spawn(BallBundle::new(
-        Vec2::new(0.0, 0.0),
-        Color::AZURE,
-        // if true, we predict the ball on clients
-        global.predict_all,
+    commands.spawn((
+        BallBundle::new(
+            Vec2::new(0.0, 0.0),
+            Color::AZURE,
+            // if true, we predict the ball on clients
+            global.predict_all,
+        ),
+        CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
     ));
 }
 
@@ -192,6 +161,7 @@ pub(crate) fn replicate_players(
                 replicate,
                 // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
+                CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
             ));
         }
     }

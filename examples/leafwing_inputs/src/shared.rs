@@ -9,13 +9,20 @@ use bevy_xpbd_2d::{PhysicsSchedule, PhysicsStepSet};
 use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
-use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
+
+/// If running in unified mode, the client and server entities will be in the same world.
+/// We will use PhysicsLayers to make suer that they do not collide with each other
+#[derive(PhysicsLayer)]
+pub(crate) enum GameLayer {
+    Server,
+    Client,
+}
 
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
@@ -236,8 +243,14 @@ pub(crate) fn log() {
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &Rotation, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
-    balls: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
+    players: Query<
+        (&Position, &Rotation, &ColorComponent),
+        (Without<Confirmed>, Without<Replicate>, With<PlayerId>),
+    >,
+    balls: Query<
+        (&Position, &ColorComponent),
+        (Without<Confirmed>, Without<Replicate>, With<BallMarker>),
+    >,
     walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
 ) {
     for (position, rotation, color) in &players {

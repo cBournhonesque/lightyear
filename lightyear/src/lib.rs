@@ -126,6 +126,7 @@ pub mod prelude {
         pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
+        pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
         pub use crate::client::replication::ReplicationConfig;
         pub use crate::client::sync::SyncConfig;

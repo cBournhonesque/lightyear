@@ -14,9 +14,9 @@ use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
-use lightyear::client::config::PacketConfig;
 use lightyear::client::input_leafwing::LeafwingInputPlugin;
 use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay};
+use lightyear::prelude::server::PacketConfig;
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::TransportConfig;
@@ -169,11 +169,6 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let client_config = client::ClientConfig {
         shared: shared_config(false),
         net: net_config,
-        packet: PacketConfig::default()
-            // by default there is no bandwidth limit so we need to enable it
-            .enable_bandwidth_cap()
-            // we can set the max bandwidth to 56 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(56000),
         interpolation: InterpolationConfig {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
@@ -216,6 +211,11 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(false),
         net: net_configs,
+        packet: PacketConfig::default()
+            // by default there is no bandwidth limit so we need to enable it
+            .enable_bandwidth_cap()
+            // we can set the max bandwidth to 56 KB/s
+            .with_send_bandwidth_bytes_per_second_cap(1500),
         ..default()
     };
     app.add_plugins((
@@ -251,6 +251,11 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(true),
         net: net_configs,
+        packet: PacketConfig::default()
+            // by default there is no bandwidth limit so we need to enable it
+            .enable_bandwidth_cap()
+            // we can set the max bandwidth to 56 KB/s
+            .with_send_bandwidth_bytes_per_second_cap(1500),
         ..default()
     };
     app.add_plugins((
@@ -262,11 +267,6 @@ fn combined_app(
     let client_config = client::ClientConfig {
         shared: shared_config(true),
         net: client_net_config,
-        packet: PacketConfig::default()
-            // by default there is no bandwidth limit so we need to enable it
-            .enable_bandwidth_cap()
-            // we can set the max bandwidth to 56 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(56000),
         interpolation: InterpolationConfig {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
@@ -277,7 +277,6 @@ fn combined_app(
     app.add_plugins((
         client::ClientPlugin::new(plugin_config),
         ExampleClientPlugin,
-        LeafwingInputPlugin::<MyProtocol, Inputs>::default(),
     ));
     // shared plugin
     app.add_plugins(SharedPlugin);

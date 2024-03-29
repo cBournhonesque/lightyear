@@ -553,7 +553,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
 
 /// System that removes old entries from the ActionDiffBuffer and the InputBuffer
 fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
-    mut connection: ResMut<ConnectionManager<P>>,
+    connection: Res<ConnectionManager<P>>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     mut action_diff_buffer_query: Query<(Entity, &mut ActionDiffBuffer<A>), With<InputMap<A>>>,
@@ -587,12 +587,12 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager<P>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
-    global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
-    mut action_diff_buffer_query: Query<
+    global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
+    action_diff_buffer_query: Query<
         (
             Entity,
+            &ActionDiffBuffer<A>,
             Option<&Predicted>,
-            &mut ActionDiffBuffer<A>,
             Option<&PrePredicted>,
         ),
         With<InputMap<A>>,
@@ -616,14 +616,12 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     let redundancy = config.input.packet_redundancy;
     let message_len = redundancy * num_tick;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, predicted, mut action_diff_buffer, pre_predicted) in
-        action_diff_buffer_query.iter_mut()
-    {
+    for (entity, action_diff_buffer, predicted, pre_predicted) in action_diff_buffer_query.iter() {
         debug!(
             ?tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
-            action_diff_buffer.as_ref()
+            action_diff_buffer
         );
 
         // Make sure that server can read the inputs correctly
@@ -675,7 +673,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         }
     }
 
-    if let Some(mut action_diff_buffer) = global_action_diff_buffer {
+    if let Some(action_diff_buffer) = global_action_diff_buffer {
         action_diff_buffer.add_to_message(&mut message, tick, message_len, InputTarget::Global);
     }
 
