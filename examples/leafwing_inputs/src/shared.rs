@@ -32,8 +32,8 @@ const WALL_SIZE: f32 = 350.0;
 pub fn shared_config(unified: bool) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
-        server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
-        // server_send_interval: Duration::from_millis(100),
+        // server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
+        server_send_interval: Duration::from_millis(100),
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
@@ -243,14 +243,8 @@ pub(crate) fn log() {
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<
-        (&Position, &Rotation, &ColorComponent),
-        (Without<Confirmed>, Without<Replicate>, With<PlayerId>),
-    >,
-    balls: Query<
-        (&Position, &ColorComponent),
-        (Without<Confirmed>, Without<Replicate>, With<BallMarker>),
-    >,
+    players: Query<(&Position, &Rotation, &ColorComponent), (Without<Confirmed>, With<PlayerId>)>,
+    balls: Query<(&Position, &ColorComponent), (Without<Confirmed>, With<BallMarker>)>,
     walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
 ) {
     for (position, rotation, color) in &players {

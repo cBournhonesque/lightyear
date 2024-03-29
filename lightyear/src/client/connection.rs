@@ -6,9 +6,9 @@ use bevy::prelude::{Entity, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, info, trace, trace_span, warn};
 
-use crate::_reexport::{EntityUpdatesChannel, PingChannel, ReplicationSend};
+use crate::_reexport::{ClientMarker, EntityUpdatesChannel, PingChannel, ReplicationSend};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
@@ -19,6 +19,7 @@ use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{
     Channel, ChannelKind, ClientId, LightyearMapEntities, Message, NetworkTarget,
+    ReplicateToClientOnly,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
@@ -27,7 +28,9 @@ use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
-use crate::shared::replication::components::{Replicate, ReplicationGroupId};
+use crate::shared::replication::components::{
+    Replicate, ReplicateToServerOnly, ReplicationGroupId,
+};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::ReplicationMessage;
@@ -389,6 +392,8 @@ impl<P: Protocol> ConnectionManager<P> {
 }
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+    type SetMarker = ClientMarker;
+    type BannedReplicateDirection = ReplicateToClientOnly;
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,
@@ -411,7 +416,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        info!(?entity, "Send entity spawn to server");
+        warn!(?entity, "Prepare entity spawn to server");
         let group_id = replicate.replication_group.group_id(Some(entity));
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick

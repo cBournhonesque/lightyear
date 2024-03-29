@@ -36,6 +36,7 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
+use crate::_reexport::ClientMarker;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -192,14 +193,14 @@ where
             PostUpdate,
             // we send inputs only every send_interval
             (
-                MainSet::Sync,
+                MainSet::<ClientMarker>::Sync,
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
                 InputSystemSet::SendInputMessage
                     .run_if(client_is_synced::<P>)
-                    .in_set(MainSet::Send),
+                    .in_set(MainSet::<ClientMarker>::Send),
                 InputSystemSet::CleanUp.run_if(client_is_synced::<P>),
-                MainSet::SendPackets,
+                MainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
         );

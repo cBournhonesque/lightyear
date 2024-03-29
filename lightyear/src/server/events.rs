@@ -5,6 +5,7 @@ use tracing::trace;
 
 use crate::_reexport::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    ServerMarker,
 };
 use crate::connection::netcode::ClientId;
 #[cfg(feature = "leafwing")]
@@ -12,6 +13,7 @@ use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
 use crate::prelude::MainSet;
 use crate::protocol::Protocol;
+use crate::server::connection::ConnectionManager;
 use crate::server::networking::clear_events;
 #[cfg(feature = "leafwing")]
 use crate::shared::events::connection::IterInputMessageEvent;
@@ -41,8 +43,11 @@ impl<P: Protocol> Plugin for ServerEventsPlugin<P> {
             // PLUGIN
             .add_plugins(EventsPlugin::<P, ClientId>::default())
             // SYSTEM_SET
-            .configure_sets(PostUpdate, MainSet::ClearEvents)
-            .add_systems(PostUpdate, clear_events::<P>.in_set(MainSet::ClearEvents));
+            .configure_sets(PostUpdate, MainSet::<ServerMarker>::ClearEvents)
+            .add_systems(
+                PostUpdate,
+                clear_events::<P>.in_set(MainSet::<ServerMarker>::ClearEvents),
+            );
     }
 }
 

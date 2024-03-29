@@ -59,6 +59,7 @@ pub mod _reexport {
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
+    pub use crate::shared::sets::{ClientMarker, ServerMarker};
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;
@@ -86,7 +87,8 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
+        NetworkTarget, PrePredicted, ReplicateToClientOnly, ReplicateToServerOnly,
+        ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;

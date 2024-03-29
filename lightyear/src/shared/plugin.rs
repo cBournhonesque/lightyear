@@ -50,7 +50,6 @@ impl<P: Protocol> Plugin for SharedPlugin<P> {
         ));
 
         // PLUGINS
-        app.add_plugins(HierarchySyncPlugin::<P>::default());
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
         });

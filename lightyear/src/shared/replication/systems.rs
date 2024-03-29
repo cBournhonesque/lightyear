@@ -1,16 +1,17 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
+use std::any::TypeId;
 use std::ops::Deref;
 
 use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
-    PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, Without,
+    PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::_reexport::FromType;
-use crate::prelude::{MainSet, NetworkTarget, TickManager};
+use crate::prelude::{MainSet, NetworkTarget, ReplicateToClientOnly, TickManager};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
@@ -25,9 +26,10 @@ fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
     mut sender: ResMut<R>,
     mut query: RemovedComponents<Replicate<P>>,
     entity_check: &Entities,
+    direction_query: Query<(), Without<R::BannedReplicateDirection>>,
 ) {
     for entity in query.read() {
-        if entity_check.contains(entity) {
+        if entity_check.contains(entity) && direction_query.contains(entity) {
             debug!("handling replicate component remove (delete from cache)");
             sender.get_mut_replicate_component_cache().remove(&entity);
         }
@@ -42,7 +44,14 @@ fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
 fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
     mut sender: ResMut<R>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicate<P>), (Added<Replicate<P>>, Without<DespawnTracker>)>,
+    query: Query<
+        (Entity, &Replicate<P>),
+        (
+            Added<Replicate<P>>,
+            Without<DespawnTracker>,
+            Without<R::BannedReplicateDirection>,
+        ),
+    >,
 ) {
     for (entity, replicate) in query.iter() {
         debug!("ADDING DESPAWN TRACKER");
@@ -54,7 +63,7 @@ fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
 }
 
 fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, &Replicate<P>)>,
+    query: Query<(Entity, &Replicate<P>), Without<R::BannedReplicateDirection>>,
     system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
@@ -88,6 +97,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
         }
     });
 
+    // TODO: check for banned replicate component?
     // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
         trace!("despawn tracker removed!");
@@ -113,7 +123,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
 
 fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
     system_bevy_ticks: SystemChangeTick,
-    query: Query<(Entity, Ref<Replicate<P>>)>,
+    query: Query<(Entity, Ref<Replicate<P>>), Without<R::BannedReplicateDirection>>,
     mut sender: ResMut<R>,
 ) {
     // Replicate to already connected clients (replicate only new entities)
@@ -223,7 +233,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 ///
 /// NOTE: cannot use ConnectEvents because they are reset every frame
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, Ref<C>, &Replicate<P>)>,
+    query: Query<(Entity, Ref<C>, &Replicate<P>), Without<R::BannedReplicateDirection>>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
@@ -370,7 +380,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
 /// This system sends updates for all components that were removed
 fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
     // only remove the component for entities that are being actively replicated
-    query: Query<&Replicate<P>>,
+    query: Query<&Replicate<P>, Without<R::BannedReplicateDirection>>,
     system_bevy_ticks: SystemChangeTick,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
@@ -432,7 +442,7 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
     // we need to add despawn trackers immediately for entities for which we add replicate
     app.add_systems(
         PreUpdate,
-        add_despawn_tracker::<P, R>.after(MainSet::ClientReplicationFlush),
+        add_despawn_tracker::<P, R>.after(MainSet::<R::SetMarker>::ClientReplicationFlush),
     );
     app.add_systems(
         PostUpdate,
@@ -440,7 +450,7 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
             // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
             //  so we can run the system every frame
             //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
-            send_entity_spawn::<P, R>.in_set(ReplicationSet::SendEntityUpdates),
+            send_entity_spawn::<P, R>.in_set(ReplicationSet::<R::SetMarker>::SendEntityUpdates),
             // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
@@ -450,7 +460,7 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
                 send_entity_despawn::<P, R>,
             )
                 .chain()
-                .in_set(ReplicationSet::SendDespawnsAndRemovals),
+                .in_set(ReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
         ),
     );
 }
@@ -471,10 +481,12 @@ pub fn add_per_component_replication_send_systems<
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            send_component_removed::<C, P, R>.in_set(ReplicationSet::SendDespawnsAndRemovals),
+            send_component_removed::<C, P, R>
+                .in_set(ReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
-            send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),
+            send_component_update::<C, P, R>
+                .in_set(ReplicationSet::<R::SetMarker>::SendComponentUpdates),
         ),
     );
 }

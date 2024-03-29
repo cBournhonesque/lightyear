@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::_reexport::ServerMarker;
 
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -38,7 +39,7 @@ impl Plugin for ExampleServerPlugin {
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
-            replicate_players.in_set(MainSet::ClientReplication),
+            replicate_players.in_set(MainSet::<ServerMarker>::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
@@ -72,15 +73,15 @@ pub(crate) fn init(
     );
 
     // the ball is server-authoritative
-    commands.spawn((
-        BallBundle::new(
-            Vec2::new(0.0, 0.0),
-            Color::AZURE,
-            // if true, we predict the ball on clients
-            global.predict_all,
-        ),
-        CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
-    ));
+    // commands.spawn((
+    //     BallBundle::new(
+    //         Vec2::new(0.0, 0.0),
+    //         Color::AZURE,
+    //         // if true, we predict the ball on clients
+    //         global.predict_all,
+    //     ),
+    //     CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
+    // ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection
@@ -119,7 +120,6 @@ pub(crate) fn movement(
 }
 
 // Replicate the pre-spawned entities back to the client
-
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
@@ -157,8 +157,10 @@ pub(crate) fn replicate_players(
                 // we want the other clients to apply interpolation for the player
                 replicate.interpolation_target = NetworkTarget::AllExceptSingle(client_id);
             }
+            warn!("Server player entity: {:?}", e.id());
             e.insert((
                 replicate,
+                ReplicateToClientOnly,
                 // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
                 CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),

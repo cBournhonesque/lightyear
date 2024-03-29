@@ -23,12 +23,13 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: ColorComponent,
     replicate: Replicate,
+    replicate_direction: ReplicateToServerOnly,
     physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
     // as the Predicted version
-    should_be_predicted: ShouldBePredicted,
+    pre_predicted: PrePredicted,
 }
 
 impl PlayerBundle {
@@ -48,12 +49,14 @@ impl PlayerBundle {
                 replication_group: REPLICATION_GROUP,
                 ..default()
             },
+            // this replicate is only used for pre-spawning, so it's client->server only
+            replicate_direction: ReplicateToServerOnly,
             physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
                 input_map,
             },
-            should_be_predicted: ShouldBePredicted::default(),
+            pre_predicted: PrePredicted::default(),
         }
     }
 }

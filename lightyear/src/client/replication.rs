@@ -1,3 +1,4 @@
+use crate::_reexport::ClientMarker;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -47,7 +48,7 @@ impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
                 // NOTE: we need is_synced, and not connected. Otherwise the ticks associated with the messages might be incorrect
                 //  and the message might be ignored by the server
                 //  But then pre-predicted entities that are spawned right away will not be replicated?
-                ReplicationSet::All.run_if(client_is_synced::<P>),
+                ReplicationSet::<ClientMarker>::All.run_if(client_is_synced::<P>),
             );
     }
 }

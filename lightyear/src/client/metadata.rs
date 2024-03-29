@@ -1,3 +1,4 @@
+use crate::_reexport::ClientMarker;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::{ClientId, ClientMetadata, MainSet, Protocol};
 use crate::shared::replication::components::Replicate;
@@ -20,7 +21,7 @@ impl<P: Protocol> Plugin for MetadataPlugin<P> {
         app.init_resource::<GlobalMetadata>().add_systems(
             PreUpdate,
             update_client_id::<P>
-                .after(MainSet::ReceiveFlush)
+                .after(MainSet::<ClientMarker>::ReceiveFlush)
                 // SpawnPrediction uses the metadata to compare the client_id in ShouldBePredicted with the client_id in GlobalMetadata
                 .before(PredictionSet::SpawnPrediction),
         );

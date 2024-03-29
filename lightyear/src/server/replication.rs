@@ -1,3 +1,4 @@
+use crate::_reexport::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
@@ -41,22 +42,26 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                (MainSet::ClientReplication, MainSet::ClientReplicationFlush)
+                (
+                    MainSet::<ServerMarker>::ClientReplication,
+                    MainSet::<ServerMarker>::ClientReplicationFlush,
+                )
                     .chain()
-                    .after(MainSet::ReceiveFlush),
+                    .after(MainSet::<ServerMarker>::ReceiveFlush),
             )
             .configure_sets(
                 PostUpdate,
                 ((
                     // on server: we need to set the hash value before replicating the component
-                    ReplicationSet::SetPreSpawnedHash.before(ReplicationSet::SendComponentUpdates),
+                    ReplicationSet::<ServerMarker>::SetPreSpawnedHash
+                        .before(ReplicationSet::<ServerMarker>::SendComponentUpdates),
                 )
-                    .in_set(ReplicationSet::All),),
+                    .in_set(ReplicationSet::<ServerMarker>::All),),
             )
             // SYSTEMS
             .add_systems(
                 PostUpdate,
-                (compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),),
+                (compute_hash::<P>.in_set(ReplicationSet::<ServerMarker>::SetPreSpawnedHash),),
             );
     }
 }

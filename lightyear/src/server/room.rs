@@ -2,6 +2,7 @@
 //!
 //! This module contains the room system, which is used to perform interest management. (being able to predict certain entities to certain clients only).
 //! You can also find more information in the [book](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/interest_management.html).
+use crate::_reexport::ServerMarker;
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
@@ -117,7 +118,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                 (
                     // update replication caches must happen before replication
                     RoomSystemSets::UpdateReplicationCaches,
-                    ReplicationSet::All,
+                    ReplicationSet::<ServerMarker>::All,
                     RoomSystemSets::RoomBookkeeping,
                 )
                     .chain(),

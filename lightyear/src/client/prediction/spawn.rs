@@ -7,8 +7,9 @@ use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{Protocol, ShouldBePredicted};
-use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut};
-use tracing::{debug, error};
+use crate::shared::replication::components::PrePredicted;
+use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, Without};
+use tracing::{debug, error, trace, warn};
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
@@ -21,80 +22,29 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
     mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
-    mut confirmed_entities: Query<(Option<&mut Confirmed>, Ref<ShouldBePredicted>)>,
-    mut predicted_entities: Query<&mut Predicted>,
+    // only handle non pre-predicted entities
+    mut confirmed_entities: Query<Option<&mut Confirmed>, Without<PrePredicted>>,
 ) {
     for message in should_be_predicted_added.read() {
         let confirmed_entity = message.entity();
-
-        if let Ok((confirmed, should_be_predicted)) = confirmed_entities.get_mut(confirmed_entity) {
-            // TODO: improve this. Also that means we should run the pre-spawned system before this system AND have a flush...
-            if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
-                debug!("Skipping spawning prediction for pre-spawned player object (was already handled, we already have a predicted entity for this \
-                      confirmed entity)");
-                // special-case: pre-spawned player objects handled in a different function
-                continue;
-            }
-            let mut predicted_entity = None;
-
-            // check if we are in a pre-prediction scenario
-            let mut should_spawn_predicted = true;
-            if let Some(client_entity) = should_be_predicted.client_entity {
-                if commands.get_entity(client_entity).is_none() {
-                    error!(
-                    "The pre-predicted entity has been deleted before we could receive the server's confirmation of it. \
-                    This is probably because `EntityCommands::despawn()` has been called.\
-                    On `Predicted` entities, you should call `EntityCommands::prediction_despawn()` instead."
-                );
-                    continue;
-                }
-                let client_id = should_be_predicted.client_id.unwrap();
-                // make sure that the ShouldBePredicted is destined for this client
-                if let Some(local_client_id) = metadata.client_id {
-                    if client_id != local_client_id {
-                        debug!(
-                        local_client = ?local_client_id,
-                        should_be_predicted_client = ?client_id,
-                        "Received ShouldBePredicted component from server for an entity that is pre-predicted by another client: {:?}!", confirmed_entity);
-                    } else {
-                        // we have a pre-spawned predicted entity! instead of spawning a new predicted entity, we will
-                        // just re-use the existing one!
-                        should_spawn_predicted = false;
-                        predicted_entity = Some(client_entity);
-                        debug!(
-                            "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
-                            predicted_entity, confirmed_entity
-                        );
-                        if let Ok(mut predicted) = predicted_entities.get_mut(client_entity) {
-                            predicted.confirmed_entity = Some(confirmed_entity);
-                        }
-
-                        #[cfg(feature = "metrics")]
-                        {
-                            metrics::counter!("prespawn_predicted_entity").increment(1);
-                        }
-                    }
-                }
-            }
-
-            if should_spawn_predicted {
-                // we need to spawn a predicted entity for this confirmed entity
-                let predicted_entity_mut = commands.spawn(Predicted {
+        warn!("Received entity with ShouldBePredicted from server: {confirmed_entity:?}");
+        if let Ok(confirmed) = confirmed_entities.get_mut(confirmed_entity) {
+            // we need to spawn a predicted entity for this confirmed entity
+            let predicted_entity = commands
+                .spawn(Predicted {
                     confirmed_entity: Some(confirmed_entity),
-                });
-                predicted_entity = Some(predicted_entity_mut.id());
-                debug!(
-                    "Delayed prediction spawn! predicted entity {:?} for confirmed: {:?}",
-                    predicted_entity, confirmed_entity
-                );
-                #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("spawn_predicted_entity").increment(1);
-                }
+                })
+                .id();
+            warn!(
+                "Spawning predicted entity {:?} for confirmed: {:?}",
+                predicted_entity, confirmed_entity
+            );
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("spawn_predicted_entity").increment(1);
             }
 
             // update the predicted entity mapping
-            let predicted_entity = predicted_entity.unwrap();
             manager
                 .predicted_entity_map
                 .confirmed_to_predicted
@@ -104,7 +54,6 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
             // safety: we know the entity exists
             let mut confirmed_entity_mut = commands.entity(confirmed_entity);
             confirmed_entity_mut.remove::<ShouldBePredicted>();
-
             if let Some(mut confirmed) = confirmed {
                 confirmed.predicted = Some(predicted_entity);
             } else {
@@ -122,10 +71,6 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     tick: confirmed_tick,
                 });
             }
-        } else {
-            error!(
-                "Received ShouldBePredicted component from server for an entity that does not exist: {:?}!", confirmed_entity
-            );
         }
     }
 }

@@ -6,7 +6,7 @@ use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::_reexport::ReplicationSend;
+use crate::_reexport::{ClientMarker, ReplicationSend};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
@@ -36,39 +36,53 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
         app
             // SYSTEM SETS
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PreUpdate,
+                (
+                    MainSet::<ClientMarker>::Receive,
+                    MainSet::<ClientMarker>::ReceiveFlush,
+                )
+                    .chain(),
+            )
             .configure_sets(
                 PostUpdate,
                 (
                     // run sync before send because some send systems need to know if the client is synced
                     // we don't send packets every frame, but on a timer instead
-                    (MainSet::Sync, MainSet::Send.run_if(is_client_ready_to_send)).chain(),
-                    MainSet::SendPackets.in_set(MainSet::Send),
+                    (
+                        MainSet::<ClientMarker>::Sync,
+                        MainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
+                    )
+                        .chain(),
+                    MainSet::<ClientMarker>::SendPackets.in_set(MainSet::<ClientMarker>::Send),
                 ),
             )
             // SYSTEMS
             .add_systems(
                 PreUpdate,
                 (
-                    receive::<P>.in_set(MainSet::Receive),
-                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                    receive::<P>.in_set(MainSet::<ClientMarker>::Receive),
+                    apply_deferred.in_set(MainSet::<ClientMarker>::ReceiveFlush),
                 ),
             )
-            .add_systems(PostUpdate, send::<P>.in_set(MainSet::SendPackets));
+            .add_systems(
+                PostUpdate,
+                send::<P>.in_set(MainSet::<ClientMarker>::SendPackets),
+            );
 
         // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
         if app.world.resource::<ClientConfig>().is_unified() {
             app.add_systems(
                 PostUpdate,
                 unified_sync_update::<P>
-                    .in_set(MainSet::Sync)
+                    .in_set(MainSet::<ClientMarker>::Sync)
                     .run_if(is_client_connected),
             );
         } else {
             app.add_systems(
                 PostUpdate,
                 sync_update::<P>
-                    .in_set(MainSet::Sync)
+                    .in_set(MainSet::<ClientMarker>::Sync)
                     .run_if(is_client_connected),
             );
         }

@@ -4,7 +4,7 @@ use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, ServerMarker};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{MainSet, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
@@ -43,24 +43,34 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // in practice this mostly just starts the io (spawns server io tasks, etc.)
             .insert_resource(ServerConnections::new(self.config.clone()))
             // SYSTEM SETS
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PreUpdate,
+                (
+                    MainSet::<ServerMarker>::Receive,
+                    MainSet::<ServerMarker>::ReceiveFlush,
+                )
+                    .chain(),
+            )
             .configure_sets(
                 PostUpdate,
                 (
                     // we don't send packets every frame, but on a timer instead
-                    MainSet::Send.run_if(is_server_ready_to_send),
-                    MainSet::SendPackets.in_set(MainSet::Send),
+                    MainSet::<ServerMarker>::Send.run_if(is_server_ready_to_send),
+                    MainSet::<ServerMarker>::SendPackets.in_set(MainSet::<ServerMarker>::Send),
                 ),
             )
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
                 (
-                    receive::<P>.in_set(MainSet::Receive),
-                    apply_deferred.in_set(MainSet::ReceiveFlush),
+                    receive::<P>.in_set(MainSet::<ServerMarker>::Receive),
+                    apply_deferred.in_set(MainSet::<ServerMarker>::ReceiveFlush),
                 ),
             )
-            .add_systems(PostUpdate, (send::<P>.in_set(MainSet::SendPackets),));
+            .add_systems(
+                PostUpdate,
+                (send::<P>.in_set(MainSet::<ServerMarker>::SendPackets),),
+            );
     }
 }
 

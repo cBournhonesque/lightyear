@@ -1,6 +1,7 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use crate::_reexport::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
@@ -76,14 +77,22 @@ where
         // SETS
         app.configure_sets(
             PreUpdate,
-            InputSystemSet::AddBuffers.after(MainSet::ReceiveFlush),
+            (
+                MainSet::<ServerMarker>::ReceiveFlush,
+                InputSystemSet::AddBuffers,
+                InputSystemSet::ReceiveInputs,
+            )
+                .chain(),
         );
         app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
-            add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
+            (
+                // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
+                add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
+                receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
+            ),
         );
         if app.world.resource::<ServerConfig>().is_unified() {
             // in unified mode, we receive the action diffs directly from the ActionDiffEvent events
@@ -99,15 +108,6 @@ where
             app.add_systems(
                 FixedPreUpdate,
                 unified_receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
-            );
-        } else {
-            app.configure_sets(
-                PreUpdate,
-                InputSystemSet::ReceiveInputs.after(InputSystemSet::AddBuffers),
-            );
-            app.add_systems(
-                PreUpdate,
-                receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
             );
         }
         app.add_systems(
@@ -142,6 +142,8 @@ fn unified_receive_input_message<P: Protocol, A: LeafwingUserAction>(
     input_entity_query: Query<(Option<&Predicted>, Option<&PrePredicted>), With<InputMap<A>>>,
     client_connection: Res<crate::client::connection::ConnectionManager<P>>,
     mut server_buffers: Query<&mut ActionDiffBuffer<A>, Without<InputMap<A>>>,
+    server_connection: Res<crate::server::connection::ConnectionManager<P>>,
+    client_metadata: Res<client::GlobalMetadata>,
 ) {
     // get the client's input delay
     let delay = config.prediction.input_delay_ticks as i16;
@@ -150,27 +152,45 @@ fn unified_receive_input_message<P: Protocol, A: LeafwingUserAction>(
         if let Some(entity) = diff.owner {
             // map the client entity to the correct server entity
             if let Ok((predicted, pre_predicted)) = input_entity_query.get(entity) {
-                // 0. if the entity is pre-predicted, we need to map it using the server's input map
-                if let Some(pre_predicted) = pre_predicted {
-                    todo!("map the pre-predicted entity to the correct server entity");
-                } else {
-                    // 1. if the entity is confirmed, we need to convert the entity to the server's entity using the client's remote entity map
-                    // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
-                    if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity)
-                    {
-                        if let Some(server_entity) = client_connection
-                            .replication_receiver
-                            .remote_entity_map
-                            .get_remote(confirmed)
-                            .copied()
-                        {
-                            // write to the server entity's ActionDiffBuffer
-                            if let Ok(mut buffer) = server_buffers.get_mut(server_entity) {
-                                buffer.set(tick, diff.action_diff.clone());
-                            }
-                        }
+                if let Some(server_entity) = pre_predicted
+                    .and_then(|pre_predicted| {
+                        // 0. if the entity is pre-predicted, we need to map it using the server's input map
+                        client_metadata.client_id.and_then(|client_id| {
+                            server_connection
+                                .connection(client_id)
+                                .ok()
+                                .and_then(|connection| {
+                                    warn!(
+                                        "found server entity for pre-predicted entity: {entity:?}"
+                                    );
+                                    connection
+                                        .replication_receiver
+                                        .remote_entity_map
+                                        .get_local(entity)
+                                        .copied()
+                                })
+                        })
+                    })
+                    .or_else(|| {
+                        // 1. if the entity is confirmed, we need to convert the entity to the server's entity using the client's remote entity map
+                        // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
+                        predicted
+                            .map_or(Some(entity), |p| p.confirmed_entity)
+                            .and_then(|confirmed| {
+                                client_connection
+                                    .replication_receiver
+                                    .remote_entity_map
+                                    .get_remote(confirmed)
+                                    .copied()
+                            })
+                    })
+                {
+                    // write to the server entity's ActionDiffBuffer
+                    if let Ok(mut buffer) = server_buffers.get_mut(server_entity) {
+                        warn!("set action for entity: {server_entity:?}");
+                        buffer.set(tick, diff.action_diff.clone());
                     }
-                };
+                }
             }
         } else {
             error!("Leafwing inputs stored in Resources are not supported currently");

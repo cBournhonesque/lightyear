@@ -19,6 +19,7 @@ use bevy::utils::Duration;
 use bevy::utils::Instant;
 use chrono::Duration as ChronoDuration;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use bitcode::{Decode, Encode};
 pub use wrapped_time::WrappedTime;
@@ -124,7 +125,7 @@ impl TimeManager {
     /// Returns true when the client should send packets
     /// If there is no timer, send packets every frame
     pub(crate) fn is_client_ready_to_send(&self) -> bool {
-        self.server_send_timer
+        self.client_send_timer
             .as_ref()
             .map_or(true, |timer| timer.finished())
     }

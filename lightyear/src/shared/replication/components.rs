@@ -17,6 +17,16 @@ use crate::server::room::ClientVisibility;
 #[derive(Component, Clone, Copy)]
 pub struct DespawnTracker;
 
+/// Marker component indicating that this entity should only be replicated from client to server
+/// (and not from server to client)
+#[derive(Component, Debug)]
+pub struct ReplicateToServerOnly;
+
+/// Marker component indicating that this entity should only be replicated from server to client
+/// (and not from client to server)
+#[derive(Component, Debug)]
+pub struct ReplicateToClientOnly;
+
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
 #[derive(Component, Clone, PartialEq, Debug)]
@@ -465,10 +475,8 @@ pub struct ShouldBeInterpolated;
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 
 /// Indicates that an entity was pre-predicted
-#[derive(Component)]
-pub struct PrePredicted;
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct ShouldBePredicted {
+pub struct PrePredicted {
     // TODO: rename this?
     //  - also the server already gets the client entity in the message, so it's a waste of space...
     //  - maybe use a different component: ClientToServer -> Prespawned (None)
@@ -478,6 +486,9 @@ pub struct ShouldBePredicted {
     // this is set by the server to know which client did the pre-prediction
     pub(crate) client_id: Option<ClientId>,
 }
+
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct ShouldBePredicted;
 
 #[cfg(test)]
 mod tests {

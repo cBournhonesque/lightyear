@@ -23,11 +23,11 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
+use crate::_reexport::ClientMarker;
 use bevy::prelude::{
     not, App, Condition, EventReader, EventWriter, Events, FixedPostUpdate, FixedPreUpdate, In,
     IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
 };
-use steamworks::Input;
 use tracing::{debug, error, info, trace};
 
 use crate::channel::builder::InputChannel;
@@ -144,19 +144,19 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             (
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents
-                    .after(MainSet::Sync)
+                    .after(MainSet::<ClientMarker>::Sync)
                     .run_if(
                         // there are no tick events in unified mode
                         client_is_synced::<P>.and_then(not(SharedConfig::is_unified_condition)),
                     ),
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage
-                    .in_set(MainSet::Send)
+                    .in_set(MainSet::<ClientMarker>::Send)
                     .run_if(
                         // no need to send input messages via io if we are in unified mode
                         client_is_synced::<P>.and_then(not(SharedConfig::is_unified_condition)),
                     ),
-                MainSet::SendPackets,
+                MainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
         );

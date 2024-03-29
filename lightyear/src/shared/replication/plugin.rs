@@ -4,6 +4,7 @@ use bevy::utils::Duration;
 
 use crate::_reexport::{ComponentProtocol, ReplicationSend};
 use crate::prelude::{MainSet, Protocol, ReplicationSet};
+use crate::shared::replication::hierarchy::HierarchySyncPlugin;
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 
 pub(crate) struct ReplicationPlugin<P: Protocol, R: ReplicationSend<P>> {
@@ -32,19 +33,23 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
             PostUpdate,
             (
                 (
-                    ReplicationSet::SendEntityUpdates,
-                    ReplicationSet::SendComponentUpdates,
-                    ReplicationSet::SendDespawnsAndRemovals,
+                    ReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                    ReplicationSet::<R::SetMarker>::SendComponentUpdates,
+                    ReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
                 )
-                    .in_set(ReplicationSet::All),
+                    .in_set(ReplicationSet::<R::SetMarker>::All),
                 (
-                    ReplicationSet::SendEntityUpdates,
-                    ReplicationSet::SendComponentUpdates,
+                    ReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                    ReplicationSet::<R::SetMarker>::SendComponentUpdates,
                     // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
-                    MainSet::SendPackets,
+                    MainSet::<R::SetMarker>::SendPackets,
                 )
-                    .in_set(MainSet::Send),
-                (ReplicationSet::All, MainSet::SendPackets).chain(),
+                    .in_set(MainSet::<R::SetMarker>::Send),
+                (
+                    ReplicationSet::<R::SetMarker>::All,
+                    MainSet::<R::SetMarker>::SendPackets,
+                )
+                    .chain(),
             ),
         );
 
@@ -52,5 +57,8 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
         add_replication_send_systems::<P, R>(app);
         P::Components::add_per_component_replication_send_systems::<R>(app);
         app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
+
+        // PLUGINS
+        app.add_plugins(HierarchySyncPlugin::<P, R>::default());
     }
 }

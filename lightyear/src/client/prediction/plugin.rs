@@ -6,7 +6,7 @@ use bevy::prelude::{
 };
 use bevy::transform::TransformSystem;
 
-use crate::_reexport::FromType;
+use crate::_reexport::{ClientMarker, FromType};
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{
@@ -20,17 +20,16 @@ use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
-    compute_prespawn_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
+    PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::MainSet;
 
-use super::pre_prediction::{clean_pre_predicted_entity, handle_pre_prediction};
+use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
@@ -250,7 +249,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             PreUpdate,
             (
-                MainSet::ReceiveFlush,
+                MainSet::<ClientMarker>::ReceiveFlush,
                 PredictionSet::SpawnPrediction,
                 PredictionSet::SpawnPredictionFlush,
                 PredictionSet::SpawnHistory,
@@ -282,15 +281,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PreUpdate,
             (
                 (
-                    // we first try to see if the entity was a PreSpawnedPlayerObject
-                    // if we couldn't match it then the component gets removed
-                    // and then should we try the normal Prediction flow, or just consider that there was an error?
-                    (
-                        spawn_pre_spawned_player_object::<P>,
-                        apply_deferred,
-                        spawn_predicted_entity::<P>,
-                    )
-                        .chain(),
+                    spawn_predicted_entity::<P>.after(PreSpawnedPlayerObjectSet::Spawn),
                     // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
                     //  not at every fixed-update tick, since it only depends on server messages
                     despawn_confirmed,
@@ -308,12 +299,6 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             FixedPostUpdate,
             (
-                // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
-                // TODO: entities spawned during update might have a tick that is off by 1 or more...
-                //  account for this when setting the hash?
-                // NOTE: we need to call this before SpawnHistory otherwise the history would affect the hash.
-                // TODO: find a way to exclude predicted history from the hash
-                ReplicationSet::SetPreSpawnedHash,
                 PredictionSet::EntityDespawn,
                 PredictionSet::EntityDespawnFlush,
                 // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
@@ -328,8 +313,6 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.add_systems(
             FixedPostUpdate,
             (
-                // compute hashes for all pre-spawned player objects
-                compute_prespawn_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
                 (remove_despawn_marker, apply_deferred)
                     .chain()
                     .in_set(PredictionSet::EntityDespawnFlush),
@@ -344,22 +327,11 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PostUpdate,
             PredictionSet::VisualCorrection.before(TransformSystem::TransformPropagate),
         );
-        app.add_systems(
-            PostUpdate,
-            (
-                pre_spawned_player_object_cleanup::<P>,
-                // fill in the client_entity and client_id for pre-predicted entities
-                handle_pre_prediction.before(ReplicationSet::All),
-                // clean-up the ShouldBePredicted components after we've sent them
-                clean_pre_predicted_entity::<P>
-                    .after(ReplicationSet::All)
-                    .run_if(client_is_synced::<P>),
-                // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
-                //  tick to compute the hash
-                // compute hashes for all pre-spawned player objects
-                // compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
-            )
-                .run_if(is_connected),
-        );
+
+        // PLUGINS
+        app.add_plugins((
+            PrePredictionPlugin::<P>::default(),
+            PreSpawnedPlayerObjectPlugin::<P>::default(),
+        ));
     }
 }
