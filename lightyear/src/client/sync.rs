@@ -172,30 +172,46 @@ impl SyncManager {
         None
     }
 
-    // /// If we have not finished synced, try to complete the syncing process
-    // pub(crate) fn try_to_sync(
-    //     &mut self,
-    //     time_manager: &mut TimeManager,
-    //     tick_manager: &mut TickManager,
-    //     ping_manager: &PingManager,
-    //     interpolation_delay: &InterpolationDelay,
-    //     server_send_interval: Duration,
-    // ) -> Option<TickEvent> {
-    //     if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
-    //         self.synced = true;
-    //         self.interpolation_time = self.interpolation_objective(
-    //             interpolation_delay,
-    //             server_send_interval,
-    //             tick_manager,
-    //         );
-    //         debug!(
-    //             "interpolation_tick: {:?}",
-    //             self.interpolation_tick(tick_manager)
-    //         );
-    //         return self.finalize(time_manager, tick_manager, ping_manager);
-    //     }
-    //     None
-    // }
+    /// In unified mode:
+    /// - we don't want to update the prediction time, because it's the same as the server time
+    /// - we still want to measure the interpolation time, because we might add a fake latency so
+    /// server packets aren't received by the local client instantly!
+    pub(crate) fn update_unified(
+        &mut self,
+        time_manager: &TimeManager,
+        tick_manager: &TickManager,
+        ping_manager: &PingManager,
+        interpolation_delay: &InterpolationDelay,
+        server_send_interval: Duration,
+    ) {
+        // TODO: we are in PostUpdate, so this seems incorrect? this uses the previous-frame's delta,
+        //  but instead we want to add the duration since the start of frame?
+        self.duration_since_latest_received_server_tick += time_manager.delta();
+        self.server_time_estimate += time_manager.delta();
+        self.interpolation_time += time_manager.delta().mul_f32(self.interpolation_speed_ratio);
+
+        // check if we are ready to finalize the handshake
+        if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
+            self.synced = true;
+            self.interpolation_time = self.interpolation_objective(
+                interpolation_delay,
+                server_send_interval,
+                tick_manager,
+            );
+            debug!(
+                "interpolation_tick: {:?}",
+                self.interpolation_tick(tick_manager)
+            );
+            let tick_duration = tick_manager.config.tick_duration;
+            let rtt = ping_manager.rtt();
+            // recompute the server time estimate (using the rtt we just computed)
+            self.update_server_time_estimate(tick_duration, rtt);
+        }
+
+        if self.synced {
+            self.update_interpolation_time(interpolation_delay, server_send_interval, tick_manager);
+        }
+    }
 
     pub(crate) fn is_synced(&self) -> bool {
         self.synced

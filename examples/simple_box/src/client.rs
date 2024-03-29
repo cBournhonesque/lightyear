@@ -36,17 +36,12 @@ impl Plugin for ExampleClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
-        // app.add_systems(Update, connect.run_if(on_timer(Duration::from_secs(10))));
     }
 }
 
 // Startup system for the client
-pub(crate) fn init(client: Option<ResMut<ClientConnection>>) {
-    // client is optional because there is no need to have a connection if we are running in
-    // unified mode (client and server in the same process)
-    if let Some(mut client) = client {
-        let _ = client.connect();
-    }
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
+    let _ = client.connect();
 }
 
 pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMetadata>) {

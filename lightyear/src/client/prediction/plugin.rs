@@ -36,7 +36,7 @@ use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
     run_rollback, Rollback, RollbackState,
 };
-use super::spawn::{spawn_predicted_entity, unified_add_predicted};
+use super::spawn::spawn_predicted_entity;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Default)]
@@ -236,30 +236,6 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         if self.config.disable {
             return;
         }
-        // // In unified mode, the predicted entity is the same as the confirmed entity
-        // if app.world.resource::<ClientConfig>().is_unified() {
-        //     app.configure_sets(
-        //         PreUpdate,
-        //         (
-        //             MainSet::ReceiveFlush,
-        //             PredictionSet::SpawnPrediction,
-        //             PredictionSet::SpawnPredictionFlush,
-        //         )
-        //             .chain(),
-        //     );
-        //     app.add_systems(
-        //         PreUpdate,
-        //         (
-        //             // TODO: we want to run this flushes only if something actually happened in the previous set!
-        //             //  because running the flush-system is expensive (needs exclusive world access)
-        //             //  check how I can do this in bevy
-        //             apply_deferred.in_set(PredictionSet::SpawnPredictionFlush),
-        //         ),
-        //     );
-        //     app.add_systems(PreUpdate, unified_add_predicted::<P>);
-        //     // TODO: add pre-spawned-player-object logic.
-        //     return;
-        // };
 
         P::Components::add_prediction_systems(app);
 

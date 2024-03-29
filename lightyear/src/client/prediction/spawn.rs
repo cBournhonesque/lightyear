@@ -10,37 +10,6 @@ use crate::prelude::{Protocol, ShouldBePredicted};
 use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut};
 use tracing::{debug, error};
 
-/// In unified mode, instead of spawning a new entity for the predicted entity, we re-use the same entity for both Confirmed and Predicted.
-pub(crate) fn unified_add_predicted<P: Protocol>(
-    connection: Res<ConnectionManager<P>>,
-    mut commands: Commands,
-    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
-) {
-    // TODO: handle pre-prediction!
-    for (entity, confirmed) in confirmed_entities.iter_mut() {
-        commands.entity(entity).insert(Predicted {
-            confirmed_entity: Some(entity),
-        });
-        if let Some(mut confirmed) = confirmed {
-            confirmed.predicted = Some(entity);
-        } else {
-            // TODO: this is the same as the current tick no? or maybe not because we could have received updates before the spawn
-            //  and they are applied simultaneously
-            // get the confirmed tick for the entity
-            // if we don't have it, something has gone very wrong
-            let confirmed_tick = connection
-                .replication_receiver
-                .get_confirmed_tick(entity)
-                .unwrap();
-            commands.entity(entity).insert(Confirmed {
-                predicted: Some(entity),
-                interpolated: None,
-                tick: confirmed_tick,
-            });
-        }
-    }
-}
-
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we

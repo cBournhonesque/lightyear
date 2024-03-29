@@ -11,27 +11,18 @@ use tracing::trace;
 pub fn spawn_interpolated_entity<P: Protocol>(
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager<P>>,
-    mut manager: Option<ResMut<InterpolationManager>>,
+    mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
 ) {
     for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
-        // let interpolated = if !config.shared.unified {
-        //     // normal mode: spawn a new interpolated entity
-        //     commands.spawn(Interpolated { confirmed_entity }).id()
-        // } else {
-        //     // unified mode: re-use the same entity for Interpolated and Confirmed
-        //     confirmed_entity
-        // };
         let interpolated = commands.spawn(Interpolated { confirmed_entity }).id();
 
         // update the entity mapping
-        if let Some(manager) = manager.as_mut() {
-            manager
-                .interpolated_entity_map
-                .confirmed_to_interpolated
-                .insert(confirmed_entity, interpolated);
-        }
+        manager
+            .interpolated_entity_map
+            .confirmed_to_interpolated
+            .insert(confirmed_entity, interpolated);
 
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
@@ -58,9 +49,7 @@ pub fn spawn_interpolated_entity<P: Protocol>(
         );
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("spawn_interpolated_entity")
-                .increment(1)
-                .increment(1);
+            metrics::counter!("spawn_interpolated_entity").increment(1);
         }
     }
 }

@@ -16,37 +16,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig {
-                delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-                // do not do linear interpolation per component, instead we provide our own interpolation logic
-                custom_interpolation_logic: true,
-            },
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
@@ -92,9 +61,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
-
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
@@ -118,30 +85,25 @@ pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMeta
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
-    mut connection_manager: ResMut<ClientConnectionManager>,
+    mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     let tick = tick_manager.tick();
+    let mut input = Inputs::None;
     if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-        return connection_manager.add_input(Inputs::Direction(Direction::Up), tick);
+        input = Inputs::Direction(Direction::Up);
+    } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+        input = Inputs::Direction(Direction::Down);
+    } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+        input = Inputs::Direction(Direction::Left);
+    } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+        input = Inputs::Direction(Direction::Right);
+    } else if keypress.pressed(KeyCode::Backspace) {
+        input = Inputs::Delete;
+    } else if keypress.pressed(KeyCode::Space) {
+        input = Inputs::Spawn;
     }
-    if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-        return connection_manager.add_input(Inputs::Direction(Direction::Down), tick);
-    }
-    if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-        return connection_manager.add_input(Inputs::Direction(Direction::Left), tick);
-    }
-    if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-        return connection_manager.add_input(Inputs::Direction(Direction::Right), tick);
-    }
-    if keypress.pressed(KeyCode::Backspace) {
-        // currently, inputs is an enum and we can only add one input per tick
-        return connection_manager.add_input(Inputs::Delete, tick);
-    }
-    if keypress.pressed(KeyCode::Space) {
-        return connection_manager.add_input(Inputs::Spawn, tick);
-    }
-    return connection_manager.add_input(Inputs::None, tick);
+    return input_manager.add_input(input, tick);
 }
 
 // The client input only gets applied to predicted entities that we own

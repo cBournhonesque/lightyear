@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+use lightyear::client::prediction::Predicted;
 use tracing::Level;
 
 use lightyear::prelude::client::{Confirmed, Interpolated};
@@ -9,7 +10,7 @@ use lightyear::prelude::*;
 use crate::protocol::Direction;
 use crate::protocol::*;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(unified: bool) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::from_millis(40),
@@ -17,6 +18,7 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        unified,
     }
 }
 
@@ -25,9 +27,14 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(Update, draw_snakes);
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -90,12 +97,24 @@ pub(crate) fn shared_tail_behaviour(
     }
 }
 
-/// System that draws the boxed of the player positions.
+/// System that draws the boxes of the player positions.
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_snakes(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
-    tails: Query<(&PlayerParent, &TailPoints), Without<Confirmed>>,
+    players: Query<
+        (&PlayerPosition, &PlayerColor),
+        (
+            Without<Confirmed>,
+            Or<(With<Predicted>, With<Interpolated>)>,
+        ),
+    >,
+    tails: Query<
+        (&PlayerParent, &TailPoints),
+        (
+            Without<Confirmed>,
+            Or<(With<Predicted>, With<Interpolated>)>,
+        ),
+    >,
 ) {
     for (parent, points) in tails.iter() {
         debug!("drawing snake with parent: {:?}", parent.0);

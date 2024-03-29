@@ -9,7 +9,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(unified: bool) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::default(),
@@ -19,6 +19,7 @@ pub fn shared_config() -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        unified,
     }
 }
 

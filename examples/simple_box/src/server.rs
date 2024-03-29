@@ -39,14 +39,19 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
             error!("Failed to start server: {:?}", e);
         });
     }
-    commands.spawn(TextBundle::from_section(
-        "Server",
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
-            ..default()
-        },
-    ));
+    let mut style = Style::default();
+    style.align_self = AlignSelf::End;
+    commands.spawn(
+        TextBundle::from_section(
+            "Server",
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(style),
+    );
 }
 
 /// Server connection system, create a player upon connection

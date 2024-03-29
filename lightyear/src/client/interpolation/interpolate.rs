@@ -1,5 +1,5 @@
 use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::_reexport::ComponentProtocol;
 use crate::client::components::{SyncComponent, SyncMetadata};
@@ -185,7 +185,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
             }
         }
 
-        debug!(
+        trace!(
             ?entity,
             component = ?kind,
             ?current_interpolate_tick,
@@ -217,7 +217,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
     P::Components: SyncMetadata<C>,
 {
     for (entity, status) in query.iter_mut() {
-        debug!("checking if we do interpolation");
+        trace!("checking if we do interpolation");
         let mut entity_commands = commands.entity(entity);
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
@@ -229,7 +229,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
             //     continue;
             // }
             if let Some((end_tick, end_value)) = &status.end {
-                debug!(?entity, ?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
+                trace!(?entity, ?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
                 if status.current_tick == *end_tick {
                     entity_commands.insert(end_value.clone());
                     continue;

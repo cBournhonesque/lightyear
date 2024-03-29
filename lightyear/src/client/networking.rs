@@ -58,8 +58,12 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
 
         // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
         if app.world.resource::<ClientConfig>().is_unified() {
-            app.world.run_system_once(unified_sync_init::<P>);
-            app.add_systems(PostUpdate, unified_sync_update::<P>.in_set(MainSet::Sync));
+            app.add_systems(
+                PostUpdate,
+                unified_sync_update::<P>
+                    .in_set(MainSet::Sync)
+                    .run_if(is_client_connected),
+            );
         } else {
             app.add_systems(
                 PostUpdate,
@@ -263,34 +267,20 @@ pub(crate) fn sync_update<P: Protocol>(
 /// - there is no need for a separate prediction time, the server and client time are the same
 /// - we still want to update the interpolation time
 pub(crate) fn unified_sync_update<P: Protocol>(
-    mut connection: ResMut<ConnectionManager<P>>,
-    time_manager: Res<TimeManager>,
-) {
-    connection
-        .sync_manager
-        .duration_since_latest_received_server_tick += time_manager.delta();
-    // TODO: check if we are doing an extra update (maybe on the first run, we shouldn't add delta()?)
-    connection.sync_manager.interpolation_time += time_manager.delta();
-    trace!(current_time = ?time_manager.current_time(), interpolation_time = ?connection.sync_manager.interpolation_time, "Unified sync update");
-}
-
-pub(crate) fn unified_sync_init<P: Protocol>(
+    connection: ResMut<ConnectionManager<P>>,
     config: Res<ClientConfig>,
-    mut connection: ResMut<ConnectionManager<P>>,
-    time_manager: Res<TimeManager>,
     tick_manager: Res<TickManager>,
+    time_manager: Res<TimeManager>,
 ) {
-    connection.sync_manager.synced = true;
-    // how much behind the server time should the interpolation time be?
-    let interpolation_delay = chrono::Duration::from_std(
-        config
-            .interpolation
-            .delay
-            .to_duration(config.shared.server_send_interval),
-    )
-    .unwrap();
-    // update the interpolation time using the server time directly
-    connection.sync_manager.interpolation_time = time_manager.current_time() - interpolation_delay;
+    // reborrow Mut to enable split borrows
+    let connection = connection.into_inner();
+    connection.sync_manager.update_unified(
+        &time_manager,
+        &tick_manager,
+        &connection.ping_manager,
+        &config.interpolation.delay,
+        config.shared.server_send_interval,
+    );
 }
 
 /// Run Condition that returns true if the client is connected

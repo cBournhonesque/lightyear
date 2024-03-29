@@ -96,3 +96,10 @@ pub struct ServerConfig {
     pub ping: PingConfig,
     pub replication: ReplicationConfig,
 }
+
+impl ServerConfig {
+    /// Returns true if the app is running in unified mode (both client and server plugins running in the same app)
+    pub(crate) fn is_unified(&self) -> bool {
+        self.shared.unified
+    }
+}
