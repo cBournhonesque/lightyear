@@ -24,7 +24,7 @@ use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::client::ExampleClientPlugin;
-use crate::protocol::{protocol, Inputs, MyProtocol};
+use crate::protocol::{protocol, MyProtocol};
 use crate::server::ExampleServerPlugin;
 use crate::settings::*;
 use crate::shared::{shared_config, SharedPlugin};
@@ -160,7 +160,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
     if settings.client.inspector {
@@ -181,7 +181,6 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         client::ClientPlugin::new(plugin_config),
         ExampleClientPlugin,
         SharedPlugin,
-        LeafwingInputPlugin::<MyProtocol, Inputs>::default(),
     ));
     app
 }
@@ -197,7 +196,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     });
 
@@ -212,11 +211,6 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(false),
         net: net_configs,
-        packet: PacketConfig::default()
-            // by default there is no bandwidth limit so we need to enable it
-            .enable_bandwidth_cap()
-            // we can set the max bandwidth to 56 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(1500),
         ..default()
     };
     app.add_plugins((
@@ -236,7 +230,7 @@ fn combined_app(
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
     if settings.client.inspector {
@@ -252,11 +246,6 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(true),
         net: net_configs,
-        packet: PacketConfig::default()
-            // by default there is no bandwidth limit so we need to enable it
-            .enable_bandwidth_cap()
-            // we can set the max bandwidth to 56 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(1500),
         ..default()
     };
     app.add_plugins((

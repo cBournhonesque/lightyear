@@ -23,11 +23,12 @@ pub(crate) struct PlayerBundle {
     transform: Transform,
     color: ColorComponent,
     replicate: Replicate,
+    replicate_direction: ReplicateToServerOnly,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
     // as the Predicted version
-    should_be_predicted: ShouldBePredicted,
+    pre_predicted: PrePredicted,
 }
 
 impl PlayerBundle {
@@ -47,12 +48,13 @@ impl PlayerBundle {
                 replication_group: ReplicationGroup::new_id(id),
                 ..default()
             },
+            replicate_direction: ReplicateToServerOnly,
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
                 input_map,
             },
             // IMPORTANT: this lets the server know that the entity is pre-predicted
-            should_be_predicted: ShouldBePredicted::default(),
+            pre_predicted: PrePredicted::default(),
         }
     }
 }

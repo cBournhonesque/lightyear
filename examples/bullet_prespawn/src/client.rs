@@ -70,20 +70,14 @@ fn spawn_player(mut commands: Commands, metadata: Res<GlobalMetadata>) {
     // once the connection is established.
     if metadata.is_changed() {
         if let Some(client_id) = metadata.client_id {
-            commands.spawn(
-                TextBundle::from_section(
-                    format!("Client {}", client_id),
-                    TextStyle {
-                        font_size: 30.0,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                )
-                .with_style(Style {
-                    align_self: AlignSelf::End,
+            commands.spawn(TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
                     ..default()
-                }),
-            );
+                },
+            ));
 
             info!("Spawning player with id: {}", client_id);
             let y = (client_id as f32 * 50.0) % 500.0 - 250.0;

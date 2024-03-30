@@ -18,7 +18,9 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ShouldBePredicted, TickManager};
+use crate::prelude::{
+    ReplicateToClientOnly, ReplicateToServerOnly, ShouldBePredicted, TickManager,
+};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
@@ -164,6 +166,8 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                                     if type_id != TypeId::of::<Replicate<P>>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
+                                        && type_id != TypeId::of::<ReplicateToClientOnly>()
+                                        && type_id != TypeId::of::<ReplicateToServerOnly>()
                                     {
                                         return protocol_component_types.get(&type_id).copied();
                                     }
@@ -181,11 +185,11 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                         // prespawn.hash = Some(hasher.finish());
 
                         let new_hash = hasher.finish();
-                        trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                        warn!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                         new_hash
                     },
                     |hash| {
-                        trace!(
+                        warn!(
                             ?entity,
                             ?tick,
                             ?hash,
@@ -295,7 +299,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                     interpolated: None,
                     tick: confirmed_tick,
                 })
-                .remove::<PreSpawnedPlayerObject>();
+                .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
             debug!(
                 "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",
                 predicted_entity, confirmed_entity

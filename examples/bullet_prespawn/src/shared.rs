@@ -280,6 +280,7 @@ pub(crate) fn shoot_bullet(
                             replication_group: ReplicationGroup::new_id(id.0),
                             ..default()
                         },
+                        ReplicateToClientOnly,
                     ));
                 } else {
                     // on the client, just spawn the ball

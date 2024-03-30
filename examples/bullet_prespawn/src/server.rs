@@ -28,7 +28,7 @@ impl Plugin for ExampleServerPlugin {
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
-            replicate_players.in_set(InternalMainSet::ClientReplication),
+            replicate_players.in_set(ServerReplicationSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in the `FixedUpdate` schedule
         // app.add_systems(FixedUpdate, player_movement);
@@ -114,7 +114,9 @@ pub(crate) fn replicate_players(
             // which will keep syncing it to the Predicted entity because the ActionState gets updated every tick)!
             // We also don't need the inputs of the other clients, because we are not predicting them
             replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::None);
-            e.insert(replicate);
+            // The PrePredicted component must be replicated only to the original client
+            replicate.add_target::<PrePredicted>(NetworkTarget::Single(*client_id));
+            e.insert((replicate, ReplicateToClientOnly));
         }
     }
 }
