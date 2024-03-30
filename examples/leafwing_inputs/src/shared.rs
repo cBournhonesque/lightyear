@@ -54,16 +54,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
-            // limit frame rate
-            // app.add_plugins(bevy_framepace::FramepacePlugin);
-            // app.world
-            //     .resource_mut::<bevy_framepace::FramepaceSettings>()
-            //     .limiter = bevy_framepace::Limiter::from_framerate(FRAME_HZ);
-
-            // show framerate
-            // use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
-            // app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-            // app.add_plugins(bevy_fps_counter::FpsCounterPlugin);
+            app.add_systems(Startup, init_camera);
 
             // draw after interpolation is done
             app.add_systems(
@@ -131,6 +122,10 @@ pub(crate) fn color_from_id(client_id: ClientId) -> Color {
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
+}
+
+fn init_camera(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 pub(crate) fn init(mut commands: Commands) {

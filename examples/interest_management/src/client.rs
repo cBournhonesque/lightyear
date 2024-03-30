@@ -16,43 +16,11 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Cli, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig::default().with_delay(
-                InterpolationDelay::default()
-                    .with_min_delay(Duration::from_millis(50))
-                    .with_send_interval_ratio(2.0),
-            ),
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, Inputs>::default())
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<ActionState<Inputs>>();
         app.add_systems(Startup, init);
         app.add_systems(PreUpdate, add_text.after(MainSet::ReceiveFlush));
@@ -70,8 +38,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 

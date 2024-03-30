@@ -15,41 +15,15 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default())
-            .add(LeafwingInputPlugin::<MyProtocol, AdminActions>::default())
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins((
+            LeafwingInputPlugin::<MyProtocol, PlayerActions>::default(),
+            LeafwingInputPlugin::<MyProtocol, AdminActions>::default(),
+        ));
         app.add_systems(Startup, init);
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(

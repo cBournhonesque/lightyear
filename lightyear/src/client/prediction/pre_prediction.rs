@@ -1,6 +1,5 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
-
 use crate::_reexport::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
@@ -13,7 +12,8 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::{
-    Protocol, ReplicateToClientOnly, ReplicateToServerOnly, ReplicationSet, ShouldBePredicted,
+    NetworkTarget, Protocol, ReplicateToClientOnly, ReplicateToServerOnly, ReplicationSet,
+    ShouldBePredicted,
 };
 use crate::shared::replication::components::{PrePredicted, Replicate};
 use bevy::prelude::*;
@@ -35,26 +35,26 @@ impl<P> Default for PrePredictionPlugin<P> {
 pub enum PrePredictionSet {
     // PreUpdate Sets
     /// Handle receiving the confirmed entity for pre-predicted entities
-    SpawnPrePredicted,
+    Spawn,
     // PostUpdate Sets
     /// Add the necessary information to the PrePrediction component (before replication)
-    FillPrePrediction,
+    Fill,
     /// Remove the Replicate component from pre-predicted entities (after replication)
-    CleanPrePrediction,
+    Clean,
 }
 
 impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PreUpdate,
-            PrePredictionSet::SpawnPrePredicted.in_set(PredictionSet::SpawnPrediction),
+            PrePredictionSet::Spawn.in_set(PredictionSet::SpawnPrediction),
         );
         app.configure_sets(
             PostUpdate,
             (
-                PrePredictionSet::FillPrePrediction,
+                PrePredictionSet::Fill,
                 ReplicationSet::<ClientMarker>::All,
-                PrePredictionSet::CleanPrePrediction,
+                PrePredictionSet::Clean,
             )
                 .chain()
                 .run_if(client_is_synced::<P>),
@@ -63,15 +63,15 @@ impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
             PreUpdate,
             Self::spawn_pre_predicted_entity
                 .after(PreSpawnedPlayerObjectSet::Spawn)
-                .in_set(PrePredictionSet::SpawnPrePredicted),
+                .in_set(PrePredictionSet::Spawn),
         );
         app.add_systems(
             PostUpdate,
             (
                 // fill in the client_entity and client_id for pre-predicted entities
-                Self::fill_pre_prediction_data.in_set(PrePredictionSet::FillPrePrediction),
+                Self::fill_pre_prediction_data.in_set(PrePredictionSet::Fill),
                 // clean-up the ShouldBePredicted components after we've sent them
-                Self::clean_pre_predicted_entity.in_set(PrePredictionSet::CleanPrePrediction),
+                Self::clean_pre_predicted_entity.in_set(PrePredictionSet::Clean),
             ), // .run_if(is_connected),
         );
     }
@@ -84,10 +84,9 @@ impl<P: Protocol> PrePredictionPlugin<P> {
     //  instead panic if we find an entity that is both predicted and interpolated?)
     pub(crate) fn spawn_pre_predicted_entity(
         connection: Res<ConnectionManager<P>>,
-        metadata: Res<GlobalMetadata>,
         mut manager: ResMut<PredictionManager>,
         mut commands: Commands,
-        // get the list of entities who get ShouldBePredicted replicated from server
+        // get the list of entities who get PrePredicted replicated from server
         mut should_be_predicted_added: EventReader<ComponentInsertEvent<PrePredicted>>,
         mut confirmed_entities: Query<&PrePredicted>,
         mut predicted_entities: Query<&mut Predicted>,
@@ -100,21 +99,6 @@ impl<P: Protocol> PrePredictionPlugin<P> {
                     error!("The PrePredicted component received from the server does not contain the pre-predicted entity!");
                     continue;
                 };
-                let Some(client_id) = pre_predicted.client_id else {
-                    error!("The PrePredicted component received from the server does not contain the client id!");
-                    continue;
-                };
-                let Some(local_client_id) = metadata.client_id else {
-                    error!("The client id is not set in the metadata!");
-                    continue;
-                };
-                if client_id != local_client_id {
-                    error!(
-                    ?local_client_id,
-                    pre_predicted_client_id = ?client_id,
-                    "Received PrePredicted component from server for an entity that is pre-predicted by another client! Confirmed entity: {:?}!", confirmed_entity);
-                    continue;
-                }
                 let Ok(mut predicted_entity_mut) = predicted_entities.get_mut(predicted_entity)
                 else {
                     error!(
@@ -176,10 +160,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
                 client_id = ?metadata.client_id.unwrap(),
                 entity = ?entity,
             "fill in pre-prediction info!");
-                // TODO: actually we don't need to add the client_entity to the message.
-                //  on the server, for pre-predictions, we can just use the entity that was sent in the message to set the value of ClientEntity.
                 pre_predicted.client_entity = Some(entity);
-                pre_predicted.client_id = Some(metadata.client_id.unwrap());
             }
         }
     }

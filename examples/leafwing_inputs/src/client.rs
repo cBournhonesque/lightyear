@@ -29,19 +29,19 @@ impl Plugin for ExampleClientPlugin {
                 send_diffs_only: true,
                 ..default()
             },
-        ))
-        .add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
-            LeafwingInputConfig::<AdminActions> {
-                send_diffs_only: true,
-                ..default()
-            },
         ));
+        // .add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
+        //     LeafwingInputConfig::<AdminActions> {
+        //         send_diffs_only: true,
+        //         ..default()
+        //     },
+        // ));
         // To send global inputs, insert the ActionState and the InputMap as Resources
-        app.init_resource::<ActionState<AdminActions>>();
-        app.insert_resource(InputMap::<AdminActions>::new([
-            (AdminActions::SendMessage, KeyCode::KeyM),
-            (AdminActions::Reset, KeyCode::KeyR),
-        ]));
+        // app.init_resource::<ActionState<AdminActions>>();
+        // app.insert_resource(InputMap::<AdminActions>::new([
+        //     (AdminActions::SendMessage, KeyCode::KeyM),
+        //     (AdminActions::Reset, KeyCode::KeyR),
+        // ]));
 
         app.add_systems(Startup, init);
         app.add_systems(
@@ -57,7 +57,7 @@ impl Plugin for ExampleClientPlugin {
             (
                 add_ball_physics,
                 add_player_physics,
-                send_message,
+                // send_message,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
@@ -66,8 +66,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
@@ -219,12 +218,12 @@ fn player_movement(
     }
 }
 
-// System to send messages on the client
-pub(crate) fn send_message(action_state: Res<ActionState<AdminActions>>) {
-    if action_state.just_pressed(&AdminActions::SendMessage) {
-        info!("Send message");
-    }
-}
+// // System to send messages on the client
+// pub(crate) fn send_message(action_state: Res<ActionState<AdminActions>>) {
+//     if action_state.just_pressed(&AdminActions::SendMessage) {
+//         info!("Send message");
+//     }
+// }
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation

@@ -12,34 +12,6 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 

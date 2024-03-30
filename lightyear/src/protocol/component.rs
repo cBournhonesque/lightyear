@@ -38,6 +38,7 @@ pub trait ComponentProtocol:
     + From<PrePredicted>
     + From<ShouldBeInterpolated>
     + TryInto<ShouldBePredicted>
+    + TryInto<PrePredicted>
 {
     type Protocol: Protocol;
 

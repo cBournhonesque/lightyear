@@ -12,6 +12,7 @@ use crate::inputs::leafwing::input_buffer::{
     ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputTarget,
 };
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
+use crate::prelude::client::is_in_rollback;
 use crate::prelude::{client, MainSet, SharedConfig, TickManager};
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
@@ -20,9 +21,8 @@ use crate::server::events::InputMessageEvent;
 use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::replication::components::PrePredicted;
 
-pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
-    protocol_marker: std::marker::PhantomData<P>,
-    input_marker: std::marker::PhantomData<A>,
+pub struct LeafwingInputPlugin<P, A> {
+    marker: std::marker::PhantomData<(P, A)>,
 }
 
 // // TODO: also create events on top of this?
@@ -40,11 +40,10 @@ pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
 //     }
 // }
 
-impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
+impl<P, A> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
         Self {
-            protocol_marker: std::marker::PhantomData,
-            input_marker: std::marker::PhantomData,
+            marker: std::marker::PhantomData,
         }
     }
 }
@@ -64,11 +63,6 @@ where
     P::Message: TryInto<InputMessage<A>, Error = ()>,
 {
     fn build(&self, app: &mut App) {
-        // PLUGINS
-        // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
-        if app.world.get_resource::<ServerConfig>().is_none() {
-            app.add_plugins(InputManagerPlugin::<A>::server());
-        }
         // EVENTS
         app.add_event::<InputMessageEvent<A>>();
         // RESOURCES
@@ -107,8 +101,15 @@ where
             );
             app.add_systems(
                 FixedPreUpdate,
-                unified_receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
+                unified_receive_input_message::<P, A>
+                    .in_set(InputSystemSet::ReceiveInputs)
+                    .run_if(not(is_in_rollback)),
             );
+        } else {
+            // we don't need this plugin in unified mode because it's already added on the client side
+
+            // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+            app.add_plugins(InputManagerPlugin::<A>::server());
         }
         app.add_systems(
             FixedPreUpdate,
@@ -137,18 +138,21 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
 fn unified_receive_input_message<P: Protocol, A: LeafwingUserAction>(
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
-    mut diff_reader: EventReader<ActionDiffEvent<A>>,
+    diff_reader: Res<Events<ActionDiffEvent<A>>>,
     // used to check if the input entity was predicted, confirmed, or prepredicted
     input_entity_query: Query<(Option<&Predicted>, Option<&PrePredicted>), With<InputMap<A>>>,
     client_connection: Res<crate::client::connection::ConnectionManager<P>>,
     mut server_buffers: Query<&mut ActionDiffBuffer<A>, Without<InputMap<A>>>,
-    server_connection: Res<crate::server::connection::ConnectionManager<P>>,
+    server_connection: Res<ConnectionManager<P>>,
     client_metadata: Res<client::GlobalMetadata>,
 ) {
     // get the client's input delay
     let delay = config.prediction.input_delay_ticks as i16;
     let tick = tick_manager.tick() + delay;
-    for diff in diff_reader.read() {
+    // warn!("in read unified diffs");
+    // warn!(?diff_reader, "read unified diffs");
+    for diff in diff_reader.get_reader().read(&diff_reader) {
+        // warn!(?tick, "received action diff: {diff:?}");
         if let Some(entity) = diff.owner {
             // map the client entity to the correct server entity
             if let Ok((predicted, pre_predicted)) = input_entity_query.get(entity) {
@@ -160,7 +164,7 @@ fn unified_receive_input_message<P: Protocol, A: LeafwingUserAction>(
                                 .connection(client_id)
                                 .ok()
                                 .and_then(|connection| {
-                                    warn!(
+                                    trace!(
                                         "found server entity for pre-predicted entity: {entity:?}"
                                     );
                                     connection
@@ -187,7 +191,7 @@ fn unified_receive_input_message<P: Protocol, A: LeafwingUserAction>(
                 {
                     // write to the server entity's ActionDiffBuffer
                     if let Ok(mut buffer) = server_buffers.get_mut(server_entity) {
-                        warn!("set action for entity: {server_entity:?}");
+                        trace!("set action for entity: {server_entity:?}");
                         buffer.set(tick, diff.action_diff.clone());
                     }
                 }

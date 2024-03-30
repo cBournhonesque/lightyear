@@ -24,9 +24,14 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(PostUpdate, draw_elements);
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // Generate pseudo-random color from id

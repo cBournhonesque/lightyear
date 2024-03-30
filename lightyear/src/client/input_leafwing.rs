@@ -188,7 +188,7 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
-        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferInputs);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferClientInputs);
         app.configure_sets(
             PostUpdate,
             // we send inputs only every send_interval
@@ -236,7 +236,7 @@ where
                     .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
                 get_rollback_action_state::<A>.run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
             )
-                .in_set(InputSystemSet::BufferInputs),
+                .in_set(InputSystemSet::BufferClientInputs),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -304,7 +304,7 @@ pub enum InputSystemSet {
     /// System Set where we update the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
     /// - rollback: we fetch the ActionState value from the InputBuffers
-    BufferInputs,
+    BufferClientInputs,
 
     // POST UPDATE
     /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
@@ -537,10 +537,12 @@ fn write_action_diffs<A: LeafwingUserAction>(
     let delay = config.prediction.input_delay_ticks as i16;
     let tick = tick_manager.tick() + delay;
     // we drain the events when reading them
+    // warn!("in write action diff");
+    // warn!(?action_diff_event, "write action diffs");
     for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
             if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
-                trace!(?entity, ?tick, ?delay, "write action diff");
+                // warn!(?entity, ?tick, ?delay, diff = ?event.action_diff, "write action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         } else {
@@ -550,6 +552,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
             }
         }
     }
+    // action_diff_event.update();
 }
 
 /// System that removes old entries from the ActionDiffBuffer and the InputBuffer

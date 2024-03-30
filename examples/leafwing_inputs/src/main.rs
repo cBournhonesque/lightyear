@@ -158,7 +158,7 @@ fn run(settings: Settings, cli: Cli) {
 fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::INFO,
+        level: Level::WARN,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
@@ -242,6 +242,7 @@ fn combined_app(
         filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
+    // app.add_plugins(DefaultPlugins.build().disable::<LogPlugin>());
     if settings.client.inspector {
         app.add_plugins(FilterQueryInspectorPlugin::<With<PlayerId>>::default());
         // app.add_plugins(WorldInspectorPlugin::new());
@@ -291,5 +292,6 @@ fn combined_app(
     ));
     // shared plugin
     app.add_plugins(SharedPlugin);
+    // bevy_mod_debugdump::print_schedule_graph(&mut app, FixedPreUpdate);
     app
 }

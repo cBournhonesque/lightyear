@@ -21,59 +21,22 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_player_movement};
 use crate::{shared, ClientTransports, SharedSettings};
 
-pub const INPUT_DELAY_TICKS: u16 = 0;
-pub const CORRECTION_TICKS_FACTOR: f32 = 1.5;
-
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            prediction: PredictionConfig {
-                input_delay_ticks: INPUT_DELAY_TICKS,
-                correction_ticks_factor: CORRECTION_TICKS_FACTOR,
-                ..default()
-            },
-            interpolation: InterpolationConfig::default()
-                .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
-                LeafwingInputConfig::<PlayerActions> {
-                    send_diffs_only: true,
-                    ..default()
-                },
-            ))
-            .add(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
-                LeafwingInputConfig::<AdminActions> {
-                    send_diffs_only: true,
-                    ..default()
-                },
-            ))
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
+            LeafwingInputConfig::<PlayerActions> {
+                send_diffs_only: true,
+                ..default()
+            },
+        ))
+        .add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
+            LeafwingInputConfig::<AdminActions> {
+                send_diffs_only: true,
+                ..default()
+            },
+        ));
         // To send global inputs, insert the ActionState and the InputMap as Resources
         app.init_resource::<ActionState<AdminActions>>();
         app.insert_resource(InputMap::<AdminActions>::new([
@@ -98,8 +61,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 

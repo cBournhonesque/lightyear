@@ -483,8 +483,6 @@ pub struct PrePredicted {
     //  - ServerToClient -> Prespawned (entity)
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
-    // this is set by the server to know which client did the pre-prediction
-    pub(crate) client_id: Option<ClientId>,
 }
 
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

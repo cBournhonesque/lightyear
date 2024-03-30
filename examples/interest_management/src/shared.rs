@@ -28,9 +28,14 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(Update, (draw_boxes, draw_circles));
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // This system defines how we update the player's positions when we receive an input

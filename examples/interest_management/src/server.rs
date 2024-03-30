@@ -20,40 +20,12 @@ const INTEREST_RADIUS: f32 = 200.0;
 // Special room for the player entities (so that all player entities always see each other)
 const PLAYER_ROOM: RoomId = RoomId(6000);
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, Inputs>::default())
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set

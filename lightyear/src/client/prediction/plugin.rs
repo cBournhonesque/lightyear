@@ -29,7 +29,7 @@ use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::MainSet;
 
-use super::pre_prediction::PrePredictionPlugin;
+use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
@@ -281,7 +281,13 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PreUpdate,
             (
                 (
-                    spawn_predicted_entity::<P>.after(PreSpawnedPlayerObjectSet::Spawn),
+                    // - we first check if the entity has a matching PreSpawnedPlayerObject
+                    // - then we check if we should spawn a new predicted entity
+                    // (if we checked Pre-prediction first, we would remove the PrePredicted component, which means we would then spawn a Predicted entity)
+                    // - then we check if it is a PrePredicted entity
+                    spawn_predicted_entity::<P>
+                        .after(PreSpawnedPlayerObjectSet::Spawn)
+                        .before(PrePredictionSet::Spawn),
                     // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
                     //  not at every fixed-update tick, since it only depends on server messages
                     despawn_confirmed,

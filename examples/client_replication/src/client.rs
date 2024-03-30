@@ -14,39 +14,6 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig::default()
-                .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
-            replication: ReplicationConfig {
-                // need to specify that we want to turn on client replication
-                enable: true,
-            },
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
@@ -75,8 +42,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 

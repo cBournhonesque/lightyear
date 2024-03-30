@@ -8,7 +8,6 @@ use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
-use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
@@ -38,6 +37,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
@@ -83,6 +83,10 @@ impl Plugin for SharedPlugin {
         //  In general, most input-handling needs to be handled in FixedUpdate to be correct.
         // app.add_systems(Update, shoot_bullet);
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
