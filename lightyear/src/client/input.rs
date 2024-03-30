@@ -37,12 +37,12 @@ use crate::client::events::InputEvent;
 use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
-use crate::client::sync::client_is_synced;
+use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
 use crate::prelude::{server, SharedConfig, Tick, TickManager};
 use crate::protocol::Protocol;
-use crate::shared::sets::MainSet;
+use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 
 #[derive(Debug, Clone)]
@@ -139,27 +139,34 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
                 .chain(),
         );
         app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
-        app.configure_sets(
-            PostUpdate,
-            (
-                // handle tick events from sync before sending the message
-                InputSystemSet::ReceiveTickEvents
-                    .after(MainSet::<ClientMarker>::Sync)
-                    .run_if(
+        if !app.world.resource::<ClientConfig>().is_unified() {
+            app.configure_sets(
+                PostUpdate,
+                (
+                    // handle tick events from sync before sending the message
+                    InputSystemSet::ReceiveTickEvents.after(SyncSet).run_if(
                         // there are no tick events in unified mode
-                        client_is_synced::<P>.and_then(not(SharedConfig::is_unified_condition)),
+                        client_is_synced::<P>,
                     ),
-                // we send inputs only every send_interval
-                InputSystemSet::SendInputMessage
-                    .in_set(MainSet::<ClientMarker>::Send)
-                    .run_if(
-                        // no need to send input messages via io if we are in unified mode
-                        client_is_synced::<P>.and_then(not(SharedConfig::is_unified_condition)),
-                    ),
-                MainSet::<ClientMarker>::SendPackets,
-            )
-                .chain(),
-        );
+                    // we send inputs only every send_interval
+                    InputSystemSet::SendInputMessage
+                        .in_set(InternalMainSet::<ClientMarker>::Send)
+                        .run_if(
+                            // no need to send input messages via io if we are in unified mode
+                            client_is_synced::<P>,
+                        ),
+                    InternalMainSet::<ClientMarker>::SendPackets,
+                )
+                    .chain(),
+            );
+            app.add_systems(
+                PostUpdate,
+                (
+                    receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
+                    prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
+                ),
+            );
+        }
 
         // SYSTEMS
         app.add_systems(
@@ -170,16 +177,10 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             FixedPostUpdate,
             clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
         );
+
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
         // app.add_systems(PostUpdate, clear_input_events::<P>);
-        app.add_systems(
-            PostUpdate,
-            (
-                prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
-                receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
-            ),
-        );
     }
 }
 

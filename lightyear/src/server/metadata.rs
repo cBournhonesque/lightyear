@@ -3,10 +3,11 @@
 //! - track some information about each client
 //! - send information to clients about themselves (such as their global ClientId, independent from the connection's ClientId) or about other clients
 use crate::_reexport::ServerMarker;
-use crate::prelude::{ClientId, MainSet, NetworkTarget, Protocol, ReplicateToClientOnly};
+use crate::prelude::{ClientId, NetworkTarget, Protocol, ReplicateToClientOnly};
 use crate::server::events::{ConnectEvent, DisconnectEvent};
 use crate::shared::replication::components::Replicate;
 use crate::shared::replication::metadata::ClientMetadata;
+use crate::shared::sets::InternalMainSet;
 use bevy::prelude::*;
 
 pub(crate) struct ClientMetadataPlugin<P: Protocol> {
@@ -30,8 +31,8 @@ impl<P: Protocol> Plugin for ClientMetadataPlugin<P> {
             .add_systems(
                 PreUpdate,
                 (spawn_client_entity::<P>, despawn_client_entity)
-                    .after(MainSet::<ServerMarker>::Receive)
-                    .before(MainSet::<ServerMarker>::ReceiveFlush),
+                    .after(InternalMainSet::<ServerMarker>::Receive),
+                // TODO: CHECK SYSTEM ORDER HERE
             );
     }
 }

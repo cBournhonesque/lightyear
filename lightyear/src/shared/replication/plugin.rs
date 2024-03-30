@@ -3,9 +3,10 @@ use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
 use crate::_reexport::{ComponentProtocol, ReplicationSend};
-use crate::prelude::{MainSet, Protocol, ReplicationSet};
+use crate::prelude::Protocol;
 use crate::shared::replication::hierarchy::HierarchySyncPlugin;
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 
 pub(crate) struct ReplicationPlugin<P: Protocol, R: ReplicationSend<P>> {
     tick_duration: Duration,
@@ -27,27 +28,38 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
         let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
 
         // SYSTEM SETS //
+        app.configure_sets(
+            PreUpdate,
+            InternalMainSet::<R::SetMarker>::Receive.in_set(MainSet::Receive),
+        );
+        app.configure_sets(
+            PostUpdate,
+            (
+                InternalMainSet::<R::SetMarker>::SendPackets.in_set(MainSet::SendPackets),
+                InternalMainSet::<R::SetMarker>::Send.in_set(MainSet::Send),
+            ),
+        );
         // NOTE: it's ok to run the replication systems less frequently than every frame
         //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
         app.configure_sets(
             PostUpdate,
             (
                 (
-                    ReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                    ReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                    ReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
+                    InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                    InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
+                    InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
                 )
-                    .in_set(ReplicationSet::<R::SetMarker>::All),
+                    .in_set(InternalReplicationSet::<R::SetMarker>::All),
                 (
-                    ReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                    ReplicationSet::<R::SetMarker>::SendComponentUpdates,
+                    InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                    InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
                     // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
-                    MainSet::<R::SetMarker>::SendPackets,
+                    InternalMainSet::<R::SetMarker>::SendPackets,
                 )
-                    .in_set(MainSet::<R::SetMarker>::Send),
+                    .in_set(InternalMainSet::<R::SetMarker>::Send),
                 (
-                    ReplicationSet::<R::SetMarker>::All,
-                    MainSet::<R::SetMarker>::SendPackets,
+                    InternalReplicationSet::<R::SetMarker>::All,
+                    InternalMainSet::<R::SetMarker>::SendPackets,
                 )
                     .chain(),
             ),

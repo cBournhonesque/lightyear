@@ -1,6 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
-use bevy::prelude::Res;
+use bevy::prelude::{Res, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, info, trace};
@@ -19,6 +19,10 @@ use crate::utils::ready_buffer::ReadyBuffer;
 pub fn client_is_synced<P: Protocol>(connection: Res<ConnectionManager<P>>) -> bool {
     connection.sync_manager.is_synced()
 }
+
+/// SystemSet that holds systems that update the client's tick/time to match the server's tick/time
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SyncSet;
 
 /// Configuration for the sync manager, which is in charge of syncing the client's tick/time with the server's tick/time
 ///

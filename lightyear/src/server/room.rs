@@ -10,12 +10,12 @@ use bevy::prelude::{
     Res, ResMut, Resource, SystemSet,
 };
 use bevy::utils::{HashMap, HashSet};
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::connection::netcode::ClientId;
-use crate::prelude::ReplicationSet;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::sets::InternalReplicationSet;
 use crate::shared::time_manager::is_server_ready_to_send;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -118,7 +118,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                 (
                     // update replication caches must happen before replication
                     RoomSystemSets::UpdateReplicationCaches,
-                    ReplicationSet::<ServerMarker>::All,
+                    InternalReplicationSet::<ServerMarker>::All,
                     RoomSystemSets::RoomBookkeeping,
                 )
                     .chain(),
@@ -440,7 +440,7 @@ fn update_entity_replication_cache<P: Protocol>(
     mut query: Query<&mut Replicate<P>>,
 ) {
     if !room_manager.events.is_empty() {
-        info!(?room_manager.events, "Room events");
+        trace!(?room_manager.events, "Room events");
     }
     // enable split borrows by reborrowing Mut
     let room_manager = &mut *room_manager;

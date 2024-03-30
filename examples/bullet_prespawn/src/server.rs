@@ -28,7 +28,7 @@ impl Plugin for ExampleServerPlugin {
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
-            replicate_players.in_set(MainSet::ClientReplication),
+            replicate_players.in_set(InternalMainSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in the `FixedUpdate` schedule
         // app.add_systems(FixedUpdate, player_movement);

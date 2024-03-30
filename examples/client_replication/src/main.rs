@@ -14,7 +14,6 @@ use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
-use lightyear::client::input_leafwing::LeafwingInputPlugin;
 use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay, ReplicationConfig};
 use lightyear::prelude::server::PacketConfig;
 use serde::{Deserialize, Serialize};
@@ -181,7 +180,6 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         client::ClientPlugin::new(plugin_config),
         ExampleClientPlugin,
         SharedPlugin,
-        LeafwingInputPlugin::<MyProtocol, Inputs>::default(),
     ));
     app
 }
@@ -212,11 +210,6 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(false),
         net: net_configs,
-        packet: PacketConfig::default()
-            // by default there is no bandwidth limit so we need to enable it
-            .enable_bandwidth_cap()
-            // we can set the max bandwidth to 56 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(1500),
         ..default()
     };
     app.add_plugins((
@@ -252,11 +245,6 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(true),
         net: net_configs,
-        packet: PacketConfig::default()
-            // by default there is no bandwidth limit so we need to enable it
-            .enable_bandwidth_cap()
-            // we can set the max bandwidth to 56 KB/s
-            .with_send_bandwidth_bytes_per_second_cap(1500),
         ..default()
     };
     app.add_plugins((

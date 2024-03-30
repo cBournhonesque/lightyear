@@ -13,7 +13,7 @@
 //! }
 //! ```
 
-use crate::prelude::{ClientId, MainSet, Protocol};
+use crate::prelude::{ClientId, Protocol};
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
 use bevy::app::{App, Plugin, PostUpdate};

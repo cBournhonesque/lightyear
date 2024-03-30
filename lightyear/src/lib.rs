@@ -93,7 +93,7 @@ pub mod prelude {
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::metadata::ClientMetadata;
-    pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
+    pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::shared::time_manager::TimeManager;
@@ -146,6 +146,7 @@ pub mod prelude {
         };
         pub use crate::server::metadata::GlobalMetadata;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
+        pub use crate::server::replication::{ServerFilter, ServerReplicationSet};
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
         pub use crate::connection::server::{

@@ -10,13 +10,15 @@ use crate::_reexport::{ClientMarker, ReplicationSend};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::client::GlobalMetadata;
-use crate::prelude::{MainSet, SharedConfig, TickManager, TimeManager};
+use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
 
@@ -36,38 +38,29 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
         app
             // SYSTEM SETS
-            .configure_sets(
-                PreUpdate,
-                (
-                    MainSet::<ClientMarker>::Receive,
-                    MainSet::<ClientMarker>::ReceiveFlush,
-                )
-                    .chain(),
-            )
+            .configure_sets(PreUpdate, InternalMainSet::<ClientMarker>::Receive)
             .configure_sets(
                 PostUpdate,
                 (
                     // run sync before send because some send systems need to know if the client is synced
                     // we don't send packets every frame, but on a timer instead
                     (
-                        MainSet::<ClientMarker>::Sync,
-                        MainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
+                        SyncSet,
+                        InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
                     )
                         .chain(),
-                    MainSet::<ClientMarker>::SendPackets.in_set(MainSet::<ClientMarker>::Send),
+                    InternalMainSet::<ClientMarker>::SendPackets
+                        .in_set(InternalMainSet::<ClientMarker>::Send),
                 ),
             )
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                (
-                    receive::<P>.in_set(MainSet::<ClientMarker>::Receive),
-                    apply_deferred.in_set(MainSet::<ClientMarker>::ReceiveFlush),
-                ),
+                receive::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
             )
             .add_systems(
                 PostUpdate,
-                send::<P>.in_set(MainSet::<ClientMarker>::SendPackets),
+                send::<P>.in_set(InternalMainSet::<ClientMarker>::SendPackets),
             );
 
         // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
@@ -75,15 +68,13 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             app.add_systems(
                 PostUpdate,
                 unified_sync_update::<P>
-                    .in_set(MainSet::<ClientMarker>::Sync)
+                    .in_set(SyncSet)
                     .run_if(is_client_connected),
             );
         } else {
             app.add_systems(
                 PostUpdate,
-                sync_update::<P>
-                    .in_set(MainSet::<ClientMarker>::Sync)
-                    .run_if(is_client_connected),
+                sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
             );
         }
     }

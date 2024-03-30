@@ -13,13 +13,14 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
-use crate::prelude::{client, MainSet, SharedConfig, TickManager};
+use crate::prelude::{client, SharedConfig, TickManager};
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
 use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::replication::components::PrePredicted;
+use crate::shared::sets::InternalMainSet;
 
 pub struct LeafwingInputPlugin<P, A> {
     marker: std::marker::PhantomData<(P, A)>,
@@ -72,7 +73,7 @@ where
         app.configure_sets(
             PreUpdate,
             (
-                MainSet::<ServerMarker>::ReceiveFlush,
+                InternalMainSet::<ServerMarker>::Receive,
                 InputSystemSet::AddBuffers,
                 InputSystemSet::ReceiveInputs,
             )

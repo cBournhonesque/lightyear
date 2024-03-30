@@ -19,7 +19,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, spawn_cursor.after(MainSet::ReceiveFlush));
+        app.add_systems(PreUpdate, spawn_cursor.after(MainSet::Receive));
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
@@ -72,10 +72,11 @@ pub(crate) fn spawn_cursor(mut commands: Commands, metadata: Res<GlobalMetadata>
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
-    mut connection_manager: ResMut<ClientConnectionManager>,
+    mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     let tick = tick_manager.tick();
+    let mut input = Inputs::None;
     let mut direction = Direction {
         up: false,
         down: false,
@@ -95,16 +96,15 @@ pub(crate) fn buffer_input(
         direction.right = true;
     }
     if !direction.is_none() {
-        return connection_manager.add_input(Inputs::Direction(direction), tick);
+        input = Inputs::Direction(direction);
     }
     if keypress.pressed(KeyCode::KeyK) {
-        // currently, directions is an enum and we can only add one input per tick
-        return connection_manager.add_input(Inputs::Delete, tick);
+        input = Inputs::Delete;
     }
     if keypress.pressed(KeyCode::Space) {
-        return connection_manager.add_input(Inputs::Spawn, tick);
+        input = Inputs::Spawn;
     }
-    return connection_manager.add_input(Inputs::None, tick);
+    input_manager.add_input(input, tick);
 }
 
 // The client input only gets applied to predicted entities that we own
@@ -213,7 +213,10 @@ fn cursor_movement(
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
-        (Without<Confirmed>, Without<Interpolated>),
+        Or<(
+            (Without<Confirmed>, Without<Interpolated>),
+            With<ReplicateToServerOnly>,
+        )>,
     >,
 ) {
     // return early if we still don't have access to the client id

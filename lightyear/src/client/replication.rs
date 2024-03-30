@@ -5,8 +5,9 @@ use bevy::utils::Duration;
 use crate::client::connection::ConnectionManager;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Protocol, ReplicationSet};
+use crate::prelude::Protocol;
 use crate::shared::replication::plugin::ReplicationPlugin;
+use crate::shared::sets::InternalReplicationSet;
 
 #[derive(Clone, Default, Debug)]
 pub struct ReplicationConfig {
@@ -48,7 +49,7 @@ impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
                 // NOTE: we need is_synced, and not connected. Otherwise the ticks associated with the messages might be incorrect
                 //  and the message might be ignored by the server
                 //  But then pre-predicted entities that are spawned right away will not be replicated?
-                ReplicationSet::<ClientMarker>::All.run_if(client_is_synced::<P>),
+                InternalReplicationSet::<ClientMarker>::All.run_if(client_is_synced::<P>),
             );
     }
 }

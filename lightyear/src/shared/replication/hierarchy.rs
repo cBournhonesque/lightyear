@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use crate::_reexport::ReplicationSend;
 use lightyear_macros::MessageInternal;
 
-use crate::prelude::{LightyearMapEntities, MainSet, ReplicationGroup, ReplicationSet};
+use crate::prelude::{LightyearMapEntities, ReplicationGroup};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
 /// The `ParentSync` component will be updated automatically when the `Parent` component changes,
@@ -139,7 +140,7 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySyncPlugin<P, R> {
         // when we receive a ParentSync update from the remote, update the hierarchy
         app.add_systems(
             PreUpdate,
-            Self::update_parent.after(MainSet::<R::SetMarker>::ReceiveFlush),
+            Self::update_parent.after(InternalMainSet::<R::SetMarker>::Receive),
         )
         .add_systems(
             PostUpdate,
@@ -148,8 +149,8 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySyncPlugin<P, R> {
                 Self::removal_system,
             )
                 // we don't need to run these every frame, only every send_interval
-                .in_set(MainSet::<R::SetMarker>::Send)
-                .before(ReplicationSet::<R::SetMarker>::All),
+                .in_set(InternalMainSet::<R::SetMarker>::Send)
+                .before(InternalReplicationSet::<R::SetMarker>::All),
         );
     }
 }

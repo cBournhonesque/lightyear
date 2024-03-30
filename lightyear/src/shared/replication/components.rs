@@ -1,4 +1,5 @@
 //! Components used for replication
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::{Component, Entity};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};

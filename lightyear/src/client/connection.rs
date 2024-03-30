@@ -416,7 +416,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        warn!(?entity, "Prepare entity spawn to server");
+        trace!(?entity, "Prepare entity spawn to server");
         let group_id = replicate.replication_group.group_id(Some(entity));
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick

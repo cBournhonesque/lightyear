@@ -23,7 +23,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<ActionState<Inputs>>();
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, add_text.after(MainSet::ReceiveFlush));
+        app.add_systems(PreUpdate, add_text.after(MainSet::Receive));
         app.add_systems(FixedUpdate, movement);
         app.add_systems(
             Update,

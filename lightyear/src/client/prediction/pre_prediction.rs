@@ -12,10 +12,10 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::{
-    NetworkTarget, Protocol, ReplicateToClientOnly, ReplicateToServerOnly, ReplicationSet,
-    ShouldBePredicted,
+    NetworkTarget, Protocol, ReplicateToClientOnly, ReplicateToServerOnly, ShouldBePredicted,
 };
 use crate::shared::replication::components::{PrePredicted, Replicate};
+use crate::shared::sets::InternalReplicationSet;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, warn};
 
@@ -53,7 +53,7 @@ impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
             PostUpdate,
             (
                 PrePredictionSet::Fill,
-                ReplicationSet::<ClientMarker>::All,
+                InternalReplicationSet::<ClientMarker>::All,
                 PrePredictionSet::Clean,
             )
                 .chain()

@@ -47,7 +47,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             PreUpdate,
             spawn_player
-                .after(MainSet::<ClientMarker>::ReceiveFlush)
+                .after(InternalMainSet::<ClientMarker>::Receive)
                 .before(PredictionSet::SpawnPrediction),
         );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule

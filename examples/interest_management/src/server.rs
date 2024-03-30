@@ -4,7 +4,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use leafwing_input_manager::prelude::ActionState;
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -142,8 +142,8 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
 /// - we will add/remove other entities from the player's room only if they are close
 pub(crate) fn interest_management(
     mut room_manager: ResMut<RoomManager>,
-    player_query: Query<(&PlayerId, Ref<Position>), Without<CircleMarker>>,
-    circle_query: Query<(Entity, &Position), With<CircleMarker>>,
+    player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
+    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<Replicate>)>,
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
@@ -166,7 +166,9 @@ pub(crate) fn interest_management(
 }
 
 /// Read client inputs and move players
-pub(crate) fn movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
+pub(crate) fn movement(
+    mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<InputMap<Inputs>>>,
+) {
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);
     }

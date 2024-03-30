@@ -27,7 +27,7 @@ use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
-use crate::shared::sets::MainSet;
+use crate::shared::sets::InternalMainSet;
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
@@ -113,10 +113,8 @@ pub enum PredictionSet {
     /// Spawn predicted entities,
     /// We will also use this do despawn predicted entities when confirmed entities are despawned
     SpawnPrediction,
-    SpawnPredictionFlush,
     /// Add component history for all predicted entities' predicted components
     SpawnHistory,
-    SpawnHistoryFlush,
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
@@ -124,9 +122,6 @@ pub enum PredictionSet {
     /// For pre-spawned entities, we just roll them back to their historical state.
     /// If they didn't exist in the rollback tick, despawn them
     PrepareRollback,
-    // we might need a flush because prepare-rollback might remove/add components when snapping the current state
-    // to the confirmed state
-    PrepareRollbackFlush,
     /// Perform rollback
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
@@ -137,8 +132,6 @@ pub enum PredictionSet {
     /// Set to deal with predicted/confirmed entities getting despawned
     /// In practice, the entities aren't despawned but all their components are removed
     EntityDespawn,
-    /// Remove the marked components that indicates that components should be removekd
-    EntityDespawnFlush,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
 
@@ -249,29 +242,15 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             PreUpdate,
             (
-                MainSet::<ClientMarker>::ReceiveFlush,
+                InternalMainSet::<ClientMarker>::Receive,
                 PredictionSet::SpawnPrediction,
-                PredictionSet::SpawnPredictionFlush,
                 PredictionSet::SpawnHistory,
-                PredictionSet::SpawnHistoryFlush,
                 PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
                 PredictionSet::PrepareRollback.run_if(is_in_rollback),
-                PredictionSet::PrepareRollbackFlush.run_if(is_in_rollback),
                 PredictionSet::Rollback.run_if(is_in_rollback),
             )
                 .chain(),
-        );
-        app.add_systems(
-            PreUpdate,
-            (
-                // TODO: we want to run this flushes only if something actually happened in the previous set!
-                //  because running the flush-system is expensive (needs exclusive world access)
-                //  check how I can do this in bevy
-                apply_deferred.in_set(PredictionSet::SpawnPredictionFlush),
-                apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
-                apply_deferred.in_set(PredictionSet::PrepareRollbackFlush),
-            ),
         );
 
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
@@ -306,11 +285,9 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             FixedPostUpdate,
             (
                 PredictionSet::EntityDespawn,
-                PredictionSet::EntityDespawnFlush,
                 // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
                 // right away to avoid rollbacks
                 PredictionSet::SpawnHistory,
-                PredictionSet::SpawnHistoryFlush,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
@@ -319,10 +296,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.add_systems(
             FixedPostUpdate,
             (
-                (remove_despawn_marker, apply_deferred)
-                    .chain()
-                    .in_set(PredictionSet::EntityDespawnFlush),
-                apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
+                remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
                 increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
             ),
         );

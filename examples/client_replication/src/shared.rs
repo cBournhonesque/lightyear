@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+use lightyear::client::interpolation::Interpolated;
+use lightyear::client::prediction::Predicted;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
@@ -67,7 +69,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
     cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {

@@ -18,9 +18,10 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ReplicationSet, ShouldBePredicted, TickManager};
+use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
+use crate::shared::sets::InternalReplicationSet;
 
 pub(crate) struct PreSpawnedPlayerObjectPlugin<P> {
     marker: std::marker::PhantomData<P>,
@@ -66,7 +67,8 @@ impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
             //  account for this when setting the hash?
             // NOTE: we need to call this before SpawnHistory otherwise the history would affect the hash.
             // TODO: find a way to exclude predicted history from the hash
-            ReplicationSet::<ClientMarker>::SetPreSpawnedHash.before(PredictionSet::SpawnHistory),
+            InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash
+                .before(PredictionSet::SpawnHistory),
         );
 
         app.add_systems(
@@ -81,7 +83,8 @@ impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
         app.add_systems(
             FixedPostUpdate,
             // compute hashes for all pre-spawned player objects
-            Self::compute_prespawn_hash.in_set(ReplicationSet::<ClientMarker>::SetPreSpawnedHash),
+            Self::compute_prespawn_hash
+                .in_set(InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash),
         );
 
         app.add_systems(

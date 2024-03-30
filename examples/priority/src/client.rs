@@ -25,7 +25,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(Startup, init);
         app.add_systems(
             PreUpdate,
-            handle_client_connection.after(MainSet::ReceiveFlush),
+            handle_client_connection.after(InternalMainSet::Receive),
         );
         app.add_systems(
             Update,

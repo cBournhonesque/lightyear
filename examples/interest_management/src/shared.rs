@@ -4,6 +4,8 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
+use lightyear::client::interpolation::Interpolated;
+use lightyear::client::prediction::Predicted;
 
 use lightyear::prelude::*;
 
@@ -61,7 +63,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Act
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
     // players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
-    players: Query<(&Position, &PlayerColor)>,
+    players: Query<(&Position, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
 ) {
     for (position, color) in &players {
         gizmos.rect(
@@ -74,7 +76,10 @@ pub(crate) fn draw_boxes(
 }
 
 /// System that draws circles
-pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<CircleMarker>>) {
+pub(crate) fn draw_circles(
+    mut gizmos: Gizmos,
+    circles: Query<&Position, (With<CircleMarker>, Without<Replicate>)>,
+) {
     for position in &circles {
         gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
     }

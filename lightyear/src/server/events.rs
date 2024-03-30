@@ -11,7 +11,6 @@ use crate::connection::netcode::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
-use crate::prelude::MainSet;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::clear_events;
@@ -21,6 +20,7 @@ use crate::shared::events::connection::{
     ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
 };
 use crate::shared::events::plugin::EventsPlugin;
+use crate::shared::sets::InternalMainSet;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -43,11 +43,7 @@ impl<P: Protocol> Plugin for ServerEventsPlugin<P> {
             // PLUGIN
             .add_plugins(EventsPlugin::<P, ClientId>::default())
             // SYSTEM_SET
-            .configure_sets(PostUpdate, MainSet::<ServerMarker>::ClearEvents)
-            .add_systems(
-                PostUpdate,
-                clear_events::<P>.in_set(MainSet::<ServerMarker>::ClearEvents),
-            );
+            .add_systems(PostUpdate, clear_events::<P>);
     }
 }
 

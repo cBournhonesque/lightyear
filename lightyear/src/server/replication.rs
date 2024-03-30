@@ -2,14 +2,16 @@ use crate::_reexport::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use crate::prelude::{MainSet, Protocol, ReplicationSet, SharedConfig, Tick};
+use crate::prelude::{Protocol, SharedConfig, Tick};
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::Replicate;
 use crate::shared::replication::plugin::ReplicationPlugin;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// Configuration related to replicating the server's World to clients
 #[derive(Clone, Default, Debug)]
@@ -32,6 +34,12 @@ impl<P: Protocol> ServerReplicationPlugin<P> {
     }
 }
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum ServerReplicationSet {
+    /// You can use this SystemSet to add Replicate components to entities received from clients (to rebroadcast them to other clients)
+    ClientReplication,
+}
+
 impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
     fn build(&self, app: &mut App) {
         app
@@ -42,26 +50,33 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                (
-                    MainSet::<ServerMarker>::ClientReplication,
-                    MainSet::<ServerMarker>::ClientReplicationFlush,
-                )
-                    .chain()
-                    .after(MainSet::<ServerMarker>::ReceiveFlush),
+                ServerReplicationSet::ClientReplication
+                    .after(InternalMainSet::<ServerMarker>::Receive),
             )
             .configure_sets(
                 PostUpdate,
                 ((
                     // on server: we need to set the hash value before replicating the component
-                    ReplicationSet::<ServerMarker>::SetPreSpawnedHash
-                        .before(ReplicationSet::<ServerMarker>::SendComponentUpdates),
+                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
+                        .before(InternalReplicationSet::<ServerMarker>::SendComponentUpdates),
                 )
-                    .in_set(ReplicationSet::<ServerMarker>::All),),
+                    .in_set(InternalReplicationSet::<ServerMarker>::All),),
             )
             // SYSTEMS
             .add_systems(
                 PostUpdate,
-                (compute_hash::<P>.in_set(ReplicationSet::<ServerMarker>::SetPreSpawnedHash),),
+                (compute_hash::<P>
+                    .in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),),
             );
     }
+}
+
+/// Filter to use to get all entities that are not client-side replicated entities
+#[derive(QueryFilter)]
+pub struct ServerFilter {
+    a: (
+        Without<Confirmed>,
+        Without<Predicted>,
+        Without<Interpolated>,
+    ),
 }

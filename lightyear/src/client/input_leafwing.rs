@@ -49,7 +49,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
-use crate::client::sync::client_is_synced;
+use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
@@ -57,7 +57,7 @@ use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 /// Run condition to control most of the systems in the LeafwingInputPlugin
@@ -193,14 +193,14 @@ where
             PostUpdate,
             // we send inputs only every send_interval
             (
-                MainSet::<ClientMarker>::Sync,
+                SyncSet,
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
                 InputSystemSet::SendInputMessage
                     .run_if(client_is_synced::<P>)
-                    .in_set(MainSet::<ClientMarker>::Send),
+                    .in_set(InternalMainSet::<ClientMarker>::Send),
                 InputSystemSet::CleanUp.run_if(client_is_synced::<P>),
-                MainSet::<ClientMarker>::SendPackets,
+                InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
         );
@@ -215,7 +215,7 @@ where
                     .after(InputManagerSystem::Update)
                     .after(InputManagerSystem::ManualControl)
                     .after(InputManagerSystem::Tick),
-                add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
+                add_action_state_buffer::<A>.after(PredictionSet::SpawnPrediction),
             ),
         );
         // NOTE: we do not tick the ActionState during FixedUpdate
