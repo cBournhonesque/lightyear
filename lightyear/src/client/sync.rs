@@ -591,7 +591,7 @@ mod tests {
     use bevy::prelude::*;
     use bevy::utils::Duration;
 
-    use crate::client::input::InputSystemSet;
+    use crate::client::input::{InputManager, InputSystemSet};
     use crate::prelude::*;
     use crate::server::events::InputEvent;
     use crate::tests::protocol::*;
@@ -600,10 +600,10 @@ mod tests {
     use super::*;
 
     fn press_input(
-        mut connection: ResMut<ClientConnectionManager>,
+        mut input_manager: ResMut<InputManager<MyInput>>,
         tick_manager: Res<TickManager>,
     ) {
-        connection.add_input(MyInput(0), tick_manager.tick());
+        input_manager.add_input(MyInput(0), tick_manager.tick());
     }
     fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<MyInput>>) {
         for _ in ev.read() {

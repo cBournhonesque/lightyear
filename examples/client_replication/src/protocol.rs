@@ -4,6 +4,7 @@ use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::prelude::*;
 
 // Player
@@ -17,7 +18,8 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+        let color = color_from_id(id);
         Self {
             id: PlayerId(id),
             position: PlayerPosition(position),

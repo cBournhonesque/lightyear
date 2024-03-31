@@ -65,35 +65,30 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
-fn spawn_player(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    // the `GlobalMetadata` resource holds metadata related to the client
-    // once the connection is established.
-    if metadata.is_changed() {
-        if let Some(client_id) = metadata.client_id {
-            commands.spawn(TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ));
-
-            info!("Spawning player with id: {}", client_id);
-            let y = (client_id as f32 * 50.0) % 500.0 - 250.0;
-            commands.spawn(PlayerBundle::new(
-                client_id,
-                Vec2::new(-50.0, y),
-                color_from_id(client_id),
-                InputMap::new([
-                    (PlayerActions::Up, KeyCode::KeyW),
-                    (PlayerActions::Down, KeyCode::KeyS),
-                    (PlayerActions::Left, KeyCode::KeyA),
-                    (PlayerActions::Right, KeyCode::KeyD),
-                    (PlayerActions::Shoot, KeyCode::Space),
-                ]),
-            ));
-        }
+fn spawn_player(mut commands: Commands, mut connection_event: EventReader<ConnectEvent>) {
+    for event in connection_event.read() {
+        let client_id = event.client_id();
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
+        info!("Spawning player with id: {}", client_id);
+        let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+        commands.spawn(PlayerBundle::new(
+            client_id,
+            Vec2::new(-50.0, y),
+            InputMap::new([
+                (PlayerActions::Up, KeyCode::KeyW),
+                (PlayerActions::Down, KeyCode::KeyS),
+                (PlayerActions::Left, KeyCode::KeyA),
+                (PlayerActions::Right, KeyCode::KeyD),
+                (PlayerActions::Shoot, KeyCode::Space),
+            ]),
+        ));
     }
 }
 

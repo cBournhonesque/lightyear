@@ -4,13 +4,13 @@ use crate::_reexport::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::plugin::is_connected;
 use crate::client::prediction::prespawn::PreSpawnedPlayerObjectSet;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
-use crate::prelude::client::PredictionSet;
+use crate::connection::client::NetClient;
+use crate::prelude::client::{ClientConnection, PredictionSet};
 use crate::prelude::{
     NetworkTarget, Protocol, ReplicateToClientOnly, ReplicateToServerOnly, ShouldBePredicted,
 };
@@ -147,7 +147,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
     /// - client_entity: is needed to know which entity to use as the predicted entity
     /// - client_id: is needed in case the pre-predicted entity is predicted by other players upon replication
     pub(crate) fn fill_pre_prediction_data(
-        metadata: Res<GlobalMetadata>,
+        connection: Res<ClientConnection>,
         mut query: Query<
             (Entity, &mut PrePredicted),
             // in unified mode, don't apply this to server->client entities
@@ -157,7 +157,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
         for (entity, mut pre_predicted) in query.iter_mut() {
             if pre_predicted.is_added() {
                 warn!(
-                client_id = ?metadata.client_id.unwrap(),
+                client_id = ?connection.id(),
                 entity = ?entity,
             "fill in pre-prediction info!");
                 pre_predicted.client_entity = Some(entity);

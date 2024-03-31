@@ -7,6 +7,7 @@ use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace};
 
 use crate::connection::client::NetClient;
+use crate::connection::id;
 use crate::prelude::IoConfig;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
@@ -680,8 +681,8 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
         self.client.send(buf, io).context("could not send")
     }
 
-    fn id(&self) -> ClientId {
-        self.client.id()
+    fn id(&self) -> id::ClientId {
+        id::ClientId::Netcode(self.client.id())
     }
 
     fn local_addr(&self) -> SocketAddr {

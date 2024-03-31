@@ -2,7 +2,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::ReplicationSend;
+use crate::_reexport::{ClientMarker, ReplicationSend};
 use lightyear_macros::MessageInternal;
 
 use crate::prelude::{LightyearMapEntities, ReplicationGroup};
@@ -39,11 +39,11 @@ impl LightyearMapEntities for ParentSync {
     }
 }
 
-pub struct HierarchySyncPlugin<P, R> {
+pub struct HierarchySendPlugin<P, R> {
     _marker: std::marker::PhantomData<(P, R)>,
 }
 
-impl<P, R> Default for HierarchySyncPlugin<P, R> {
+impl<P, R> Default for HierarchySendPlugin<P, R> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -51,7 +51,7 @@ impl<P, R> Default for HierarchySyncPlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> HierarchySyncPlugin<P, R> {
+impl<P: Protocol, R: ReplicationSend<P>> HierarchySendPlugin<P, R> {
     /// If `replicate.replicate_hierarchy` is true, replicate the entire hierarchy of the entity
     fn propagate_replicate(
         mut commands: Commands,
@@ -71,33 +71,6 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchySyncPlugin<P, R> {
                     // no need to set the correct parent as it will be set later in the `update_parent_sync` system
                     commands.entity(child).insert((replicate, ParentSync(None)));
                 }
-            }
-        }
-    }
-
-    /// Update parent/children hierarchy if parent_sync changed
-    ///
-    /// This only runs on the receiving side
-    fn update_parent(
-        mut commands: Commands,
-        hierarchy: Query<
-            (Entity, &ParentSync, Option<&Parent>),
-            (Changed<ParentSync>, Without<Replicate<P>>),
-        >,
-    ) {
-        for (entity, parent_sync, parent) in &hierarchy {
-            trace!(
-                "update_parent: entity: {:?}, parent_sync: {:?}, parent: {:?}",
-                entity,
-                parent_sync,
-                parent
-            );
-            if let Some(new_parent) = parent_sync.0 {
-                if parent.filter(|&parent| **parent == new_parent).is_none() {
-                    commands.entity(entity).set_parent(new_parent);
-                }
-            } else if parent.is_some() {
-                commands.entity(entity).remove_parent();
             }
         }
     }
@@ -134,15 +107,9 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchySyncPlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySyncPlugin<P, R> {
+impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySendPlugin<P, R> {
     fn build(&self, app: &mut App) {
-        // TODO: does this work for client replication? (client replicating to other clients via the server?)
-        // when we receive a ParentSync update from the remote, update the hierarchy
         app.add_systems(
-            PreUpdate,
-            Self::update_parent.after(InternalMainSet::<R::SetMarker>::Receive),
-        )
-        .add_systems(
             PostUpdate,
             (
                 (Self::propagate_replicate, Self::update_parent_sync).chain(),
@@ -151,6 +118,58 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySyncPlugin<P, R> {
                 // we don't need to run these every frame, only every send_interval
                 .in_set(InternalMainSet::<R::SetMarker>::Send)
                 .before(InternalReplicationSet::<R::SetMarker>::All),
+        );
+    }
+}
+
+pub struct HierarchyReceivePlugin<P, R> {
+    _marker: std::marker::PhantomData<(P, R)>,
+}
+
+impl<P, R> Default for HierarchyReceivePlugin<P, R> {
+    fn default() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<P: Protocol, R: ReplicationSend<P>> HierarchyReceivePlugin<P, R> {
+    /// Update parent/children hierarchy if parent_sync changed
+    ///
+    /// This only runs on the receiving side
+    fn update_parent(
+        mut commands: Commands,
+        hierarchy: Query<
+            (Entity, &ParentSync, Option<&Parent>),
+            (Changed<ParentSync>, Without<Replicate<P>>),
+        >,
+    ) {
+        for (entity, parent_sync, parent) in hierarchy.iter() {
+            trace!(
+                "update_parent: entity: {:?}, parent_sync: {:?}, parent: {:?}",
+                entity,
+                parent_sync,
+                parent
+            );
+            if let Some(new_parent) = parent_sync.0 {
+                if parent.filter(|&parent| **parent == new_parent).is_none() {
+                    commands.entity(entity).set_parent(new_parent);
+                }
+            } else if parent.is_some() {
+                commands.entity(entity).remove_parent();
+            }
+        }
+    }
+}
+
+impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchyReceivePlugin<P, R> {
+    fn build(&self, app: &mut App) {
+        // TODO: does this work for client replication? (client replicating to other clients via the server?)
+        // when we receive a ParentSync update from the remote, update the hierarchy
+        app.add_systems(
+            PreUpdate,
+            Self::update_parent.after(InternalMainSet::<R::SetMarker>::Receive),
         );
     }
 }
@@ -171,29 +190,7 @@ mod tests {
     use crate::tests::stepper::{BevyStepper, Step};
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
-        let tick_duration = Duration::from_millis(10);
-        let frame_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
-        stepper.init();
+        let mut stepper = BevyStepper::default();
         let child = stepper.server_app.world.spawn(Component3(0.0)).id();
         let parent = stepper
             .server_app

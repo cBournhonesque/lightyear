@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::prelude::{Protocol, SharedConfig, Tick};
+use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::Replicate;
@@ -14,21 +15,29 @@ use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// Configuration related to replicating the server's World to clients
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct ReplicationConfig {
     /// Set to true to disable replicating this server's entities to clients
-    pub disable: bool,
+    pub enable_send: bool,
+    pub enable_receive: bool,
+}
+
+impl Default for ReplicationConfig {
+    fn default() -> Self {
+        Self {
+            enable_send: true,
+            enable_receive: false,
+        }
+    }
 }
 
 pub struct ServerReplicationPlugin<P: Protocol> {
-    tick_duration: Duration,
     marker: std::marker::PhantomData<P>,
 }
 
-impl<P: Protocol> ServerReplicationPlugin<P> {
-    pub(crate) fn new(tick_duration: Duration) -> Self {
+impl<P: Protocol> Default for ServerReplicationPlugin<P> {
+    fn default() -> Self {
         Self {
-            tick_duration,
             marker: std::marker::PhantomData,
         }
     }
@@ -42,10 +51,13 @@ pub enum ServerReplicationSet {
 
 impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
     fn build(&self, app: &mut App) {
+        let config = app.world.resource::<ServerConfig>();
         app
             // PLUGIN
             .add_plugins(ReplicationPlugin::<P, ConnectionManager<P>>::new(
-                self.tick_duration,
+                config.shared.tick.tick_duration,
+                config.replication.enable_send,
+                config.replication.enable_receive,
             ))
             // SYSTEM SETS
             .configure_sets(

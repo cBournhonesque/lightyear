@@ -1,13 +1,14 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::*;
+use bevy::utils::HashMap;
 use tracing::trace;
 
 use crate::_reexport::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     ServerMarker,
 };
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
@@ -49,26 +50,28 @@ impl<P: Protocol> Plugin for ServerEventsPlugin<P> {
 
 #[derive(Debug)]
 pub struct ServerEvents<P: Protocol> {
-    // have to handle disconnects separately because the [`ConnectionEvents`] are removed upon disconnection
-    pub disconnects: Vec<ClientId>,
-    pub events: EntityHashMap<ClientId, ConnectionEvents<P>>,
+    pub connections: Vec<ClientId>,
+    pub disconnections: Vec<ClientId>,
+    pub events: HashMap<ClientId, ConnectionEvents<P>>,
     pub empty: bool,
 }
 
 impl<P: Protocol> ServerEvents<P> {
     pub(crate) fn new() -> Self {
         Self {
-            disconnects: Vec::new(),
-            events: EntityHashMap::default(),
+            connections: Vec::new(),
+            disconnections: Vec::new(),
+            events: HashMap::default(),
             empty: true,
         }
     }
 
     /// Clear all events except for the input buffer which we want to keep around
     pub(crate) fn clear(&mut self) {
-        self.disconnects = Vec::new();
+        self.connections = Vec::new();
+        self.disconnections = Vec::new();
         self.empty = true;
-        self.events = EntityHashMap::default();
+        self.events = HashMap::default();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -97,30 +100,30 @@ impl<P: Protocol> ServerEvents<P> {
     // }
 
     // TODO: should we consume connections?
-    pub fn iter_connections(&self) -> impl Iterator<Item = ClientId> + '_ {
-        self.events
-            .iter()
-            .filter_map(|(client_id, events)| events.has_connection().then_some(*client_id))
+    pub fn iter_connections(&mut self) -> impl Iterator<Item = ClientId> + '_ {
+        std::mem::take(&mut self.connections).into_iter()
     }
 
     pub fn has_connections(&self) -> bool {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_connection())
+        !self.connections.is_empty()
     }
 
     pub fn iter_disconnections(&mut self) -> impl Iterator<Item = ClientId> + '_ {
-        std::mem::take(&mut self.disconnects).into_iter()
+        std::mem::take(&mut self.disconnections).into_iter()
     }
 
     pub fn has_disconnections(&self) -> bool {
-        !self.disconnects.is_empty()
+        !self.disconnections.is_empty()
     }
 
-    // Cannot only use the 'disconnect' field in the events, because we remove the events
-    // upon disconnection
-    pub(crate) fn push_disconnects(&mut self, client_id: ClientId) {
-        self.disconnects.push(client_id);
+    pub(crate) fn push_connection(&mut self, client_id: ClientId) {
+        self.connections.push(client_id);
+        // self.events.remove(&client_id);
+        self.empty = false;
+    }
+
+    pub(crate) fn push_disconnection(&mut self, client_id: ClientId) {
+        self.disconnections.push(client_id);
         self.events.remove(&client_id);
         self.empty = false;
     }
@@ -289,7 +292,7 @@ impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
 }
 
 /// Bevy [`Event`] emitted on the server on the frame where a client is connected
-pub type ConnectEvent = crate::shared::events::components::ConnectEvent<ClientId>;
+pub type ConnectEvent = crate::shared::events::components::ConnectEvent;
 /// Bevy [`Event`] emitted on the server on the frame where a client is disconnected
 pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<ClientId>;
 /// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received
@@ -326,6 +329,8 @@ mod tests {
 
     #[test]
     fn test_iter_messages() {
+        let client_1 = ClientId::Netcode(1);
+        let client_2 = ClientId::Netcode(2);
         let mut events_1 = ConnectionEvents::<MyProtocol>::new();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
@@ -342,7 +347,7 @@ mod tests {
         events_1.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
 
         let mut server_events = ServerEvents::<MyProtocol>::new();
-        server_events.push_events(1, events_1);
+        server_events.push_events(client_1, events_1);
 
         let mut events_2 = ConnectionEvents::<MyProtocol>::new();
         let message1_c = Message1("test".to_string());
@@ -352,31 +357,31 @@ mod tests {
         );
         events_2.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(2)));
 
-        server_events.push_events(2, events_2);
+        server_events.push_events(client_2, events_2);
 
         // check that we have the correct messages
         let messages: Vec<(Message1, ClientId)> = server_events.into_iter_messages().collect();
         assert_eq!(messages.len(), 3);
-        assert!(messages.contains(&(message1_a, 1)));
-        assert!(messages.contains(&(message1_b, 1)));
-        assert!(messages.contains(&(message1_c, 2)));
+        assert!(messages.contains(&(message1_a, client_1)));
+        assert!(messages.contains(&(message1_b, client_1)));
+        assert!(messages.contains(&(message1_c, client_2)));
 
         // check that there are no more message of that kind in the events
         assert!(!server_events
             .events
-            .get(&1)
+            .get(&client_1)
             .unwrap()
             .has_messages::<Message1>());
         assert!(!server_events
             .events
-            .get(&2)
+            .get(&client_2)
             .unwrap()
             .has_messages::<Message1>());
 
         // check that we still have the other message kinds
         assert!(server_events
             .events
-            .get(&2)
+            .get(&client_2)
             .unwrap()
             .has_messages::<Message2>());
     }

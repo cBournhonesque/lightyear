@@ -4,6 +4,7 @@ use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
@@ -33,12 +34,8 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(
-        id: ClientId,
-        position: Vec2,
-        color: Color,
-        input_map: InputMap<PlayerActions>,
-    ) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
+        let color = color_from_id(id);
         Self {
             id: PlayerId(id),
             position: Position(position),

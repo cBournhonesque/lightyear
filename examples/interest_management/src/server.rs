@@ -10,7 +10,7 @@ pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{shared_config, shared_movement_behaviour};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
 const GRID_SIZE: f32 = 200.0;
@@ -32,12 +32,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(FixedUpdate, movement);
         app.add_systems(
             Update,
-            (
-                handle_connections,
-                interest_management,
-                log,
-                receive_message,
-            ),
+            (handle_connections, interest_management, receive_message),
         );
     }
 }
@@ -94,25 +89,15 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.context();
-        // Generate pseudo random color from client id.
-        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let entity = commands.spawn(PlayerBundle::new(
-            *client_id,
-            Vec2::ZERO,
-            Color::hsl(h, s, l),
-        ));
+        let client_id = connection.client_id();
+        let entity = commands.spawn(PlayerBundle::new(client_id, Vec2::ZERO));
         // Add a mapping from client id to entity id (so that when we receive an input from a client,
         // we know which entity to move)
-        global
-            .client_id_to_entity_id
-            .insert(*client_id, entity.id());
+        global.client_id_to_entity_id.insert(client_id, entity.id());
         // we will create a room for each client. To keep things simple, the room id will be the client id
-        let room_id = RoomId((*client_id) as u16);
-        room_manager.room_mut(room_id).add_client(*client_id);
-        room_manager.room_mut(PLAYER_ROOM).add_client(*client_id);
+        let room_id = RoomId(client_id.to_bits() as u16);
+        room_manager.room_mut(room_id).add_client(client_id);
+        room_manager.room_mut(PLAYER_ROOM).add_client(client_id);
         // also add the player entity to that room (so that the client can always see their own player)
         room_manager.room_mut(room_id).add_entity(entity.id());
         room_manager.room_mut(PLAYER_ROOM).add_entity(entity.id());
@@ -122,13 +107,6 @@ pub(crate) fn handle_connections(
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
             commands.entity(entity).despawn();
         }
-    }
-}
-
-pub(crate) fn log(tick_manager: Res<TickManager>, position: Query<&Position, With<PlayerId>>) {
-    let server_tick = tick_manager.tick();
-    for pos in position.iter() {
-        debug!(?server_tick, "Confirmed position: {:?}", pos);
     }
 }
 
@@ -147,7 +125,7 @@ pub(crate) fn interest_management(
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
-            let room_id = RoomId((client_id.0) as u16);
+            let room_id = RoomId(client_id.0.to_bits() as u16);
             // let circles_in_room = server.room(room_id).entities();
             let mut room = room_manager.room_mut(room_id);
             for (circle_entity, circle_position) in circle_query.iter() {
