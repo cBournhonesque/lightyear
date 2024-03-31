@@ -84,3 +84,11 @@ pub(crate) fn draw_circles(
         gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
     }
 }
+
+/// Generate a color from the `ClientId`
+pub(crate) fn color_from_id(client_id: ClientId) -> Color {
+    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let s = 1.0;
+    let l = 0.5;
+    Color::hsl(h, s, l)
+}

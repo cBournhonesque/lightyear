@@ -37,8 +37,6 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
             error!("Failed to start server: {:?}", e);
         });
     }
-    let mut style = Style::default();
-    style.align_self = AlignSelf::End;
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -48,7 +46,10 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
                 ..default()
             },
         )
-        .with_style(style),
+        .with_style(Style {
+            align_self: AlignSelf::End,
+            ..default()
+        }),
     );
 }
 
@@ -60,23 +61,19 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.context();
+        let client_id = connection.client_id();
         // Generate pseudo random color from client id.
-        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
+        let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
         let player_position = Vec2::ZERO;
         let player_entity = commands
-            .spawn(PlayerBundle::new(
-                *client_id,
-                player_position,
-                Color::hsl(h, s, l),
-            ))
+            .spawn(PlayerBundle::new(client_id, player_position))
             .id();
         let tail_length = 300.0;
         let tail_entity = commands
             .spawn(TailBundle::new(
-                *client_id,
+                client_id,
                 player_entity,
                 player_position,
                 tail_length,
@@ -85,7 +82,7 @@ pub(crate) fn handle_connections(
         // Add a mapping from client id to entity id
         global
             .client_id_to_entity_id
-            .insert(*client_id, (player_entity, tail_entity));
+            .insert(client_id, (player_entity, tail_entity));
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();

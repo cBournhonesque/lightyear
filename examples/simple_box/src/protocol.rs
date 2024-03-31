@@ -18,7 +18,12 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+        // Generate pseudo random color from client id.
+        let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+        let s = 0.8;
+        let l = 0.5;
+        let color = Color::hsl(h, s, l);
         Self {
             id: PlayerId(id),
             position: PlayerPosition(position),

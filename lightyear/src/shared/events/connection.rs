@@ -18,10 +18,6 @@ use crate::protocol::{EventContext, Protocol};
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]
 pub struct ConnectionEvents<P: Protocol> {
-    // netcode
-    // we put disconnections outside of there because `ConnectionEvents` gets removed upon disconnection
-    pub connection: bool,
-
     // inputs (used only for leafwing messages for now)
     #[cfg(feature = "leafwing")]
     pub input_messages: HashMap<MessageKind, Vec<P::Message>>,
@@ -64,8 +60,6 @@ impl<P: Protocol> Default for ConnectionEvents<P> {
 impl<P: Protocol> ConnectionEvents<P> {
     pub fn new() -> Self {
         Self {
-            // netcode
-            connection: false,
             // inputs
             #[cfg(feature = "leafwing")]
             input_messages: HashMap::new(),
@@ -84,7 +78,6 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 
     pub fn clear(&mut self) {
-        self.connection = false;
         #[cfg(feature = "leafwing")]
         self.input_messages.clear();
         self.messages.clear();
@@ -94,16 +87,6 @@ impl<P: Protocol> ConnectionEvents<P> {
         self.component_removes.clear();
         self.component_updates.clear();
         self.empty = true;
-    }
-
-    /// If true, the connection was established
-    pub fn has_connection(&self) -> bool {
-        self.connection
-    }
-
-    pub fn push_connection(&mut self) {
-        self.connection = true;
-        self.empty = false;
     }
 
     pub fn is_empty(&self) -> bool {

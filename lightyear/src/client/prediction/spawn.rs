@@ -3,9 +3,9 @@ use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
+use crate::connection::client::ClientConnection;
 use crate::prelude::{Protocol, ShouldBePredicted};
 use crate::shared::replication::components::PrePredicted;
 use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, Without};
@@ -17,7 +17,6 @@ use tracing::{debug, error, trace, warn};
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity<P: Protocol>(
     connection: Res<ConnectionManager<P>>,
-    metadata: Res<GlobalMetadata>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server

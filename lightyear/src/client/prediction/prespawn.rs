@@ -161,9 +161,9 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                                 if let Some(type_id) =
                                     world.components().get_info(component_id).unwrap().type_id()
                                 {
-                                    // TODO: maybe exclude PreSpawnedPlayerObject as well?
                                     // ignore some book-keeping components
                                     if type_id != TypeId::of::<Replicate<P>>()
+                                        && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
                                         && type_id != TypeId::of::<ReplicateToClientOnly>()
@@ -467,28 +467,7 @@ mod tests {
 
     #[test]
     fn test_compute_hash() {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
+        let mut stepper = BevyStepper::default();
         stepper.init();
 
         // check default compute hash, with multiple entities sharing the same tick
@@ -504,7 +483,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 11844036307541615334;
+        let expected_hash: u64 = 16099262544408252231;
         dbg!(&prediction_manager.prespawn_hash_to_entities);
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,

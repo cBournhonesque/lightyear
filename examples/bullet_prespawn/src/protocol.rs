@@ -3,6 +3,7 @@ use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
@@ -32,12 +33,8 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(
-        id: ClientId,
-        position: Vec2,
-        color: Color,
-        input_map: InputMap<PlayerActions>,
-    ) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
+        let color = color_from_id(id);
         Self {
             id: PlayerId(id),
             transform: Transform::from_xyz(position.x, position.y, 0.0),
@@ -45,7 +42,7 @@ impl PlayerBundle {
             replicate: Replicate {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: ReplicationGroup::new_id(id),
+                replication_group: ReplicationGroup::new_id(id.to_bits()),
                 ..default()
             },
             replicate_direction: ReplicateToServerOnly,

@@ -46,8 +46,8 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(Startup, init);
         app.add_systems(
             PreUpdate,
-            spawn_player
-                .after(InternalMainSet::<ClientMarker>::Receive)
+            handle_connection
+                .after(MainSet::Receive)
                 .before(PredictionSet::SpawnPrediction),
         );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
@@ -70,61 +70,54 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
-fn spawn_player(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    // TODO: instead of this, maybe emit an event?
-    // the `GlobalMetadata` resource holds metadata related to the client
-    // once the connection is established.
-    if metadata.is_changed() {
-        if let Some(client_id) = metadata.client_id {
-            commands.spawn(
-                TextBundle::from_section(
-                    format!("Client {}", client_id),
-                    TextStyle {
-                        font_size: 30.0,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                )
-                .with_style(Style {
-                    align_self: AlignSelf::End,
-                    ..default()
-                }),
-            );
-            let y = (client_id as f32 * 50.0) % 500.0 - 250.0;
-            // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-            let id = commands
-                .spawn((
-                    PlayerBundle::new(
-                        client_id,
-                        Vec2::new(-50.0, y),
-                        color_from_id(client_id),
-                        InputMap::new([
-                            (PlayerActions::Up, KeyCode::KeyW),
-                            (PlayerActions::Down, KeyCode::KeyS),
-                            (PlayerActions::Left, KeyCode::KeyA),
-                            (PlayerActions::Right, KeyCode::KeyD),
-                        ]),
-                    ),
-                    CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-                ))
-                .id();
-            warn!("pre-predicted entity: {id:?}");
+/// Listen for events to know when the client is connected, and spawn a text entity
+/// to display the client id
+pub(crate) fn handle_connection(
+    mut commands: Commands,
+    mut connection_event: EventReader<ConnectEvent>,
+) {
+    for event in connection_event.read() {
+        let client_id = event.client_id();
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
+        let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+        // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
+        let id = commands
+            .spawn((
+                PlayerBundle::new(
+                    client_id,
+                    Vec2::new(-50.0, y),
+                    InputMap::new([
+                        (PlayerActions::Up, KeyCode::KeyW),
+                        (PlayerActions::Down, KeyCode::KeyS),
+                        (PlayerActions::Left, KeyCode::KeyA),
+                        (PlayerActions::Right, KeyCode::KeyD),
+                    ]),
+                ),
+                CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
+            ))
+            .id();
+        warn!("pre-predicted entity: {id:?}");
 
-            // commands.spawn((
-            //     PlayerBundle::new(
-            //         client_id,
-            //         Vec2::new(50.0, y),
-            //         color_from_id(client_id),
-            //         InputMap::new([
-            //             (PlayerActions::Up, KeyCode::ArrowUp),
-            //             (PlayerActions::Down, KeyCode::ArrowDown),
-            //             (PlayerActions::Left, KeyCode::ArrowLeft),
-            //             (PlayerActions::Right, KeyCode::ArrowRight),
-            //         ]),
-            //     ),
-            //     CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-            // ));
-        }
+        // commands.spawn((
+        //     PlayerBundle::new(
+        //         client_id,
+        //         Vec2::new(50.0, y),
+        //         InputMap::new([
+        //             (PlayerActions::Up, KeyCode::ArrowUp),
+        //             (PlayerActions::Down, KeyCode::ArrowDown),
+        //             (PlayerActions::Left, KeyCode::ArrowLeft),
+        //             (PlayerActions::Right, KeyCode::ArrowRight),
+        //         ]),
+        //     ),
+        //     CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
+        // ));
     }
 }
 
@@ -160,7 +153,7 @@ fn add_ball_physics(
 /// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
 /// so that our predicted entities can predict collisions with them correctly
 fn add_player_physics(
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     mut commands: Commands,
     mut player_query: Query<
         (Entity, &PlayerId),
@@ -171,10 +164,7 @@ fn add_player_physics(
         ),
     >,
 ) {
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
-
+    let client_id = connection.id();
     for (entity, player_id) in player_query.iter_mut() {
         if player_id.0 == client_id {
             // only need to do this for other players' entities

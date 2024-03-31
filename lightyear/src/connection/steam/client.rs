@@ -1,7 +1,8 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use crate::connection::client::NetClient;
+use crate::connection::id::ClientId;
 use crate::packet::packet::Packet;
-use crate::prelude::{ClientId, Io, LinkConditionerConfig};
+use crate::prelude::{Io, LinkConditionerConfig};
 use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
@@ -148,7 +149,7 @@ impl NetClient for Client {
     }
 
     fn id(&self) -> ClientId {
-        self.client.user().steam_id().raw()
+        ClientId::Steam(self.client.user().steam_id().raw())
     }
 
     fn local_addr(&self) -> SocketAddr {

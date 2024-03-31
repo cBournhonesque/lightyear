@@ -1,4 +1,5 @@
 use crate::_reexport::WrappedTime;
+use crate::client::input::InputManager;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
 use crate::prelude::server::InputEvent;
 use crate::prelude::*;
@@ -7,8 +8,8 @@ use crate::tests::stepper::{BevyStepper, Step};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-fn press_input(mut connection: ResMut<ClientConnectionManager>, tick_manager: Res<TickManager>) {
-    connection.add_input(MyInput(0), tick_manager.tick());
+fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
+    input_manager.add_input(MyInput(0), tick_manager.tick());
 }
 fn increment(mut query: Query<&mut Component1>, mut ev: EventReader<InputEvent<MyInput>>) {
     for _ in ev.read() {
@@ -56,6 +57,7 @@ fn test_sync_after_tick_wrap() {
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
 
+    // increment the component value by sending inputs
     stepper.client_app.add_systems(
         FixedPreUpdate,
         press_input.in_set(InputSystemSet::BufferInputs),
@@ -74,6 +76,7 @@ fn test_sync_after_tick_wrap() {
         ))
         .id();
 
+    // advance 200 ticks to wrap ticks around u16::MAX
     for i in 0..200 {
         stepper.frame_step();
     }

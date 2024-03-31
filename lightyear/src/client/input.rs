@@ -34,12 +34,13 @@ use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
-use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::sync::{client_is_synced, SyncSet};
+use crate::connection::client::NetClient;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
+use crate::prelude::client::ClientConnection;
 use crate::prelude::{server, SharedConfig, Tick, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::sets::InternalMainSet;
@@ -228,7 +229,7 @@ fn write_input_event<A: UserAction>(
     mut client_input_events: EventWriter<InputEvent<A>>,
     // if we are running in unified mode, send the [`InputEvent`] directly to the server
     server_input_events: Option<ResMut<Events<server::InputEvent<A>>>>,
-    metadata: Res<GlobalMetadata>,
+    client_connection: Res<ClientConnection>,
     rollback: Option<Res<Rollback>>,
 ) {
     let tick = rollback.map_or(tick_manager.tick(), |rollback| match rollback.state {
@@ -240,13 +241,8 @@ fn write_input_event<A: UserAction>(
     let input = input_manager.get_input(tick);
     client_input_events.send(InputEvent::new(input_manager.get_input(tick), ()));
     if let Some(mut server_input_events) = server_input_events {
-        if let Some(client_id) = metadata.client_id {
-            trace!(
-                "Send client input to server for local client: {}",
-                client_id
-            );
-            server_input_events.send(server::InputEvent::new(input, client_id));
-        }
+        let client_id = client_connection.id();
+        server_input_events.send(server::InputEvent::new(input, client_id));
         // in unified mode, there is no prediction, so we can just pop the inputs instantly
         input_manager.input_buffer.pop(tick);
     }

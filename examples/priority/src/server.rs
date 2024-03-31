@@ -26,7 +26,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(
             Update,
-            (handle_connections, log, (tick_timers, update_props).chain()),
+            (handle_connections, (tick_timers, update_props).chain()),
         );
     }
 }
@@ -46,8 +46,6 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
             error!("Failed to start server: {:?}", e);
         });
     }
-    let mut style = Style::default();
-    style.align_self = AlignSelf::End;
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -57,9 +55,11 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
                 ..default()
             },
         )
-        .with_style(style),
+        .with_style(Style {
+            align_self: AlignSelf::End,
+            ..default()
+        }),
     );
-
     // spawn dots in a grid
     for x in -NUM_CIRCLES..NUM_CIRCLES {
         for y in -NUM_CIRCLES..NUM_CIRCLES {
@@ -93,15 +93,7 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = connection.context();
-        // Generate pseudo random color from client id.
-        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let entity = commands.spawn(PlayerBundle::new(
-            *client_id,
-            Vec2::splat(300.0),
-            Color::hsl(h, s, l),
-        ));
+        let entity = commands.spawn(PlayerBundle::new(*client_id, Vec2::splat(300.0)));
         // Add a mapping from client id to entity id (so that when we receive an input from a client,
         // we know which entity to move)
         global
@@ -133,12 +125,5 @@ pub(crate) fn update_props(mut props: Query<(&mut Shape, &ShapeChangeTimer)>) {
                 *shape = Shape::Circle;
             }
         }
-    }
-}
-
-pub(crate) fn log(tick_manager: Res<TickManager>, position: Query<&Position, With<PlayerId>>) {
-    let server_tick = tick_manager.tick();
-    for pos in position.iter() {
-        debug!(?server_tick, "Confirmed position: {:?}", pos);
     }
 }

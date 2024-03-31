@@ -2,10 +2,11 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use bevy::prelude::Resource;
 use tracing::{debug, error, trace};
 
+use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::NetServer;
 use crate::serialize::reader::ReadBuffer;
@@ -107,8 +108,6 @@ impl Connection {
 }
 
 /// The client id from a connect token, must be unique for each client.
-///
-/// Note that this is not the same as the [`ClientId`], which is used by the server to identify clients.
 pub type ClientId = u64;
 
 struct ConnectionCache {
@@ -977,13 +976,11 @@ impl<Ctx> NetcodeServer<Ctx> {
         Ok(())
     }
 
-    pub fn connected_client_ids(&self) -> Vec<ClientId> {
+    pub fn connected_client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.conn_cache
             .clients
             .iter()
-            .filter_map(|(id, c)| c.is_connected().then_some(id))
-            .cloned()
-            .collect()
+            .filter_map(|(id, c)| c.is_connected().then_some(id).copied())
     }
 
     pub fn client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
@@ -1012,8 +1009,8 @@ impl<Ctx> NetcodeServer<Ctx> {
 
 #[derive(Default)]
 pub(crate) struct NetcodeServerContext {
-    pub(crate) connections: Vec<ClientId>,
-    pub(crate) disconnections: Vec<ClientId>,
+    pub(crate) connections: Vec<id::ClientId>,
+    pub(crate) disconnections: Vec<id::ClientId>,
 }
 
 #[derive(Resource)]
@@ -1027,8 +1024,11 @@ impl NetServer for Server {
         Ok(())
     }
 
-    fn connected_client_ids(&self) -> Vec<ClientId> {
-        self.server.connected_client_ids()
+    fn connected_client_ids(&self) -> Vec<id::ClientId> {
+        self.server
+            .connected_client_ids()
+            .map(id::ClientId::Netcode)
+            .collect()
     }
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
@@ -1041,21 +1041,26 @@ impl NetServer for Server {
             .context("could not update server")
     }
 
-    fn recv(&mut self) -> Option<(crate::packet::packet::Packet, ClientId)> {
-        self.server.recv()
+    fn recv(&mut self) -> Option<(crate::packet::packet::Packet, id::ClientId)> {
+        self.server
+            .recv()
+            .map(|(packet, id)| (packet, id::ClientId::Netcode(id)))
     }
 
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> anyhow::Result<()> {
+    fn send(&mut self, buf: &[u8], client_id: id::ClientId) -> anyhow::Result<()> {
+        let id::ClientId::Netcode(client_id) = client_id else {
+            return Err(anyhow!("the client id must be of type Netcode"));
+        };
         self.server
             .send(buf, client_id, &mut self.io)
             .context("could not send packet")
     }
 
-    fn new_connections(&self) -> Vec<ClientId> {
+    fn new_connections(&self) -> Vec<id::ClientId> {
         self.server.cfg.context.connections.clone()
     }
 
-    fn new_disconnections(&self) -> Vec<ClientId> {
+    fn new_disconnections(&self) -> Vec<id::ClientId> {
         self.server.cfg.context.disconnections.clone()
     }
 
@@ -1071,10 +1076,10 @@ impl Server {
         let context = NetcodeServerContext::default();
         let mut cfg = ServerConfig::with_context(context)
             .on_connect(|id, ctx| {
-                ctx.connections.push(id);
+                ctx.connections.push(id::ClientId::Netcode(id));
             })
             .on_disconnect(|id, ctx| {
-                ctx.disconnections.push(id);
+                ctx.disconnections.push(id::ClientId::Netcode(id));
             });
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
