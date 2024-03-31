@@ -334,7 +334,7 @@ mod tests {
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
 
-        let time_manager = TimeManager::new(Duration::default());
+        let time_manager = TimeManager::default();
         let protocol = protocol();
 
         // Create message managers

@@ -15,7 +15,6 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
     color: PlayerColor,
-    replicate: Replicate,
 }
 
 impl PlayerBundle {
@@ -24,12 +23,6 @@ impl PlayerBundle {
             id: PlayerId(id),
             position: PlayerPosition(position),
             color: PlayerColor(color),
-            replicate: Replicate {
-                // prediction_target: NetworkTarget::None,
-                prediction_target: NetworkTarget::Only(vec![id]),
-                interpolation_target: NetworkTarget::AllExcept(vec![id]),
-                ..default()
-            },
         }
     }
 }

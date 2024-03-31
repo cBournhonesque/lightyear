@@ -1,25 +1,26 @@
 //! Defines the client bevy systems and run conditions
 use std::ops::DerefMut;
 
-use bevy::ecs::system::SystemChangeTick;
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
-#[cfg(feature = "xpbd_2d")]
-use bevy_xpbd_2d::prelude::PhysicsTime;
 use tracing::{error, trace};
 
-use crate::_reexport::ReplicationSend;
+use crate::_reexport::{ClientMarker, ReplicationSend};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{MainSet, TickManager, TimeManager};
+use crate::prelude::client::GlobalMetadata;
+use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::is_client_ready_to_send;
 
 pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
     marker: std::marker::PhantomData<P>,
@@ -37,32 +38,45 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
         app
             // SYSTEM SETS
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(PreUpdate, InternalMainSet::<ClientMarker>::Receive)
             .configure_sets(
                 PostUpdate,
                 (
                     // run sync before send because some send systems need to know if the client is synced
                     // we don't send packets every frame, but on a timer instead
-                    (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send)).chain(),
-                    MainSet::SendPackets.in_set(MainSet::Send),
+                    (
+                        SyncSet,
+                        InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
+                    )
+                        .chain(),
+                    InternalMainSet::<ClientMarker>::SendPackets
+                        .in_set(InternalMainSet::<ClientMarker>::Send),
                 ),
             )
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                (
-                    receive::<P>.in_set(MainSet::Receive),
-                    apply_deferred.in_set(MainSet::ReceiveFlush),
-                ),
+                receive::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
             )
-            // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
             .add_systems(
                 PostUpdate,
-                (
-                    send::<P>.in_set(MainSet::SendPackets),
-                    sync_update::<P>.in_set(MainSet::Sync),
-                ),
+                send::<P>.in_set(InternalMainSet::<ClientMarker>::SendPackets),
             );
+
+        // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+        if app.world.resource::<ClientConfig>().is_unified() {
+            app.add_systems(
+                PostUpdate,
+                unified_sync_update::<P>
+                    .in_set(SyncSet)
+                    .run_if(is_client_connected),
+            );
+        } else {
+            app.add_systems(
+                PostUpdate,
+                sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
+            );
+        }
     }
 }
 
@@ -76,6 +90,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
     //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
     //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
+    let unified = world.resource::<ClientConfig>().is_unified();
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
@@ -87,7 +102,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         let delta = world.resource::<Time<Virtual>>().delta();
 
                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                        time_manager.update(delta);
+                                        if !unified {
+                                            // careful: do not call time_manager.update() twice if we are unified!
+                                            time_manager.update(delta);
+                                        }
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
                                         let _ = netcode
                                             .try_update(delta.as_secs_f64())
@@ -223,44 +241,54 @@ pub(crate) fn sync_update<P: Protocol>(
     mut tick_events: EventWriter<TickEvent>,
 ) {
     let connection = connection.into_inner();
-    if netclient.is_connected() {
-        // NOTE: this triggers change detection
-        // Handle pongs, update RTT estimates, update client prediction time
-        if let Some(tick_event) = connection.sync_manager.update(
+    // NOTE: this triggers change detection
+    // Handle pongs, update RTT estimates, update client prediction time
+    if let Some(tick_event) = connection.sync_manager.update(
+        time_manager.deref_mut(),
+        tick_manager.deref_mut(),
+        &connection.ping_manager,
+        &config.interpolation.delay,
+        config.shared.server_send_interval,
+    ) {
+        tick_events.send(tick_event);
+    }
+
+    if connection.sync_manager.is_synced() {
+        if let Some(tick_event) = connection.sync_manager.update_prediction_time(
             time_manager.deref_mut(),
             tick_manager.deref_mut(),
             &connection.ping_manager,
-            &config.interpolation.delay,
-            config.shared.server_send_interval,
         ) {
             tick_events.send(tick_event);
         }
-
-        if connection.sync_manager.is_synced() {
-            if let Some(tick_event) = connection.sync_manager.update_prediction_time(
-                time_manager.deref_mut(),
-                tick_manager.deref_mut(),
-                &connection.ping_manager,
-            ) {
-                tick_events.send(tick_event);
-            }
-        }
-    }
-
-    // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-    if connection.sync_manager.is_synced() {
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);
+    }
+}
 
-        // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
-        // //  client and server. Enabling this will cause the simulations to diverge
-        // cfg_if! {
-        //     if #[cfg(feature = "xpbd_2d")] {
-        //         use bevy_xpbd_2d::prelude::Physics;
-        //         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-        //             physics_time.set_relative_speed(relative_speed);
-        //         }
-        //     }
-        // }
-    };
+/// Update the sync manager, if client and server are running in the same app
+/// There is not much need for syncing since the client and server time is the same:
+/// - client is immediately synced
+/// - there is no need for a separate prediction time, the server and client time are the same
+/// - we still want to update the interpolation time
+pub(crate) fn unified_sync_update<P: Protocol>(
+    connection: ResMut<ConnectionManager<P>>,
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
+    time_manager: Res<TimeManager>,
+) {
+    // reborrow Mut to enable split borrows
+    let connection = connection.into_inner();
+    connection.sync_manager.update_unified(
+        &time_manager,
+        &tick_manager,
+        &connection.ping_manager,
+        &config.interpolation.delay,
+        config.shared.server_send_interval,
+    );
+}
+
+/// Run Condition that returns true if the client is connected
+pub fn is_client_connected(netclient: Res<ClientConnection>) -> bool {
+    netclient.is_connected()
 }

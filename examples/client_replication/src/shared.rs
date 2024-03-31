@@ -1,13 +1,15 @@
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
+use lightyear::client::interpolation::Interpolated;
+use lightyear::client::prediction::Predicted;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(unified: bool) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
@@ -15,6 +17,7 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        unified,
     }
 }
 
@@ -23,9 +26,14 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(PostUpdate, draw_elements);
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // Generate pseudo-random color from id
@@ -61,7 +69,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
     cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {

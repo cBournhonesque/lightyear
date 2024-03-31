@@ -59,6 +59,7 @@ pub mod _reexport {
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
+    pub use crate::shared::sets::{ClientMarker, ServerMarker};
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;
@@ -86,12 +87,13 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
+        NetworkTarget, PrePredicted, ReplicateToClientOnly, ReplicateToServerOnly,
+        ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::metadata::ClientMetadata;
-    pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
+    pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::shared::time_manager::TimeManager;
@@ -108,7 +110,7 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
-        pub use crate::client::input::{InputConfig, InputSystemSet};
+        pub use crate::client::input::{InputConfig, InputManager, InputSystemSet};
         #[cfg(feature = "leafwing")]
         pub use crate::client::input_leafwing::{
             LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,
@@ -126,7 +128,9 @@ pub mod prelude {
         pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
+        pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
+        pub use crate::client::replication::ReplicationConfig;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
             Authentication, ClientConnection, NetClient, NetConfig,
@@ -142,6 +146,7 @@ pub mod prelude {
         };
         pub use crate::server::metadata::GlobalMetadata;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
+        pub use crate::server::replication::{ServerFilter, ServerReplicationSet};
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
         pub use crate::connection::server::{

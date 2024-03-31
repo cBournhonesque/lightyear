@@ -93,6 +93,19 @@ pub struct ClientSettings {
     /// The ip address of the server
     pub(crate) server_addr: Ipv4Addr,
 
+    /// By how many ticks an input press will be delayed?
+    /// This can be useful as a tradeoff between input delay and prediction accuracy.
+    /// If the input delay is greater than the RTT, then there won't ever be any mispredictions/rollbacks.
+    /// See [this article](https://www.snapnet.dev/docs/core-concepts/input-delay-vs-rollback/) for more information.
+    pub(crate) input_delay_ticks: u16,
+
+    /// If visual correction is enabled, we don't instantly snapback to the corrected position
+    /// when we need to rollback. Instead we interpolated between the current position and the
+    /// corrected position.
+    /// This controls the duration of the interpolation; the higher it is, the longer the interpolation
+    /// will take
+    pub(crate) correction_ticks_factor: f32,
+
     /// The port of the server
     pub(crate) server_port: u16,
 

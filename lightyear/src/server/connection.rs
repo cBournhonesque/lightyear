@@ -6,11 +6,11 @@ use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::HashSet;
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, info, trace, trace_span, warn};
 
 use crate::_reexport::{
     EntityUpdatesChannel, FromType, InputMessageKind, MessageProtocol, PingChannel,
-    ReplicationSend, ShouldBeInterpolated,
+    ReplicationSend, ServerMarker, ShouldBeInterpolated,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
@@ -20,7 +20,8 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{
-    Channel, ChannelKind, LightyearMapEntities, Message, PreSpawnedPlayerObject, ShouldBePredicted,
+    Channel, ChannelKind, LightyearMapEntities, Message, PreSpawnedPlayerObject,
+    ReplicateToServerOnly, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
@@ -31,7 +32,9 @@ use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
-use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
+use crate::shared::replication::components::{
+    NetworkTarget, Replicate, ReplicateToClientOnly, ReplicationGroupId,
+};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::ReplicationMessage;
@@ -172,6 +175,7 @@ impl<P: Protocol> ConnectionManager<P> {
         self.connections
             .iter_mut()
             .map(move |(client_id, connection)| {
+                trace!(input_buffer = ?connection.input_buffer, ?tick, ?client_id, "input buffer for client");
                 let received_input = connection.input_buffer.pop(tick);
                 let fallback = received_input.is_none();
 
@@ -408,8 +412,8 @@ impl<P: Protocol> Connection<P> {
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
 
-        // no need to check if `time_manager.is_ready_to_send()` since we only send packets when we are ready to send
-        if time_manager.is_ready_to_send() {
+        // no need to check if `time_manager.is_server_ready_to_send()` since we only send packets when we are ready to send
+        if time_manager.is_server_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
             // (and not have the delay between when we prepare the ping and when we send the packet)
@@ -552,6 +556,9 @@ impl<P: Protocol> Connection<P> {
 }
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+    type SetMarker = ServerMarker;
+    type BannedReplicateDirection = ReplicateToServerOnly;
+
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,
@@ -580,7 +587,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // debug!(?entity, "Spawning entity");
+        trace!(?entity, "Prepare entity spawn to client");
         let group_id = replicate.replication_group.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         self.apply_replication(target).try_for_each(|client_id| {

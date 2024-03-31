@@ -8,7 +8,6 @@ use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
-use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
@@ -21,7 +20,7 @@ const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
 const EPS: f32 = 0.0001;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(unified: bool) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
@@ -29,6 +28,7 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
+        unified,
     }
 }
 
@@ -37,6 +37,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
@@ -82,6 +83,10 @@ impl Plugin for SharedPlugin {
         //  In general, most input-handling needs to be handled in FixedUpdate to be correct.
         // app.add_systems(Update, shoot_bullet);
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
@@ -275,6 +280,7 @@ pub(crate) fn shoot_bullet(
                             replication_group: ReplicationGroup::new_id(id.0),
                             ..default()
                         },
+                        ReplicateToClientOnly,
                     ));
                 } else {
                     // on the client, just spawn the ball

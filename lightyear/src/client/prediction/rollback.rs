@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
 use bevy::prelude::{
-    Commands, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
-    World,
+    Commands, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut, Resource, With,
+    Without, World,
 };
 use tracing::{debug, error, trace, trace_span};
 
@@ -16,11 +16,31 @@ use crate::client::prediction::correction::Correction;
 use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::client::SyncMetadata;
-use crate::prelude::{PreSpawnedPlayerObject, TickManager};
+use crate::prelude::{PreSpawnedPlayerObject, Tick, TickManager};
 use crate::protocol::Protocol;
 
 use super::predicted_history::PredictionHistory;
-use super::{Predicted, Rollback, RollbackState};
+use super::Predicted;
+
+/// Resource that indicates whether we are in a rollback state or not
+#[derive(Resource)]
+pub struct Rollback {
+    pub state: RollbackState,
+    // pub rollback_groups: EntityHashMap<ReplicationGroupId, RollbackState>,
+}
+
+/// Resource that will track whether we should do rollback or not
+/// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
+#[derive(Debug, Copy, Clone)]
+pub enum RollbackState {
+    /// We are not in a rollback state
+    Default,
+    /// We should do a rollback starting from the current_tick
+    ShouldRollback {
+        // tick we are setting (to record history)
+        current_tick: Tick,
+    },
+}
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]

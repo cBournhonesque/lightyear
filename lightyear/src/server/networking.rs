@@ -4,9 +4,9 @@ use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, ServerMarker};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{MainSet, TickManager, TimeManager};
+use crate::prelude::{TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
@@ -14,7 +14,8 @@ use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, E
 use crate::server::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::sets::InternalMainSet;
+use crate::shared::time_manager::is_server_ready_to_send;
 
 pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
     config: Vec<NetConfig>,
@@ -43,24 +44,28 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // in practice this mostly just starts the io (spawns server io tasks, etc.)
             .insert_resource(ServerConnections::new(self.config.clone()))
             // SYSTEM SETS
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PreUpdate,
+                (InternalMainSet::<ServerMarker>::Receive,).chain(),
+            )
             .configure_sets(
                 PostUpdate,
                 (
                     // we don't send packets every frame, but on a timer instead
-                    MainSet::Send.run_if(is_ready_to_send),
-                    MainSet::SendPackets.in_set(MainSet::Send),
+                    InternalMainSet::<ServerMarker>::Send.run_if(is_server_ready_to_send),
+                    InternalMainSet::<ServerMarker>::SendPackets
+                        .in_set(InternalMainSet::<ServerMarker>::Send),
                 ),
             )
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
-                (
-                    receive::<P>.in_set(MainSet::Receive),
-                    apply_deferred.in_set(MainSet::ReceiveFlush),
-                ),
+                (receive::<P>.in_set(InternalMainSet::<ServerMarker>::Receive),),
             )
-            .add_systems(PostUpdate, (send::<P>.in_set(MainSet::SendPackets),));
+            .add_systems(
+                PostUpdate,
+                (send::<P>.in_set(InternalMainSet::<ServerMarker>::SendPackets),),
+            );
     }
 }
 
@@ -238,7 +243,7 @@ pub(crate) fn send<P: Protocol>(
 }
 
 /// Clear the received events
-/// We put this in a separate as send because we want to run this every frame, and
+/// We put this in a separate system as send because we want to run this every frame, and
 /// Send only runs every send_interval
 pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<ConnectionManager<P>>) {
     connection_manager.events.clear();

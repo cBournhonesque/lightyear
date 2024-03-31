@@ -2,11 +2,13 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::_reexport::ReplicationSend;
 use lightyear_macros::MessageInternal;
 
-use crate::prelude::{LightyearMapEntities, MainSet, ReplicationGroup, ReplicationSet};
+use crate::prelude::{LightyearMapEntities, ReplicationGroup};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
 /// The `ParentSync` component will be updated automatically when the `Parent` component changes,
@@ -37,11 +39,11 @@ impl LightyearMapEntities for ParentSync {
     }
 }
 
-pub struct HierarchySyncPlugin<P> {
-    _marker: std::marker::PhantomData<P>,
+pub struct HierarchySyncPlugin<P, R> {
+    _marker: std::marker::PhantomData<(P, R)>,
 }
 
-impl<P> Default for HierarchySyncPlugin<P> {
+impl<P, R> Default for HierarchySyncPlugin<P, R> {
     fn default() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -49,7 +51,7 @@ impl<P> Default for HierarchySyncPlugin<P> {
     }
 }
 
-impl<P: Protocol> HierarchySyncPlugin<P> {
+impl<P: Protocol, R: ReplicationSend<P>> HierarchySyncPlugin<P, R> {
     /// If `replicate.replicate_hierarchy` is true, replicate the entire hierarchy of the entity
     fn propagate_replicate(
         mut commands: Commands,
@@ -132,21 +134,24 @@ impl<P: Protocol> HierarchySyncPlugin<P> {
     }
 }
 
-impl<P: Protocol> Plugin for HierarchySyncPlugin<P> {
+impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchySyncPlugin<P, R> {
     fn build(&self, app: &mut App) {
         // TODO: does this work for client replication? (client replicating to other clients via the server?)
         // when we receive a ParentSync update from the remote, update the hierarchy
-        app.add_systems(PreUpdate, Self::update_parent.after(MainSet::ReceiveFlush))
-            .add_systems(
-                PostUpdate,
-                (
-                    (Self::propagate_replicate, Self::update_parent_sync).chain(),
-                    Self::removal_system,
-                )
-                    // we don't need to run these every frame, only every send_interval
-                    .in_set(MainSet::Send)
-                    .before(ReplicationSet::All),
-            );
+        app.add_systems(
+            PreUpdate,
+            Self::update_parent.after(InternalMainSet::<R::SetMarker>::Receive),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                (Self::propagate_replicate, Self::update_parent_sync).chain(),
+                Self::removal_system,
+            )
+                // we don't need to run these every frame, only every send_interval
+                .in_set(InternalMainSet::<R::SetMarker>::Send)
+                .before(InternalReplicationSet::<R::SetMarker>::All),
+        );
     }
 }
 

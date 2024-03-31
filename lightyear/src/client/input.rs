@@ -23,23 +23,26 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
+use crate::_reexport::ClientMarker;
 use bevy::prelude::{
-    not, App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs,
-    IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, SystemSet,
+    not, App, Condition, EventReader, EventWriter, Events, FixedPostUpdate, FixedPreUpdate, In,
+    IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
+use crate::client::metadata::GlobalMetadata;
 use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::{Rollback, RollbackState};
-use crate::client::sync::client_is_synced;
+use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::sync::{client_is_synced, SyncSet};
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserAction;
-use crate::prelude::TickManager;
+use crate::prelude::{server, SharedConfig, Tick, TickManager};
 use crate::protocol::Protocol;
-use crate::shared::sets::MainSet;
+use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,36 @@ pub struct InputConfig {
     /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
     ///  for the 3 last packets.
     pub packet_redundancy: u16,
+}
+
+/// Resource that handles buffering and sending inputs to the server
+///
+/// Note: it is advised to enable the feature `leafwing` and  switch to the `LeafwingInputPlugin`,
+/// which is more up-to-date and has more features.
+#[derive(Debug, Resource)]
+pub struct InputManager<A: UserAction> {
+    pub(crate) input_buffer: InputBuffer<A>,
+}
+
+impl<A: UserAction> Default for InputManager<A> {
+    fn default() -> Self {
+        Self {
+            input_buffer: InputBuffer::default(),
+        }
+    }
+}
+
+impl<A: UserAction> InputManager<A> {
+    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
+    /// to keep it for rollback)
+    pub(crate) fn get_input(&self, tick: Tick) -> Option<A> {
+        self.input_buffer.get(tick).cloned()
+    }
+
+    /// Buffer a user action for the given tick
+    pub fn add_input(&mut self, input: A, tick: Tick) {
+        self.input_buffer.set(tick, Some(input));
+    }
 }
 
 impl Default for InputConfig {
@@ -91,6 +124,8 @@ pub struct CurrentInput<T: UserAction> {
 
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<InputManager<P::Input>>();
         // EVENT
         app.add_event::<InputEvent<P::Input>>();
         // SETS
@@ -104,41 +139,48 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
                 .chain(),
         );
         app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
-        app.configure_sets(
-            PostUpdate,
-            (
-                // handle tick events from sync before sending the message
-                InputSystemSet::ReceiveTickEvents
-                    .after(MainSet::Sync)
-                    .run_if(client_is_synced::<P>),
-                // we send inputs only every send_interval
-                InputSystemSet::SendInputMessage
-                    .in_set(MainSet::Send)
-                    .run_if(client_is_synced::<P>),
-                MainSet::SendPackets,
-            )
-                .chain(),
-        );
+        if !app.world.resource::<ClientConfig>().is_unified() {
+            app.configure_sets(
+                PostUpdate,
+                (
+                    // handle tick events from sync before sending the message
+                    InputSystemSet::ReceiveTickEvents.after(SyncSet).run_if(
+                        // there are no tick events in unified mode
+                        client_is_synced::<P>,
+                    ),
+                    // we send inputs only every send_interval
+                    InputSystemSet::SendInputMessage
+                        .in_set(InternalMainSet::<ClientMarker>::Send)
+                        .run_if(
+                            // no need to send input messages via io if we are in unified mode
+                            client_is_synced::<P>,
+                        ),
+                    InternalMainSet::<ClientMarker>::SendPackets,
+                )
+                    .chain(),
+            );
+            app.add_systems(
+                PostUpdate,
+                (
+                    receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
+                    prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
+                ),
+            );
+        }
 
         // SYSTEMS
         app.add_systems(
             FixedPreUpdate,
-            write_input_event::<P>.in_set(InputSystemSet::WriteInputEvent),
+            write_input_event::<P::Input>.in_set(InputSystemSet::WriteInputEvent),
         );
         app.add_systems(
             FixedPostUpdate,
-            clear_input_events::<P>.in_set(InputSystemSet::ClearInputEvent),
+            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
         );
+
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
         // app.add_systems(PostUpdate, clear_input_events::<P>);
-        app.add_systems(
-            PostUpdate,
-            (
-                prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
-                receive_tick_events::<P>.in_set(InputSystemSet::ReceiveTickEvents),
-            ),
-        );
     }
 }
 
@@ -149,6 +191,7 @@ pub enum InputSystemSet {
     /// The User should add their system here!!
     BufferInputs,
     /// FixedUpdate system to get any inputs from the client. This should be run before the game/physics logic
+    /// We access inputs via Events because of rollbacks: during rollbacks, we will re-emit past inputs as [`InputEvent`]s
     WriteInputEvent,
     /// System Set to clear the input events (otherwise bevy clears events every frame, not every tick)
     ClearInputEvent,
@@ -172,17 +215,20 @@ pub enum InputSystemSet {
 
 /// System that clears the input events.
 /// It is necessary because events are cleared every frame, but we want to clear every tick instead
-fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::Input>>) {
+fn clear_input_events<A: UserAction>(mut input_events: EventReader<InputEvent<A>>) {
     input_events.clear();
 }
 
 // Create a system that reads from the input buffer and returns the inputs of all clients for the current tick.
 // The only tricky part is that events are cleared every frame, but we want to clear every tick instead
 // Do it in this system because we want an input for every tick
-fn write_input_event<P: Protocol>(
+fn write_input_event<A: UserAction>(
     tick_manager: Res<TickManager>,
-    connection: Res<ConnectionManager<P>>,
-    mut input_events: EventWriter<InputEvent<P::Input>>,
+    mut input_manager: ResMut<InputManager<A>>,
+    mut client_input_events: EventWriter<InputEvent<A>>,
+    // if we are running in unified mode, send the [`InputEvent`] directly to the server
+    server_input_events: Option<ResMut<Events<server::InputEvent<A>>>>,
+    metadata: Res<GlobalMetadata>,
     rollback: Option<Res<Rollback>>,
 ) {
     let tick = rollback.map_or(tick_manager.tick(), |rollback| match rollback.state {
@@ -191,35 +237,55 @@ fn write_input_event<P: Protocol>(
             current_tick: rollback_tick,
         } => rollback_tick,
     });
-    input_events.send(InputEvent::new(connection.get_input(tick), ()));
+    let input = input_manager.get_input(tick);
+    client_input_events.send(InputEvent::new(input_manager.get_input(tick), ()));
+    if let Some(mut server_input_events) = server_input_events {
+        if let Some(client_id) = metadata.client_id {
+            trace!(
+                "Send client input to server for local client: {}",
+                client_id
+            );
+            server_input_events.send(server::InputEvent::new(input, client_id));
+        }
+        // in unified mode, there is no prediction, so we can just pop the inputs instantly
+        input_manager.input_buffer.pop(tick);
+    }
 }
 
-fn receive_tick_events<P: Protocol>(
+/// Receive an [`TickEvent`] signifying that the local tick has been updated,
+/// and update the input buffer accordingly
+fn receive_tick_events<A: UserAction>(
     mut tick_events: EventReader<TickEvent>,
-    mut connection: ResMut<ConnectionManager<P>>,
+    mut input_manager: ResMut<InputManager<A>>,
 ) {
     for tick_event in tick_events.read() {
         match tick_event {
             TickEvent::TickSnap { old_tick, new_tick } => {
                 // if the tick got updated, update our inputs to match our new ticks
-                if let Some(start_tick) = connection.input_buffer.start_tick {
+                if let Some(start_tick) = input_manager.input_buffer.start_tick {
                     trace!(
                         "Receive tick snap event {:?}. Updating input buffer start_tick!",
                         tick_event
                     );
-                    connection.input_buffer.start_tick = Some(start_tick + (*new_tick - *old_tick));
+                    input_manager.input_buffer.start_tick =
+                        Some(start_tick + (*new_tick - *old_tick));
                 };
             }
         }
     }
 }
 
-// Take the input buffer, and prepare the input message to send to the server
+/// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol>(
-    mut connection: ResMut<ConnectionManager<P>>,
+    connection: Option<ResMut<ConnectionManager<P>>>,
+    mut input_manager: ResMut<InputManager<P::Input>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
 ) {
+    let Some(mut connection) = connection else {
+        return;
+    };
+
     let current_tick = tick_manager.tick();
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?current_tick, "prepare_input_message");
@@ -241,14 +307,18 @@ fn prepare_input_message<P: Protocol>(
     //  - buffer an input every frame; and require some redundancy (number of tick per frame)
     //  - or buffer an input only when we are sending, and require more redundancy
     // let message_len = 20 as u16;
-    let message = connection
+    let message = input_manager
         .input_buffer
         .create_message(tick_manager.tick(), message_len);
     // all inputs are absent
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        debug!("sending input message: {:?}", message.end_tick);
+        trace!(
+            ?current_tick,
+            "sending input message: {:?}",
+            message.end_tick
+        );
         connection
             .send_message::<InputChannel, _>(message)
             .unwrap_or_else(|err| {
@@ -261,6 +331,6 @@ fn prepare_input_message<P: Protocol>(
 
     // delete old input values
     let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
-    connection.input_buffer.pop(interpolation_tick);
+    input_manager.input_buffer.pop(interpolation_tick);
     // .pop(current_tick - (message_len + 1));
 }

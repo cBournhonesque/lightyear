@@ -2,7 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
-use bevy::prelude::{default, App, Plugin as PluginType};
+use bevy::prelude::*;
 use tracing::error;
 
 use crate::connection::server::NetServer;
@@ -10,7 +10,7 @@ use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::ServerEventsPlugin;
+use crate::server::events::{ConnectEvent, ServerEventsPlugin};
 use crate::server::input::InputPlugin;
 use crate::server::metadata::ClientMetadataPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
@@ -51,7 +51,7 @@ impl<P: Protocol> ServerPlugin<P> {
     }
 }
 
-impl<P: Protocol> PluginType for ServerPlugin<P> {
+impl<P: Protocol> Plugin for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let tick_duration = config.server_config.shared.tick.tick_duration;
@@ -65,19 +65,19 @@ impl<P: Protocol> PluginType for ServerPlugin<P> {
                 config.server_config.ping,
             ))
             // PLUGINS
+            .add_plugins(ServerEventsPlugin::<P>::default())
+            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
+            .add_plugins(ClientMetadataPlugin::<P>::default())
+            .add_plugins(InputPlugin::<P>::default())
+            .add_plugins(RoomPlugin::<P>::default())
             .add_plugins(SharedPlugin::<P> {
                 // TODO: move shared config out of server_config?
                 config: config.server_config.shared.clone(),
                 ..default()
-            })
-            .add_plugins(ServerEventsPlugin::<P>::default())
-            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
-            .add_plugins(ServerReplicationPlugin::<P>::new(tick_duration))
-            .add_plugins(ClientMetadataPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(RoomPlugin::<P>::default())
-            .add_plugins(TimePlugin {
-                send_interval: config.server_config.shared.server_send_interval,
             });
+
+        if !config.server_config.replication.disable {
+            app.add_plugins(ServerReplicationPlugin::<P>::new(tick_duration));
+        }
     }
 }

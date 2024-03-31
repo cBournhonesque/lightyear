@@ -14,43 +14,12 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig {
-                delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-                custom_interpolation_logic: false,
-            },
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::ReceiveFlush));
+        app.add_systems(PreUpdate, handle_connection.after(InternalMainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
@@ -67,14 +36,11 @@ impl Plugin for ExampleClientPlugin {
                 handle_interpolated_spawn,
             ),
         );
-        // app.add_systems(Update, connect.run_if(on_timer(Duration::from_secs(10))));
     }
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
-
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
@@ -98,10 +64,15 @@ pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMeta
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
-    mut connection_manager: ResMut<ClientConnectionManager>,
+    metadata: Res<GlobalMetadata>,
+    mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
+    let Some(client_id) = metadata.client_id else {
+        return;
+    };
     let tick = tick_manager.tick();
+    let mut input = Inputs::None;
     let mut direction = Direction {
         up: false,
         down: false,
@@ -121,16 +92,15 @@ pub(crate) fn buffer_input(
         direction.right = true;
     }
     if !direction.is_none() {
-        return connection_manager.add_input(Inputs::Direction(direction), tick);
+        input = Inputs::Direction(direction);
     }
     if keypress.pressed(KeyCode::Backspace) {
-        // currently, inputs is an enum and we can only add one input per tick
-        return connection_manager.add_input(Inputs::Delete, tick);
+        input = Inputs::Delete;
     }
     if keypress.pressed(KeyCode::Space) {
-        return connection_manager.add_input(Inputs::Spawn, tick);
+        input = Inputs::Spawn;
     }
-    return connection_manager.add_input(Inputs::None, tick);
+    input_manager.add_input(input, tick)
 }
 
 // The client input only gets applied to predicted entities that we own

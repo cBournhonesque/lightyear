@@ -4,7 +4,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use leafwing_input_manager::prelude::ActionState;
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -20,40 +20,12 @@ const INTEREST_RADIUS: f32 = 200.0;
 // Special room for the player entities (so that all player entities always see each other)
 const PLAYER_ROOM: RoomId = RoomId(6000);
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, Inputs>::default())
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
@@ -76,16 +48,26 @@ pub(crate) struct Global {
     pub client_id_to_room_id: HashMap<ClientId, RoomId>,
 }
 
-pub(crate) fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        "Server",
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
+pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
+    for connection in &mut connections.servers {
+        let _ = connection.start().inspect_err(|e| {
+            error!("Failed to start server: {:?}", e);
+        });
+    }
+    commands.spawn(
+        TextBundle::from_section(
+            "Server",
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(Style {
+            align_self: AlignSelf::End,
             ..default()
-        },
-    ));
+        }),
+    );
 
     // spawn dots in a grid
     for x in -NUM_CIRCLES..NUM_CIRCLES {
@@ -160,8 +142,8 @@ pub(crate) fn receive_message(mut messages: EventReader<MessageEvent<Message1>>)
 /// - we will add/remove other entities from the player's room only if they are close
 pub(crate) fn interest_management(
     mut room_manager: ResMut<RoomManager>,
-    player_query: Query<(&PlayerId, Ref<Position>), Without<CircleMarker>>,
-    circle_query: Query<(Entity, &Position), With<CircleMarker>>,
+    player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
+    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<Replicate>)>,
 ) {
     for (client_id, position) in player_query.iter() {
         if position.is_changed() {
@@ -184,7 +166,9 @@ pub(crate) fn interest_management(
 }
 
 /// Read client inputs and move players
-pub(crate) fn movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
+pub(crate) fn movement(
+    mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<InputMap<Inputs>>>,
+) {
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);
     }

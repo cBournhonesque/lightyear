@@ -12,34 +12,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
@@ -67,15 +39,19 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
             error!("Failed to start server: {:?}", e);
         });
     }
-    commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        "Server",
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
-            ..default()
-        },
-    ));
+    let mut style = Style::default();
+    style.align_self = AlignSelf::End;
+    commands.spawn(
+        TextBundle::from_section(
+            "Server",
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(style),
+    );
 }
 
 /// Server connection system, create a player upon connection
@@ -91,15 +67,21 @@ pub(crate) fn handle_connections(
         let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
-        let entity = commands.spawn(PlayerBundle::new(
-            *client_id,
-            Vec2::ZERO,
-            Color::hsl(h, s, l),
+        // server and client are running in the same app, no need to replicate to the local client
+        let replicate = Replicate {
+            prediction_target: NetworkTarget::Single(*client_id),
+            interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
+            ..default()
+        };
+        let entity = commands.spawn((
+            PlayerBundle::new(*client_id, Vec2::ZERO, Color::hsl(h, s, l)),
+            replicate,
         ));
         // Add a mapping from client id to entity id
         global
             .client_id_to_entity_id
             .insert(*client_id, entity.id());
+        info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
@@ -123,7 +105,7 @@ pub(crate) fn movement(
     for input in input_reader.read() {
         let client_id = input.context();
         if let Some(input) = input.input() {
-            debug!(
+            trace!(
                 "Receiving input: {:?} from client: {:?} on tick: {:?}",
                 input,
                 client_id,
@@ -138,10 +120,6 @@ pub(crate) fn movement(
     }
 }
 
-// NOTE: you can use either:
-// - ServerMut (which is a wrapper around a bunch of resources used in lightyear)
-// - ResMut<ConnectionManager>, which is the actual resource used to send the message in this case. This is more optimized
-//   because it enables more parallelism
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)
 pub(crate) fn send_message(

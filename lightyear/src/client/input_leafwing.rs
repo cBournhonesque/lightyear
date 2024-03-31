@@ -36,6 +36,7 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
+use crate::_reexport::ClientMarker;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -46,8 +47,9 @@ use crate::channel::builder::InputChannel;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
-use crate::client::prediction::{Predicted, Rollback, RollbackState};
-use crate::client::sync::client_is_synced;
+use crate::client::prediction::rollback::{Rollback, RollbackState};
+use crate::client::prediction::Predicted;
+use crate::client::sync::{client_is_synced, SyncSet};
 use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
@@ -55,7 +57,7 @@ use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{FixedUpdateSet, MainSet};
+use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 /// Run condition to control most of the systems in the LeafwingInputPlugin
@@ -104,7 +106,7 @@ pub struct LeafwingInputConfig<A> {
     /// Turn this on if you want to optimize the bandwidth that the client sends to the server.
     pub send_diffs_only: bool,
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub _marker: std::marker::PhantomData<A>,
+    pub _marker: PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputConfig<A> {
@@ -186,20 +188,19 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
-        app.configure_sets(FixedFirst, FixedUpdateSet::TickUpdate);
-        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferInputs);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferClientInputs);
         app.configure_sets(
             PostUpdate,
             // we send inputs only every send_interval
             (
-                MainSet::Sync,
+                SyncSet,
                 // handle tick events from sync before sending the message
-                // because sending the message might also modify the tick (when popping to interpolation tick)
                 InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
                 InputSystemSet::SendInputMessage
                     .run_if(client_is_synced::<P>)
-                    .in_set(MainSet::Send),
-                MainSet::SendPackets,
+                    .in_set(InternalMainSet::<ClientMarker>::Send),
+                InputSystemSet::CleanUp.run_if(client_is_synced::<P>),
+                InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
         );
@@ -214,7 +215,7 @@ where
                     .after(InputManagerSystem::Update)
                     .after(InputManagerSystem::ManualControl)
                     .after(InputManagerSystem::Tick),
-                add_action_state_buffer::<A>.after(PredictionSet::SpawnPredictionFlush),
+                add_action_state_buffer::<A>.after(PredictionSet::SpawnPrediction),
             ),
         );
         // NOTE: we do not tick the ActionState during FixedUpdate
@@ -235,7 +236,7 @@ where
                     .run_if(run_if_enabled::<A>.and_then(not(is_in_rollback))),
                 get_rollback_action_state::<A>.run_if(run_if_enabled::<A>.and_then(is_in_rollback)),
             )
-                .in_set(InputSystemSet::BufferInputs),
+                .in_set(InputSystemSet::BufferClientInputs),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -261,6 +262,17 @@ where
         // - one thing to understand is that if we have F1 TA ( frame 1 starts, and then we run one FixedUpdate schedule)
         //   we want to add the input value computed during F1 to the buffer for tick TA, because the tick will use this value
 
+        // only send messages if we are not in unified mode
+        // (in unified mode, the server can read directly from the ActionDiffEvent events)
+        if !app.world.resource::<ClientConfig>().is_unified() {
+            app.add_systems(
+                PostUpdate,
+                (prepare_input_message::<P, A>
+                    .in_set(InputSystemSet::SendInputMessage)
+                    .run_if(run_if_enabled::<A>),),
+            );
+        }
+
         // NOTE: we run the buffer_action_state system in the Update for several reasons:
         // - if the fixed update schedule is too slow, we still want to have the correct input values added to the buffer
         //   for example if I have F1 TA F2 F3 TB, and I get a new button press on F2; then I want
@@ -276,8 +288,8 @@ where
                 receive_tick_events::<A>
                     .in_set(InputSystemSet::ReceiveTickEvents)
                     .run_if(run_if_enabled::<A>),
-                prepare_input_message::<P, A>
-                    .in_set(InputSystemSet::SendInputMessage)
+                clean_buffers::<P, A>
+                    .in_set(InputSystemSet::CleanUp)
                     .run_if(run_if_enabled::<A>),
                 add_action_state_buffer_added_input_map::<A>,
                 toggle_actions::<A>,
@@ -292,15 +304,18 @@ pub enum InputSystemSet {
     /// System Set where we update the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
     /// - rollback: we fetch the ActionState value from the InputBuffers
-    BufferInputs,
+    BufferClientInputs,
 
     // POST UPDATE
     /// In case we suddenly changed the ticks during sync, we need to update out input buffers to the new ticks
     ReceiveTickEvents,
     /// System Set to prepare the input message
     SendInputMessage,
+    /// Clean up old values to prevent the buffers from growing indefinitely
+    CleanUp,
 }
 
+/// Add an [`InputBuffer`] and a [`ActionDiffBuffer`] to newly controlled entities
 fn add_action_state_buffer_added_input_map<A: LeafwingUserAction>(
     mut commands: Commands,
     entities: Query<
@@ -503,10 +518,13 @@ fn get_rollback_action_state<A: LeafwingUserAction>(
 }
 
 /// Read the action-diffs and store them in a buffer.
+///
 /// NOTE: we have an ActionState buffer used for rollbacks,
-/// and an ActionDiff buffer used for sending diffs to the server
+/// and an ActionDiff buffer used for sending diffs to the server.
+///
 /// maybe instead of an entire ActionState buffer, we can just store the oldest ActionState, and re-use the diffs
 /// to compute the next ActionStates?
+///
 /// NOTE: since we're using diffs. we need to make sure that all our diffs are sent correctly to the server.
 ///  If a diff is missing, maybe the server should make a request and we send them the entire ActionState?
 fn write_action_diffs<A: LeafwingUserAction>(
@@ -519,10 +537,12 @@ fn write_action_diffs<A: LeafwingUserAction>(
     let delay = config.prediction.input_delay_ticks as i16;
     let tick = tick_manager.tick() + delay;
     // we drain the events when reading them
+    // warn!("in write action diff");
+    // warn!(?action_diff_event, "write action diffs");
     for event in action_diff_event.drain() {
         if let Some(entity) = event.owner {
             if let Ok(mut diff_buffer) = diff_buffer_query.get_mut(entity) {
-                trace!(?entity, ?tick, ?delay, "write action diff");
+                // warn!(?entity, ?tick, ?delay, diff = ?event.action_diff, "write action diff");
                 diff_buffer.set(tick, event.action_diff);
             }
         } else {
@@ -532,22 +552,55 @@ fn write_action_diffs<A: LeafwingUserAction>(
             }
         }
     }
+    // action_diff_event.update();
 }
 
-// Take the input buffer, and prepare the input message to send to the server
+/// System that removes old entries from the ActionDiffBuffer and the InputBuffer
+fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
+    connection: Res<ConnectionManager<P>>,
+    tick_manager: Res<TickManager>,
+    global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
+    mut action_diff_buffer_query: Query<(Entity, &mut ActionDiffBuffer<A>), With<InputMap<A>>>,
+    global_input_buffer: Option<ResMut<InputBuffer<A>>>,
+    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
+) {
+    // delete old input values
+    // anything beyond interpolation tick should be safe to be deleted
+    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
+    trace!(
+        "popping all input buffers since interpolation tick: {:?}",
+        interpolation_tick
+    );
+    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
+        input_buffer.pop(interpolation_tick);
+    }
+    for (entity, mut action_diff_buffer) in action_diff_buffer_query.iter_mut() {
+        action_diff_buffer.pop(interpolation_tick);
+    }
+    if let Some(mut input_buffer) = global_input_buffer {
+        input_buffer.pop(interpolation_tick);
+    }
+    if let Some(mut action_diff_buffer) = global_action_diff_buffer {
+        action_diff_buffer.pop(interpolation_tick);
+    }
+}
+
+/// Send a message to the server containing the ActionDiffs for the last few ticks
+/// Also clear the ActionDiffBuffers and InputBuffers
 fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager<P>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
-    global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
-    global_input_buffer: Option<ResMut<InputBuffer<A>>>,
-    mut action_diff_buffer_query: Query<(
-        Entity,
-        Option<&Predicted>,
-        &mut ActionDiffBuffer<A>,
-        Option<&PrePredicted>,
-    )>,
-    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
+    global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,
+    action_diff_buffer_query: Query<
+        (
+            Entity,
+            &ActionDiffBuffer<A>,
+            Option<&Predicted>,
+            Option<&PrePredicted>,
+        ),
+        With<InputMap<A>>,
+    >,
 ) where
     P::Message: From<InputMessage<A>>,
 {
@@ -566,26 +619,13 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
     .unwrap();
     let redundancy = config.input.packet_redundancy;
     let message_len = redundancy * num_tick;
-
     let mut message = InputMessage::<A>::new(tick);
-
-    // delete old input values
-    // anything beyond interpolation tick should be safe to be deleted
-    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
-    trace!(
-        "popping all inputs since interpolation tick: {:?}",
-        interpolation_tick
-    );
-
-    for (entity, predicted, mut action_diff_buffer, pre_predicted) in
-        action_diff_buffer_query.iter_mut()
-    {
+    for (entity, action_diff_buffer, predicted, pre_predicted) in action_diff_buffer_query.iter() {
         debug!(
             ?tick,
-            ?interpolation_tick,
             ?entity,
             "Preparing input message with buffer: {:?}",
-            action_diff_buffer.as_ref()
+            action_diff_buffer
         );
 
         // Make sure that server can read the inputs correctly
@@ -604,7 +644,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
             //  so all the inputs sent between pre-predicted spawn and server-receives-pre-predicted will be lost
 
             // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
-            // for which client the inputs were!
+            //  for which client the inputs were!
 
             // 0. the entity is pre-predicted
             action_diff_buffer.add_to_message(
@@ -614,9 +654,8 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
                 InputTarget::PrePredictedEntity(entity),
             );
         } else {
-            // 1.if the entity is confirmed, we need to convert the entity to the server's entity
-            // 2. the entity is predicted.
-            // We need to first convert the entity to confirmed, and then from confirmed to remote
+            // 1. if the entity is confirmed, we need to convert the entity to the server's entity
+            // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
             if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
                 if let Some(server_entity) = connection
                     .replication_receiver
@@ -636,25 +675,10 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
                 debug!("not sending inputs because couldnt find server entity");
             }
         }
+    }
 
-        action_diff_buffer.pop(interpolation_tick);
-    }
-    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
-        trace!(
-            ?tick,
-            ?entity,
-            "Preparing input message with buffer: {}",
-            input_buffer.as_ref()
-        );
-        input_buffer.pop(interpolation_tick);
-        trace!("input buffer len: {:?}", input_buffer.buffer.len());
-    }
-    if let Some(mut action_diff_buffer) = global_action_diff_buffer {
+    if let Some(action_diff_buffer) = global_action_diff_buffer {
         action_diff_buffer.add_to_message(&mut message, tick, message_len, InputTarget::Global);
-        action_diff_buffer.pop(interpolation_tick);
-    }
-    if let Some(mut input_buffer) = global_input_buffer {
-        input_buffer.pop(interpolation_tick);
     }
 
     // all inputs are absent
@@ -737,7 +761,8 @@ fn receive_tick_events<A: LeafwingUserAction>(
 pub fn generate_action_diffs<A: LeafwingUserAction>(
     config: Res<LeafwingInputConfig<A>>,
     action_state: Option<ResMut<ActionState<A>>>,
-    action_state_query: Query<(Entity, &ActionState<A>)>,
+    // only generate diffs for entities that have an InputMap (i.e. client-side entities)
+    action_state_query: Query<(Entity, &ActionState<A>), With<InputMap<A>>>,
     mut action_diffs: EventWriter<ActionDiffEvent<A>>,
     mut previous_values: Local<HashMap<A, HashMap<Option<Entity>, f32>>>,
     mut previous_axis_pairs: Local<HashMap<A, HashMap<Option<Entity>, Vec2>>>,

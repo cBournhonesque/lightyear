@@ -9,13 +9,13 @@ use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
-use super::spawn_interpolated_entity;
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
 #[derive(Clone)]
@@ -124,13 +124,10 @@ pub enum InterpolationSet {
     // Update Sets,
     /// Spawn interpolation entities,
     SpawnInterpolation,
-    SpawnInterpolationFlush,
     /// Add component history for all interpolated entities' interpolated components
     SpawnHistory,
-    SpawnHistoryFlush,
     /// Set to handle interpolated/confirmed entities/components getting despawned
     Despawn,
-    DespawnFlush,
     /// Update component history, interpolation status
     PrepareInterpolation,
     /// Interpolate between last 2 server states. Has to be overriden if
@@ -213,28 +210,14 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             Update,
             (
                 InterpolationSet::SpawnInterpolation,
-                InterpolationSet::SpawnInterpolationFlush,
                 InterpolationSet::SpawnHistory,
-                InterpolationSet::SpawnHistoryFlush,
                 InterpolationSet::Despawn,
-                InterpolationSet::DespawnFlush,
                 InterpolationSet::PrepareInterpolation,
                 InterpolationSet::Interpolate,
             )
                 .chain(),
         );
         // SYSTEMS
-        app.add_systems(
-            Update,
-            (
-                // TODO: we want to run these flushes only if something actually happened in the previous set!
-                //  because running the flush-system is expensive (needs exclusive world access)
-                //  check how I can do this in bevy
-                apply_deferred.in_set(InterpolationSet::SpawnInterpolationFlush),
-                apply_deferred.in_set(InterpolationSet::SpawnHistoryFlush),
-                apply_deferred.in_set(InterpolationSet::DespawnFlush),
-            ),
-        );
         app.add_systems(
             Update,
             (

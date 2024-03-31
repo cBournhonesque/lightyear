@@ -9,13 +9,14 @@ use crate::client::diagnostics::ClientDiagnosticsPlugin;
 use crate::client::events::ClientEventsPlugin;
 use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
-use crate::client::metadata::MetadataPlugin;
+use crate::client::metadata::{GlobalMetadata, MetadataPlugin};
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::server::plugin::ServerPlugin;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::plugin::SharedPlugin;
@@ -51,6 +52,7 @@ impl<P: Protocol> ClientPlugin<P> {
     }
 }
 
+// TODO: create this as PluginGroup so that users can easily disable sub plugins?
 // TODO: override `ready` and `finish` to make sure that the transport/backend is connected
 //  before the plugin is ready
 impl<P: Protocol> Plugin for ClientPlugin<P> {
@@ -62,9 +64,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
 
         app
             // RESOURCES //
-            .insert_resource(config.client_config.clone())
             // TODO: move these into the Networking/Replication plugins
             .insert_resource(netclient)
+            .insert_resource(config.client_config.clone())
             .insert_resource(ConnectionManager::<P>::new(
                 config.protocol.channel_registry(),
                 config.client_config.packet,
@@ -73,22 +75,27 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                 config.client_config.prediction.input_delay_ticks,
             ))
             // PLUGINS //
-            .add_plugins(SharedPlugin::<P> {
-                config: config.client_config.shared.clone(),
-                ..default()
-            })
-            .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(ClientNetworkingPlugin::<P>::default())
-            .add_plugins(ClientReplicationPlugin::<P>::new(tick_duration))
-            .add_plugins(MetadataPlugin)
+            .add_plugins(ClientEventsPlugin::<P>::default())
+            .add_plugins(MetadataPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
+            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),
-            ))
-            .add_plugins(TimePlugin {
-                send_interval: config.client_config.shared.client_send_interval,
-            })
-            .add_plugins(ClientDiagnosticsPlugin::<P>::default());
+            ));
+
+        if !config.client_config.shared.unified {
+            app
+                // PLUGINS
+                .add_plugins(SharedPlugin::<P> {
+                    config: config.client_config.shared.clone(),
+                    ..default()
+                });
+        }
+
+        if config.client_config.replication.enable {
+            app.add_plugins(ClientReplicationPlugin::<P>::new(tick_duration));
+        }
     }
 }

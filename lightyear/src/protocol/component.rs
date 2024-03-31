@@ -16,8 +16,8 @@ use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::events::connection::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
-use crate::shared::replication::components::ShouldBeInterpolated;
 use crate::shared::replication::components::ShouldBePredicted;
+use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
 use crate::shared::replication::ReplicationSend;
 
 // client writes an Enum containing all their message type
@@ -35,8 +35,10 @@ pub trait ComponentProtocol:
     + Send
     + Sync
     + From<ShouldBePredicted>
+    + From<PrePredicted>
     + From<ShouldBeInterpolated>
     + TryInto<ShouldBePredicted>
+    + TryInto<PrePredicted>
 {
     type Protocol: Protocol;
 
@@ -205,6 +207,7 @@ cfg_if!(
             + ComponentKindBehaviour
             + FromType<ShouldBePredicted>
             + FromType<ShouldBeInterpolated>
+            + FromType<PrePredicted>
             + FromType<PreSpawnedPlayerObject>
             + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput1>>
             + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput2>>
@@ -232,6 +235,7 @@ cfg_if!(
             + ComponentKindBehaviour
             + FromType<ShouldBePredicted>
             + FromType<ShouldBeInterpolated>
+            + FromType<PrePredicted>
             + FromType<PreSpawnedPlayerObject>
         {
             type Protocol: Protocol;
