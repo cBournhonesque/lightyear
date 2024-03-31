@@ -22,4 +22,4 @@ pub(crate) mod message;
 pub(crate) mod prediction;
 
 mod networking;
-pub(crate) mod replication;
+pub mod replication;
