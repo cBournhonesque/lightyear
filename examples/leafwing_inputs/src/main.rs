@@ -178,8 +178,9 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
             ..default()
         },
         replication: client::ReplicationConfig {
-            // enable replication because we pre-spawn entities on the client
-            enable: true,
+            // enable send because we pre-spawn entities on the client
+            enable_send: true,
+            enable_receive: true,
         },
         ..default()
     };
@@ -218,6 +219,10 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(false),
         net: net_configs,
+        replication: lightyear::server::replication::ReplicationConfig {
+            enable_send: true,
+            enable_receive: true,
+        },
         ..default()
     };
     app.add_plugins((
@@ -257,6 +262,10 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(true),
         net: net_configs,
+        replication: lightyear::server::replication::ReplicationConfig {
+            enable_send: true,
+            enable_receive: true,
+        },
         ..default()
     };
     app.add_plugins((
@@ -280,8 +289,9 @@ fn combined_app(
             ..default()
         },
         replication: client::ReplicationConfig {
-            // enable replication because we pre-spawn entities on the client
-            enable: true,
+            // enable send because we pre-spawn entities on the client
+            enable_send: true,
+            enable_receive: true,
         },
         ..default()
     };

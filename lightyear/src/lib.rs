@@ -144,7 +144,9 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
-        pub use crate::server::replication::{ServerFilter, ServerReplicationSet};
+        pub use crate::server::replication::{
+            ReplicationConfig, ServerFilter, ServerReplicationSet,
+        };
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
         pub use crate::connection::server::{

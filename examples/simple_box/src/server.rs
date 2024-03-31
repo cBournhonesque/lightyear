@@ -63,18 +63,16 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.context();
+        let client_id = connection.client_id();
         // server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
-            prediction_target: NetworkTarget::Single(*client_id),
-            interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
+            prediction_target: NetworkTarget::Single(client_id),
+            interpolation_target: NetworkTarget::AllExceptSingle(client_id),
             ..default()
         };
-        let entity = commands.spawn((PlayerBundle::new(*client_id, Vec2::ZERO), replicate));
+        let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
         // Add a mapping from client id to entity id
-        global
-            .client_id_to_entity_id
-            .insert(*client_id, entity.id());
+        global.client_id_to_entity_id.insert(client_id, entity.id());
         info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
     for disconnection in disconnections.read() {

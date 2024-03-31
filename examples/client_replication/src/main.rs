@@ -172,7 +172,10 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },
-        replication: ReplicationConfig { enable: true },
+        replication: ReplicationConfig {
+            enable_send: true,
+            enable_receive: true,
+        },
         ..default()
     };
     let plugin_config = client::PluginConfig::new(client_config, protocol());
@@ -210,6 +213,10 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     let server_config = server::ServerConfig {
         shared: shared_config(false),
         net: net_configs,
+        replication: lightyear::server::replication::ReplicationConfig {
+            enable_send: true,
+            enable_receive: true,
+        },
         ..default()
     };
     app.add_plugins((
@@ -245,6 +252,10 @@ fn combined_app(
     let server_config = server::ServerConfig {
         shared: shared_config(true),
         net: net_configs,
+        replication: lightyear::server::replication::ReplicationConfig {
+            enable_send: true,
+            enable_receive: true,
+        },
         ..default()
     };
     app.add_plugins((
@@ -260,7 +271,10 @@ fn combined_app(
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },
-        replication: ReplicationConfig { enable: true },
+        replication: ReplicationConfig {
+            enable_send: true,
+            enable_receive: true,
+        },
         ..default()
     };
     let plugin_config = client::PluginConfig::new(client_config, protocol());
