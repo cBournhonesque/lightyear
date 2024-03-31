@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use crate::channel::builder::Channel;
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
 use crate::protocol::{EventContext, Protocol};
@@ -23,7 +23,6 @@ pub mod components;
 mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
-pub mod metadata;
 pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod send;

@@ -6,7 +6,8 @@ use bevy::prelude::Resource;
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
-use crate::connection::netcode::{ClientId, ConnectToken};
+use crate::connection::id::ClientId;
+use crate::connection::netcode::ConnectToken;
 
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::client::SteamConfig;

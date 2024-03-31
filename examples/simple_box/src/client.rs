@@ -5,6 +5,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
+use lightyear::client::prediction::plugin::is_connected;
 
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -19,7 +20,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, handle_connection.after(InternalMainSet::Receive));
+        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
@@ -44,33 +45,32 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
-pub(crate) fn handle_connection(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    // the `GlobalMetadata` resource holds metadata related to the client
-    // once the connection is established.
-    if metadata.is_changed() {
-        if let Some(client_id) = metadata.client_id {
-            commands.spawn(TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ));
-        }
+pub(crate) fn handle_connection(
+    mut commands: Commands,
+    connection: Res<ClientConnection>,
+    mut connection_event: EventReader<ConnectEvent>,
+) {
+    for event in connection_event.read() {
+        let client_id = connection.id();
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
     }
 }
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
+    let client_id = connection.id();
     let tick = tick_manager.tick();
     let mut input = Inputs::None;
     let mut direction = Direction {

@@ -2,7 +2,7 @@
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Entity, Resource, World};
+use bevy::prelude::{Entity, Local, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use serde::Serialize;
@@ -71,6 +71,8 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
+    // track if we are connected or not
+    pub(crate) is_connected: bool,
 }
 
 impl<P: Protocol> ConnectionManager<P> {
@@ -103,6 +105,7 @@ impl<P: Protocol> ConnectionManager<P> {
             ping_manager: PingManager::new(ping_config),
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
+            is_connected: false,
         }
     }
 
@@ -433,7 +436,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         self.update_priority(
             group_id,
             // the client id argument is ignored on the client
-            0,
+            ClientId::LocalClient,
             replicate.replication_group.priority(),
         )?;
         // Prediction/interpolation

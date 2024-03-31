@@ -12,7 +12,7 @@ use bevy::prelude::{
 use bevy::utils::{HashMap, HashSet};
 use tracing::{info, trace};
 
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
@@ -33,8 +33,8 @@ wrapping_id!(RoomId);
 /// This will be cleared every time the Server sends updates to the Client (every send_interval)
 #[derive(Resource, Debug, Default)]
 struct RoomEvents {
-    client_enter_room: EntityHashMap<ClientId, HashSet<RoomId>>,
-    client_leave_room: EntityHashMap<ClientId, HashSet<RoomId>>,
+    client_enter_room: HashMap<ClientId, HashSet<RoomId>>,
+    client_leave_room: HashMap<ClientId, HashSet<RoomId>>,
     entity_enter_room: EntityHashMap<Entity, HashSet<RoomId>>,
     entity_leave_room: EntityHashMap<Entity, HashSet<RoomId>>,
 }
@@ -42,7 +42,7 @@ struct RoomEvents {
 #[derive(Default, Debug)]
 struct RoomData {
     /// List of rooms that a client is in
-    client_to_rooms: EntityHashMap<ClientId, HashSet<RoomId>>,
+    client_to_rooms: HashMap<ClientId, HashSet<RoomId>>,
     /// List of rooms that an entity is in
     entity_to_rooms: EntityHashMap<Entity, HashSet<RoomId>>,
     /// Mapping from [`RoomId`] to the [`Room`]
@@ -575,7 +575,7 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // Client joins room
-        let client_id = 111;
+        let client_id = ClientId::LocalClient;
         let room_id = RoomId(0);
         stepper
             .server_app
@@ -735,7 +735,7 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // Client joins room
-        let client_id = 111;
+        let client_id = ClientId::LocalClient;
         let room_id = RoomId(0);
 
         // Spawn an entity on server
@@ -895,7 +895,7 @@ mod tests {
     fn test_move_client_entity_room() {
         let mut stepper = BevyStepper::default();
         // Client join room
-        let client_id = 111;
+        let client_id = ClientId::LocalClient;
         let room_id = RoomId(0);
         stepper
             .server_app
@@ -993,7 +993,7 @@ mod tests {
     fn test_move_entity_room() {
         let mut stepper = BevyStepper::default();
         // Client joins room 0 and 1
-        let client_id = 111;
+        let client_id = ClientId::LocalClient;
         let room_id = RoomId(0);
         let new_room_id = RoomId(1);
         stepper

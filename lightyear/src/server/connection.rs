@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource, World};
-use bevy::utils::HashSet;
+use bevy::utils::{HashMap, HashSet};
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
 use tracing::{debug, info, trace, trace_span, warn};
@@ -14,7 +14,7 @@ use crate::_reexport::{
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
@@ -47,7 +47,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
-    pub(crate) connections: EntityHashMap<ClientId, Connection<P>>,
+    pub(crate) connections: HashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents<P>,
 
@@ -71,7 +71,7 @@ impl<P: Protocol> ConnectionManager<P> {
         ping_config: PingConfig,
     ) -> Self {
         Self {
-            connections: EntityHashMap::default(),
+            connections: HashMap::default(),
             channel_registry,
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
@@ -139,19 +139,19 @@ impl<P: Protocol> ConnectionManager<P> {
         });
     }
 
+    /// Add a new [`Connection`] to the list of connections with the given [`ClientId`]
     pub(crate) fn add(&mut self, client_id: ClientId) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
             metrics::gauge!("connected_clients").increment(1.0);
 
             info!("New connection from id: {}", client_id);
-            let mut connection = Connection::new(
+            let connection = Connection::new(
                 &self.channel_registry,
                 self.packet_config.clone(),
                 self.ping_config.clone(),
             );
-            connection.events.push_connection();
-            self.new_clients.push(client_id);
+            self.events.push_connection(client_id);
             e.insert(connection);
         } else {
             info!("Client {} was already in the connections list", client_id);
@@ -163,7 +163,7 @@ impl<P: Protocol> ConnectionManager<P> {
         metrics::gauge!("connected_clients").decrement(1.0);
 
         info!("Client {} disconnected", client_id);
-        self.events.push_disconnects(client_id);
+        self.events.push_disconnection(client_id);
         self.connections.remove(&client_id);
     }
 
@@ -273,8 +273,9 @@ impl<P: Protocol> ConnectionManager<P> {
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                // receive
+                // receive events on the connection
                 let events = connection.receive(world, time_manager, tick_manager);
+                // move the events from the connection to the connection manager
                 self.events.push_events(*client_id, events);
 
                 // rebroadcast messages

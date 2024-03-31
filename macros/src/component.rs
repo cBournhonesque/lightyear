@@ -130,9 +130,6 @@ pub fn component_protocol_impl(
     input.variants.push(parse_quote! {
         ParentSync(ParentSync)
     });
-    input.variants.push(parse_quote! {
-        ClientMetadata(ClientMetadata)
-    });
     #[cfg(feature = "leafwing")]
     for i in 1..3 {
         let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
