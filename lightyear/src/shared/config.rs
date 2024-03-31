@@ -17,14 +17,26 @@ pub struct SharedConfig {
     pub server_send_interval: Duration,
     /// configuration for the [`FixedUpdate`](bevy::prelude::FixedUpdate) schedule
     pub tick: TickConfig,
-    /// do we run in unified mode? (client and server in the same process)
-    pub unified: bool,
+    pub mode: Mode,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+pub enum Mode {
+    #[default]
+    /// Run the client and server in two different apps
+    Separate,
+    /// Run the client and server in the same bevy app/world
+    /// NOTE: this is complicated to get right, and is not recommended, as it is hard to
+    /// distinguish between client entities and server entities
+    Unified,
+    /// Run only the server, but can support a local player
+    HostServer,
 }
 
 impl SharedConfig {
     /// Run condition that returns true if we are running in unified mode
     pub fn is_unified_condition(config: Option<Res<ServerConfig>>) -> bool {
-        config.map_or(false, |config| config.shared.unified)
+        config.map_or(false, |config| matches!(config.shared.mode, Mode::Unified))
     }
 }
 
@@ -35,7 +47,7 @@ impl Default for SharedConfig {
             client_send_interval: Duration::from_millis(0),
             server_send_interval: Duration::from_millis(0),
             tick: TickConfig::new(Duration::from_millis(16)),
-            unified: false,
+            mode: Mode::default(),
         }
     }
 }
