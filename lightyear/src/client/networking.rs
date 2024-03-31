@@ -37,20 +37,15 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
         app
             // SYSTEM SETS
-            .configure_sets(PreUpdate, InternalMainSet::<ClientMarker>::Receive)
             .configure_sets(
                 PostUpdate,
+                // run sync before send because some send systems need to know if the client is synced
+                // we don't send packets every frame, but on a timer instead
                 (
-                    // run sync before send because some send systems need to know if the client is synced
-                    // we don't send packets every frame, but on a timer instead
-                    (
-                        SyncSet,
-                        InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
-                    )
-                        .chain(),
-                    InternalMainSet::<ClientMarker>::SendPackets
-                        .in_set(InternalMainSet::<ClientMarker>::Send),
-                ),
+                    SyncSet,
+                    InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
+                )
+                    .chain(),
             )
             // SYSTEMS
             .add_systems(
@@ -120,7 +115,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                 let mut connect_event_writer =
                                                     world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
                                                 debug!("Client connected event");
-                                                connect_event_writer.send(ConnectEvent::new(()));
+                                                connect_event_writer.send(ConnectEvent::new(netcode.id()));
                                                 connection.is_connected = true;
                                             }
                                             // TODO: handle disconnection event

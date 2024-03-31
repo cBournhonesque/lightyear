@@ -152,6 +152,7 @@ impl<P: Protocol> ConnectionManager<P> {
                 self.ping_config.clone(),
             );
             self.events.push_connection(client_id);
+            self.new_clients.push(client_id);
             e.insert(connection);
         } else {
             info!("Client {} was already in the connections list", client_id);
@@ -611,7 +612,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 replication_sender.prepare_component_insert(
                     entity,
                     group_id,
-                    P::Components::from(ShouldBePredicted::default()),
+                    P::Components::from(ShouldBePredicted),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {

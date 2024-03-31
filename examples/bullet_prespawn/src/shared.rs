@@ -102,7 +102,7 @@ fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id.wrapping_mul(90)) % 360) as f32) / 360.0;
+    let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
@@ -277,7 +277,7 @@ pub(crate) fn shoot_bullet(
                             // the bullet is interpolated for other clients
                             interpolation_target: NetworkTarget::AllExceptSingle(id.0),
                             // NOTE: all predicted entities need to have the same replication group
-                            replication_group: ReplicationGroup::new_id(id.0),
+                            replication_group: ReplicationGroup::new_id(id.0.to_bits()),
                             ..default()
                         },
                         ReplicateToClientOnly,

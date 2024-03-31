@@ -180,7 +180,6 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         client::ClientPlugin::new(plugin_config),
         ExampleClientPlugin,
         SharedPlugin,
-        LeafwingInputPlugin::<MyProtocol, Inputs>::default(),
     ));
     app
 }

@@ -4,19 +4,23 @@ use bevy::utils::Duration;
 
 use crate::_reexport::{ComponentProtocol, ReplicationSend};
 use crate::prelude::Protocol;
-use crate::shared::replication::hierarchy::HierarchySyncPlugin;
+use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 
 pub(crate) struct ReplicationPlugin<P: Protocol, R: ReplicationSend<P>> {
     tick_duration: Duration,
+    enable_send: bool,
+    enable_receive: bool,
     _marker: std::marker::PhantomData<(P, R)>,
 }
 
 impl<P: Protocol, R: ReplicationSend<P>> ReplicationPlugin<P, R> {
-    pub(crate) fn new(tick_duration: Duration) -> Self {
+    pub(crate) fn new(tick_duration: Duration, enable_send: bool, enable_receive: bool) -> Self {
         Self {
             tick_duration,
+            enable_send,
+            enable_receive,
             _marker: std::marker::PhantomData,
         }
     }
@@ -28,49 +32,53 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
         let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
 
         // SYSTEM SETS //
-        app.configure_sets(
-            PreUpdate,
-            InternalMainSet::<R::SetMarker>::Receive.in_set(MainSet::Receive),
-        );
-        app.configure_sets(
-            PostUpdate,
-            (
-                InternalMainSet::<R::SetMarker>::SendPackets.in_set(MainSet::SendPackets),
-                InternalMainSet::<R::SetMarker>::Send.in_set(MainSet::Send),
-            ),
-        );
-        // NOTE: it's ok to run the replication systems less frequently than every frame
-        //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
-        app.configure_sets(
-            PostUpdate,
-            (
+        if self.enable_receive {
+            app.configure_sets(
+                PreUpdate,
+                InternalMainSet::<R::SetMarker>::Receive.in_set(MainSet::Receive),
+            );
+            // PLUGINS
+            app.add_plugins(HierarchyReceivePlugin::<P, R>::default());
+        }
+        if self.enable_send {
+            app.configure_sets(
+                PostUpdate,
                 (
-                    InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                    InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                    InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
-                )
-                    .in_set(InternalReplicationSet::<R::SetMarker>::All),
+                    InternalMainSet::<R::SetMarker>::SendPackets.in_set(MainSet::SendPackets),
+                    InternalMainSet::<R::SetMarker>::Send.in_set(MainSet::Send),
+                ),
+            );
+            // NOTE: it's ok to run the replication systems less frequently than every frame
+            //  because bevy's change detection detects changes since the last time the system ran (not since the last frame)
+            app.configure_sets(
+                PostUpdate,
                 (
-                    InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
-                    InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
-                    // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
-                    InternalMainSet::<R::SetMarker>::SendPackets,
-                )
-                    .in_set(InternalMainSet::<R::SetMarker>::Send),
-                (
-                    InternalReplicationSet::<R::SetMarker>::All,
-                    InternalMainSet::<R::SetMarker>::SendPackets,
-                )
-                    .chain(),
-            ),
-        );
-
-        // SYSTEMS
-        add_replication_send_systems::<P, R>(app);
-        P::Components::add_per_component_replication_send_systems::<R>(app);
-        app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
-
-        // PLUGINS
-        app.add_plugins(HierarchySyncPlugin::<P, R>::default());
+                    (
+                        InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
+                    )
+                        .in_set(InternalReplicationSet::<R::SetMarker>::All),
+                    (
+                        InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
+                        // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
+                        InternalMainSet::<R::SetMarker>::SendPackets,
+                    )
+                        .in_set(InternalMainSet::<R::SetMarker>::Send),
+                    (
+                        InternalReplicationSet::<R::SetMarker>::All,
+                        InternalMainSet::<R::SetMarker>::SendPackets,
+                    )
+                        .chain(),
+                ),
+            );
+            // SYSTEMS
+            add_replication_send_systems::<P, R>(app);
+            P::Components::add_per_component_replication_send_systems::<R>(app);
+            app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
+            // PLUGINS
+            app.add_plugins(HierarchySendPlugin::<P, R>::default());
+        }
     }
 }

@@ -1,9 +1,10 @@
 //! Module to handle the various possible ClientIds
 
+use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ClientId {
     /// A client id that is unique between netcode connections
     Netcode(u64),
@@ -14,6 +15,7 @@ pub enum ClientId {
 }
 
 impl ClientId {
+    // TODO: add impl From<ClientId> for u64?
     /// Convert a ClientId to a u64 representation
     pub fn to_bits(&self) -> u64 {
         match self {

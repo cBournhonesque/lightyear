@@ -19,7 +19,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, spawn_cursor.after(MainSet::Receive));
+        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
@@ -46,26 +46,29 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
-pub(crate) fn spawn_cursor(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    // the `GlobalMetadata` resource holds metadata related to the client
-    // once the connection is established.
-    if metadata.is_changed() {
-        if let Some(client_id) = metadata.client_id {
-            commands.spawn(TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ));
-            // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
-            commands.spawn(CursorBundle::new(
-                client_id,
-                Vec2::ZERO,
-                color_from_id(client_id),
-            ));
-        }
+/// Listen for events to know when the client is connected;
+/// - spawn a text entity to display the client id
+/// - spawn a client-owned cursor entity that will be replicated to the server
+pub(crate) fn handle_connection(
+    mut commands: Commands,
+    mut connection_event: EventReader<ConnectEvent>,
+) {
+    for event in connection_event.read() {
+        let client_id = event.client_id();
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
+        // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
+        commands.spawn(CursorBundle::new(
+            client_id,
+            Vec2::ZERO,
+            color_from_id(client_id),
+        ));
     }
 }
 
@@ -129,17 +132,14 @@ fn player_movement(
     }
 }
 
-/// Spawn a player when the space command is pressed
+/// Spawn a client-owned player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
-    // return early if we still don't have access to the client id
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
+    let client_id = connection.id();
 
     // do not spawn a new player if we already have one
     for player_id in players.iter() {
@@ -153,7 +153,7 @@ fn spawn_player(
                 Inputs::Spawn => {
                     debug!("got spawn input");
                     commands.spawn((
-                        PlayerBundle::new(client_id, Vec2::ZERO, color_from_id(client_id)),
+                        PlayerBundle::new(client_id, Vec2::ZERO),
                         // IMPORTANT: this lets the server know that the entity is pre-predicted
                         // when the server replicates this entity; we will get a Confirmed entity which will use this entity
                         // as the Predicted version
@@ -170,7 +170,7 @@ fn spawn_player(
 fn delete_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     players: Query<
         (Entity, &PlayerId),
         (
@@ -180,11 +180,7 @@ fn delete_player(
         ),
     >,
 ) {
-    // return early if we still don't have access to the client id
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
-
+    let client_id = connection.id();
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             match input {
@@ -209,7 +205,7 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
@@ -219,11 +215,7 @@ fn cursor_movement(
         )>,
     >,
 ) {
-    // return early if we still don't have access to the client id
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
-
+    let client_id = connection.id();
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
         if player_id.0 != client_id {
             return;

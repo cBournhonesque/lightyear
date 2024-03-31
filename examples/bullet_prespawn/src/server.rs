@@ -106,7 +106,7 @@ pub(crate) fn replicate_players(
                 // we want the other clients to apply interpolation for the player
                 interpolation_target: NetworkTarget::AllExceptSingle(*client_id),
                 // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
-                replication_group: ReplicationGroup::new_id(*client_id),
+                replication_group: ReplicationGroup::new_id(client_id.to_bits()),
                 ..default()
             };
             // We don't want to replicate the ActionState to the original client, since they are updating it with

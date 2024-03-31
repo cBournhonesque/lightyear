@@ -1027,7 +1027,7 @@ impl NetServer for Server {
     fn connected_client_ids(&self) -> Vec<id::ClientId> {
         self.server
             .connected_client_ids()
-            .map(|id| id::ClientId::Netcode(id))
+            .map(id::ClientId::Netcode)
             .collect()
     }
 

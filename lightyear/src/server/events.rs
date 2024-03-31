@@ -292,7 +292,7 @@ impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
 }
 
 /// Bevy [`Event`] emitted on the server on the frame where a client is connected
-pub type ConnectEvent = crate::shared::events::components::ConnectEvent<ClientId>;
+pub type ConnectEvent = crate::shared::events::components::ConnectEvent;
 /// Bevy [`Event`] emitted on the server on the frame where a client is disconnected
 pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<ClientId>;
 /// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received

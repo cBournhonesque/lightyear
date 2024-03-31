@@ -2,8 +2,6 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use replication::hierarchy::HierarchySyncPlugin;
-
 use crate::client::config::ClientConfig;
 use crate::prelude::{Protocol, TimeManager};
 use crate::shared::config::SharedConfig;

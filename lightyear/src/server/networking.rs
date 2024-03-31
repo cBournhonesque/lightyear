@@ -215,11 +215,10 @@ pub(crate) fn send<P: Protocol>(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
-            let netserver_idx = netservers
+            let netserver_idx = *netservers
                 .client_server_map
                 .get(client_id)
-                .context("could not find server connection corresponding to client id")?
-                .clone();
+                .context("could not find server connection corresponding to client id")?;
             let netserver = netservers
                 .servers
                 .get_mut(netserver_idx)

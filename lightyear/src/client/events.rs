@@ -48,7 +48,7 @@ impl<P: Protocol> Plugin for ClientEventsPlugin<P> {
 }
 
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the client on the frame where the connection is established
-pub type ConnectEvent = crate::shared::events::components::ConnectEvent<()>;
+pub type ConnectEvent = crate::shared::events::components::ConnectEvent;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the client on the frame where the connection is disconnected
 pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<()>;
 /// Bevy [`Event`](bevy::prelude::Event) emitted on the client to indicate the user input for the tick

@@ -59,7 +59,7 @@ struct RoomData {
 #[derive(Debug, Default)]
 pub struct Room {
     /// list of clients that are in the room
-    clients: EntityHashSet<ClientId>,
+    clients: HashSet<ClientId>,
     /// list of entities that are in the room
     entities: EntityHashSet<Entity>,
 }
@@ -575,7 +575,7 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // Client joins room
-        let client_id = ClientId::LocalClient;
+        let client_id = ClientId::Netcode(111);
         let room_id = RoomId(0);
         stepper
             .server_app
@@ -735,7 +735,7 @@ mod tests {
         let mut stepper = BevyStepper::default();
 
         // Client joins room
-        let client_id = ClientId::LocalClient;
+        let client_id = ClientId::Netcode(111);
         let room_id = RoomId(0);
 
         // Spawn an entity on server
@@ -895,7 +895,7 @@ mod tests {
     fn test_move_client_entity_room() {
         let mut stepper = BevyStepper::default();
         // Client join room
-        let client_id = ClientId::LocalClient;
+        let client_id = ClientId::Netcode(111);
         let room_id = RoomId(0);
         stepper
             .server_app
@@ -993,7 +993,7 @@ mod tests {
     fn test_move_entity_room() {
         let mut stepper = BevyStepper::default();
         // Client joins room 0 and 1
-        let client_id = ClientId::LocalClient;
+        let client_id = ClientId::Netcode(111);
         let room_id = RoomId(0);
         let new_room_id = RoomId(1);
         stepper
@@ -1083,7 +1083,7 @@ mod tests {
     fn test_move_client_room() {
         let mut stepper = BevyStepper::default();
         // Client joins room 0 and 1
-        let client_id = 111;
+        let client_id = ClientId::Netcode(111);
         let room_id = RoomId(0);
         let new_room_id = RoomId(1);
         stepper

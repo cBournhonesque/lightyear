@@ -294,11 +294,11 @@ fn test_multi_transport() {
     stepper.frame_step();
     stepper.frame_step();
     // since the clients are synced, the ClientMetadata entities should be replicated already
-    let client_metadata_1 = stepper
-        .client_app_1
-        .world
-        .query::<&ClientMetadata>()
-        .get_single(&stepper.client_app_1.world);
+    // let client_metadata_1 = stepper
+    //     .client_app_1
+    //     .world
+    //     .query::<&ClientMetadata>()
+    //     .get_single(&stepper.client_app_1.world);
     // dbg!(client_metadata_1);
 
     // // spawn an entity on the server

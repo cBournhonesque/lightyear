@@ -78,6 +78,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
+            .add_plugins(ClientReplicationPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),
@@ -90,10 +91,6 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                     config: config.client_config.shared.clone(),
                     ..default()
                 });
-        }
-
-        if config.client_config.replication.enable {
-            app.add_plugins(ClientReplicationPlugin::<P>::new(tick_duration));
         }
     }
 }

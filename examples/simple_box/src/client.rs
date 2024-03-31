@@ -45,13 +45,14 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
+/// Listen for events to know when the client is connected, and spawn a text entity
+/// to display the client id
 pub(crate) fn handle_connection(
     mut commands: Commands,
-    connection: Res<ClientConnection>,
     mut connection_event: EventReader<ConnectEvent>,
 ) {
     for event in connection_event.read() {
-        let client_id = connection.id();
+        let client_id = event.client_id();
         commands.spawn(TextBundle::from_section(
             format!("Client {}", client_id),
             TextStyle {
