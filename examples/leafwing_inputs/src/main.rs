@@ -148,7 +148,8 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         update_subscriber: Some(add_log_layer),
     }));
     if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
+        app.add_plugins(FilterQueryInspectorPlugin::<With<PlayerId>>::default());
+        // app.add_plugins(WorldInspectorPlugin::new());
     }
     let client_config = client::ClientConfig {
         shared: shared_config(Mode::Separate),

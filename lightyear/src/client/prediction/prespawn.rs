@@ -295,6 +295,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                     interpolated: None,
                     tick: confirmed_tick,
                 })
+                // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
             debug!(
                 "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",

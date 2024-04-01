@@ -135,7 +135,7 @@ pub(crate) fn replicate_players(
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             let mut replicate = Replicate {
-                // we want to replicate back to the original client, since they are using a pre-spawned entity
+                // we want to replicate back to the original client, since they are using a pre-predicted entity
                 replication_target: NetworkTarget::All,
                 // make sure that all entities that are predicted are part of the same replication group
                 replication_group: REPLICATION_GROUP,

@@ -260,13 +260,12 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PreUpdate,
             (
                 (
-                    // - we first check if the entity has a matching PreSpawnedPlayerObject
+                    // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
+                    // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
                     // - then we check if we should spawn a new predicted entity
-                    // (if we checked Pre-prediction first, we would remove the PrePredicted component, which means we would then spawn a Predicted entity)
-                    // - then we check if it is a PrePredicted entity
                     spawn_predicted_entity::<P>
                         .after(PreSpawnedPlayerObjectSet::Spawn)
-                        .before(PrePredictionSet::Spawn),
+                        .after(PrePredictionSet::Spawn),
                     // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
                     //  not at every fixed-update tick, since it only depends on server messages
                     despawn_confirmed,

@@ -43,6 +43,10 @@ impl PlayerBundle {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 replication_group: REPLICATION_GROUP,
+                // TODO: improve this! this should depend on the predict_all settings
+                // We still need to specify the interpolation/prediction target for this local entity
+                // in the case where we're running in HostServer mode
+                prediction_target: NetworkTarget::All,
                 ..default()
             },
             physics: PhysicsBundle::player(),

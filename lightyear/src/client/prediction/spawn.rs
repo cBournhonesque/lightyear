@@ -8,7 +8,7 @@ use crate::client::prediction::Predicted;
 use crate::connection::client::ClientConnection;
 use crate::prelude::{Protocol, ShouldBePredicted};
 use crate::shared::replication::components::PrePredicted;
-use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, Without};
+use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, With, Without};
 use tracing::{debug, error, trace, warn};
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
@@ -21,8 +21,9 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
     mut should_be_predicted_added: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
-    // only handle non pre-predicted entities
-    mut confirmed_entities: Query<Option<&mut Confirmed>, Without<PrePredicted>>,
+    // only handle predicted that have ShouldBePredicted
+    // (if the entity was handled by prespawn or prepredicted before, ShouldBePredicted gets removed)
+    mut confirmed_entities: Query<Option<&mut Confirmed>, With<ShouldBePredicted>>,
 ) {
     for message in should_be_predicted_added.read() {
         let confirmed_entity = message.entity();
@@ -70,6 +71,8 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     tick: confirmed_tick,
                 });
             }
+        } else {
+            warn!("The confirmed entity {confirmed_entity:?} does not have ShouldBePredicted; it was probably handled by prespawn or prepredicted already");
         }
     }
 }
