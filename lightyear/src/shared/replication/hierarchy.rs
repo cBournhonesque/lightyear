@@ -176,8 +176,8 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchyReceivePlugin<P, R>
 
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
     use std::ops::Deref;
-    use std::time::Duration;
 
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};

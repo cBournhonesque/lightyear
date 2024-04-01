@@ -61,8 +61,8 @@ pub struct Conditioner {
 impl Conditioner {
     pub fn build(&self) -> LinkConditionerConfig {
         LinkConditionerConfig {
-            incoming_latency: std::time::Duration::from_millis(self.latency_ms as u64),
-            incoming_jitter: std::time::Duration::from_millis(self.jitter_ms as u64),
+            incoming_latency: bevy::utils::Duration::from_millis(self.latency_ms as u64),
+            incoming_jitter: bevy::utils::Duration::from_millis(self.jitter_ms as u64),
             incoming_loss: self.packet_loss,
         }
     }

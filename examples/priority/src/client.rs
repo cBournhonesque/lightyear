@@ -1,6 +1,6 @@
+use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;

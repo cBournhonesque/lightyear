@@ -1,7 +1,7 @@
+use bevy::utils::Duration;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
-use std::time::Duration;
 
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::archetype::Archetype;

@@ -30,7 +30,7 @@ struct OnlyGammaDecode<T: DeserializeOwned>(#[bitcode(with_serde)] T);
 unsafe impl Send for ReadWordBuffer {}
 unsafe impl Sync for ReadWordBuffer {}
 
-pub(crate) struct BufferPool(pub(crate) object_pool::Pool<WordBuffer>);
+pub(crate) struct BufferPool(pub(crate) crate::utils::pool::Pool<WordBuffer>);
 
 fn new_buffer() -> WordBuffer {
     trace!("Allocating new buffer for ReadWordBuffer");
@@ -45,7 +45,7 @@ impl Default for BufferPool {
 
 impl BufferPool {
     pub fn new(cap: usize) -> Self {
-        Self(object_pool::Pool::new(cap, new_buffer))
+        Self(crate::utils::pool::Pool::new(cap, new_buffer))
     }
 
     pub fn start_read(&self, bytes: &[u8]) -> ReadWordBuffer {

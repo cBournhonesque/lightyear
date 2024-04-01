@@ -1,5 +1,5 @@
+use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr};
-use std::time::Duration;
 use std::{collections::VecDeque, net::SocketAddr};
 
 use anyhow::Context;

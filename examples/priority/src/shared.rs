@@ -1,5 +1,5 @@
+use bevy::utils::Duration;
 use std::ops::Deref;
-use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;

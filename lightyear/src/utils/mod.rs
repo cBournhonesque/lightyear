@@ -13,4 +13,5 @@ pub mod bevy;
 #[cfg(feature = "xpbd_2d")]
 pub mod bevy_xpbd_2d;
 
+pub(crate) mod pool;
 pub mod wrapping_id;
