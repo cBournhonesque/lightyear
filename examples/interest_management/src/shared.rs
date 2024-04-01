@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
+use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
 
@@ -11,7 +12,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::default(),
@@ -21,7 +22,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        unified,
+        mode,
     }
 }
 
@@ -62,8 +63,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Act
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    // players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
-    players: Query<(&Position, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
+    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {
         gizmos.rect(
@@ -76,10 +76,7 @@ pub(crate) fn draw_boxes(
 }
 
 /// System that draws circles
-pub(crate) fn draw_circles(
-    mut gizmos: Gizmos,
-    circles: Query<&Position, (With<CircleMarker>, Without<Replicate>)>,
-) {
+pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<CircleMarker>>) {
     for position in &circles {
         gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
     }

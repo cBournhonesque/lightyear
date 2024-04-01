@@ -11,9 +11,7 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{
-    NetworkTarget, Protocol, ReplicateToClientOnly, ReplicateToServerOnly, ShouldBePredicted,
-};
+use crate::prelude::{NetworkTarget, Protocol, ShouldBePredicted};
 use crate::shared::replication::components::{PrePredicted, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 use bevy::prelude::*;
@@ -151,7 +149,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
         mut query: Query<
             (Entity, &mut PrePredicted),
             // in unified mode, don't apply this to server->client entities
-            (Without<Confirmed>, Without<ReplicateToClientOnly>),
+            Without<Confirmed>,
         >,
     ) {
         for (entity, mut pre_predicted) in query.iter_mut() {
@@ -172,22 +170,13 @@ impl<P: Protocol> PrePredictionPlugin<P> {
     /// server
     pub(crate) fn clean_pre_predicted_entity(
         mut commands: Commands,
-        pre_predicted_entities: Query<
-            Entity,
-            (
-                Added<PrePredicted>,
-                Without<Confirmed>,
-                // in unified mode, don't apply this to server->client entities
-                Without<ReplicateToClientOnly>,
-            ),
-        >,
+        pre_predicted_entities: Query<Entity, (Added<PrePredicted>, Without<Confirmed>)>,
     ) {
         for entity in pre_predicted_entities.iter() {
             warn!(?entity, "removing replicate from pre-predicted entity");
             commands
                 .entity(entity)
                 .remove::<Replicate<P>>()
-                .remove::<ReplicateToServerOnly>()
                 .insert((Predicted {
                     confirmed_entity: None,
                 },));

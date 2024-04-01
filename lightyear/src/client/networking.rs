@@ -16,6 +16,7 @@ use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
@@ -35,6 +36,17 @@ impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
 
 impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
+        let config = app.world.resource::<ClientConfig>();
+        // in host server mode, we don't send/receive packets at all
+        if config.shared.mode == Mode::HostServer {
+            // we just update the connection/disconnection events
+            app.add_systems(
+                PreUpdate,
+                update_connect_events::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
+            );
+            return;
+        }
+
         app
             // SYSTEM SETS
             .configure_sets(
@@ -70,6 +82,31 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 PostUpdate,
                 sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
             );
+        }
+    }
+}
+
+/// In host server mode, we don't send/receive packets at all
+/// Just update the Connect/Disconnect events
+pub(crate) fn update_connect_events<P: Protocol>(
+    netcode: Res<ClientConnection>,
+    mut connection: ResMut<ConnectionManager<P>>,
+    mut connect_event_writer: EventWriter<ConnectEvent>,
+    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
+) {
+    if netcode.is_connected() {
+        // push an event indicating that we just connected
+        if !connection.is_connected {
+            debug!("Client connected event");
+            connect_event_writer.send(ConnectEvent::new(netcode.id()));
+            connection.is_connected = true;
+        }
+    } else {
+        // push an event indicating that we just disconnected
+        if connection.is_connected {
+            debug!("Client disconnected event");
+            disconnect_event_writer.send(DisconnectEvent::new(()));
+            connection.is_connected = false;
         }
     }
 }

@@ -20,7 +20,7 @@ pub struct SharedConfig {
     pub mode: Mode,
 }
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     #[default]
     /// Run the client and server in two different apps
@@ -37,6 +37,12 @@ impl SharedConfig {
     /// Run condition that returns true if we are running in unified mode
     pub fn is_unified_condition(config: Option<Res<ServerConfig>>) -> bool {
         config.map_or(false, |config| matches!(config.shared.mode, Mode::Unified))
+    }
+
+    pub fn is_host_server_condition(config: Option<Res<ServerConfig>>) -> bool {
+        config.map_or(false, |config| {
+            matches!(config.shared.mode, Mode::HostServer)
+        })
     }
 }
 

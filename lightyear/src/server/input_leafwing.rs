@@ -14,7 +14,7 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
-use crate::prelude::{client, SharedConfig, TickManager};
+use crate::prelude::{client, Mode, SharedConfig, TickManager};
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
@@ -90,7 +90,12 @@ where
                 receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
             ),
         );
-        if app.world.resource::<ServerConfig>().is_unified() {
+        app.add_systems(
+            FixedPreUpdate,
+            update_action_state::<A>.in_set(InputSystemSet::Update),
+        );
+
+        if app.world.resource::<ServerConfig>().shared.mode == Mode::HostServer {
             // in unified mode, we receive the action diffs directly from the ActionDiffEvent events
             app.configure_sets(
                 FixedPreUpdate,
@@ -108,15 +113,11 @@ where
                     .run_if(not(is_in_rollback)),
             );
         } else {
-            // we don't need this plugin in unified mode because it's already added on the client side
+            // we don't want to add this plugin in HostServer mode because it's already added on the client side
 
             // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
             app.add_plugins(InputManagerPlugin::<A>::server());
         }
-        app.add_systems(
-            FixedPreUpdate,
-            update_action_state::<A>.in_set(InputSystemSet::Update),
-        );
     }
 }
 

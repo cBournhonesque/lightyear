@@ -19,7 +19,6 @@ use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{
     Channel, ChannelKind, ClientId, LightyearMapEntities, Message, NetworkTarget,
-    ReplicateToClientOnly,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
@@ -28,9 +27,7 @@ use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
-use crate::shared::replication::components::{
-    Replicate, ReplicateToServerOnly, ReplicationGroupId,
-};
+use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::ReplicationMessage;
@@ -396,7 +393,6 @@ impl<P: Protocol> ConnectionManager<P> {
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     type SetMarker = ClientMarker;
-    type BannedReplicateDirection = ReplicateToClientOnly;
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,
@@ -436,7 +432,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         self.update_priority(
             group_id,
             // the client id argument is ignored on the client
-            ClientId::LocalClient,
+            ClientId::Local(0),
             replicate.replication_group.priority(),
         )?;
         // Prediction/interpolation

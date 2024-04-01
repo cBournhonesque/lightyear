@@ -12,10 +12,12 @@ use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
+use crate::connection::client::{ClientConnection, NetConfig};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::plugin::ServerPlugin;
+use crate::shared::config::Mode;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::plugin::SharedPlugin;
@@ -57,9 +59,15 @@ impl<P: Protocol> ClientPlugin<P> {
 impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-
         let netclient = config.client_config.net.clone().build_client();
-        let tick_duration = config.client_config.shared.tick.tick_duration;
+
+        // in this mode, the server acts as a client
+        if config.client_config.shared.mode == Mode::HostServer {
+            assert!(
+                matches!(config.client_config.net, NetConfig::Local { .. }),
+                "When running in HostServer mode, the client connection needs to be of type Local"
+            );
+        }
 
         app
             // RESOURCES //
@@ -76,17 +84,17 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
-            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
-            .add_plugins(ClientReplicationPlugin::<P>::default())
-            .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
-            .add_plugins(InterpolationPlugin::<P>::new(
-                config.client_config.interpolation.clone(),
-            ));
+            .add_plugins(InputPlugin::<P>::default());
 
-        if !config.client_config.shared.unified {
+        if config.client_config.shared.mode == Mode::Separate {
             app
                 // PLUGINS
+                .add_plugins(ClientDiagnosticsPlugin::<P>::default())
+                .add_plugins(ClientReplicationPlugin::<P>::default())
+                .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
+                .add_plugins(InterpolationPlugin::<P>::new(
+                    config.client_config.interpolation.clone(),
+                ))
                 .add_plugins(SharedPlugin::<P> {
                     config: config.client_config.shared.clone(),
                     ..default()

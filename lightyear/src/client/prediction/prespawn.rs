@@ -18,9 +18,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{
-    ReplicateToClientOnly, ReplicateToServerOnly, ShouldBePredicted, TickManager,
-};
+use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
@@ -166,8 +164,6 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
-                                        && type_id != TypeId::of::<ReplicateToClientOnly>()
-                                        && type_id != TypeId::of::<ReplicateToServerOnly>()
                                     {
                                         return protocol_component_types.get(&type_id).copied();
                                     }

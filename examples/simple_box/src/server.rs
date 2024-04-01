@@ -23,8 +23,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, send_message);
-        app.add_systems(Update, handle_connections);
+        app.add_systems(Update, (send_message, handle_connections));
     }
 }
 

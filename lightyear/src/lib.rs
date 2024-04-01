@@ -84,12 +84,11 @@ pub mod prelude {
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
-    pub use crate::shared::config::SharedConfig;
+    pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, PrePredicted, ReplicateToClientOnly, ReplicateToServerOnly,
-        ReplicationGroup, ReplicationMode, ShouldBePredicted,
+        NetworkTarget, PrePredicted, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;

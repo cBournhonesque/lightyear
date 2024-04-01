@@ -7,10 +7,7 @@ use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
 use crate::_reexport::ComponentProtocol;
-use crate::prelude::{
-    PreSpawnedPlayerObject, Protocol, ReplicateToClientOnly, ReplicateToServerOnly,
-    ShouldBePredicted, TickManager,
-};
+use crate::prelude::{PreSpawnedPlayerObject, Protocol, ShouldBePredicted, TickManager};
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 
 /// Compute the hash of the spawned entity by hashing the type of all its components along with the tick at which it was created
@@ -67,8 +64,6 @@ pub(crate) fn compute_hash<P: Protocol>(
                     if type_id != TypeId::of::<Replicate<P>>()
                         && type_id != TypeId::of::<ShouldBePredicted>()
                         && type_id != TypeId::of::<DespawnTracker>()
-                        && type_id != TypeId::of::<ReplicateToClientOnly>()
-                        && type_id != TypeId::of::<ReplicateToServerOnly>()
                     {
                         return protocol_component_types.get(&type_id).copied();
                     }

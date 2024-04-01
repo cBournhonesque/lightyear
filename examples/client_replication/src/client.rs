@@ -209,10 +209,7 @@ fn cursor_movement(
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
-        Or<(
-            (Without<Confirmed>, Without<Interpolated>),
-            With<ReplicateToServerOnly>,
-        )>,
+        Or<((Without<Confirmed>, Without<Interpolated>),)>,
     >,
 ) {
     let client_id = connection.id();

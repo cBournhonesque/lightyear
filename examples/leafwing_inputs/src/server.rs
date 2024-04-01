@@ -13,7 +13,7 @@ pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet, GameLayer};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
 use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
@@ -74,15 +74,12 @@ pub(crate) fn init(
     );
 
     // the ball is server-authoritative
-    // commands.spawn((
-    //     BallBundle::new(
-    //         Vec2::new(0.0, 0.0),
-    //         Color::AZURE,
-    //         // if true, we predict the ball on clients
-    //         global.predict_all,
-    //     ),
-    //     CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
-    // ));
+    commands.spawn(BallBundle::new(
+        Vec2::new(0.0, 0.0),
+        Color::AZURE,
+        // if true, we predict the ball on clients
+        global.predict_all,
+    ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection
@@ -167,10 +164,8 @@ pub(crate) fn replicate_players(
             warn!("Server player entity: {:?}", e.id());
             e.insert((
                 replicate,
-                ReplicateToClientOnly,
                 // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
-                CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
             ));
         }
     }

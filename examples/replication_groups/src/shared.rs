@@ -10,7 +10,7 @@ use lightyear::prelude::*;
 use crate::protocol::Direction;
 use crate::protocol::*;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::from_millis(40),
@@ -18,7 +18,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        unified,
+        mode,
     }
 }
 
@@ -101,20 +101,8 @@ pub(crate) fn shared_tail_behaviour(
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_snakes(
     mut gizmos: Gizmos,
-    players: Query<
-        (&PlayerPosition, &PlayerColor),
-        (
-            Without<Confirmed>,
-            Or<(With<Predicted>, With<Interpolated>)>,
-        ),
-    >,
-    tails: Query<
-        (&PlayerParent, &TailPoints),
-        (
-            Without<Confirmed>,
-            Or<(With<Predicted>, With<Interpolated>)>,
-        ),
-    >,
+    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    tails: Query<(&PlayerParent, &TailPoints), Without<Confirmed>>,
 ) {
     for (parent, points) in tails.iter() {
         debug!("drawing snake with parent: {:?}", parent.0);

@@ -16,20 +16,12 @@ use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
 
-/// If running in unified mode, the client and server entities will be in the same world.
-/// We will use PhysicsLayers to make suer that they do not collide with each other
-#[derive(PhysicsLayer)]
-pub(crate) enum GameLayer {
-    Server,
-    Client,
-}
-
 const FRAME_HZ: f64 = 60.0;
 const FIXED_TIMESTEP_HZ: f64 = 64.0;
 const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
@@ -37,7 +29,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        unified,
+        mode,
     }
 }
 

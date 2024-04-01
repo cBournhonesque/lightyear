@@ -20,7 +20,7 @@ const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
 const EPS: f32 = 0.0001;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
@@ -28,7 +28,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
-        unified,
+        mode,
     }
 }
 
@@ -280,7 +280,6 @@ pub(crate) fn shoot_bullet(
                             replication_group: ReplicationGroup::new_id(id.0.to_bits()),
                             ..default()
                         },
-                        ReplicateToClientOnly,
                     ));
                 } else {
                     // on the client, just spawn the ball
