@@ -10,14 +10,14 @@ use crate::packet::message::Message;
 use crate::prelude::ClientId;
 
 #[derive(Event)]
-pub struct ConnectEvent(ClientId);
+pub struct ConnectEvent<Ctx = ()>(Ctx);
 
-impl ConnectEvent {
-    pub fn new(client_id: ClientId) -> Self {
-        Self(client_id)
+impl<Ctx> ConnectEvent<Ctx> {
+    pub fn new(context: Ctx) -> Self {
+        Self(context)
     }
-    pub fn client_id(&self) -> ClientId {
-        self.0
+    pub fn context(&self) -> &Ctx {
+        &self.0
     }
 }
 

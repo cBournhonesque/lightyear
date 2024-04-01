@@ -87,18 +87,25 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
 }
 
 /// In host server mode, we don't send/receive packets at all
-/// Just update the Connect/Disconnect events
+///
+/// Just update the Connect/Disconnect events for both client and server
 pub(crate) fn update_connect_events<P: Protocol>(
     netcode: Res<ClientConnection>,
     mut connection: ResMut<ConnectionManager<P>>,
+    // client connect events
     mut connect_event_writer: EventWriter<ConnectEvent>,
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
+    // server connect events
+    mut server_connect_event_writer: EventWriter<crate::server::events::ConnectEvent>,
+    mut server_disconnect_event_writer: EventWriter<crate::server::events::DisconnectEvent>,
 ) {
     if netcode.is_connected() {
         // push an event indicating that we just connected
         if !connection.is_connected {
             debug!("Client connected event");
             connect_event_writer.send(ConnectEvent::new(netcode.id()));
+            server_connect_event_writer
+                .send(crate::server::events::ConnectEvent::new(netcode.id()));
             connection.is_connected = true;
         }
     } else {
@@ -106,6 +113,8 @@ pub(crate) fn update_connect_events<P: Protocol>(
         if connection.is_connected {
             debug!("Client disconnected event");
             disconnect_event_writer.send(DisconnectEvent::new(()));
+            server_disconnect_event_writer
+                .send(crate::server::events::DisconnectEvent::new(netcode.id()));
             connection.is_connected = false;
         }
     }

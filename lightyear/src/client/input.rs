@@ -150,7 +150,8 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
             app.add_systems(
                 FixedPreUpdate,
-                send_input_to_server::<P::Input>.in_set(InputSystemSet::WriteInputEvent),
+                send_input_directly_to_client_events::<P::Input>
+                    .in_set(InputSystemSet::WriteInputEvent),
             );
             return;
         }
@@ -334,16 +335,12 @@ fn prepare_input_message<P: Protocol>(
 
 /// In host server mode, we don't buffer inputs (because there is no rollback) and we don't send
 /// inputs through the network, we just send directly to the server's InputEvents
-fn send_input_to_server<A: UserAction>(
+fn send_input_directly_to_client_events<A: UserAction>(
     tick_manager: Res<TickManager>,
     mut input_manager: ResMut<InputManager<A>>,
     mut client_input_events: EventWriter<InputEvent<A>>,
-    // mut server_input_events: ResMut<Events<server::InputEvent<A>>>,
-    // client_connection: Res<ClientConnection>,
 ) {
     let tick = tick_manager.tick();
     let input = input_manager.input_buffer.pop(tick);
-    // let client_id = client_connection.id();
     client_input_events.send(InputEvent::new(input, ()));
-    // server_input_events.send(server::InputEvent::new(input, client_id));
 }

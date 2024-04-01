@@ -29,7 +29,7 @@ impl<P: Protocol, Ctx: EventContext> Plugin for EventsPlugin<P, Ctx> {
         P::Components::add_events::<Ctx>(app);
         P::Message::add_events::<Ctx>(app);
 
-        app.add_event::<ConnectEvent>()
+        app.add_event::<ConnectEvent<Ctx>>()
             .add_event::<DisconnectEvent<Ctx>>()
             .add_event::<EntitySpawnEvent<Ctx>>()
             .add_event::<EntityDespawnEvent<Ctx>>();

@@ -25,20 +25,11 @@ pub enum Mode {
     #[default]
     /// Run the client and server in two different apps
     Separate,
-    /// Run the client and server in the same bevy app/world
-    /// NOTE: this is complicated to get right, and is not recommended, as it is hard to
-    /// distinguish between client entities and server entities
-    Unified,
     /// Run only the server, but can support a local player
     HostServer,
 }
 
 impl SharedConfig {
-    /// Run condition that returns true if we are running in unified mode
-    pub fn is_unified_condition(config: Option<Res<ServerConfig>>) -> bool {
-        config.map_or(false, |config| matches!(config.shared.mode, Mode::Unified))
-    }
-
     pub fn is_host_server_condition(config: Option<Res<ServerConfig>>) -> bool {
         config.map_or(false, |config| {
             matches!(config.shared.mode, Mode::HostServer)

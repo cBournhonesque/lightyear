@@ -62,7 +62,7 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.client_id();
+        let client_id = *connection.context();
         // server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
             prediction_target: NetworkTarget::Single(client_id),

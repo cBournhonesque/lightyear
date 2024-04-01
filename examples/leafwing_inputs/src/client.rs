@@ -75,50 +75,46 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
 pub(crate) fn handle_connection(
     mut commands: Commands,
     mut connection_event: EventReader<ConnectEvent>,
-    config: Res<ClientConfig>,
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        // if running in host-server mode, only spawn new player entities for the local client
-        if config.shared.mode == Mode::Separate || client_id.is_local() {
-            commands.spawn(TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ));
-            let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-            // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-            let id = commands
-                .spawn(PlayerBundle::new(
-                    client_id,
-                    Vec2::new(-50.0, y),
-                    InputMap::new([
-                        (PlayerActions::Up, KeyCode::KeyW),
-                        (PlayerActions::Down, KeyCode::KeyS),
-                        (PlayerActions::Left, KeyCode::KeyA),
-                        (PlayerActions::Right, KeyCode::KeyD),
-                    ]),
-                ))
-                .id();
-            warn!("pre-predicted entity: {id:?}");
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
+        let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+        // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
+        let id = commands
+            .spawn(PlayerBundle::new(
+                client_id,
+                Vec2::new(-50.0, y),
+                InputMap::new([
+                    (PlayerActions::Up, KeyCode::KeyW),
+                    (PlayerActions::Down, KeyCode::KeyS),
+                    (PlayerActions::Left, KeyCode::KeyA),
+                    (PlayerActions::Right, KeyCode::KeyD),
+                ]),
+            ))
+            .id();
+        warn!("pre-predicted entity: {id:?}");
 
-            // commands.spawn((
-            //     PlayerBundle::new(
-            //         client_id,
-            //         Vec2::new(50.0, y),
-            //         InputMap::new([
-            //             (PlayerActions::Up, KeyCode::ArrowUp),
-            //             (PlayerActions::Down, KeyCode::ArrowDown),
-            //             (PlayerActions::Left, KeyCode::ArrowLeft),
-            //             (PlayerActions::Right, KeyCode::ArrowRight),
-            //         ]),
-            //     ),
-            //     CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-            // ));
-        }
+        // commands.spawn((
+        //     PlayerBundle::new(
+        //         client_id,
+        //         Vec2::new(50.0, y),
+        //         InputMap::new([
+        //             (PlayerActions::Up, KeyCode::ArrowUp),
+        //             (PlayerActions::Down, KeyCode::ArrowDown),
+        //             (PlayerActions::Left, KeyCode::ArrowLeft),
+        //             (PlayerActions::Right, KeyCode::ArrowRight),
+        //         ]),
+        //     ),
+        //     CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
+        // ));
     }
 }
 
