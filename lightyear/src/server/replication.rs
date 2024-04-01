@@ -113,29 +113,28 @@ fn add_prediction_interpolation_components<P: Protocol>(
 ) {
     let local_client = connection.id();
     for (entity, replicate, pre_predicted) in query.iter() {
-        if replicate.is_added() || replicate.is_changed() {
-            if replicate.replication_target.should_send_to(&local_client) {
-                if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none())
-                {
-                    // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
-                    // in that case, just remove it and add Predicted instead
-                    commands
-                        .entity(entity)
-                        .insert(Predicted {
-                            confirmed_entity: Some(entity),
-                        })
-                        .remove::<PrePredicted>();
-                }
-                if replicate.prediction_target.should_send_to(&local_client) {
-                    commands.entity(entity).insert(Predicted {
+        if (replicate.is_added() || replicate.is_changed())
+            && replicate.replication_target.should_send_to(&local_client)
+        {
+            if pre_predicted.is_some_and(|pre_predicted| pre_predicted.client_entity.is_none()) {
+                // PrePredicted's client_entity is None if it's a pre-predicted entity that was spawned by the local client
+                // in that case, just remove it and add Predicted instead
+                commands
+                    .entity(entity)
+                    .insert(Predicted {
                         confirmed_entity: Some(entity),
-                    });
-                }
-                if replicate.interpolation_target.should_send_to(&local_client) {
-                    commands.entity(entity).insert(Interpolated {
-                        confirmed_entity: entity,
-                    });
-                }
+                    })
+                    .remove::<PrePredicted>();
+            }
+            if replicate.prediction_target.should_send_to(&local_client) {
+                commands.entity(entity).insert(Predicted {
+                    confirmed_entity: Some(entity),
+                });
+            }
+            if replicate.interpolation_target.should_send_to(&local_client) {
+                commands.entity(entity).insert(Interpolated {
+                    confirmed_entity: entity,
+                });
             }
         }
     }

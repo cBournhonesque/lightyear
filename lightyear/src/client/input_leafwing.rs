@@ -980,7 +980,6 @@ mod tests {
             .server_app
             .world
             .spawn((
-                InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
             ))
