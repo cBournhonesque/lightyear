@@ -69,7 +69,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
+    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
     cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {

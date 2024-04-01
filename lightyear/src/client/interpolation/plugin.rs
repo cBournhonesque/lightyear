@@ -4,12 +4,15 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{
-    insert_interpolated_component, interpolate, update_interpolate_status,
+    add_interpolate_status_host_server, insert_interpolated_component, interpolate,
+    update_interpolate_status, update_interpolate_status_host_server,
 };
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
+use crate::prelude::Mode;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
@@ -138,17 +141,33 @@ pub enum InterpolationSet {
     VisualInterpolation,
 }
 
-// We want to run prediction:
-// - after we received network events (PreUpdate)
-// - before we run physics FixedUpdate (to not have to redo-them)
-
-// - a PROBLEM is that ideally we would like to rollback the physics simulation
-//   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
-//  the tick we rollback to would not be the current client tick ?
+/// Add per-component systems related to interpolation
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::Components: SyncMetadata<C>,
 {
+    if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
+        if P::Components::mode() == ComponentSyncMode::Full {
+            // app.configure_sets(
+            //     Update,
+            //     (
+            //         InterpolationSet::PrepareInterpolation,
+            //         InterpolationSet::Interpolate,
+            //     )
+            //         .chain(),
+            // );
+            // app.add_systems(
+            //     Update,
+            //     (
+            //         add_interpolate_status_host_server::<C, P>,
+            //         update_interpolate_status_host_server::<C, P>,
+            //     )
+            //         .in_set(InterpolationSet::PrepareInterpolation),
+            // );
+        }
+        return;
+    }
+
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
@@ -198,6 +217,18 @@ where
 
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
+        let config = app.world.resource::<ClientConfig>();
+        if config.shared.mode == Mode::HostServer {
+            if self.config.custom_interpolation_logic {
+                // when running in HostServer mode, there is no separate interpolation entity, since the
+                // server has access to the full state of the game.
+                // However the user might have custom interpolation logic that relies on the InterpolationStatus
+                // component. We will therefore add this component to each entity that has Interpolated.
+                P::Components::add_prepare_interpolation_systems(app);
+            }
+            return;
+        }
+
         P::Components::add_prepare_interpolation_systems(app);
         if !self.config.custom_interpolation_logic {
             P::Components::add_interpolation_systems(app);

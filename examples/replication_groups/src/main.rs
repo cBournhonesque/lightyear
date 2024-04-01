@@ -151,6 +151,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         shared: shared_config(Mode::Separate),
         net: net_config,
         interpolation: InterpolationConfig {
+            custom_interpolation_logic: true,
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },
@@ -238,6 +239,7 @@ fn combined_app(
         shared: shared_config(Mode::HostServer),
         net: client_net_config,
         interpolation: InterpolationConfig {
+            custom_interpolation_logic: true,
             delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
             ..default()
         },

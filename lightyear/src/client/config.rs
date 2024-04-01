@@ -100,9 +100,3 @@ pub struct ClientConfig {
     pub interpolation: InterpolationConfig,
     pub replication: ReplicationConfig,
 }
-
-impl ClientConfig {
-    pub(crate) fn is_unified(&self) -> bool {
-        self.shared.mode == Mode::Unified
-    }
-}

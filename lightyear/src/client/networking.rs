@@ -70,19 +70,10 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             );
 
         // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
-        if app.world.resource::<ClientConfig>().is_unified() {
-            app.add_systems(
-                PostUpdate,
-                unified_sync_update::<P>
-                    .in_set(SyncSet)
-                    .run_if(is_client_connected),
-            );
-        } else {
-            app.add_systems(
-                PostUpdate,
-                sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
-            );
-        }
+        app.add_systems(
+            PostUpdate,
+            sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
+        );
     }
 }
 
@@ -130,7 +121,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
     //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
     //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
-    let unified = world.resource::<ClientConfig>().is_unified();
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
@@ -142,10 +132,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         let delta = world.resource::<Time<Virtual>>().delta();
 
                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                        if !unified {
-                                            // careful: do not call time_manager.update() twice if we are unified!
-                                            time_manager.update(delta);
-                                        }
+                                        time_manager.update(delta);
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
                                         let _ = netcode
                                             .try_update(delta.as_secs_f64())
@@ -306,28 +293,6 @@ pub(crate) fn sync_update<P: Protocol>(
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);
     }
-}
-
-/// Update the sync manager, if client and server are running in the same app
-/// There is not much need for syncing since the client and server time is the same:
-/// - client is immediately synced
-/// - there is no need for a separate prediction time, the server and client time are the same
-/// - we still want to update the interpolation time
-pub(crate) fn unified_sync_update<P: Protocol>(
-    connection: ResMut<ConnectionManager<P>>,
-    config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
-    time_manager: Res<TimeManager>,
-) {
-    // reborrow Mut to enable split borrows
-    let connection = connection.into_inner();
-    connection.sync_manager.update_unified(
-        &time_manager,
-        &tick_manager,
-        &connection.ping_manager,
-        &config.interpolation.delay,
-        config.shared.server_send_interval,
-    );
 }
 
 /// Run Condition that returns true if the client is connected
