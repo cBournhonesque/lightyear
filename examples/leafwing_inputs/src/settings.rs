@@ -5,10 +5,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
 use serde::{Deserialize, Serialize};
-
-use lightyear::prelude::client::{Authentication, SteamConfig};
+#[cfg(not(target_family = "wasm"))]
+use lightyear::prelude::client::{SteamConfig};
+use lightyear::prelude::client::{Authentication};
 use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
-
+#[cfg(not(target_family = "wasm"))]
 use crate::server::Certificate;
 use crate::{client, server};
 
@@ -20,6 +21,7 @@ pub enum ClientTransports {
         certificate_digest: String,
     },
     WebSocket,
+    #[cfg(not(target_family = "wasm"))]
     Steam {
         app_id: u32,
     },
@@ -292,7 +294,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
-                certificate_digest,
+                certificate_digest: certificate_digest.to_string()j,
             },
         ),
         ClientTransports::WebSocket => build_client_netcode_config(
@@ -302,6 +304,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
             &settings.shared,
             TransportConfig::WebSocketClient { server_addr },
         ),
+        #[cfg(not(target_family = "wasm"))]
         ClientTransports::Steam { app_id } => client::NetConfig::Steam {
             config: SteamConfig {
                 server_addr,

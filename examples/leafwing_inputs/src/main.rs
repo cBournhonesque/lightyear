@@ -221,6 +221,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
 }
 
 /// An app that contains both the client and server plugins
+#[cfg(not(target_family = "wasm"))]
 fn combined_app(
     settings: Settings,
     extra_transport_configs: Vec<TransportConfig>,
