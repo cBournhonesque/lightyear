@@ -91,7 +91,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
     ) {
         for message in should_be_predicted_added.read() {
             let confirmed_entity = message.entity();
-            warn!("Received entity with PrePredicted from server: {confirmed_entity:?}");
+            debug!("Received entity with PrePredicted from server: {confirmed_entity:?}");
             if let Ok(pre_predicted) = confirmed_entities.get_mut(confirmed_entity) {
                 let Some(predicted_entity) = pre_predicted.client_entity else {
                     error!("The PrePredicted component received from the server does not contain the pre-predicted entity!");
@@ -104,7 +104,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
                 );
                     continue;
                 };
-                warn!(
+                debug!(
                     "Re-use pre-spawned predicted entity {:?} for confirmed: {:?}",
                     predicted_entity, confirmed_entity
                 );
@@ -154,7 +154,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
     ) {
         for (entity, mut pre_predicted) in query.iter_mut() {
             if pre_predicted.is_added() {
-                warn!(
+                debug!(
                 client_id = ?connection.id(),
                 entity = ?entity,
             "fill in pre-prediction info!");
@@ -173,7 +173,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
         pre_predicted_entities: Query<Entity, (Added<PrePredicted>, Without<Confirmed>)>,
     ) {
         for entity in pre_predicted_entities.iter() {
-            warn!(?entity, "removing replicate from pre-predicted entity");
+            debug!(?entity, "removing replicate from pre-predicted entity");
             commands
                 .entity(entity)
                 .remove::<Replicate<P>>()

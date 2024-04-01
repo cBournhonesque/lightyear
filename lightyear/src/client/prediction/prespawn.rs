@@ -181,11 +181,11 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                         // prespawn.hash = Some(hasher.finish());
 
                         let new_hash = hasher.finish();
-                        warn!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                        trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                         new_hash
                     },
                     |hash| {
-                        warn!(
+                        trace!(
                             ?entity,
                             ?tick,
                             ?hash,
@@ -241,13 +241,13 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
             let server_prespawn = query.get(confirmed_entity).unwrap();
 
             let Some(server_hash) = server_prespawn.hash else {
-                warn!("Received a PreSpawnedPlayerObject entity from the server without a hash");
+                debug!("Received a PreSpawnedPlayerObject entity from the server without a hash");
                 continue;
             };
             let Some(mut client_entity_list) =
                 manager.prespawn_hash_to_entities.remove(&server_hash)
             else {
-                warn!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
+                debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
                 // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
                 commands
                     .entity(confirmed_entity)

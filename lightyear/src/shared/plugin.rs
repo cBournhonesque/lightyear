@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::client::config::ClientConfig;
 use crate::prelude::{Protocol, TimeManager};
+use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::replication;
 use crate::shared::tick_manager::TickManagerPlugin;
@@ -26,16 +27,16 @@ impl<P: Protocol> Default for SharedPlugin<P> {
 /// You can use this as a SystemParam to identify whether you're running on the client or the server
 #[derive(SystemParam)]
 pub struct NetworkIdentity<'w, 's> {
-    config: Option<Res<'w, ClientConfig>>,
+    config: Option<Res<'w, ServerConfig>>,
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
 impl<'w, 's> NetworkIdentity<'w, 's> {
     pub fn is_client(&self) -> bool {
-        self.config.is_some()
+        self.config.is_none()
     }
     pub fn is_server(&self) -> bool {
-        self.config.is_none()
+        self.config.is_some()
     }
 }
 

@@ -27,7 +27,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
 ) {
     for message in should_be_predicted_added.read() {
         let confirmed_entity = message.entity();
-        warn!("Received entity with ShouldBePredicted from server: {confirmed_entity:?}");
+        debug!("Received entity with ShouldBePredicted from server: {confirmed_entity:?}");
         if let Ok(confirmed) = confirmed_entities.get_mut(confirmed_entity) {
             // we need to spawn a predicted entity for this confirmed entity
             let predicted_entity = commands
@@ -35,7 +35,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                     confirmed_entity: Some(confirmed_entity),
                 })
                 .id();
-            warn!(
+            debug!(
                 "Spawning predicted entity {:?} for confirmed: {:?}",
                 predicted_entity, confirmed_entity
             );
@@ -72,7 +72,7 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                 });
             }
         } else {
-            warn!("The confirmed entity {confirmed_entity:?} does not have ShouldBePredicted; it was probably handled by prespawn or prepredicted already");
+            debug!("The confirmed entity {confirmed_entity:?} does not have ShouldBePredicted; it was probably handled by prespawn or prepredicted already");
         }
     }
 }

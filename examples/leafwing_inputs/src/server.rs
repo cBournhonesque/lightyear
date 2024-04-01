@@ -156,12 +156,9 @@ pub(crate) fn replicate_players(
                 // // (the original client will apply the actions locally)
                 // replicate.disable_replicate_once::<ActionState<PlayerActions>>();
             } else {
-                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                replicate.prediction_target = NetworkTarget::Single(client_id);
                 // we want the other clients to apply interpolation for the player
                 replicate.interpolation_target = NetworkTarget::AllExceptSingle(client_id);
             }
-            warn!("Server player entity: {:?}", e.id());
             e.insert((
                 replicate,
                 // not all physics components are replicated over the network, so add them on the server as well

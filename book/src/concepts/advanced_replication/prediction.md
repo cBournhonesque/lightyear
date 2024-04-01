@@ -5,14 +5,15 @@
 Client-side prediction means that some entities are on the 'client' timeline instead of the 'server' timeline:
 they are updated instantly on the client.
 
-The way that it works in lightyear is that for each replicated entity from the server, the client can choose to spawn 2 entities:
-- a Confirmed entity that simply replicates the server updates for that entity
-- a Predicted entity that is updated instantly on the client, and is then corrected by the server updates
+The way that it works in lightyear is that for each replicated entity from the server, the client can choose to spawn 2
+entities:
 
-The main difference between the 2 is that, if you do an action on the client (for example move a character),
+- a `Confirmed` entity that simply replicates the server updates for that entity
+- a `Predicted` entity that is updated instantly on the client, and is then corrected by the server updates
+
+The main difference between the two is that, if you do an action on the client (for example move a character),
 the action will be applied instantly on the Predicted entity, but will be applied on the Confirmed entity only after
 the server executed the action and replicated the result back to the client.
-
 
 ## Wrong predictions and rollback
 
@@ -24,11 +25,22 @@ that the character was actually stunned by another player at that time and could
 In those cases the client will have to perform a rollback.
 Let's say the client entity is now at tick T', but the client is only receiving the server update for tick T. (T < T')
 Every time the client receives an update for the Confirmed entity at tick T, it will:
+
 - check for each updated component if it matches what the predicted version for tick T was
 - if it doesn't, it will restore all the components to the confirmed version at tick T
 - then the client will replay all the systems for the predicted entity from tick T to T'
 
+## Pre-predicted entities
 
+In some cases, you might want to spawn a player-controlled entity right away on the client, without waiting for it to be
+replicated from the server.
+In this case, you can spawn an entity directly on the client with the `PrePredicted` component. You also need to
+add `Replicate` on the client entity
+so that the entity gets replicated to the server.
+
+Then on the server, you can replicate back the entity to the original client. The client will receive the entity, but
+instead of spawning a new separate `Predicted` entity,
+it will re-use the existing entity that had the `PrePredicted` component!
 
 ## Edge cases
 
@@ -66,8 +78,11 @@ Status: added unit test. Need to reconfirm that it works.
 See more information in the [client-replication](./client_replication.md#pre-spawned-predicted-entities) section.
 
 Status:
-- the pre-predicted entity get spawned. Upon server replication, we re-use it as Predicted entity: no unit tests but tested in an example that it works.
-- the pre-predicted entity gets spawned. The server doesn't agree that an entity should be spawned, the pre-spawned entity should get despawned:
+
+- the pre-predicted entity get spawned. Upon server replication, we re-use it as Predicted entity: no unit tests but
+  tested in an example that it works.
+- the pre-predicted entity gets spawned. The server doesn't agree that an entity should be spawned, the pre-spawned
+  entity should get despawned:
   **not handled currently.**
 
 ### Confirmed entity gets despawned
@@ -76,10 +91,12 @@ We never want to directly modify the Confirmed entity on the client; the Confirm
 the server despawns the entity and the despawn is replicated.
 
 When that happens:
+
 - Then the predicted entity should get despawned as well.
-- Pre-predicted entities should still get attached to the confirmed entity on spawn, become Predicted entities and get despawned
+- Pre-predicted entities should still get attached to the confirmed entity on spawn, become Predicted entities and get
+  despawned
   only when the confirmed entity gets despawned.
- 
+
 Status: no unit tests but tested in an example that it works.
 
 ### Predicted entity gets despawned
@@ -88,38 +105,51 @@ There are several options:
 
 OPTION A: Despawn predicted immediately but leave the possibility to rollback and re-spawn it.
 
-We could despawn the predicted entity immediately on the client timeline. If it turns out that the server doesn't despawn
+We could despawn the predicted entity immediately on the client timeline. If it turns out that the server doesn't
+despawn
 the confirmed entity, we then have to rollback and re-spawn the predicted entity with all its components.
 We can achieve this by using the trait
+
 ```rust,noplayground
 pub trait PredictionCommandsExt {
     fn prediction_despawn<P: Protocol>(&mut self);
 }
 ```
-that is implemented for `EntityCommands`.
-Instead of actually despawning the entity, we will just remove all the synced components, but keep the entity and the components' histories.
-If it turns out that the confirmed entity was not despawned, we can then rollback and re-add all the components for that entity.
 
-The main benefit is that this is very responsive: the entity will get despawned immediately on the client timeline, but 
-respawning it (during rollback) can be jarring. This can be improved somewhat by animations: instead of the entity disappearing it can just 
+that is implemented for `EntityCommands`.
+Instead of actually despawning the entity, we will just remove all the synced components, but keep the entity and the
+components' histories.
+If it turns out that the confirmed entity was not despawned, we can then rollback and re-add all the components for that
+entity.
+
+The main benefit is that this is very responsive: the entity will get despawned immediately on the client timeline, but
+respawning it (during rollback) can be jarring. This can be improved somewhat by animations: instead of the entity
+disappearing it can just
 start a death animation. If the death is cancelled, we can simply cancel the animation.
 
-
 Status:
+
 - predicted despawn, server doesn't despawn, rollback: no unit tests but tested in an example that it works.
-  - TODO: this needs to be improved! See note below.
-  - NOTE: the way it works now is not perfect. We rely on getting a rollback (where we can see that the confirmed entity
-    does not match the fact that the predicted entity was despawned). However we only initiate rollbacks on receiving server updates,
-    and it's possible that we are not receiving any updates because the confirmed entity is not changing, or because of packet loss!
-    One option would be that `predicted_despawn` sends a message `Re-Replicate(Entity)` to the server, which will answer back by replicating the entity
-    again. Let's wait to see how big of an issue this is first.
-- predicted despawn, server despawns, we should not rollback but instead despawn both confirmed/predicted when the server
+    - TODO: this needs to be improved! See note below.
+    - NOTE: the way it works now is not perfect. We rely on getting a rollback (where we can see that the confirmed
+      entity
+      does not match the fact that the predicted entity was despawned). However we only initiate rollbacks on receiving
+      server updates,
+      and it's possible that we are not receiving any updates because the confirmed entity is not changing, or because
+      of packet loss!
+      One option would be that `predicted_despawn` sends a message `Re-Replicate(Entity)` to the server, which will
+      answer back by replicating the entity
+      again. Let's wait to see how big of an issue this is first.
+- predicted despawn, server despawns, we should not rollback but instead despawn both confirmed/predicted when the
+  server
   despawn gets replicated: no unit tests but tested in an example that it works
 
 OPTION B: despawn the confirmed entity and wait for that to be replicated
 
-If we want to avoid the jarring effect of respawning the entity, we can instead wait for the server to confirm the despawn.
-In that case, we will just wait for the Confirmed entity to get despawned. When that despawn is propagated, the client entity will
+If we want to avoid the jarring effect of respawning the entity, we can instead wait for the server to confirm the
+despawn.
+In that case, we will just wait for the Confirmed entity to get despawned. When that despawn is propagated, the client
+entity will
 despawned as well.
 
 Status: no unit tests but tested in example.
@@ -133,21 +163,23 @@ If you don't care about rollback and just want to get rid of the Predicted entit
 
 Status: no unit tests but tested in example.
 
-
 ### Pre-predicted entity gets despawned
 
 Same thing as Predicted entity getting despawned, but this time we are despawning the pre-predicted entity before
 we even received the server's confirmation. (this can happen if the entity is spawned and despawned soon after)
 
 Status:
+
 - pre-predicted despawn before we have received the server's replication, server doesn't despawn, rollback:
-  - no unit tests but tested in an example that it works
-  - TODO: same problem as with normal predicted entities: only works if we get a rollback, which is not guaranteed
-- pre-predicted despawn before we have received the server's replication, server despawns, no rollback: 
-  - the Predicted entity should visually get despawned (all components removed). When the server entity gets replicated,
-    it should start re-using the Predicted entity, initiate a rollback, and see at the end of the rollback that the entity should 
-    indeed be despawned.
-  - no unit tests but tested in an example that it works
+    - no unit tests but tested in an example that it works
+    - TODO: same problem as with normal predicted entities: only works if we get a rollback, which is not guaranteed
+- pre-predicted despawn before we have received the server's replication, server despawns, no rollback:
+    - the Predicted entity should visually get despawned (all components removed). When the server entity gets
+      replicated,
+      it should start re-using the Predicted entity, initiate a rollback, and see at the end of the rollback that the
+      entity should
+      indeed be despawned.
+    - no unit tests but tested in an example that it works
   
 
 

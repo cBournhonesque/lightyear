@@ -88,33 +88,26 @@ pub(crate) fn handle_connection(
         ));
         let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
         // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-        let id = commands
-            .spawn(PlayerBundle::new(
-                client_id,
-                Vec2::new(-50.0, y),
-                InputMap::new([
-                    (PlayerActions::Up, KeyCode::KeyW),
-                    (PlayerActions::Down, KeyCode::KeyS),
-                    (PlayerActions::Left, KeyCode::KeyA),
-                    (PlayerActions::Right, KeyCode::KeyD),
-                ]),
-            ))
-            .id();
-        warn!("pre-predicted entity: {id:?}");
-
-        // commands.spawn((
-        //     PlayerBundle::new(
-        //         client_id,
-        //         Vec2::new(50.0, y),
-        //         InputMap::new([
-        //             (PlayerActions::Up, KeyCode::ArrowUp),
-        //             (PlayerActions::Down, KeyCode::ArrowDown),
-        //             (PlayerActions::Left, KeyCode::ArrowLeft),
-        //             (PlayerActions::Right, KeyCode::ArrowRight),
-        //         ]),
-        //     ),
-        //     CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-        // ));
+        commands.spawn(PlayerBundle::new(
+            client_id,
+            Vec2::new(-50.0, y),
+            InputMap::new([
+                (PlayerActions::Up, KeyCode::KeyW),
+                (PlayerActions::Down, KeyCode::KeyS),
+                (PlayerActions::Left, KeyCode::KeyA),
+                (PlayerActions::Right, KeyCode::KeyD),
+            ]),
+        ));
+        commands.spawn((PlayerBundle::new(
+            client_id,
+            Vec2::new(50.0, y),
+            InputMap::new([
+                (PlayerActions::Up, KeyCode::ArrowUp),
+                (PlayerActions::Down, KeyCode::ArrowDown),
+                (PlayerActions::Left, KeyCode::ArrowLeft),
+                (PlayerActions::Right, KeyCode::ArrowRight),
+            ]),
+        ),));
     }
 }
 

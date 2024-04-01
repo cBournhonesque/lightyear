@@ -152,7 +152,7 @@ fn player_movement(
     tick_manager: Res<TickManager>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        (Without<Confirmed>, Without<Interpolated>),
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
@@ -205,7 +205,17 @@ pub(crate) fn move_bullet(
     mut commands: Commands,
     mut query: Query<
         (Entity, &mut Transform),
-        (With<BallMarker>, Without<Confirmed>, Without<Interpolated>),
+        (
+            With<BallMarker>,
+            Or<(
+                // move predicted bullets
+                With<Predicted>,
+                // move server entities
+                With<Replicate>,
+                // move prespawned bullets
+                With<PreSpawnedPlayerObject>,
+            )>,
+        ),
     >,
 ) {
     const BALL_MOVE_SPEED: f32 = 3.0;

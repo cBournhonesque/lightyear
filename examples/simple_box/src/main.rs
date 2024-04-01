@@ -37,9 +37,9 @@ mod shared;
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
     /// We have the client and the server running inside the same app.
-    /// Data gets passed between the two via channels.
+    /// The server will also act as a client.
     #[cfg(not(target_family = "wasm"))]
-    Unified {
+    HostServer {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
@@ -80,7 +80,7 @@ fn run(settings: Settings, cli: Cli) {
     match cli {
         // ListenServer using a single app
         #[cfg(not(target_family = "wasm"))]
-        Cli::Unified { client_id } => {
+        Cli::HostServer { client_id } => {
             let client_net_config = NetConfig::Local {
                 id: client_id.unwrap_or(settings.client.client_id),
             };
@@ -142,7 +142,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
     if settings.client.inspector {
@@ -177,7 +177,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     }
     app.add_plugins(LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     });
 
@@ -211,7 +211,7 @@ fn combined_app(
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=trace".to_string(),
+        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
     if settings.client.inspector {

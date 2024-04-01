@@ -108,7 +108,14 @@ where
 /// (we use a buffer because the client's inputs might arrive out of order)
 fn add_action_diff_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
-    action_state: Query<Entity, (Added<ActionState<A>>, Without<ActionDiffBuffer<A>>)>,
+    action_state: Query<
+        Entity,
+        (
+            Added<ActionState<A>>,
+            Without<ActionDiffBuffer<A>>,
+            Without<InputMap<A>>,
+        ),
+    >,
 ) {
     for entity in action_state.iter() {
         commands
