@@ -140,6 +140,12 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             )
                 .chain(),
         );
+        app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
+        // SYSTEMS
+        app.add_systems(
+            FixedPostUpdate,
+            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
+        );
 
         if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
             app.add_systems(
@@ -150,7 +156,6 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         }
 
         // SETS
-        app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
         app.configure_sets(
             PostUpdate,
             (
@@ -170,21 +175,18 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
             )
                 .chain(),
         );
+        // SYSTEMS
+        app.add_systems(
+            FixedPreUpdate,
+            write_input_event::<P::Input>.in_set(InputSystemSet::WriteInputEvent),
+        );
+
         app.add_systems(
             PostUpdate,
             (
                 receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
                 prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
             ),
-        );
-        // SYSTEMS
-        app.add_systems(
-            FixedPreUpdate,
-            write_input_event::<P::Input>.in_set(InputSystemSet::WriteInputEvent),
-        );
-        app.add_systems(
-            FixedPostUpdate,
-            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
         );
 
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
@@ -335,11 +337,13 @@ fn prepare_input_message<P: Protocol>(
 fn send_input_to_server<A: UserAction>(
     tick_manager: Res<TickManager>,
     mut input_manager: ResMut<InputManager<A>>,
-    mut server_input_events: ResMut<Events<server::InputEvent<A>>>,
-    client_connection: Res<ClientConnection>,
+    mut client_input_events: EventWriter<InputEvent<A>>,
+    // mut server_input_events: ResMut<Events<server::InputEvent<A>>>,
+    // client_connection: Res<ClientConnection>,
 ) {
     let tick = tick_manager.tick();
     let input = input_manager.input_buffer.pop(tick);
-    let client_id = client_connection.id();
-    server_input_events.send(server::InputEvent::new(input, client_id));
+    // let client_id = client_connection.id();
+    client_input_events.send(InputEvent::new(input, ()));
+    // server_input_events.send(server::InputEvent::new(input, client_id));
 }

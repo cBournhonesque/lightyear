@@ -52,23 +52,26 @@ pub(crate) fn init(mut client: ResMut<ClientConnection>) {
 pub(crate) fn handle_connection(
     mut commands: Commands,
     mut connection_event: EventReader<ConnectEvent>,
+    config: Res<ClientConfig>,
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
-        // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
-        commands.spawn(CursorBundle::new(
-            client_id,
-            Vec2::ZERO,
-            color_from_id(client_id),
-        ));
+        if config.shared.mode == Mode::Separate || client_id.is_local() {
+            commands.spawn(TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ));
+            // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
+            commands.spawn(CursorBundle::new(
+                client_id,
+                Vec2::ZERO,
+                color_from_id(client_id),
+            ));
+        }
     }
 }
 
@@ -132,14 +135,19 @@ fn player_movement(
     }
 }
 
-/// Spawn a client-owned player entity when the space command is pressed
+/// Spawn a server-owned pre-predicted player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
     connection: Res<ClientConnection>,
     players: Query<&PlayerId, With<PlayerPosition>>,
+    config: Res<ClientConfig>,
 ) {
     let client_id = connection.id();
+    if config.shared.mode == Mode::HostServer && !client_id.is_local() {
+        // in host-server mode, only spawn player if it's the local client who issued the command
+        return;
+    }
 
     // do not spawn a new player if we already have one
     for player_id in players.iter() {
@@ -157,7 +165,7 @@ fn spawn_player(
                         // IMPORTANT: this lets the server know that the entity is pre-predicted
                         // when the server replicates this entity; we will get a Confirmed entity which will use this entity
                         // as the Predicted version
-                        ShouldBePredicted::default(),
+                        PrePredicted::default(),
                     ));
                 }
                 _ => {}
@@ -179,8 +187,13 @@ fn delete_player(
             Without<Interpolated>,
         ),
     >,
+    config: Res<ClientConfig>,
 ) {
     let client_id = connection.id();
+    if config.shared.mode == Mode::HostServer && !client_id.is_local() {
+        // in host-server mode, only spawn player if it's the local client who issued the command
+        return;
+    }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             match input {

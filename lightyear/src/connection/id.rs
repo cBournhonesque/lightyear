@@ -24,6 +24,10 @@ impl ClientId {
             ClientId::Local(x) => *x,
         }
     }
+
+    pub fn is_local(&self) -> bool {
+        matches!(self, ClientId::Local(_))
+    }
 }
 
 impl core::fmt::Display for ClientId {

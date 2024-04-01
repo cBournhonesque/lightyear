@@ -7,9 +7,10 @@ use bevy::prelude::{
 use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{ShouldBePredicted, TickManager};
+use crate::prelude::{Mode, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 
@@ -35,6 +36,11 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
     fn apply(self, world: &mut World) {
         let tick_manager = world.get_resource::<TickManager>().unwrap();
         let current_tick = tick_manager.tick();
+
+        // if we are in host server mode, there is no rollback so we can despawn the entity immediately
+        if world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
+            world.despawn(self.entity);
+        }
 
         let mut predicted_entity_to_despawn: Option<Entity> = None;
 
