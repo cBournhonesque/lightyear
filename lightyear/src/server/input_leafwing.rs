@@ -95,27 +95,9 @@ where
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
 
-        if app.world.resource::<ServerConfig>().shared.mode == Mode::HostServer {
-            // in unified mode, we receive the action diffs directly from the ActionDiffEvent events
-            app.configure_sets(
-                FixedPreUpdate,
-                InputSystemSet::ReceiveInputs
-                    // be careful to read the ActionDiffEvents before they are consumed in the client's
-                    // `write_action_diffs` system
-                    .before(client::InputSystemSet::BufferInputs)
-                    // receive the inputs before we write them in the server entities' buffer
-                    .before(InputSystemSet::Update),
-            );
-            app.add_systems(
-                FixedPreUpdate,
-                unified_receive_input_message::<P, A>
-                    .in_set(InputSystemSet::ReceiveInputs)
-                    .run_if(not(is_in_rollback)),
-            );
-        } else {
+        if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
             // we don't want to add this plugin in HostServer mode because it's already added on the client side
-
-            // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+            // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
             app.add_plugins(InputManagerPlugin::<A>::server());
         }
     }
@@ -132,72 +114,6 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
         commands
             .entity(entity)
             .insert(ActionDiffBuffer::<A>::default());
-    }
-}
-
-/// In unified mode, the server and client are running in the same app, so we can
-/// read the inputs directly from the ActionDiffEvent events.
-/// We read the diffs and update the ActionDiffBuffers
-fn unified_receive_input_message<P: Protocol, A: LeafwingUserAction>(
-    config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
-    diff_reader: Res<Events<ActionDiffEvent<A>>>,
-    // used to check if the input entity was predicted, confirmed, or prepredicted
-    input_entity_query: Query<(Option<&Predicted>, Option<&PrePredicted>), With<InputMap<A>>>,
-    client_connection: Res<crate::client::connection::ConnectionManager<P>>,
-    mut server_buffers: Query<&mut ActionDiffBuffer<A>, Without<InputMap<A>>>,
-    server_connection: Res<ConnectionManager<P>>,
-    client_net_connection: Res<crate::connection::client::ClientConnection>,
-) {
-    // get the client's input delay
-    let delay = config.prediction.input_delay_ticks as i16;
-    let tick = tick_manager.tick() + delay;
-    // warn!("in read unified diffs");
-    // warn!(?diff_reader, "read unified diffs");
-    for diff in diff_reader.get_reader().read(&diff_reader) {
-        // warn!(?tick, "received action diff: {diff:?}");
-        if let Some(entity) = diff.owner {
-            // map the client entity to the correct server entity
-            if let Ok((predicted, pre_predicted)) = input_entity_query.get(entity) {
-                if let Some(server_entity) = pre_predicted
-                    .and_then(|pre_predicted| {
-                        // 0. if the entity is pre-predicted, we need to map it using the server's input map
-                        server_connection
-                            .connection(client_net_connection.id())
-                            .ok()
-                            .and_then(|connection| {
-                                trace!("found server entity for pre-predicted entity: {entity:?}");
-                                connection
-                                    .replication_receiver
-                                    .remote_entity_map
-                                    .get_local(entity)
-                                    .copied()
-                            })
-                    })
-                    .or_else(|| {
-                        // 1. if the entity is confirmed, we need to convert the entity to the server's entity using the client's remote entity map
-                        // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
-                        predicted
-                            .map_or(Some(entity), |p| p.confirmed_entity)
-                            .and_then(|confirmed| {
-                                client_connection
-                                    .replication_receiver
-                                    .remote_entity_map
-                                    .get_remote(confirmed)
-                                    .copied()
-                            })
-                    })
-                {
-                    // write to the server entity's ActionDiffBuffer
-                    if let Ok(mut buffer) = server_buffers.get_mut(server_entity) {
-                        trace!("set action for entity: {server_entity:?}");
-                        buffer.set(tick, diff.action_diff.clone());
-                    }
-                }
-            }
-        } else {
-            error!("Leafwing inputs stored in Resources are not supported currently");
-        }
     }
 }
 

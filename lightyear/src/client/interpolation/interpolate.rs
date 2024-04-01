@@ -208,61 +208,6 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     }
 }
 
-/// In host-server mode, the server has access to the updated state for all entities, so interpolation is not needed.
-/// However, the client might run some custom interpolation logic that relies on the presence of the [`InterpolateStatus`] components.
-///
-/// Here we add an InterpolateStatus component that stays up to date with the entity's state.
-pub(crate) fn add_interpolate_status_host_server<C: SyncComponent, P: Protocol>(
-    mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    query: Query<(Entity, Ref<C>), (Without<InterpolateStatus<C>>, With<Interpolated>)>,
-) where
-    P::Components: SyncMetadata<C>,
-{
-    let tick = tick_manager.tick();
-    for (entity, component) in query.iter() {
-        if component.is_added() {
-            commands.entity(entity).insert(InterpolateStatus {
-                // TODO: do we need to clone twice?
-                start: (tick, component.clone()).into(),
-                end: (tick, component.clone()).into(),
-                current_tick: tick,
-                current_overstep: 0.0,
-            });
-        }
-    }
-}
-
-/// In host-server mode, the server has access to the updated state for all entities, so interpolation is not needed.
-/// However, the client might run some custom interpolation logic that relies on the presence of the [`InterpolateStatus`] components.
-///
-/// Here we add an InterpolateStatus component that stays up to date with the entity's state.
-pub(crate) fn update_interpolate_status_host_server<C: SyncComponent, P: Protocol>(
-    tick_manager: Res<TickManager>,
-    mut query: Query<(Ref<C>, &mut InterpolateStatus<C>), With<Interpolated>>,
-) where
-    P::Components: SyncMetadata<C>,
-{
-    let tick = tick_manager.tick();
-    for (component, mut status) in query.iter_mut() {
-        status.current_tick = tick;
-        if component.is_changed() {
-            if let Some((_, start)) = &mut status.start {
-                *start = component.clone();
-            }
-            if let Some((_, end)) = &mut status.end {
-                *end = component.clone();
-            }
-        }
-        if let Some((start_tick, _)) = &mut status.start {
-            *start_tick = tick;
-        }
-        if let Some((end_tick, _)) = &mut status.end {
-            *end_tick = tick;
-        }
-    }
-}
-
 /// Only sync the component from the Confirmed to the Interpolated entity
 /// after we have at least 2 confirmed updates, otherwise if the server send rate is low
 /// the component could be stuck at the 'start_tick' value until we have another update to interpolate towards

@@ -84,11 +84,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
-            // the interpolation plugin might be needed even in host-server mode if the client has custom interpolation logic
-            .add_plugins(InterpolationPlugin::<P>::new(
-                config.client_config.interpolation.clone(),
-            ));
+            .add_plugins(InputPlugin::<P>::default());
 
         if config.client_config.shared.mode == Mode::Separate {
             app
@@ -96,6 +92,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
                 .add_plugins(ClientDiagnosticsPlugin::<P>::default())
                 .add_plugins(ClientReplicationPlugin::<P>::default())
                 .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
+                .add_plugins(InterpolationPlugin::<P>::new(
+                    config.client_config.interpolation.clone(),
+                ))
                 .add_plugins(SharedPlugin::<P> {
                     config: config.client_config.shared.clone(),
                     ..default()

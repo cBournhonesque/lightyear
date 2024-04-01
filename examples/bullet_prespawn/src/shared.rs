@@ -221,7 +221,10 @@ pub(crate) fn move_bullet(
     }
 }
 
-// This system defines how we update the player's positions when we receive an input
+/// This system runs on both the client and the server, and is used to shoot a bullet
+/// The bullet is shot from the predicted player on the client, and from the server-entity on the server.
+/// When the bullet is replicated from server to client, it will use the existing client bullet with the `PreSpawnedPlayerObject` component
+/// as its `Predicted` entity
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
@@ -233,7 +236,7 @@ pub(crate) fn shoot_bullet(
             &ColorComponent,
             &mut ActionState<PlayerActions>,
         ),
-        (Without<Interpolated>, Without<Confirmed>),
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
     let tick = tick_manager.tick();
