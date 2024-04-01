@@ -16,6 +16,7 @@ use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
@@ -35,6 +36,17 @@ impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
 
 impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
+        let config = app.world.resource::<ClientConfig>();
+        // in host server mode, we don't send/receive packets at all
+        if config.shared.mode == Mode::HostServer {
+            // we just update the connection/disconnection events
+            app.add_systems(
+                PreUpdate,
+                update_connect_events::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
+            );
+            return;
+        }
+
         app
             // SYSTEM SETS
             .configure_sets(
@@ -58,18 +70,43 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             );
 
         // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
-        if app.world.resource::<ClientConfig>().is_unified() {
-            app.add_systems(
-                PostUpdate,
-                unified_sync_update::<P>
-                    .in_set(SyncSet)
-                    .run_if(is_client_connected),
-            );
-        } else {
-            app.add_systems(
-                PostUpdate,
-                sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
-            );
+        app.add_systems(
+            PostUpdate,
+            sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
+        );
+    }
+}
+
+/// In host server mode, we don't send/receive packets at all
+///
+/// Just update the Connect/Disconnect events for both client and server
+pub(crate) fn update_connect_events<P: Protocol>(
+    netcode: Res<ClientConnection>,
+    mut connection: ResMut<ConnectionManager<P>>,
+    // client connect events
+    mut connect_event_writer: EventWriter<ConnectEvent>,
+    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
+    // server connect events
+    mut server_connect_event_writer: EventWriter<crate::server::events::ConnectEvent>,
+    mut server_disconnect_event_writer: EventWriter<crate::server::events::DisconnectEvent>,
+) {
+    if netcode.is_connected() {
+        // push an event indicating that we just connected
+        if !connection.is_connected {
+            debug!("Client connected event");
+            connect_event_writer.send(ConnectEvent::new(netcode.id()));
+            server_connect_event_writer
+                .send(crate::server::events::ConnectEvent::new(netcode.id()));
+            connection.is_connected = true;
+        }
+    } else {
+        // push an event indicating that we just disconnected
+        if connection.is_connected {
+            debug!("Client disconnected event");
+            disconnect_event_writer.send(DisconnectEvent::new(()));
+            server_disconnect_event_writer
+                .send(crate::server::events::DisconnectEvent::new(netcode.id()));
+            connection.is_connected = false;
         }
     }
 }
@@ -84,7 +121,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     //  WE JUST KEEP AN INTERNAL TIMER TO KNOW IF WE REACHED OUR TICK AND SHOULD RECEIVE/SEND OUT PACKETS?
     //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
     //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
-    let unified = world.resource::<ClientConfig>().is_unified();
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
@@ -96,10 +132,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         let delta = world.resource::<Time<Virtual>>().delta();
 
                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                        if !unified {
-                                            // careful: do not call time_manager.update() twice if we are unified!
-                                            time_manager.update(delta);
-                                        }
+                                        time_manager.update(delta);
                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
                                         let _ = netcode
                                             .try_update(delta.as_secs_f64())
@@ -260,28 +293,6 @@ pub(crate) fn sync_update<P: Protocol>(
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);
     }
-}
-
-/// Update the sync manager, if client and server are running in the same app
-/// There is not much need for syncing since the client and server time is the same:
-/// - client is immediately synced
-/// - there is no need for a separate prediction time, the server and client time are the same
-/// - we still want to update the interpolation time
-pub(crate) fn unified_sync_update<P: Protocol>(
-    connection: ResMut<ConnectionManager<P>>,
-    config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
-    time_manager: Res<TimeManager>,
-) {
-    // reborrow Mut to enable split borrows
-    let connection = connection.into_inner();
-    connection.sync_manager.update_unified(
-        &time_manager,
-        &tick_manager,
-        &connection.ping_manager,
-        &config.interpolation.delay,
-        config.shared.server_send_interval,
-    );
 }
 
 /// Run Condition that returns true if the client is connected

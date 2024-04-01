@@ -18,9 +18,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{
-    ReplicateToClientOnly, ReplicateToServerOnly, ShouldBePredicted, TickManager,
-};
+use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
@@ -166,8 +164,6 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
-                                        && type_id != TypeId::of::<ReplicateToClientOnly>()
-                                        && type_id != TypeId::of::<ReplicateToServerOnly>()
                                     {
                                         return protocol_component_types.get(&type_id).copied();
                                     }
@@ -185,11 +181,11 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                         // prespawn.hash = Some(hasher.finish());
 
                         let new_hash = hasher.finish();
-                        warn!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                        trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                         new_hash
                     },
                     |hash| {
-                        warn!(
+                        trace!(
                             ?entity,
                             ?tick,
                             ?hash,
@@ -245,13 +241,13 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
             let server_prespawn = query.get(confirmed_entity).unwrap();
 
             let Some(server_hash) = server_prespawn.hash else {
-                warn!("Received a PreSpawnedPlayerObject entity from the server without a hash");
+                debug!("Received a PreSpawnedPlayerObject entity from the server without a hash");
                 continue;
             };
             let Some(mut client_entity_list) =
                 manager.prespawn_hash_to_entities.remove(&server_hash)
             else {
-                warn!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
+                debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
                 // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
                 commands
                     .entity(confirmed_entity)
@@ -299,6 +295,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                     interpolated: None,
                     tick: confirmed_tick,
                 })
+                // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
             debug!(
                 "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",

@@ -15,10 +15,10 @@ use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use clap::{Parser, ValueEnum};
-use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay};
+use lightyear::prelude::client::{InterpolationConfig, InterpolationDelay, NetConfig};
 use serde::{Deserialize, Serialize};
 
-use lightyear::prelude::TransportConfig;
+use lightyear::prelude::{Mode, TransportConfig};
 use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
@@ -37,9 +37,9 @@ mod shared;
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
     /// We have the client and the server running inside the same app.
-    /// Data gets passed between the two via channels.
+    /// The server will also act as a client.
     #[cfg(not(target_family = "wasm"))]
-    Unified {
+    HostServer {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
@@ -80,28 +80,11 @@ fn run(settings: Settings, cli: Cli) {
     match cli {
         // ListenServer using a single app
         #[cfg(not(target_family = "wasm"))]
-        Cli::Unified { client_id } => {
-            // create client app
-            let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
-            let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-            // we will communicate between the client and server apps via channels
-            let transport_config = TransportConfig::LocalChannel {
-                recv: from_server_recv,
-                send: to_server_send,
+        Cli::HostServer { client_id } => {
+            let client_net_config = NetConfig::Local {
+                id: client_id.unwrap_or(settings.client.client_id),
             };
-            let client_net_config = build_client_netcode_config(
-                client_id.unwrap_or(settings.client.client_id),
-                // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
-                LOCAL_SOCKET,
-                settings.client.conditioner.as_ref(),
-                &settings.shared,
-                transport_config,
-            );
-            let server_extra_transport_configs = vec![TransportConfig::Channels {
-                // even if we communicate via channels, we need to provide a socket address for the client
-                channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
-            }];
-            let mut app = combined_app(settings, server_extra_transport_configs, client_net_config);
+            let mut app = combined_app(settings, vec![], client_net_config);
             app.run();
         }
         #[cfg(not(target_family = "wasm"))]
@@ -166,7 +149,7 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         app.add_plugins(WorldInspectorPlugin::new());
     }
     let client_config = client::ClientConfig {
-        shared: shared_config(false),
+        shared: shared_config(Mode::Separate),
         net: net_config,
         interpolation: InterpolationConfig::default().with_delay(
             InterpolationDelay::default()
@@ -208,7 +191,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     });
     net_configs.extend(extra_net_configs);
     let server_config = server::ServerConfig {
-        shared: shared_config(false),
+        shared: shared_config(Mode::Separate),
         net: net_configs,
         ..default()
     };
@@ -243,7 +226,7 @@ fn combined_app(
     });
     net_configs.extend(extra_net_configs);
     let server_config = server::ServerConfig {
-        shared: shared_config(true),
+        shared: shared_config(Mode::HostServer),
         net: net_configs,
         ..default()
     };
@@ -254,7 +237,7 @@ fn combined_app(
 
     // client plugin
     let client_config = client::ClientConfig {
-        shared: shared_config(true),
+        shared: shared_config(Mode::HostServer),
         net: client_net_config,
         interpolation: InterpolationConfig::default().with_delay(
             InterpolationDelay::default()

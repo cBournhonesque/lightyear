@@ -5,10 +5,10 @@ use bevy::prelude::{
 };
 
 use crate::connection::id::ClientId;
-use crate::prelude::TickManager;
+use crate::prelude::{TickManager, UserAction};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
-use crate::shared::events::components::InputEvent;
+use crate::server::events::InputEvent;
 
 // - ClientInputs:
 // - inputs will be sent via a special message
@@ -50,7 +50,7 @@ pub enum InputSystemSet {
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
         // EVENTS
-        app.add_event::<InputEvent<P::Input, ClientId>>();
+        app.add_event::<InputEvent<P::Input>>();
         // SETS
         app.configure_sets(FixedPreUpdate, InputSystemSet::WriteInputEvents);
         app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvents);
@@ -62,8 +62,7 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         );
         app.add_systems(
             FixedPostUpdate,
-            bevy::ecs::event::event_update_system::<InputEvent<P::Input, ClientId>>
-                .in_set(InputSystemSet::ClearInputEvents),
+            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvents),
         );
     }
 }
@@ -74,7 +73,7 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 fn write_input_event<P: Protocol>(
     tick_manager: Res<TickManager>,
     mut connection_manager: ResMut<ConnectionManager<P>>,
-    mut input_events: EventWriter<InputEvent<P::Input, ClientId>>,
+    mut input_events: EventWriter<InputEvent<P::Input>>,
 ) {
     let tick = tick_manager.tick();
     for (input, client_id) in connection_manager.pop_inputs(tick) {
@@ -84,18 +83,6 @@ fn write_input_event<P: Protocol>(
 
 /// System that clears the input events.
 /// It is necessary because events are cleared every frame, but we want to clear every tick instead
-fn clear_input_events<P: Protocol>(mut input_events: EventReader<InputEvent<P::Input, ClientId>>) {
+fn clear_input_events<I: UserAction>(mut input_events: EventReader<InputEvent<I>>) {
     input_events.clear();
 }
-
-// on the client:
-// - FixedUpdate: before physics but after increment tick,
-//   - rollback: we get the input from the history -> HERE GIVE THE USER AN OPPORTUNITY TO CUSTOMIZE.
-//        BY DEFAULT WE JUST TAKE THE INPUT FOR THE TICK, BUT MAYBE WE WANT TO DO SOMETHING ELSE?
-//        SLIGHTLY MODIFY THE INPUT? IF NONE, REPEAT THE PREVIOUS ONE?
-//   - non rollback:
-//         we get the input from keyboard/mouse and store it in the InputBuffer
-//         use input for predicted entities
-//   - can use system piping?
-// - Send:
-//   - we read the

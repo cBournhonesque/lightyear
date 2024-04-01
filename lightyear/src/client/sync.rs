@@ -483,7 +483,7 @@ impl SyncManager {
         .unwrap();
 
         if error > max_error_margin_time || error < -max_error_margin_time {
-            info!(
+            debug!(
                 ?rtt,
                 ?jitter,
                 ?current_prediction_time,

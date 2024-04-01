@@ -13,7 +13,7 @@ pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet, GameLayer};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
 use crate::{shared, ServerTransports, SharedSettings};
 
 // Plugin for server-specific logic
@@ -74,15 +74,12 @@ pub(crate) fn init(
     );
 
     // the ball is server-authoritative
-    // commands.spawn((
-    //     BallBundle::new(
-    //         Vec2::new(0.0, 0.0),
-    //         Color::AZURE,
-    //         // if true, we predict the ball on clients
-    //         global.predict_all,
-    //     ),
-    //     CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
-    // ));
+    commands.spawn(BallBundle::new(
+        Vec2::new(0.0, 0.0),
+        Color::AZURE,
+        // if true, we predict the ball on clients
+        global.predict_all,
+    ));
 }
 
 /// Server disconnection system, delete all player entities upon disconnection
@@ -138,7 +135,7 @@ pub(crate) fn replicate_players(
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             let mut replicate = Replicate {
-                // we want to replicate back to the original client, since they are using a pre-spawned entity
+                // we want to replicate back to the original client, since they are using a pre-predicted entity
                 replication_target: NetworkTarget::All,
                 // make sure that all entities that are predicted are part of the same replication group
                 replication_group: REPLICATION_GROUP,
@@ -159,18 +156,13 @@ pub(crate) fn replicate_players(
                 // // (the original client will apply the actions locally)
                 // replicate.disable_replicate_once::<ActionState<PlayerActions>>();
             } else {
-                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                replicate.prediction_target = NetworkTarget::Single(client_id);
                 // we want the other clients to apply interpolation for the player
                 replicate.interpolation_target = NetworkTarget::AllExceptSingle(client_id);
             }
-            warn!("Server player entity: {:?}", e.id());
             e.insert((
                 replicate,
-                ReplicateToClientOnly,
                 // not all physics components are replicated over the network, so add them on the server as well
                 PhysicsBundle::player(),
-                CollisionLayers::new(GameLayer::Server, [GameLayer::Server]),
             ));
         }
     }

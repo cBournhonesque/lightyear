@@ -24,7 +24,6 @@ pub(crate) struct PlayerBundle {
     transform: Transform,
     color: ColorComponent,
     replicate: Replicate,
-    replicate_direction: ReplicateToServerOnly,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
@@ -43,9 +42,10 @@ impl PlayerBundle {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 replication_group: ReplicationGroup::new_id(id.to_bits()),
+                // For HostServer mode, remember to also set prediction/interpolation targets for other clients
+                interpolation_target: NetworkTarget::AllExceptSingle(id),
                 ..default()
             },
-            replicate_direction: ReplicateToServerOnly,
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
                 input_map,

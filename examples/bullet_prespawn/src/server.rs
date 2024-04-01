@@ -116,7 +116,7 @@ pub(crate) fn replicate_players(
             replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::None);
             // The PrePredicted component must be replicated only to the original client
             replicate.add_target::<PrePredicted>(NetworkTarget::Single(*client_id));
-            e.insert((replicate, ReplicateToClientOnly));
+            e.insert(replicate);
         }
     }
 }

@@ -67,6 +67,9 @@ pub enum NetConfig {
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
     },
+    Local {
+        id: u64,
+    },
 }
 
 impl Default for NetConfig {
@@ -112,6 +115,12 @@ impl NetConfig {
                 // TODO: handle errors
                 let client = super::steam::client::Client::new(config, conditioner)
                     .expect("could not create steam client");
+                ClientConnection {
+                    client: Box::new(client),
+                }
+            }
+            NetConfig::Local { id } => {
+                let client = super::local::client::Client::new(id);
                 ClientConnection {
                     client: Box::new(client),
                 }

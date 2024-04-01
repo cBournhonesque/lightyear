@@ -18,16 +18,6 @@ use crate::server::room::ClientVisibility;
 #[derive(Component, Clone, Copy)]
 pub struct DespawnTracker;
 
-/// Marker component indicating that this entity should only be replicated from client to server
-/// (and not from server to client)
-#[derive(Component, Debug)]
-pub struct ReplicateToServerOnly;
-
-/// Marker component indicating that this entity should only be replicated from server to client
-/// (and not from client to server)
-#[derive(Component, Debug)]
-pub struct ReplicateToClientOnly;
-
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
 #[derive(Component, Clone, PartialEq, Debug)]

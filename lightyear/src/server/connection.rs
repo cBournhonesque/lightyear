@@ -20,8 +20,8 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{
-    Channel, ChannelKind, LightyearMapEntities, Message, PreSpawnedPlayerObject,
-    ReplicateToServerOnly, ShouldBePredicted,
+    Channel, ChannelKind, LightyearMapEntities, Message, Mode, PreSpawnedPlayerObject,
+    ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
@@ -32,9 +32,7 @@ use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
 use crate::shared::ping::message::SyncMessage;
-use crate::shared::replication::components::{
-    NetworkTarget, Replicate, ReplicateToClientOnly, ReplicationGroupId,
-};
+use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
 use crate::shared::replication::ReplicationMessage;
@@ -559,7 +557,6 @@ impl<P: Protocol> Connection<P> {
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
     type SetMarker = ServerMarker;
-    type BannedReplicateDirection = ReplicateToServerOnly;
 
     fn update_priority(
         &mut self,
@@ -669,6 +666,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         let kind: P::ComponentKinds = (&component).into();
 
         // TODO: think about this. this feels a bit clumsy
+        // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
 
         // handle ShouldBePredicted separately because of pre-spawning behaviour
         // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.

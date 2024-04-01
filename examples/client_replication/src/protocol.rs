@@ -14,7 +14,6 @@ pub(crate) struct PlayerBundle {
     position: PlayerPosition,
     color: PlayerColor,
     replicate: Replicate,
-    replicate_direction: ReplicateToServerOnly,
 }
 
 impl PlayerBundle {
@@ -30,7 +29,6 @@ impl PlayerBundle {
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
-            replicate_direction: ReplicateToServerOnly,
         }
     }
 }
@@ -42,7 +40,6 @@ pub(crate) struct CursorBundle {
     position: CursorPosition,
     color: PlayerColor,
     replicate: Replicate,
-    replicate_direction: ReplicateToServerOnly,
 }
 
 impl CursorBundle {
@@ -56,7 +53,6 @@ impl CursorBundle {
                 interpolation_target: NetworkTarget::AllExcept(vec![id]),
                 ..default()
             },
-            replicate_direction: ReplicateToServerOnly,
         }
     }
 }

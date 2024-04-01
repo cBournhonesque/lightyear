@@ -53,7 +53,6 @@ impl<P: Protocol> ServerPlugin<P> {
 impl<P: Protocol> Plugin for ServerPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let tick_duration = config.server_config.shared.tick.tick_duration;
 
         app
             // RESOURCES //

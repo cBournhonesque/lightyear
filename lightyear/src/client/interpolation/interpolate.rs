@@ -1,4 +1,4 @@
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
+use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without};
 use tracing::{debug, info, trace};
 
 use crate::_reexport::ComponentProtocol;
@@ -6,6 +6,7 @@ use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolation_history::ConfirmedHistory;
+use crate::client::interpolation::Interpolated;
 use crate::prelude::TickManager;
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;

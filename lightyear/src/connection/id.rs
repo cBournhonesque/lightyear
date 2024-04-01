@@ -10,8 +10,8 @@ pub enum ClientId {
     Netcode(u64),
     /// The client id of a steam user
     Steam(u64),
-    /// The local client to use when running in HostServer mode
-    LocalClient,
+    /// A local client to use when running in HostServer mode
+    Local(u64),
 }
 
 impl ClientId {
@@ -21,8 +21,12 @@ impl ClientId {
         match self {
             ClientId::Netcode(x) => *x,
             ClientId::Steam(x) => *x,
-            ClientId::LocalClient => 0,
+            ClientId::Local(x) => *x,
         }
+    }
+
+    pub fn is_local(&self) -> bool {
+        matches!(self, ClientId::Local(_))
     }
 }
 

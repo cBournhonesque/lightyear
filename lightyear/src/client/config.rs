@@ -9,7 +9,7 @@ use crate::client::prediction::plugin::PredictionConfig;
 use crate::client::replication::ReplicationConfig;
 use crate::client::sync::SyncConfig;
 use crate::connection::client::NetConfig;
-use crate::shared::config::SharedConfig;
+use crate::shared::config::{Mode, SharedConfig};
 use crate::shared::ping::manager::PingConfig;
 
 #[derive(Clone)]
@@ -99,10 +99,4 @@ pub struct ClientConfig {
     pub prediction: PredictionConfig,
     pub interpolation: InterpolationConfig,
     pub replication: ReplicationConfig,
-}
-
-impl ClientConfig {
-    pub(crate) fn is_unified(&self) -> bool {
-        self.shared.unified
-    }
 }

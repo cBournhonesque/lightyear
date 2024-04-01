@@ -113,11 +113,6 @@ pub trait ReplicationSend<P: Protocol>: Resource {
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
     /// (in the client and the server replication plugins)
     type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
-    /// A component indicating that the entity should not be replicated in a given direction
-    /// (for example, if an entity has the `ReplicateToServerOnly` and `Replicate` components, the server will not
-    /// replicate the entity to the client)
-    /// This is mostly relevant in the unified mode where client and server are in the same `World`.
-    type BannedReplicateDirection: Component;
 
     /// Set the priority for a given replication group, for a given client
     /// This IS the client-facing API that users must use to update the priorities for a given client.

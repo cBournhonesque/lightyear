@@ -17,7 +17,7 @@ use crate::protocol::*;
 const MOVE_SPEED: f32 = 10.0;
 const PROP_SIZE: f32 = 5.0;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(100),
@@ -26,7 +26,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        unified,
+        mode,
     }
 }
 
@@ -87,13 +87,7 @@ pub(crate) fn player_movement(
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_players(
     mut gizmos: Gizmos,
-    players: Query<
-        (&Position, &PlayerColor),
-        (
-            Without<Confirmed>,
-            Or<(With<Predicted>, With<Interpolated>)>,
-        ),
-    >,
+    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {
         gizmos.rect(
@@ -106,10 +100,7 @@ pub(crate) fn draw_players(
 }
 
 /// System that draws the props
-pub(crate) fn draw_props(
-    mut gizmos: Gizmos,
-    props: Query<(&Position, &Shape), Without<Replicate>>,
-) {
+pub(crate) fn draw_props(mut gizmos: Gizmos, props: Query<(&Position, &Shape)>) {
     for (position, shape) in props.iter() {
         match shape {
             Shape::Circle => {

@@ -132,7 +132,7 @@ fn player_movement(
     }
 }
 
-/// Spawn a client-owned player entity when the space command is pressed
+/// Spawn a server-owned pre-predicted player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
@@ -157,7 +157,7 @@ fn spawn_player(
                         // IMPORTANT: this lets the server know that the entity is pre-predicted
                         // when the server replicates this entity; we will get a Confirmed entity which will use this entity
                         // as the Predicted version
-                        ShouldBePredicted::default(),
+                        PrePredicted::default(),
                     ));
                 }
                 _ => {}
@@ -209,10 +209,7 @@ fn cursor_movement(
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
-        Or<(
-            (Without<Confirmed>, Without<Interpolated>),
-            With<ReplicateToServerOnly>,
-        )>,
+        Or<((Without<Confirmed>, Without<Interpolated>),)>,
     >,
 ) {
     let client_id = connection.id();

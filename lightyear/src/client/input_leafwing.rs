@@ -54,7 +54,7 @@ use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::TickManager;
+use crate::prelude::{Mode, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
@@ -181,6 +181,14 @@ where
         // RESOURCES
         app.insert_resource(self.config.clone());
         app.init_resource::<ToggleActions<A>>();
+
+        // in host-server mode, we don't need to handle inputs in any way, because the player's entity
+        // is spawned in the world with InputBuffer
+        if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
+            // TODO: maybe add toggle actions?
+            return;
+        }
+
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();
         app.init_resource::<ActionDiffBuffer<A>>();
@@ -262,16 +270,12 @@ where
         // - one thing to understand is that if we have F1 TA ( frame 1 starts, and then we run one FixedUpdate schedule)
         //   we want to add the input value computed during F1 to the buffer for tick TA, because the tick will use this value
 
-        // only send messages if we are not in unified mode
-        // (in unified mode, the server can read directly from the ActionDiffEvent events)
-        if !app.world.resource::<ClientConfig>().is_unified() {
-            app.add_systems(
-                PostUpdate,
-                (prepare_input_message::<P, A>
-                    .in_set(InputSystemSet::SendInputMessage)
-                    .run_if(run_if_enabled::<A>),),
-            );
-        }
+        app.add_systems(
+            PostUpdate,
+            (prepare_input_message::<P, A>
+                .in_set(InputSystemSet::SendInputMessage)
+                .run_if(run_if_enabled::<A>),),
+        );
 
         // NOTE: we run the buffer_action_state system in the Update for several reasons:
         // - if the fixed update schedule is too slow, we still want to have the correct input values added to the buffer
@@ -976,7 +980,6 @@ mod tests {
             .server_app
             .world
             .spawn((
-                InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
                 ActionState::<LeafwingInput1>::default(),
                 Replicate::default(),
             ))

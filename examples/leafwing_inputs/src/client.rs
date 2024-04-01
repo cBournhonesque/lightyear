@@ -16,7 +16,7 @@ pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet, GameLayer};
+use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
 use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
@@ -88,36 +88,26 @@ pub(crate) fn handle_connection(
         ));
         let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
         // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-        let id = commands
-            .spawn((
-                PlayerBundle::new(
-                    client_id,
-                    Vec2::new(-50.0, y),
-                    InputMap::new([
-                        (PlayerActions::Up, KeyCode::KeyW),
-                        (PlayerActions::Down, KeyCode::KeyS),
-                        (PlayerActions::Left, KeyCode::KeyA),
-                        (PlayerActions::Right, KeyCode::KeyD),
-                    ]),
-                ),
-                CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-            ))
-            .id();
-        warn!("pre-predicted entity: {id:?}");
-
-        // commands.spawn((
-        //     PlayerBundle::new(
-        //         client_id,
-        //         Vec2::new(50.0, y),
-        //         InputMap::new([
-        //             (PlayerActions::Up, KeyCode::ArrowUp),
-        //             (PlayerActions::Down, KeyCode::ArrowDown),
-        //             (PlayerActions::Left, KeyCode::ArrowLeft),
-        //             (PlayerActions::Right, KeyCode::ArrowRight),
-        //         ]),
-        //     ),
-        //     CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-        // ));
+        commands.spawn(PlayerBundle::new(
+            client_id,
+            Vec2::new(-50.0, y),
+            InputMap::new([
+                (PlayerActions::Up, KeyCode::KeyW),
+                (PlayerActions::Down, KeyCode::KeyS),
+                (PlayerActions::Left, KeyCode::KeyA),
+                (PlayerActions::Right, KeyCode::KeyD),
+            ]),
+        ));
+        commands.spawn((PlayerBundle::new(
+            client_id,
+            Vec2::new(50.0, y),
+            InputMap::new([
+                (PlayerActions::Up, KeyCode::ArrowUp),
+                (PlayerActions::Down, KeyCode::ArrowDown),
+                (PlayerActions::Left, KeyCode::ArrowLeft),
+                (PlayerActions::Right, KeyCode::ArrowRight),
+            ]),
+        ),));
     }
 }
 
@@ -143,10 +133,7 @@ fn add_ball_physics(
     >,
 ) {
     for entity in ball_query.iter_mut() {
-        commands.entity(entity).insert((
-            PhysicsBundle::ball(),
-            CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-        ));
+        commands.entity(entity).insert(PhysicsBundle::ball());
     }
 }
 
@@ -176,10 +163,7 @@ fn add_player_physics(
             continue;
         }
         info!(?entity, ?player_id, "adding physics to predicted player");
-        commands.entity(entity).insert((
-            PhysicsBundle::player(),
-            CollisionLayers::new(GameLayer::Client, [GameLayer::Client]),
-        ));
+        commands.entity(entity).insert(PhysicsBundle::player());
     }
 }
 

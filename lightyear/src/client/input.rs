@@ -43,6 +43,7 @@ use crate::inputs::native::UserAction;
 use crate::prelude::client::ClientConnection;
 use crate::prelude::{server, SharedConfig, Tick, TickManager};
 use crate::protocol::Protocol;
+use crate::shared::config::Mode;
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 
@@ -140,43 +141,53 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
                 .chain(),
         );
         app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
-        if !app.world.resource::<ClientConfig>().is_unified() {
-            app.configure_sets(
-                PostUpdate,
-                (
-                    // handle tick events from sync before sending the message
-                    InputSystemSet::ReceiveTickEvents.after(SyncSet).run_if(
-                        // there are no tick events in unified mode
-                        client_is_synced::<P>,
-                    ),
-                    // we send inputs only every send_interval
-                    InputSystemSet::SendInputMessage
-                        .in_set(InternalMainSet::<ClientMarker>::Send)
-                        .run_if(
-                            // no need to send input messages via io if we are in unified mode
-                            client_is_synced::<P>,
-                        ),
-                    InternalMainSet::<ClientMarker>::SendPackets,
-                )
-                    .chain(),
-            );
+        // SYSTEMS
+        app.add_systems(
+            FixedPostUpdate,
+            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
+        );
+
+        if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
             app.add_systems(
-                PostUpdate,
-                (
-                    receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
-                    prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
-                ),
+                FixedPreUpdate,
+                send_input_directly_to_client_events::<P::Input>
+                    .in_set(InputSystemSet::WriteInputEvent),
             );
+            return;
         }
 
+        // SETS
+        app.configure_sets(
+            PostUpdate,
+            (
+                // handle tick events from sync before sending the message
+                InputSystemSet::ReceiveTickEvents.after(SyncSet).run_if(
+                    // there are no tick events in unified mode
+                    client_is_synced::<P>,
+                ),
+                // we send inputs only every send_interval
+                InputSystemSet::SendInputMessage
+                    .in_set(InternalMainSet::<ClientMarker>::Send)
+                    .run_if(
+                        // no need to send input messages via io if we are in unified mode
+                        client_is_synced::<P>,
+                    ),
+                InternalMainSet::<ClientMarker>::SendPackets,
+            )
+                .chain(),
+        );
         // SYSTEMS
         app.add_systems(
             FixedPreUpdate,
             write_input_event::<P::Input>.in_set(InputSystemSet::WriteInputEvent),
         );
+
         app.add_systems(
-            FixedPostUpdate,
-            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
+            PostUpdate,
+            (
+                receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
+                prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
+            ),
         );
 
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
@@ -225,11 +236,8 @@ fn clear_input_events<A: UserAction>(mut input_events: EventReader<InputEvent<A>
 // Do it in this system because we want an input for every tick
 fn write_input_event<A: UserAction>(
     tick_manager: Res<TickManager>,
-    mut input_manager: ResMut<InputManager<A>>,
+    input_manager: Res<InputManager<A>>,
     mut client_input_events: EventWriter<InputEvent<A>>,
-    // if we are running in unified mode, send the [`InputEvent`] directly to the server
-    server_input_events: Option<ResMut<Events<server::InputEvent<A>>>>,
-    client_connection: Res<ClientConnection>,
     rollback: Option<Res<Rollback>>,
 ) {
     let tick = rollback.map_or(tick_manager.tick(), |rollback| match rollback.state {
@@ -240,12 +248,6 @@ fn write_input_event<A: UserAction>(
     });
     let input = input_manager.get_input(tick);
     client_input_events.send(InputEvent::new(input_manager.get_input(tick), ()));
-    if let Some(mut server_input_events) = server_input_events {
-        let client_id = client_connection.id();
-        server_input_events.send(server::InputEvent::new(input, client_id));
-        // in unified mode, there is no prediction, so we can just pop the inputs instantly
-        input_manager.input_buffer.pop(tick);
-    }
 }
 
 /// Receive an [`TickEvent`] signifying that the local tick has been updated,
@@ -329,4 +331,16 @@ fn prepare_input_message<P: Protocol>(
     let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
     input_manager.input_buffer.pop(interpolation_tick);
     // .pop(current_tick - (message_len + 1));
+}
+
+/// In host server mode, we don't buffer inputs (because there is no rollback) and we don't send
+/// inputs through the network, we just send directly to the server's InputEvents
+fn send_input_directly_to_client_events<A: UserAction>(
+    tick_manager: Res<TickManager>,
+    mut input_manager: ResMut<InputManager<A>>,
+    mut client_input_events: EventWriter<InputEvent<A>>,
+) {
+    let tick = tick_manager.tick();
+    let input = input_manager.input_buffer.pop(tick);
+    client_input_events.send(InputEvent::new(input, ()));
 }

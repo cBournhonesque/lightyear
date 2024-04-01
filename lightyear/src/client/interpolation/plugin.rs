@@ -4,12 +4,14 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
+use crate::prelude::Mode;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
@@ -138,13 +140,7 @@ pub enum InterpolationSet {
     VisualInterpolation,
 }
 
-// We want to run prediction:
-// - after we received network events (PreUpdate)
-// - before we run physics FixedUpdate (to not have to redo-them)
-
-// - a PROBLEM is that ideally we would like to rollback the physics simulation
-//   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
-//  the tick we rollback to would not be the current client tick ?
+/// Add per-component systems related to interpolation
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::Components: SyncMetadata<C>,

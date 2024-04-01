@@ -18,13 +18,19 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/e7625286-a167-4f50-aa
 
 ## Running the example
 
-You can either run the example as a "Listen Server" (the program acts as both client and server)
-with: `cargo run -- listen-server`
-or as dedicated server with `cargo run -- server`
+There are different 'modes' of operation:
 
-Then you can launch multiple clients with the commands:
+- as a dedicated server with `cargo run -- server`
+- as a listen server with `cargo run -- listen-server`. This will launch 2 independent bevy apps (client and server) in
+  separate threads.
+  They will communicate via channels (so with almost 0 latency)
+- as a listen server with `cargo run -- host-server`. This will launch a single bevy app, where the server will also act
+  as a client. Functionally, it is similar to the "listen-server" mode, but you have a single bevy `World` instead of
+  separate client and server `Worlds`s.
 
-- `cargo run -- client -c 1`
+Then you can launch clients with the commands:
+
+- `cargo run -- client -c 1` (`-c 1` overrides the client id, to use client id 1)
 - `cargo run -- client -c 2`
 
 You can modify the file `assets/settings.ron` to modify some networking settings.

@@ -4,10 +4,11 @@ use bevy::utils::Duration;
 
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear::shared::config::Mode;
 
 use crate::protocol::*;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
@@ -15,7 +16,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        unified,
+        mode,
     }
 }
 
@@ -26,13 +27,6 @@ impl Plugin for SharedPlugin {
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             app.add_systems(Update, draw_boxes);
-            // app.add_plugins(LogDiagnosticsPlugin {
-            //     filter: Some(vec![
-            //         IoDiagnosticsPlugin::BYTES_IN,
-            //         IoDiagnosticsPlugin::BYTES_OUT,
-            //     ]),
-            //     ..default()
-            // });
         }
     }
 }
@@ -65,13 +59,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 
 /// System that draws the boxes of the player positions.
 /// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(
-    mut gizmos: Gizmos,
-    players: Query<
-        (&PlayerPosition, &PlayerColor),
-        Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>,
-    >,
-) {
+pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
     for (position, color) in &players {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),

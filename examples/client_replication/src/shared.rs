@@ -9,7 +9,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config(unified: bool) -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
@@ -17,7 +17,7 @@ pub fn shared_config(unified: bool) -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
-        unified,
+        mode,
     }
 }
 
@@ -69,7 +69,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
+    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
     cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {

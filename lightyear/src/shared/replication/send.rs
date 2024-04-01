@@ -196,7 +196,7 @@ impl<P: Protocol> ReplicationSender<P> {
             .or_default()
             .contains(&kind)
         {
-            warn!(
+            debug!(
                 ?group_id,
                 ?entity,
                 ?kind,

@@ -24,7 +24,6 @@ pub(crate) struct PlayerBundle {
     position: Position,
     color: ColorComponent,
     replicate: Replicate,
-    replicate_direction: ReplicateToServerOnly,
     physics: PhysicsBundle,
     inputs: InputManagerBundle<PlayerActions>,
     // IMPORTANT: this lets the server know that the entity is pre-predicted
@@ -44,10 +43,12 @@ impl PlayerBundle {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 replication_group: REPLICATION_GROUP,
+                // TODO: improve this! this should depend on the predict_all settings
+                // We still need to specify the interpolation/prediction target for this local entity
+                // in the case where we're running in HostServer mode
+                prediction_target: NetworkTarget::All,
                 ..default()
             },
-            // this replicate is only used for pre-spawning, so it's client->server only
-            replicate_direction: ReplicateToServerOnly,
             physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
