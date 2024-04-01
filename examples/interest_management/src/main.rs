@@ -5,9 +5,9 @@
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
+use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
@@ -204,6 +204,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
 }
 
 /// An app that contains both the client and server plugins
+#[cfg(not(target_family = "wasm"))]
 fn combined_app(
     settings: Settings,
     extra_transport_configs: Vec<TransportConfig>,
