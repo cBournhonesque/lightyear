@@ -1,4 +1,4 @@
-//! Bevy [`Event`](bevy::prelude::Event) that are emitted when certain network events occur on the client
+//! Bevy [`Event`] that are emitted when certain network events occur on the client
 //!
 //! You can use this to react to network events in your game systems.
 //! ```rust,ignore
@@ -47,7 +47,7 @@ impl<P: Protocol> Plugin for ClientEventsPlugin<P> {
     }
 }
 
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client on the frame where the connection is established
+/// Bevy [`Event`] emitted on the client on the frame where the connection is established
 ///
 /// We keep this separate from the server's ConnectEvent so that we have different events emitted on the client
 /// and the server when running in HostServer mode
@@ -63,19 +63,19 @@ impl ConnectEvent {
     }
 }
 
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client on the frame where the connection is disconnected
+/// Bevy [`Event`] emitted on the client on the frame where the connection is disconnected
 pub type DisconnectEvent = crate::shared::events::components::DisconnectEvent<()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client to indicate the user input for the tick
+/// Bevy [`Event`] emitted on the client to indicate the user input for the tick
 pub type InputEvent<I> = crate::shared::events::components::InputEvent<I, ()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a EntitySpawn replication message is received
+/// Bevy [`Event`] emitted on the client when a EntitySpawn replication message is received
 pub type EntitySpawnEvent = crate::shared::events::components::EntitySpawnEvent<()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a EntityDespawn replication message is received
+/// Bevy [`Event`] emitted on the client when a EntityDespawn replication message is received
 pub type EntityDespawnEvent = crate::shared::events::components::EntityDespawnEvent<()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a ComponentUpdate replication message is received
+/// Bevy [`Event`] emitted on the client when a ComponentUpdate replication message is received
 pub type ComponentUpdateEvent<C> = crate::shared::events::components::ComponentUpdateEvent<C, ()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a ComponentInsert replication message is received
+/// Bevy [`Event`] emitted on the client when a ComponentInsert replication message is received
 pub type ComponentInsertEvent<C> = crate::shared::events::components::ComponentInsertEvent<C, ()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a ComponentRemove replication message is received
+/// Bevy [`Event`] emitted on the client when a ComponentRemove replication message is received
 pub type ComponentRemoveEvent<C> = crate::shared::events::components::ComponentRemoveEvent<C, ()>;
-/// Bevy [`Event`](bevy::prelude::Event) emitted on the client when a (non-replication) message is received
+/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
 pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ()>;

@@ -84,7 +84,7 @@ impl<T> Pool<T> {
         F: Fn() -> T,
     {
         Pool {
-            objects: Mutex::new((0..cap).into_iter().map(|_| init()).collect()),
+            objects: Mutex::new((0..cap).map(|_| init()).collect()),
         }
     }
 
@@ -189,16 +189,16 @@ mod tests {
 
     #[test]
     fn detach() {
-        let pool = Pool::new(1, || Vec::new());
+        let pool = Pool::new(1, Vec::new);
         let (pool, mut object) = pool.try_pull().unwrap().detach();
         object.push(1);
-        Reusable::new(&pool, object);
+        Reusable::new(pool, object);
         assert_eq!(pool.try_pull().unwrap()[0], 1);
     }
 
     #[test]
     fn detach_then_attach() {
-        let pool = Pool::new(1, || Vec::new());
+        let pool = Pool::new(1, Vec::new);
         let (pool, mut object) = pool.try_pull().unwrap().detach();
         object.push(1);
         pool.attach(object);
@@ -207,11 +207,11 @@ mod tests {
 
     #[test]
     fn pull() {
-        let pool = Pool::<Vec<u8>>::new(1, || Vec::new());
+        let pool = Pool::<Vec<u8>>::new(1, Vec::new);
 
         let object1 = pool.try_pull();
         let object2 = pool.try_pull();
-        let object3 = pool.pull(|| Vec::new());
+        let object3 = pool.pull(Vec::new);
 
         assert!(object1.is_some());
         assert!(object2.is_none());
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn e2e() {
-        let pool = Pool::new(10, || Vec::new());
+        let pool = Pool::new(10, Vec::new);
         let mut objects = Vec::new();
 
         for i in 0..10 {
@@ -236,7 +236,7 @@ mod tests {
         drop(objects);
         assert!(pool.try_pull().is_some());
 
-        for i in (10..0).rev() {
+        for i in (0..10).rev() {
             let mut object = pool.objects.lock().pop().unwrap();
             assert_eq!(object.pop(), Some(i));
         }
