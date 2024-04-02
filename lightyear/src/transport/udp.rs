@@ -1,13 +1,12 @@
 //! The transport is a UDP socket
-use std::io::Result;
+use anyhow::Context;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-
-// use anyhow::Result;
-// use anyhow::{anyhow, Context};
+use super::error::{Error, Result};
+use super::{PacketReceiver, PacketSender, Transport};
 
 // Maximum transmission units; maximum size in bytes of a UDP packet
 // See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
@@ -16,37 +15,48 @@ const MTU: usize = 1472;
 /// UDP Socket
 #[derive(Clone)]
 pub struct UdpSocket {
+    local_addr: SocketAddr,
     /// The underlying UDP Socket. This is wrapped in an Arc<Mutex<>> so that it
     /// can be shared between threads
-    socket: Arc<Mutex<std::net::UdpSocket>>,
+    socket: Option<Arc<Mutex<std::net::UdpSocket>>>,
     buffer: [u8; MTU],
 }
 
 impl UdpSocket {
     /// Create a non-blocking UDP socket
-    pub fn new(local_addr: SocketAddr) -> Result<Self> {
-        let udp_socket = std::net::UdpSocket::bind(local_addr)?;
-        let socket = Arc::new(Mutex::new(udp_socket));
-        socket.as_ref().lock().unwrap().set_nonblocking(true)?;
-        Ok(Self {
-            socket,
+    pub fn new(local_addr: SocketAddr) -> Self {
+        Self {
+            local_addr,
+            socket: None,
             buffer: [0; MTU],
-        })
+        }
     }
 }
 
 impl Transport for UdpSocket {
     fn local_addr(&self) -> SocketAddr {
-        self.socket
-            .as_ref()
-            .lock()
-            .unwrap()
-            .local_addr()
-            .expect("error getting local addr")
+        self.socket.as_ref().map_or_else(
+            || self.local_addr,
+            |socket| {
+                socket
+                    .as_ref()
+                    .lock()
+                    .unwrap()
+                    .local_addr()
+                    .expect("error getting local addr")
+            },
+        )
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        (Box::new(self.clone()), Box::new(self.clone()))
+    fn connect(&mut self) -> Result<()> {
+        let udp_socket = std::net::UdpSocket::bind(self.local_addr)?;
+        let socket = Arc::new(Mutex::new(udp_socket));
+        socket.as_ref().lock().unwrap().set_nonblocking(true)?;
+        Ok(())
+    }
+    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
+        // TODO: assert that the socket is connected?
+        (Box::new(&mut self.clone()), Box::new(self))
     }
 }
 
@@ -54,11 +64,11 @@ impl PacketSender for UdpSocket {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.socket
             .as_ref()
+            .ok_or(Error::NotConnected)?
             .lock()
             .unwrap()
-            .send_to(payload, address)
-            .map(|_| ())
-        // .context("error sending packet")
+            .send_to(payload, address)?;
+        Ok(())
     }
 }
 
@@ -68,6 +78,7 @@ impl PacketReceiver for UdpSocket {
         match self
             .socket
             .as_ref()
+            .ok_or(Error::NotConnected)?
             .lock()
             .unwrap()
             .recv_from(&mut self.buffer)
@@ -78,7 +89,7 @@ impl PacketReceiver for UdpSocket {
                 Ok(None)
             }
             // Err(e) => Err(anyhow!("error receiving packet")),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 }
@@ -89,8 +100,10 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
 
-    use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
     use crate::transport::udp::UdpSocket;
+    use crate::transport::wrapper::conditioner::{
+        ConditionedPacketReceiver, LinkConditionerConfig,
+    };
     use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]

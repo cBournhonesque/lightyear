@@ -10,10 +10,6 @@ cfg_if::cfg_if! {
     }
 }
 
-// Maximum transmission units; maximum size in bytes of a UDP packet
-// See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
-const MTU: usize = 1472;
-
 #[cfg(test)]
 mod tests {
     use super::client::*;

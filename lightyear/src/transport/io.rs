@@ -5,17 +5,15 @@ use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnost
 use bevy::prelude::{Real, Res, Resource, Time};
 use crossbeam_channel::{Receiver, Sender};
 use std::fmt::{Debug, Formatter};
-use std::io::Result;
 use std::net::{IpAddr, SocketAddr};
 
-use crate::_reexport::ComponentBehaviour;
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
 
+use super::error::Result;
 use super::LOCAL_SOCKET;
 use crate::transport::channels::Channels;
-use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
 use crate::transport::dummy::DummyIo;
 use crate::transport::local::LocalChannel;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
@@ -37,7 +35,11 @@ use crate::transport::webtransport::client::WebTransportClientSocket;
 use crate::transport::websocket::client::WebSocketClientSocket;
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocket;
+use crate::transport::wrapper::conditioner::{LinkConditioner, LinkConditionerConfig};
+use crate::transport::wrapper::PacketReceiverWrapper;
 
+/// Use this to configure the [`Transport`] that will be used to establish a connection with the
+/// remote.
 #[derive(Clone)]
 pub enum TransportConfig {
     // TODO: should we have a features for UDP?
@@ -74,107 +76,6 @@ pub enum TransportConfig {
 impl std::fmt::Debug for TransportConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(())
-    }
-}
-
-impl TransportConfig {
-    pub fn get_io(self) -> Io {
-        // we don't use `dyn Transport` and instead repeat the code for `transport.listen()` because that function is not
-        // object-safe (we would get "the size of `dyn Transport` cannot be statically determined")
-        match self {
-            #[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
-            #[cfg(not(target_family = "wasm"))]
-            TransportConfig::UdpSocket(addr) => {
-                let transport = UdpSocket::new(addr).unwrap();
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            #[cfg_attr(
-                docsrs,
-                doc(cfg(all(feature = "webtransport", not(target_family = "wasm"))))
-            )]
-            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-            TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-            } => {
-                let transport = WebTransportClientSocket::new(client_addr, server_addr);
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            #[cfg_attr(
-                docsrs,
-                doc(cfg(all(feature = "webtransport", target_family = "wasm")))
-            )]
-            #[cfg(all(feature = "webtransport", target_family = "wasm"))]
-            TransportConfig::WebTransportClient {
-                client_addr,
-                server_addr,
-                certificate_digest,
-            } => {
-                let transport =
-                    WebTransportClientSocket::new(client_addr, server_addr, certificate_digest);
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            #[cfg_attr(
-                docsrs,
-                doc(cfg(all(feature = "webtransport", not(target_family = "wasm"))))
-            )]
-            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-            TransportConfig::WebTransportServer {
-                server_addr,
-                certificate,
-            } => {
-                let transport = WebTransportServerSocket::new(server_addr, certificate);
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
-            #[cfg(feature = "websocket")]
-            TransportConfig::WebSocketClient { server_addr } => {
-                let transport = WebSocketClientSocket::new(server_addr);
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            #[cfg_attr(
-                docsrs,
-                doc(cfg(all(feature = "websocket", not(target_family = "wasm"))))
-            )]
-            #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-            TransportConfig::WebSocketServer { server_addr } => {
-                let transport = WebSocketServerSocket::new(server_addr);
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            TransportConfig::Channels { channels } => {
-                let mut transport = Channels::new();
-                for (addr, remote_recv, remote_send) in channels.into_iter() {
-                    transport.add_new_remote(addr, remote_recv, remote_send);
-                }
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            TransportConfig::LocalChannel { recv, send } => {
-                let transport = LocalChannel::new(recv, send);
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-            TransportConfig::Dummy => {
-                let transport = DummyIo;
-                let addr = transport.local_addr();
-                let (sender, receiver) = transport.listen();
-                Io::new(addr, sender, receiver)
-            }
-        }
     }
 }
 
@@ -216,23 +117,89 @@ impl IoConfig {
     }
 
     pub fn get_io(self) -> Io {
-        let mut io = self.transport.get_io();
-        if let Some(conditioner) = self.conditioner {
-            io = Io::new(
-                io.local_addr,
-                io.sender,
-                Box::new(ConditionedPacketReceiver::new(io.receiver, conditioner)),
-            );
+        let conditioner = self.conditioner.map(|config| LinkConditioner::new(config));
+        // we don't use `dyn Transport` and instead repeat the code for `transport.listen()` because that function is not
+        // object-safe (we would get "the size of `dyn Transport` cannot be statically determined")
+        match self.transport {
+            #[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
+            #[cfg(not(target_family = "wasm"))]
+            TransportConfig::UdpSocket(addr) => {
+                let transport = UdpSocket::new(addr);
+                Io::new(Box::new(transport), conditioner)
+            }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "webtransport", not(target_family = "wasm"))))
+            )]
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+            } => {
+                let transport = WebTransportClientSocket::new(client_addr, server_addr);
+                Io::new(Box::new(transport), conditioner)
+            }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "webtransport", target_family = "wasm")))
+            )]
+            #[cfg(all(feature = "webtransport", target_family = "wasm"))]
+            TransportConfig::WebTransportClient {
+                client_addr,
+                server_addr,
+                certificate_digest,
+            } => {
+                let transport =
+                    WebTransportClientSocket::new(client_addr, server_addr, certificate_digest);
+                Io::new(Box::new(transport), conditioner)
+            }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "webtransport", not(target_family = "wasm"))))
+            )]
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            TransportConfig::WebTransportServer {
+                server_addr,
+                certificate,
+            } => {
+                let transport = WebTransportServerSocket::new(server_addr, certificate);
+                Io::new(Box::new(transport), conditioner)
+            }
+            #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
+            #[cfg(feature = "websocket")]
+            TransportConfig::WebSocketClient { server_addr } => {
+                let transport = WebSocketClientSocket::new(server_addr);
+                Io::new(Box::new(transport), conditioner)
+            }
+            #[cfg_attr(
+                docsrs,
+                doc(cfg(all(feature = "websocket", not(target_family = "wasm"))))
+            )]
+            #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+            TransportConfig::WebSocketServer { server_addr } => {
+                let transport = WebSocketServerSocket::new(server_addr);
+                Io::new(Box::new(transport), conditioner)
+            }
+            TransportConfig::Channels { channels } => {
+                let mut transport = Channels::new(channels);
+                Io::new(Box::new(transport), conditioner)
+            }
+            TransportConfig::LocalChannel { recv, send } => {
+                let transport = LocalChannel::new(recv, send);
+                Io::new(Box::new(transport), conditioner)
+            }
+            TransportConfig::Dummy => {
+                let transport = DummyIo;
+                Io::new(Box::new(transport), conditioner)
+            }
         }
-        io
     }
 }
 
 #[derive(Resource)]
 pub struct Io {
-    local_addr: SocketAddr,
-    sender: Box<dyn PacketSender>,
-    receiver: Box<dyn PacketReceiver>,
+    transport: Box<dyn Transport>,
+    conditioner: Option<LinkConditioner<(SocketAddr, Box<[u8]>)>>,
     pub(crate) stats: IoStats,
 }
 
@@ -251,36 +218,38 @@ pub struct IoStats {
 }
 
 impl Io {
-    pub fn from_config(config: IoConfig) -> Self {
-        config.get_io()
-    }
-
     pub fn new(
-        local_addr: SocketAddr,
-        sender: Box<dyn PacketSender>,
-        receiver: Box<dyn PacketReceiver>,
+        transport: Box<dyn Transport>,
+        conditioner: Option<LinkConditioner<(SocketAddr, Box<[u8]>)>>,
     ) -> Self {
         Self {
-            local_addr,
-            sender,
-            receiver,
+            transport,
+            conditioner,
             stats: IoStats::default(),
         }
-    }
-    pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
-    }
-
-    pub fn to_parts(self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>) {
-        (self.receiver, self.sender)
-    }
-
-    pub fn split(&mut self) -> (&mut Box<dyn PacketSender>, &mut Box<dyn PacketReceiver>) {
-        (&mut self.sender, &mut self.receiver)
     }
 
     pub fn stats(&self) -> &IoStats {
         &self.stats
+    }
+}
+
+impl Transport for Io {
+    fn local_addr(&self) -> SocketAddr {
+        self.transport.local_addr()
+    }
+
+    fn connect(&mut self) -> Result<()> {
+        self.transport.connect()
+    }
+
+    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
+        // todo: compression + bandwidth monitoring
+        let (sender, mut receiver) = self.transport.split();
+        if let Some(conditioner) = &mut self.conditioner {
+            receiver = conditioner.wrap(receiver)
+        }
+        (sender, receiver)
     }
 }
 
@@ -292,33 +261,35 @@ impl Debug for Io {
 
 impl PacketReceiver for Io {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
+        self.split().1.recv()
         // todo: compression + bandwidth monitoring
-        self.receiver.recv().map(|x| {
-            if let Some((ref buffer, _)) = x {
-                #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("transport.packets_received").increment(1);
-                    metrics::gauge!("transport.bytes_received").increment(buffer.len() as f64);
-                }
-                self.stats.bytes_received += buffer.len();
-                self.stats.packets_received += 1;
-            }
-            x
-        })
+        // self.receiver.recv().map(|x| {
+        //     if let Some((ref buffer, _)) = x {
+        //         #[cfg(feature = "metrics")]
+        //         {
+        //             metrics::counter!("transport.packets_received").increment(1);
+        //             metrics::gauge!("transport.bytes_received").increment(buffer.len() as f64);
+        //         }
+        //         self.stats.bytes_received += buffer.len();
+        //         self.stats.packets_received += 1;
+        //     }
+        //     x
+        // })
     }
 }
 
 impl PacketSender for Io {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
-        // todo: compression + bandwidth monitoring
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("transport.packets_sent").increment(1);
-            metrics::gauge!("transport.bytes_sent").increment(payload.len() as f64);
-        }
-        self.stats.bytes_sent += payload.len();
-        self.stats.packets_sent += 1;
-        self.sender.send(payload, address)
+        self.split().0.send(payload, address)
+        // // todo: compression + bandwidth monitoring
+        // #[cfg(feature = "metrics")]
+        // {
+        //     metrics::counter!("transport.packets_sent").increment(1);
+        //     metrics::gauge!("transport.bytes_sent").increment(payload.len() as f64);
+        // }
+        // self.stats.bytes_sent += payload.len();
+        // self.stats.packets_sent += 1;
+        // self.sender.send(payload, address)
     }
 }
 
@@ -395,13 +366,3 @@ impl PacketReceiver for Box<dyn PacketReceiver + Send + Sync> {
         (**self).recv()
     }
 }
-
-// impl Transport for Io {
-//     fn local_addr(&self) -> SocketAddr {
-//         self.local_addr
-//     }
-//
-//     fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-//         (self.sender.clone(), self.receiver.clone())
-//     }
-// }

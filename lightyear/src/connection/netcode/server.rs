@@ -13,7 +13,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::server::config::NetcodeConfig;
 use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender};
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::{
     bytes::Bytes,
@@ -351,9 +351,9 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use bevy::utils::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
-/// let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
-///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)))
-/// );
+/// let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(
+///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
+/// )).get_io();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -474,7 +474,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         addr: SocketAddr,
         packet: Packet,
-        sender: &mut impl PacketSender,
+        sender: &mut Box<&mut dyn PacketSender>,
     ) -> Result<()> {
         let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
         trace!(
@@ -752,7 +752,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         buf: &mut [u8],
         now: u64,
         addr: SocketAddr,
-        sender: &mut impl PacketSender,
+        sender: &mut Box<&mut dyn PacketSender>,
     ) -> Result<()> {
         if buf.len() <= 1 {
             // TODO: make token request something else than this?
@@ -804,8 +804,8 @@ impl<Ctx> NetcodeServer<Ctx> {
 
     fn recv_packets(
         &mut self,
-        sender: &mut impl PacketSender,
-        receiver: &mut impl PacketReceiver,
+        sender: &mut Box<&mut dyn PacketSender>,
+        mut receiver: &mut Box<&mut dyn PacketReceiver>,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {
@@ -835,9 +835,9 @@ impl<Ctx> NetcodeServer<Ctx> {
     pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<()> {
         self.time += delta_ms;
         self.conn_cache.update(delta_ms);
-        let (sender, receiver) = io.split();
+        let (mut sender, mut receiver) = io.split();
         self.check_for_timeouts();
-        self.recv_packets(sender, receiver)?;
+        self.recv_packets(&mut sender, &mut receiver)?;
         self.send_packets(io)?;
         Ok(())
     }
@@ -857,9 +857,8 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = Io::from_config(
-    /// #     IoConfig::from_transport(TransportConfig::UdpSocket(addr))
-    /// # );
+    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).get_io();
+    /// #
     /// let start = Instant::now();
     /// loop {
     ///    let now = start.elapsed().as_secs_f64();

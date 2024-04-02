@@ -1,6 +1,6 @@
 //! Dummy io for connections that provide their own way of sending and receiving raw bytes (for example steamworks).
+use super::error::Result;
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
-use std::io::Result;
 use std::net::SocketAddr;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -11,7 +11,11 @@ impl Transport for DummyIo {
         LOCAL_SOCKET
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn connect(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
         (Box::new(self), Box::new(self))
     }
 }
@@ -23,7 +27,7 @@ impl PacketSender for DummyIo {
 }
 
 impl PacketReceiver for DummyIo {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         panic!("DummyIo::receive should not be called")
     }
 }

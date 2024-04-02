@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::Context;
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
 use bevy::utils::hashbrown::HashMap;
@@ -32,17 +32,24 @@ use tokio_tungstenite::{
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
+use crate::transport::error::{Error, Result};
 use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 use super::MTU;
 
 pub struct WebSocketClientSocket {
     server_addr: SocketAddr,
+    sender: Option<WebSocketClientSocketSender>,
+    receiver: Option<WebSocketClientSocketReceiver>,
 }
 
 impl WebSocketClientSocket {
     pub(crate) fn new(server_addr: SocketAddr) -> Self {
-        Self { server_addr }
+        Self {
+            server_addr,
+            sender: None,
+            receiver: None,
+        }
     }
 
     /*fn get_tls_connector(&self) -> TlsConnector {
@@ -70,63 +77,68 @@ impl Transport for WebSocketClientSocket {
         LOCAL_SOCKET
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn connect(&mut self) -> Result<()> {
         let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
 
-        let packet_sender = WebSocketClientSocketSender { serverbound_tx };
-
-        let packet_receiver = WebSocketClientSocketReceiver {
+        self.sender = Some(WebSocketClientSocketSender { serverbound_tx });
+        self.receiver = Some(WebSocketClientSocketReceiver {
             buffer: [0; MTU],
             server_addr: self.server_addr,
             clientbound_rx,
-        };
+        });
 
-        IoTaskPool::get()
-            .spawn(Compat::new(async move {
-                info!("Starting client websocket task");
-                let (ws_stream, _) =
+        // connect to the server
+        let (ws_stream, _) = IoTaskPool::get()
+            .scope(|scope| {
+                scope.spawn(async move {
                     connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
                         .await
-                        .expect("Unable to connect to websocket server");
-                info!("WebSocket handshake has been successfully completed");
+                })
+            })
+            .pop()
+            .unwrap()?;
+        info!("WebSocket handshake has been successfully completed");
+        let (mut write, mut read) = ws_stream.split();
 
-                let (mut write, mut read) = ws_stream.split();
+        IoTaskPool::get()
+            .spawn(async move {
+                while let Some(msg) = read.next().await {
+                    let msg = msg
+                        .map_err(|e| {
+                            error!("Error while receiving websocket msg: {}", e);
+                        })
+                        .unwrap();
 
-                IoTaskPool::get()
-                    .spawn(async move {
-                        while let Some(msg) = read.next().await {
-                            let msg = msg
-                                .map_err(|e| {
-                                    error!("Error while receiving websocket msg: {}", e);
-                                })
-                                .unwrap();
-
-                            clientbound_tx.send(msg).expect(
-                                "Unable to propagate the read websocket message to the receiver",
-                            );
-                        }
-                        // when we reach this point, the stream is closed
-                    })
-                    .detach();
-
-                IoTaskPool::get()
-                    .spawn(async move {
-                        while let Some(msg) = serverbound_rx.recv().await {
-                            write
-                                .send(msg)
-                                .await
-                                .map_err(|e| {
-                                    error!("Encountered error while sending websocket msg: {}", e);
-                                })
-                                .unwrap();
-                        }
-                    })
-                    .detach();
-            }))
+                    clientbound_tx
+                        .send(msg)
+                        .expect("Unable to propagate the read websocket message to the receiver");
+                }
+                // when we reach this point, the stream is closed
+            })
             .detach();
 
-        (Box::new(packet_sender), Box::new(packet_receiver))
+        IoTaskPool::get()
+            .spawn(async move {
+                while let Some(msg) = serverbound_rx.recv().await {
+                    write
+                        .send(msg)
+                        .await
+                        .map_err(|e| {
+                            error!("Encountered error while sending websocket msg: {}", e);
+                        })
+                        .unwrap();
+                }
+            })
+            .detach();
+        Ok(())
+    }
+
+    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
+        (
+            Box::new(self.sender.as_mut().unwrap()),
+            Box::new(self.receiver.as_mut().unwrap()),
+        )
     }
 }
 
@@ -135,11 +147,14 @@ struct WebSocketClientSocketSender {
 }
 
 impl PacketSender for WebSocketClientSocketSender {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.serverbound_tx
             .send(Message::Binary(payload.to_vec()))
             .map_err(|e| {
-                std::io::Error::other(format!("unable to send message to server: {:?}", e))
+                Error::WebSocket(
+                    std::io::Error::other(format!("unable to send message to server: {:?}", e))
+                        .into(),
+                )
             })
     }
 }
@@ -151,7 +166,7 @@ struct WebSocketClientSocketReceiver {
 }
 
 impl PacketReceiver for WebSocketClientSocketReceiver {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self.clientbound_rx.try_recv() {
             Ok(msg) => match msg {
                 Message::Binary(buf) => {
@@ -168,10 +183,13 @@ impl PacketReceiver for WebSocketClientSocketReceiver {
                 if e == TryRecvError::Empty {
                     Ok(None)
                 } else {
-                    Err(std::io::Error::other(format!(
-                        "unable to receive message from client: {}",
-                        e
-                    )))
+                    Err(Error::WebSocket(
+                        std::io::Error::other(format!(
+                            "unable to receive message from client: {}",
+                            e
+                        ))
+                        .into(),
+                    ))
                 }
             }
         }
