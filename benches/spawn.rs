@@ -65,7 +65,7 @@ fn spawn_local(bencher: Bencher, n: usize) {
             stepper.frame_step();
             stepper.frame_step();
 
-            let client_id = 0 as ClientId;
+            let client_id = ClientId::Netcode(0);
             assert_eq!(
                 stepper
                     .client_apps
@@ -126,7 +126,7 @@ fn spawn(bencher: Bencher, n: usize) {
             stepper.frame_step();
 
             for i in 0..n {
-                let client_id = i as ClientId;
+                let client_id = ClientId::Netcode(i as u64);
                 assert_eq!(
                     stepper
                         .client_apps

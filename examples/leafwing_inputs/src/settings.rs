@@ -2,15 +2,16 @@
 use bevy::utils::Duration;
 use std::net::{Ipv4Addr, SocketAddr};
 
-use async_compat::Compat;
-use bevy::tasks::IoTaskPool;
-use serde::{Deserialize, Serialize};
-
-use lightyear::prelude::client::{Authentication, SteamConfig};
-use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
-
+#[cfg(not(target_family = "wasm"))]
 use crate::server::Certificate;
 use crate::{client, server};
+use async_compat::Compat;
+use bevy::tasks::IoTaskPool;
+use lightyear::prelude::client::Authentication;
+#[cfg(not(target_family = "wasm"))]
+use lightyear::prelude::client::SteamConfig;
+use lightyear::prelude::{ClientId, IoConfig, LinkConditionerConfig, TransportConfig};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {
@@ -20,6 +21,7 @@ pub enum ClientTransports {
         certificate_digest: String,
     },
     WebSocket,
+    #[cfg(not(target_family = "wasm"))]
     Steam {
         app_id: u32,
     },
@@ -57,8 +59,8 @@ pub struct Conditioner {
 impl Conditioner {
     pub fn build(&self) -> LinkConditionerConfig {
         LinkConditionerConfig {
-            incoming_latency: std::time::Duration::from_millis(self.latency_ms as u64),
-            incoming_jitter: std::time::Duration::from_millis(self.jitter_ms as u64),
+            incoming_latency: bevy::utils::Duration::from_millis(self.latency_ms as u64),
+            incoming_jitter: bevy::utils::Duration::from_millis(self.jitter_ms as u64),
             incoming_loss: self.packet_loss,
         }
     }
@@ -72,7 +74,10 @@ pub struct ServerSettings {
     /// If true, enable bevy_inspector_egui
     pub(crate) inspector: bool,
 
-    /// If true, apply prediction to all clients (even other clients)
+    /// If true, we will predict the client's entities, but also the ball and other clients' entities!
+    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
+    ///
+    /// If false, we will predict the client's entities but simple interpolate everything else.
     pub(crate) predict_all: bool,
 
     /// Possibly add a conditioner to simulate network conditions
@@ -95,6 +100,19 @@ pub struct ClientSettings {
 
     /// The ip address of the server
     pub(crate) server_addr: Ipv4Addr,
+
+    /// By how many ticks an input press will be delayed?
+    /// This can be useful as a tradeoff between input delay and prediction accuracy.
+    /// If the input delay is greater than the RTT, then there won't ever be any mispredictions/rollbacks.
+    /// See [this article](https://www.snapnet.dev/docs/core-concepts/input-delay-vs-rollback/) for more information.
+    pub(crate) input_delay_ticks: u16,
+
+    /// If visual correction is enabled, we don't instantly snapback to the corrected position
+    /// when we need to rollback. Instead we interpolated between the current position and the
+    /// corrected position.
+    /// This controls the duration of the interpolation; the higher it is, the longer the interpolation
+    /// will take
+    pub(crate) correction_ticks_factor: f32,
 
     /// The port of the server
     pub(crate) server_port: u16,
@@ -223,7 +241,7 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
 
 /// Build a netcode config for the client
 pub fn build_client_netcode_config(
-    client_id: ClientId,
+    client_id: u64,
     server_addr: SocketAddr,
     conditioner: Option<&Conditioner>,
     shared: &SharedSettings,
@@ -252,7 +270,7 @@ pub fn build_client_netcode_config(
 
 /// Parse the settings into a `NetConfig` that is used to configure how the lightyear client
 /// connects to the server
-pub fn get_client_net_config(settings: &Settings, client_id: ClientId) -> client::NetConfig {
+pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::NetConfig {
     let server_addr = SocketAddr::new(
         settings.client.server_addr.into(),
         settings.client.server_port,
@@ -276,7 +294,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: ClientId) -> client
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
-                certificate_digest,
+                certificate_digest: certificate_digest.to_string(),
             },
         ),
         ClientTransports::WebSocket => build_client_netcode_config(
@@ -286,6 +304,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: ClientId) -> client
             &settings.shared,
             TransportConfig::WebSocketClient { server_addr },
         ),
+        #[cfg(not(target_family = "wasm"))]
         ClientTransports::Steam { app_id } => client::NetConfig::Steam {
             config: SteamConfig {
                 server_addr,

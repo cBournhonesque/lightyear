@@ -59,6 +59,7 @@ pub mod _reexport {
     pub use crate::shared::replication::components::ShouldBeInterpolated;
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
+    pub use crate::shared::sets::{ClientMarker, ServerMarker};
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};
     pub use crate::utils::sequence_buffer::SequenceBuffer;
@@ -74,7 +75,8 @@ pub mod prelude {
         DefaultUnorderedUnreliableChannel, ReliableSettings,
     };
     pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
-    pub use crate::connection::netcode::{generate_key, ClientId, Key};
+    pub use crate::connection::id::ClientId;
+    pub use crate::connection::netcode::{generate_key, Key};
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::LeafwingUserAction;
     pub use crate::inputs::native::UserAction;
@@ -82,16 +84,15 @@ pub mod prelude {
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
-    pub use crate::shared::config::SharedConfig;
+    pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, ReplicationGroup, ReplicationMode, ShouldBePredicted,
+        NetworkTarget, PrePredicted, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
-    pub use crate::shared::replication::metadata::ClientMetadata;
-    pub use crate::shared::sets::{FixedUpdateSet, MainSet, ReplicationSet};
+    pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};
     pub use crate::shared::time_manager::TimeManager;
@@ -108,7 +109,7 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
-        pub use crate::client::input::{InputConfig, InputSystemSet};
+        pub use crate::client::input::{InputConfig, InputManager, InputSystemSet};
         #[cfg(feature = "leafwing")]
         pub use crate::client::input_leafwing::{
             LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,
@@ -120,18 +121,19 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
-        pub use crate::client::metadata::GlobalMetadata;
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
         pub use crate::client::prediction::predicted_history::{ComponentState, PredictionHistory};
+        pub use crate::client::prediction::rollback::{Rollback, RollbackState};
         pub use crate::client::prediction::{Predicted, PredictionDespawnCommandsExt};
+        pub use crate::client::replication::ReplicationConfig;
         pub use crate::client::sync::SyncConfig;
         pub use crate::connection::client::{
             Authentication, ClientConnection, NetClient, NetConfig,
         };
-        #[cfg(feature = "steam")]
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::SteamConfig;
     }
     pub mod server {
@@ -140,14 +142,16 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
-        pub use crate::server::metadata::GlobalMetadata;
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
+        pub use crate::server::replication::{
+            ReplicationConfig, ServerFilter, ServerReplicationSet,
+        };
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
 
         pub use crate::connection::server::{
             NetConfig, NetServer, ServerConnection, ServerConnections,
         };
-        #[cfg(feature = "steam")]
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::SteamConfig;
         #[cfg(feature = "leafwing")]
         pub use crate::server::input_leafwing::LeafwingInputPlugin;

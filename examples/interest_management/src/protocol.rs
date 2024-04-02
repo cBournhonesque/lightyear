@@ -10,6 +10,7 @@ use leafwing_input_manager::InputManagerBundle;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use crate::shared::color_from_id;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationMode;
 use UserAction;
@@ -25,7 +26,8 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+        let color = color_from_id(id);
         let mut replicate = Replicate {
             prediction_target: NetworkTarget::Only(vec![id]),
             interpolation_target: NetworkTarget::AllExcept(vec![id]),

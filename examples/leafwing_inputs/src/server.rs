@@ -6,7 +6,9 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::_reexport::ServerMarker;
 
+use lightyear::prelude::client::{Confirmed, Predicted};
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
@@ -14,47 +16,9 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour, FixedSet};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    /// If this is true, we will predict the client's entities, but also the ball and other clients' entities!
-    /// This is what is done by RocketLeague (see [video](https://www.youtube.com/watch?v=ueEmiDM94IE))
-    ///
-    /// If this is false, we will predict the client's entites but simple interpolate everything else.
-    pub(crate) predict_all: bool,
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>, predict_all: bool) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            predict_all,
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin {
-                predict_all: self.predict_all,
-            })
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, PlayerActions>::default())
-            .add(LeafwingInputPlugin::<MyProtocol, AdminActions>::default())
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
-    predict_all: bool,
+    pub(crate) predict_all: bool,
 }
 
 #[derive(Resource)]
@@ -65,6 +29,10 @@ pub struct Global {
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         // add leafwing plugins to handle inputs
+        app.add_plugins((
+            LeafwingInputPlugin::<MyProtocol, PlayerActions>::default(),
+            // LeafwingInputPlugin::<MyProtocol, AdminActions>::default(),
+        ));
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
@@ -72,7 +40,7 @@ impl Plugin for ExampleServerPlugin {
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
-            replicate_players.in_set(MainSet::ClientReplication),
+            replicate_players.in_set(ServerReplicationSet::ClientReplication),
         );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement.in_set(FixedSet::Main));
@@ -80,8 +48,16 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn init(mut commands: Commands, global: Res<Global>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(
+    mut commands: Commands,
+    mut connections: ResMut<ServerConnections>,
+    global: Res<Global>,
+) {
+    for connection in &mut connections.servers {
+        let _ = connection.start().inspect_err(|e| {
+            error!("Failed to start server: {:?}", e);
+        });
+    }
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -126,12 +102,15 @@ pub(crate) fn handle_disconnections(
 /// NOTE: this system can now be run in both client/server!
 pub(crate) fn movement(
     tick_manager: Res<TickManager>,
-    mut action_query: Query<(
-        Entity,
-        &Position,
-        &mut LinearVelocity,
-        &ActionState<PlayerActions>,
-    )>,
+    mut action_query: Query<
+        (
+            Entity,
+            &Position,
+            &mut LinearVelocity,
+            &ActionState<PlayerActions>,
+        ),
+        (Without<Confirmed>, Without<Predicted>),
+    >,
 ) {
     for (entity, position, velocity, action) in action_query.iter_mut() {
         // NOTE: be careful to directly pass Mut<PlayerPosition>
@@ -142,7 +121,6 @@ pub(crate) fn movement(
 }
 
 // Replicate the pre-spawned entities back to the client
-
 pub(crate) fn replicate_players(
     global: Res<Global>,
     mut commands: Commands,
@@ -157,7 +135,7 @@ pub(crate) fn replicate_players(
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             let mut replicate = Replicate {
-                // we want to replicate back to the original client, since they are using a pre-spawned entity
+                // we want to replicate back to the original client, since they are using a pre-predicted entity
                 replication_target: NetworkTarget::All,
                 // make sure that all entities that are predicted are part of the same replication group
                 replication_group: REPLICATION_GROUP,
@@ -169,14 +147,15 @@ pub(crate) fn replicate_players(
             replicate.add_target::<ActionState<PlayerActions>>(NetworkTarget::AllExceptSingle(
                 client_id,
             ));
+            // if we receive a pre-predicted entity, only send the prepredicted component back
+            // to the original client
+            replicate.add_target::<PrePredicted>(NetworkTarget::Single(client_id));
             if global.predict_all {
                 replicate.prediction_target = NetworkTarget::All;
                 // // if we predict other players, we need to replicate their actions to all clients other than the original one
                 // // (the original client will apply the actions locally)
                 // replicate.disable_replicate_once::<ActionState<PlayerActions>>();
             } else {
-                // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
-                replicate.prediction_target = NetworkTarget::Single(client_id);
                 // we want the other clients to apply interpolation for the player
                 replicate.interpolation_target = NetworkTarget::AllExceptSingle(client_id);
             }

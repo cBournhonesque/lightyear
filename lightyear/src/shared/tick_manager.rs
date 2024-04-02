@@ -4,7 +4,7 @@ use bevy::utils::Duration;
 use tracing::trace;
 
 use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::Rollback;
+use crate::client::prediction::rollback::Rollback;
 use crate::prelude::FixedUpdateSet;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -85,6 +85,7 @@ impl TickManager {
     pub(crate) fn set_tick_to(&mut self, tick: Tick) -> TickEvent {
         let old_tick = self.tick;
         self.tick = tick;
+        // info!(?old_tick, new_tick =?tick, "tick snap event");
         TickEvent::TickSnap {
             old_tick,
             new_tick: tick,

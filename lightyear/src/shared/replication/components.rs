@@ -1,4 +1,5 @@
 //! Components used for replication
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::{Component, Entity};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use lightyear_macros::MessageInternal;
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
@@ -465,19 +466,18 @@ pub struct ShouldBeInterpolated;
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 
 /// Indicates that an entity was pre-predicted
-#[derive(Component)]
-pub struct PrePredicted;
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct ShouldBePredicted {
+pub struct PrePredicted {
     // TODO: rename this?
     //  - also the server already gets the client entity in the message, so it's a waste of space...
     //  - maybe use a different component: ClientToServer -> Prespawned (None)
     //  - ServerToClient -> Prespawned (entity)
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
-    // this is set by the server to know which client did the pre-prediction
-    pub(crate) client_id: Option<ClientId>,
 }
+
+#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct ShouldBePredicted;
 
 #[cfg(test)]
 mod tests {
@@ -485,65 +485,71 @@ mod tests {
 
     #[test]
     fn test_network_target() {
+        let client_0 = ClientId::Netcode(0);
+        let client_1 = ClientId::Netcode(1);
+        let client_2 = ClientId::Netcode(2);
         let mut target = NetworkTarget::All;
-        assert!(target.should_send_to(&0));
-        target.exclude(vec![1, 2]);
-        assert_eq!(target, NetworkTarget::AllExcept(vec![1, 2]));
+        assert!(target.should_send_to(&client_0));
+        target.exclude(vec![client_1, client_2]);
+        assert_eq!(target, NetworkTarget::AllExcept(vec![client_1, client_2]));
 
-        target = NetworkTarget::AllExcept(vec![0]);
-        assert!(!target.should_send_to(&0));
-        assert!(target.should_send_to(&1));
-        target.exclude(vec![0, 1]);
+        target = NetworkTarget::AllExcept(vec![client_0]);
+        assert!(!target.should_send_to(&client_0));
+        assert!(target.should_send_to(&client_1));
+        target.exclude(vec![client_0, client_1]);
         assert!(matches!(target, NetworkTarget::AllExcept(_)));
 
         if let NetworkTarget::AllExcept(ids) = target {
-            assert!(ids.contains(&0));
-            assert!(ids.contains(&1));
+            assert!(ids.contains(&client_0));
+            assert!(ids.contains(&client_1));
         }
 
-        target = NetworkTarget::Only(vec![0]);
-        assert!(target.should_send_to(&0));
-        assert!(!target.should_send_to(&1));
-        target.exclude(vec![1]);
-        assert_eq!(target, NetworkTarget::Only(vec![0]));
-        target.exclude(vec![0, 2]);
+        target = NetworkTarget::Only(vec![client_0]);
+        assert!(target.should_send_to(&client_0));
+        assert!(!target.should_send_to(&client_1));
+        target.exclude(vec![client_1]);
+        assert_eq!(target, NetworkTarget::Only(vec![client_0]));
+        target.exclude(vec![client_0, client_2]);
         assert_eq!(target, NetworkTarget::None);
 
         target = NetworkTarget::None;
-        assert!(!target.should_send_to(&0));
-        target.exclude(vec![1]);
+        assert!(!target.should_send_to(&client_0));
+        target.exclude(vec![client_1]);
         assert_eq!(target, NetworkTarget::None);
     }
 
     #[test]
     fn test_intersection() {
+        let client_0 = ClientId::Netcode(0);
+        let client_1 = ClientId::Netcode(1);
+        let client_2 = ClientId::Netcode(2);
         let mut target = NetworkTarget::All;
-        target.intersection(NetworkTarget::AllExcept(vec![1, 2]));
-        assert_eq!(target, NetworkTarget::AllExcept(vec![1, 2]));
+        target.intersection(NetworkTarget::AllExcept(vec![client_1, client_2]));
+        assert_eq!(target, NetworkTarget::AllExcept(vec![client_1, client_2]));
 
-        target = NetworkTarget::AllExcept(vec![0]);
-        target.intersection(NetworkTarget::AllExcept(vec![0, 1]));
+        target = NetworkTarget::AllExcept(vec![client_0]);
+        target.intersection(NetworkTarget::AllExcept(vec![client_0, client_1]));
         assert!(matches!(target, NetworkTarget::AllExcept(_)));
 
         if let NetworkTarget::AllExcept(ids) = target {
-            assert!(ids.contains(&0));
-            assert!(ids.contains(&1));
+            assert!(ids.contains(&client_0));
+            assert!(ids.contains(&client_1));
         }
 
-        target = NetworkTarget::AllExcept(vec![0, 1]);
-        target.intersection(NetworkTarget::Only(vec![0, 2]));
-        assert_eq!(target, NetworkTarget::Only(vec![2]));
+        target = NetworkTarget::AllExcept(vec![client_0, client_1]);
+        target.intersection(NetworkTarget::Only(vec![client_0, client_2]));
+        assert_eq!(target, NetworkTarget::Only(vec![client_2]));
 
-        target = NetworkTarget::Only(vec![0, 1]);
-        target.intersection(NetworkTarget::Only(vec![0, 2]));
-        assert_eq!(target, NetworkTarget::Only(vec![0]));
+        target = NetworkTarget::Only(vec![client_0, client_1]);
+        target.intersection(NetworkTarget::Only(vec![client_0, client_2]));
+        assert_eq!(target, NetworkTarget::Only(vec![client_0]));
 
-        target = NetworkTarget::Only(vec![0, 1]);
-        target.intersection(NetworkTarget::AllExcept(vec![0, 2]));
-        assert_eq!(target, NetworkTarget::Only(vec![1]));
+        target = NetworkTarget::Only(vec![client_0, client_1]);
+        target.intersection(NetworkTarget::AllExcept(vec![client_0, client_2]));
+        assert_eq!(target, NetworkTarget::Only(vec![client_1]));
 
         target = NetworkTarget::None;
-        target.intersection(NetworkTarget::AllExcept(vec![0, 2]));
+        target.intersection(NetworkTarget::AllExcept(vec![client_0, client_2]));
         assert_eq!(target, NetworkTarget::None);
     }
 }

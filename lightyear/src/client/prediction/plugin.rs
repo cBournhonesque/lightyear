@@ -6,8 +6,9 @@ use bevy::prelude::{
 };
 use bevy::transform::TransformSystem;
 
-use crate::_reexport::FromType;
-use crate::client::components::{SyncComponent, SyncMetadata};
+use crate::_reexport::{ClientMarker, FromType};
+use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
@@ -19,25 +20,22 @@ use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
 };
 use crate::client::prediction::prespawn::{
-    compute_prespawn_hash, pre_spawned_player_object_cleanup, spawn_pre_spawned_player_object,
+    PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::ReplicationSet;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
-use crate::shared::sets::MainSet;
+use crate::shared::sets::InternalMainSet;
 
+use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};
 use super::predicted_history::{add_component_history, apply_confirmed_update};
 use super::rollback::{
     check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_prespawn,
-    run_rollback,
+    run_rollback, Rollback, RollbackState,
 };
-use super::{
-    clean_pre_predicted_entity, handle_pre_prediction, spawn_predicted_entity, ComponentSyncMode,
-    Rollback, RollbackState,
-};
+use super::spawn::spawn_predicted_entity;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Default)]
@@ -115,10 +113,8 @@ pub enum PredictionSet {
     /// Spawn predicted entities,
     /// We will also use this do despawn predicted entities when confirmed entities are despawned
     SpawnPrediction,
-    SpawnPredictionFlush,
     /// Add component history for all predicted entities' predicted components
     SpawnHistory,
-    SpawnHistoryFlush,
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
@@ -126,9 +122,6 @@ pub enum PredictionSet {
     /// For pre-spawned entities, we just roll them back to their historical state.
     /// If they didn't exist in the rollback tick, despawn them
     PrepareRollback,
-    // we might need a flush because prepare-rollback might remove/add components when snapping the current state
-    // to the confirmed state
-    PrepareRollbackFlush,
     /// Perform rollback
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
@@ -139,8 +132,6 @@ pub enum PredictionSet {
     /// Set to deal with predicted/confirmed entities getting despawned
     /// In practice, the entities aren't despawned but all their components are removed
     EntityDespawn,
-    /// Remove the marked components that indicates that components should be removekd
-    EntityDespawnFlush,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
 
@@ -237,6 +228,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         if self.config.disable {
             return;
         }
+
         P::Components::add_prediction_systems(app);
 
         // RESOURCES
@@ -250,29 +242,15 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             PreUpdate,
             (
-                MainSet::ReceiveFlush,
+                InternalMainSet::<ClientMarker>::Receive,
                 PredictionSet::SpawnPrediction,
-                PredictionSet::SpawnPredictionFlush,
                 PredictionSet::SpawnHistory,
-                PredictionSet::SpawnHistoryFlush,
                 PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
                 PredictionSet::PrepareRollback.run_if(is_in_rollback),
-                PredictionSet::PrepareRollbackFlush.run_if(is_in_rollback),
                 PredictionSet::Rollback.run_if(is_in_rollback),
             )
                 .chain(),
-        );
-        app.add_systems(
-            PreUpdate,
-            (
-                // TODO: we want to run this flushes only if something actually happened in the previous set!
-                //  because running the flush-system is expensive (needs exclusive world access)
-                //  check how I can do this in bevy
-                apply_deferred.in_set(PredictionSet::SpawnPredictionFlush),
-                apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
-                apply_deferred.in_set(PredictionSet::PrepareRollbackFlush),
-            ),
         );
 
         // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
@@ -282,15 +260,12 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PreUpdate,
             (
                 (
-                    // we first try to see if the entity was a PreSpawnedPlayerObject
-                    // if we couldn't match it then the component gets removed
-                    // and then should we try the normal Prediction flow, or just consider that there was an error?
-                    (
-                        spawn_pre_spawned_player_object::<P>,
-                        apply_deferred,
-                        spawn_predicted_entity::<P>,
-                    )
-                        .chain(),
+                    // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
+                    // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
+                    // - then we check if we should spawn a new predicted entity
+                    spawn_predicted_entity::<P>
+                        .after(PreSpawnedPlayerObjectSet::Spawn)
+                        .after(PrePredictionSet::Spawn),
                     // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
                     //  not at every fixed-update tick, since it only depends on server messages
                     despawn_confirmed,
@@ -308,18 +283,10 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.configure_sets(
             FixedPostUpdate,
             (
-                // we run the prespawn hash at FixedUpdate AND PostUpdate (to handle entities spawned during Update)
-                // TODO: entities spawned during update might have a tick that is off by 1 or more...
-                //  account for this when setting the hash?
-                // NOTE: we need to call this before SpawnHistory otherwise the history would affect the hash.
-                // TODO: find a way to exclude predicted history from the hash
-                ReplicationSet::SetPreSpawnedHash,
                 PredictionSet::EntityDespawn,
-                PredictionSet::EntityDespawnFlush,
                 // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
                 // right away to avoid rollbacks
                 PredictionSet::SpawnHistory,
-                PredictionSet::SpawnHistoryFlush,
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
@@ -328,12 +295,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         app.add_systems(
             FixedPostUpdate,
             (
-                // compute hashes for all pre-spawned player objects
-                compute_prespawn_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
-                (remove_despawn_marker, apply_deferred)
-                    .chain()
-                    .in_set(PredictionSet::EntityDespawnFlush),
-                apply_deferred.in_set(PredictionSet::SpawnHistoryFlush),
+                remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
                 increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
             ),
         );
@@ -344,22 +306,11 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             PostUpdate,
             PredictionSet::VisualCorrection.before(TransformSystem::TransformPropagate),
         );
-        app.add_systems(
-            PostUpdate,
-            (
-                pre_spawned_player_object_cleanup::<P>,
-                // fill in the client_entity and client_id for pre-predicted entities
-                handle_pre_prediction.before(ReplicationSet::All),
-                // clean-up the ShouldBePredicted components after we've sent them
-                clean_pre_predicted_entity::<P>
-                    .after(ReplicationSet::All)
-                    .run_if(client_is_synced::<P>),
-                // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
-                //  tick to compute the hash
-                // compute hashes for all pre-spawned player objects
-                // compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
-            )
-                .run_if(is_connected),
-        );
+
+        // PLUGINS
+        app.add_plugins((
+            PrePredictionPlugin::<P>::default(),
+            PreSpawnedPlayerObjectPlugin::<P>::default(),
+        ));
     }
 }

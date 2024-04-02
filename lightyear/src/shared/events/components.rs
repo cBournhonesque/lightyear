@@ -7,6 +7,7 @@ use bevy::prelude::{Component, Entity, Event};
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::InputMessage;
 use crate::packet::message::Message;
+use crate::prelude::ClientId;
 
 #[derive(Event)]
 pub struct ConnectEvent<Ctx = ()>(Ctx);

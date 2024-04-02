@@ -1,21 +1,23 @@
 //! Bevy [`bevy::prelude::System`]s used for replication
+use std::any::TypeId;
 use std::ops::Deref;
 
 use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
     Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
-    PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, Without,
+    PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, With, Without,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::_reexport::FromType;
-use crate::prelude::{MainSet, NetworkTarget, TickManager};
+use crate::prelude::{NetworkTarget, TickManager};
 use crate::protocol::Protocol;
+use crate::server::replication::ServerReplicationSet;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};
 use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::ReplicationSet;
+use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 // TODO: run these systems only if there is at least 1 remote connected!!! (so we don't burn CPU when there are no connections)
 
@@ -88,6 +90,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
         }
     });
 
+    // TODO: check for banned replicate component?
     // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
         trace!("despawn tracker removed!");
@@ -432,7 +435,7 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
     // we need to add despawn trackers immediately for entities for which we add replicate
     app.add_systems(
         PreUpdate,
-        add_despawn_tracker::<P, R>.after(MainSet::ClientReplicationFlush),
+        add_despawn_tracker::<P, R>.after(ServerReplicationSet::ClientReplication),
     );
     app.add_systems(
         PostUpdate,
@@ -440,7 +443,8 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
             // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
             //  so we can run the system every frame
             //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
-            send_entity_spawn::<P, R>.in_set(ReplicationSet::SendEntityUpdates),
+            send_entity_spawn::<P, R>
+                .in_set(InternalReplicationSet::<R::SetMarker>::SendEntityUpdates),
             // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
@@ -450,7 +454,7 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
                 send_entity_despawn::<P, R>,
             )
                 .chain()
-                .in_set(ReplicationSet::SendDespawnsAndRemovals),
+                .in_set(InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
         ),
     );
 }
@@ -471,10 +475,12 @@ pub fn add_per_component_replication_send_systems<
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            send_component_removed::<C, P, R>.in_set(ReplicationSet::SendDespawnsAndRemovals),
+            send_component_removed::<C, P, R>
+                .in_set(InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
-            send_component_update::<C, P, R>.in_set(ReplicationSet::SendComponentUpdates),
+            send_component_update::<C, P, R>
+                .in_set(InternalReplicationSet::<R::SetMarker>::SendComponentUpdates),
         ),
     );
 }

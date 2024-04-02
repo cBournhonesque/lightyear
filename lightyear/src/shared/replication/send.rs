@@ -188,28 +188,6 @@ impl<P: Protocol> ReplicationSender<P> {
     ) {
         let kind: P::ComponentKinds = (&component).into();
 
-        // special case for ShouldBePredicted:
-        // if we have already have a ShouldBePredicted component inserted from `prediction_target`
-        // we overwrite it if we are inserting a ShouldBePredicted component for pre-prediction
-        let mut force_insert = false;
-        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
-            && component
-                .clone()
-                .try_into()
-                .is_ok_and(|s| s.client_entity.is_some())
-        {
-            trace!("force inserting ShouldBePredicted component for pre-predicted entity");
-            // removed the existing ShouldBePredicted
-            self.pending_actions
-                .entry(group_id)
-                .or_default()
-                .entry(entity)
-                .or_default()
-                .insert
-                .retain(|c| P::ComponentKinds::from(c) != kind);
-            force_insert = true;
-        }
-
         if self
             .pending_unique_components
             .entry(group_id)
@@ -217,20 +195,8 @@ impl<P: Protocol> ReplicationSender<P> {
             .entry(entity)
             .or_default()
             .contains(&kind)
-            && !force_insert
         {
-            if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
-                && component
-                    .clone()
-                    .try_into()
-                    .is_ok_and(|s| s.client_entity.is_none())
-            {
-                // do not emit a warning if we are trying to insert a ShouldBePredicted component
-                // because of prediction_target, but there already is a ShouldBePredicted component because of
-                // pre-prediction
-                return;
-            }
-            warn!(
+            debug!(
                 ?group_id,
                 ?entity,
                 ?kind,

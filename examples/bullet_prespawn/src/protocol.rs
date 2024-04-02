@@ -3,6 +3,7 @@ use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
@@ -27,16 +28,12 @@ pub(crate) struct PlayerBundle {
     // IMPORTANT: this lets the server know that the entity is pre-predicted
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
     // as the Predicted version
-    should_be_predicted: ShouldBePredicted,
+    pre_predicted: PrePredicted,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(
-        id: ClientId,
-        position: Vec2,
-        color: Color,
-        input_map: InputMap<PlayerActions>,
-    ) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
+        let color = color_from_id(id);
         Self {
             id: PlayerId(id),
             transform: Transform::from_xyz(position.x, position.y, 0.0),
@@ -44,7 +41,9 @@ impl PlayerBundle {
             replicate: Replicate {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
-                replication_group: ReplicationGroup::new_id(id),
+                replication_group: ReplicationGroup::new_id(id.to_bits()),
+                // For HostServer mode, remember to also set prediction/interpolation targets for other clients
+                interpolation_target: NetworkTarget::AllExceptSingle(id),
                 ..default()
             },
             inputs: InputManagerBundle::<PlayerActions> {
@@ -52,7 +51,7 @@ impl PlayerBundle {
                 input_map,
             },
             // IMPORTANT: this lets the server know that the entity is pre-predicted
-            should_be_predicted: ShouldBePredicted::default(),
+            pre_predicted: PrePredicted::default(),
         }
     }
 }

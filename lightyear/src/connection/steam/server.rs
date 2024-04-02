@@ -1,8 +1,9 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
+use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::NetServer;
 use crate::packet::packet::Packet;
-use crate::prelude::{ClientId, Io, LinkConditionerConfig};
+use crate::prelude::{Io, LinkConditionerConfig};
 use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::dummy::DummyIo;
 use anyhow::{Context, Result};
@@ -124,7 +125,7 @@ impl NetServer for Server {
             match event {
                 ListenSocketEvent::Connected(event) => {
                     if let Some(steam_id) = event.remote().steam_id() {
-                        let client_id = steam_id.raw() as ClientId;
+                        let client_id = ClientId::Steam(steam_id.raw());
                         info!("Client with id: {:?} connected!", client_id);
                         self.new_connections.push(client_id);
                         self.connections.insert(client_id, event.take_connection());
@@ -134,7 +135,7 @@ impl NetServer for Server {
                 }
                 ListenSocketEvent::Disconnected(event) => {
                     if let Some(steam_id) = event.remote().steam_id() {
-                        let client_id = steam_id.raw() as ClientId;
+                        let client_id = ClientId::Steam(steam_id.raw());
                         info!("Client with id: {:?} disconnected!", client_id);
                         self.new_disconnections.push(client_id);
                         self.connections.remove(&client_id);

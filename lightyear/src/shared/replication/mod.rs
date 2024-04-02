@@ -1,4 +1,5 @@
 //! Module to handle replicating entities and components from server to client
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use anyhow::Result;
@@ -11,10 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
 use crate::channel::builder::Channel;
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
-use crate::protocol::Protocol;
+use crate::protocol::{EventContext, Protocol};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 pub mod components;
@@ -22,7 +23,6 @@ pub mod components;
 mod commands;
 pub mod entity_map;
 pub(crate) mod hierarchy;
-pub mod metadata;
 pub(crate) mod plugin;
 pub(crate) mod receive;
 pub(crate) mod send;
@@ -107,6 +107,13 @@ pub struct ReplicationMessage<C, K: Hash + Eq> {
 ///
 /// The trait is made public because it is needed in the macros
 pub trait ReplicationSend<P: Protocol>: Resource {
+    // Type of the context associated with the events emitted by this replication plugin
+    // type EventContext: EventContext;
+    /// Marker to identify the type of the ReplicationSet component
+    /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
+    /// (in the client and the server replication plugins)
+    type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
+
     /// Set the priority for a given replication group, for a given client
     /// This IS the client-facing API that users must use to update the priorities for a given client.
     ///

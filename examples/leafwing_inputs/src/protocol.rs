@@ -4,6 +4,7 @@ use derive_more::{Add, Mul};
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::color_from_id;
 use lightyear::client::components::LerpFn;
 use lightyear::prelude::*;
 use lightyear::utils::bevy_xpbd_2d::*;
@@ -28,16 +29,12 @@ pub(crate) struct PlayerBundle {
     // IMPORTANT: this lets the server know that the entity is pre-predicted
     // when the server replicates this entity; we will get a Confirmed entity which will use this entity
     // as the Predicted version
-    should_be_predicted: ShouldBePredicted,
+    pre_predicted: PrePredicted,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(
-        id: ClientId,
-        position: Vec2,
-        color: Color,
-        input_map: InputMap<PlayerActions>,
-    ) -> Self {
+    pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
+        let color = color_from_id(id);
         Self {
             id: PlayerId(id),
             position: Position(position),
@@ -46,6 +43,10 @@ impl PlayerBundle {
                 // NOTE (important): all entities that are being predicted need to be part of the same replication-group
                 //  so that all their updates are sent as a single message and are consistent (on the same tick)
                 replication_group: REPLICATION_GROUP,
+                // TODO: improve this! this should depend on the predict_all settings
+                // We still need to specify the interpolation/prediction target for this local entity
+                // in the case where we're running in HostServer mode
+                prediction_target: NetworkTarget::All,
                 ..default()
             },
             physics: PhysicsBundle::player(),
@@ -53,7 +54,7 @@ impl PlayerBundle {
                 action_state: ActionState::default(),
                 input_map,
             },
-            should_be_predicted: ShouldBePredicted::default(),
+            pre_predicted: PrePredicted::default(),
         }
     }
 }

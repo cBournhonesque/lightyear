@@ -1,25 +1,26 @@
 //! Defines the client bevy systems and run conditions
 use std::ops::DerefMut;
 
-use bevy::ecs::system::SystemChangeTick;
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
-#[cfg(feature = "xpbd_2d")]
-use bevy_xpbd_2d::prelude::PhysicsTime;
 use tracing::{error, trace};
 
-use crate::_reexport::ReplicationSend;
+use crate::_reexport::{ClientMarker, ReplicationSend};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::events::{EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{MainSet, TickManager, TimeManager};
+use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::time_manager::is_client_ready_to_send;
 
 pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
     marker: std::marker::PhantomData<P>,
@@ -35,34 +36,78 @@ impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
 
 impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
+        let config = app.world.resource::<ClientConfig>();
+        // in host server mode, we don't send/receive packets at all
+        if config.shared.mode == Mode::HostServer {
+            // we just update the connection/disconnection events
+            app.add_systems(
+                PreUpdate,
+                update_connect_events::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
+            );
+            return;
+        }
+
         app
             // SYSTEM SETS
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
             .configure_sets(
                 PostUpdate,
+                // run sync before send because some send systems need to know if the client is synced
+                // we don't send packets every frame, but on a timer instead
                 (
-                    // run sync before send because some send systems need to know if the client is synced
-                    // we don't send packets every frame, but on a timer instead
-                    (MainSet::Sync, MainSet::Send.run_if(is_ready_to_send)).chain(),
-                    MainSet::SendPackets.in_set(MainSet::Send),
-                ),
+                    SyncSet,
+                    InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
+                )
+                    .chain(),
             )
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                (
-                    receive::<P>.in_set(MainSet::Receive),
-                    apply_deferred.in_set(MainSet::ReceiveFlush),
-                ),
+                receive::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
             )
-            // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
             .add_systems(
                 PostUpdate,
-                (
-                    send::<P>.in_set(MainSet::SendPackets),
-                    sync_update::<P>.in_set(MainSet::Sync),
-                ),
+                send::<P>.in_set(InternalMainSet::<ClientMarker>::SendPackets),
             );
+
+        // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+        app.add_systems(
+            PostUpdate,
+            sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
+        );
+    }
+}
+
+/// In host server mode, we don't send/receive packets at all
+///
+/// Just update the Connect/Disconnect events for both client and server
+pub(crate) fn update_connect_events<P: Protocol>(
+    netcode: Res<ClientConnection>,
+    mut connection: ResMut<ConnectionManager<P>>,
+    // client connect events
+    mut connect_event_writer: EventWriter<ConnectEvent>,
+    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
+    // server connect events
+    mut server_connect_event_writer: EventWriter<crate::server::events::ConnectEvent>,
+    mut server_disconnect_event_writer: EventWriter<crate::server::events::DisconnectEvent>,
+) {
+    if netcode.is_connected() {
+        // push an event indicating that we just connected
+        if !connection.is_connected {
+            debug!("Client connected event");
+            connect_event_writer.send(ConnectEvent::new(netcode.id()));
+            server_connect_event_writer
+                .send(crate::server::events::ConnectEvent::new(netcode.id()));
+            connection.is_connected = true;
+        }
+    } else {
+        // push an event indicating that we just disconnected
+        if connection.is_connected {
+            debug!("Client disconnected event");
+            disconnect_event_writer.send(DisconnectEvent::new(()));
+            server_disconnect_event_writer
+                .send(crate::server::events::DisconnectEvent::new(netcode.id()));
+            connection.is_connected = false;
+        }
     }
 }
 
@@ -98,10 +143,28 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         // only start the connection (sending messages, sending pings, starting sync, etc.)
                                         // once we are connected
                                         if netcode.is_connected() {
+                                            // push an event indicating that we just connected
+                                            if !connection.is_connected {
+                                                let mut connect_event_writer =
+                                                    world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
+                                                debug!("Client connected event");
+                                                connect_event_writer.send(ConnectEvent::new(netcode.id()));
+                                                connection.is_connected = true;
+                                            }
+                                            // TODO: handle disconnection event
                                             connection.update(
                                                 time_manager.as_ref(),
                                                 tick_manager.as_ref(),
                                             );
+                                        } else {
+                                            // push an event indicating that we just disconnected
+                                            if connection.is_connected {
+                                                let mut disconnect_event_writer =
+                                                    world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
+                                                debug!("Client disconnected event");
+                                                disconnect_event_writer.send(DisconnectEvent::new(()));
+                                                connection.is_connected = false;
+                                            }
                                         }
 
                                         // RECV PACKETS: buffer packets into message managers
@@ -121,21 +184,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                         // TODO: run these in EventsPlugin!
                                         // HANDLE EVENTS
                                         if !events.is_empty() {
-                                            // NOTE: maybe no need to send those events, because the client knows when it's connected/disconnected?
-                                            // if events.has_connection() {
-                                            //     let mut connect_event_writer =
-                                            //         world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                                            //     debug!("Client connected event");
-                                            //     connect_event_writer.send(ConnectEvent::new(()));
-                                            // }
-                                            //
-                                            // if events.has_disconnection() {
-                                            //     let mut disconnect_event_writer =
-                                            //         world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                                            //     debug!("Client disconnected event");
-                                            //     disconnect_event_writer.send(DisconnectEvent::new(()));
-                                            // }
-
                                             // Message Events
                                             P::Message::push_message_events(world, &mut events);
 
@@ -167,7 +215,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                 &mut events,
                                             );
                                         }
-                                        trace!("finished recv");
                                     },
                                 )
                             }
@@ -223,44 +270,32 @@ pub(crate) fn sync_update<P: Protocol>(
     mut tick_events: EventWriter<TickEvent>,
 ) {
     let connection = connection.into_inner();
-    if netclient.is_connected() {
-        // NOTE: this triggers change detection
-        // Handle pongs, update RTT estimates, update client prediction time
-        if let Some(tick_event) = connection.sync_manager.update(
+    // NOTE: this triggers change detection
+    // Handle pongs, update RTT estimates, update client prediction time
+    if let Some(tick_event) = connection.sync_manager.update(
+        time_manager.deref_mut(),
+        tick_manager.deref_mut(),
+        &connection.ping_manager,
+        &config.interpolation.delay,
+        config.shared.server_send_interval,
+    ) {
+        tick_events.send(tick_event);
+    }
+
+    if connection.sync_manager.is_synced() {
+        if let Some(tick_event) = connection.sync_manager.update_prediction_time(
             time_manager.deref_mut(),
             tick_manager.deref_mut(),
             &connection.ping_manager,
-            &config.interpolation.delay,
-            config.shared.server_send_interval,
         ) {
             tick_events.send(tick_event);
         }
-
-        if connection.sync_manager.is_synced() {
-            if let Some(tick_event) = connection.sync_manager.update_prediction_time(
-                time_manager.deref_mut(),
-                tick_manager.deref_mut(),
-                &connection.ping_manager,
-            ) {
-                tick_events.send(tick_event);
-            }
-        }
-    }
-
-    // after the sync manager ran (and possibly re-computed RTT estimates), update the client's speed
-    if connection.sync_manager.is_synced() {
         let relative_speed = time_manager.get_relative_speed();
         virtual_time.set_relative_speed(relative_speed);
+    }
+}
 
-        // // NOTE: do NOT do this. We want the physics simulation to run by the same amount on
-        // //  client and server. Enabling this will cause the simulations to diverge
-        // cfg_if! {
-        //     if #[cfg(feature = "xpbd_2d")] {
-        //         use bevy_xpbd_2d::prelude::Physics;
-        //         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-        //             physics_time.set_relative_speed(relative_speed);
-        //         }
-        //     }
-        // }
-    };
+/// Run Condition that returns true if the client is connected
+pub fn is_client_connected(netclient: Res<ClientConnection>) -> bool {
+    netclient.is_connected()
 }

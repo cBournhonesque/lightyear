@@ -298,7 +298,7 @@ mod tests {
             stats_buffer_duration: Duration::from_secs(4),
         };
         let mut ping_manager = PingManager::new(config);
-        let mut time_manager = TimeManager::new(Duration::default());
+        let mut time_manager = TimeManager::default();
 
         assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
 

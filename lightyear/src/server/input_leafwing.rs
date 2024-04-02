@@ -1,20 +1,30 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use crate::_reexport::ServerMarker;
+use crate::client::components::Confirmed;
+use crate::client::config::ClientConfig;
+use crate::client::prediction::Predicted;
+use crate::connection::client::NetClient;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::inputs::leafwing::input_buffer::{ActionDiffBuffer, InputBuffer, InputTarget};
+use crate::inputs::leafwing::input_buffer::{
+    ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputTarget,
+};
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
-use crate::prelude::{MainSet, TickManager};
+use crate::prelude::client::is_in_rollback;
+use crate::prelude::{client, Mode, SharedConfig, TickManager};
 use crate::protocol::Protocol;
+use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
 use crate::shared::events::connection::IterInputMessageEvent;
+use crate::shared::replication::components::PrePredicted;
+use crate::shared::sets::InternalMainSet;
 
-pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
-    protocol_marker: std::marker::PhantomData<P>,
-    input_marker: std::marker::PhantomData<A>,
+pub struct LeafwingInputPlugin<P, A> {
+    marker: std::marker::PhantomData<(P, A)>,
 }
 
 // // TODO: also create events on top of this?
@@ -32,18 +42,21 @@ pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
 //     }
 // }
 
-impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
+impl<P, A> Default for LeafwingInputPlugin<P, A> {
     fn default() -> Self {
         Self {
-            protocol_marker: std::marker::PhantomData,
-            input_marker: std::marker::PhantomData,
+            marker: std::marker::PhantomData,
         }
     }
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
-    /// Use the ActionDiff received from the client to update the ActionState
+    /// Add the ActionDiffBuffers to new entities that have an [`ActionState`]
+    AddBuffers,
+    /// Receive the latest ActionDiffs from the client
+    ReceiveInputs,
+    /// Use the ActionDiff received from the client to update the [`ActionState`]
     Update,
 }
 
@@ -56,37 +69,53 @@ where
         app.add_event::<InputMessageEvent<A>>();
         // RESOURCES
         // app.init_resource::<GlobalActions<A>>();
-        // TODO: add a resource tracking the action-state of all clients
-        // PLUGINS
-        // NOTE: we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
-        app.add_plugins(InputManagerPlugin::<A>::server());
+        // TODO: (global action states) add a resource tracking the action-state of all clients
         // SETS
+        app.configure_sets(
+            PreUpdate,
+            (
+                InternalMainSet::<ServerMarker>::Receive,
+                InputSystemSet::AddBuffers,
+                InputSystemSet::ReceiveInputs,
+            )
+                .chain(),
+        );
         app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
-            // TODO: we could get: ActionState from client, so we need to handle inputs after ReceiveFlush, but before
             (
-                add_action_diff_buffer::<A>,
-                // add_input_message_event::<P, A>,
-                update_action_diff_buffers::<P, A>,
-            )
-                .chain()
-                .after(MainSet::ReceiveFlush),
+                // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
+                add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
+                receive_input_message::<P, A>.in_set(InputSystemSet::ReceiveInputs),
+            ),
         );
         app.add_systems(
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
+
+        if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
+            // we don't want to add this plugin in HostServer mode because it's already added on the client side
+            // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
+            app.add_plugins(InputManagerPlugin::<A>::server());
+        }
     }
 }
 
 /// For each entity that has an action-state, insert an action-state-buffer
 /// that will store the value of the action-state for the last few ticks
+/// (we use a buffer because the client's inputs might arrive out of order)
 fn add_action_diff_buffer<A: LeafwingUserAction>(
     mut commands: Commands,
-    action_state: Query<Entity, Added<ActionState<A>>>,
+    action_state: Query<
+        Entity,
+        (
+            Added<ActionState<A>>,
+            Without<ActionDiffBuffer<A>>,
+            Without<InputMap<A>>,
+        ),
+    >,
 ) {
     for entity in action_state.iter() {
         commands
@@ -95,22 +124,8 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
     }
 }
 
-// // Write the input messages from the server events to the Events
-// fn add_input_message_event<P: Protocol, A: UserAction>(
-//     mut server: ResMut<Server<P>>,
-//     mut input_message_events: ResMut<Events<InputMessageEvent<A>>>,
-// ) where
-//     P::Message: TryInto<InputMessage<A>, Error = ()>,
-// {
-//     if server.events().has_input_messages::<A>() {
-//         for (message, client_id) in server.events().into_iter_input_messages::<A>() {
-//             trace!("received input message, sending input message event");
-//             input_message_events.send(InputMessageEvent::new(message, client_id));
-//         }
-//     }
-// }
-
-fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
+/// Read the input messages from the server events to update the ActionDiffBuffers
+fn receive_input_message<P: Protocol, A: LeafwingUserAction>(
     // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
     mut connection_manager: ResMut<ConnectionManager<P>>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
@@ -148,7 +163,7 @@ fn update_action_diff_buffers<P: Protocol, A: LeafwingUserAction>(
     }
 }
 
-// Read the ActionDiff for the current tick from the buffer, and use them to update the ActionState
+/// Read the ActionDiff for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: LeafwingUserAction>(
     tick_manager: Res<TickManager>,
     // global_input_buffer: Res<InputBuffer<A>>,

@@ -4,12 +4,15 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use leafwing_input_manager::action_state::ActionState;
+use lightyear::client::components::Confirmed;
+use lightyear::client::interpolation::Interpolated;
+use lightyear::client::prediction::Predicted;
 
 use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         // server_send_interval: Duration::default(),
@@ -19,6 +22,7 @@ pub fn shared_config() -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        mode,
     }
 }
 
@@ -27,9 +31,14 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(Update, (draw_boxes, draw_circles));
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -54,8 +63,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Act
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    // players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
-    players: Query<(&Position, &PlayerColor)>,
+    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
 ) {
     for (position, color) in &players {
         gizmos.rect(
@@ -72,4 +80,12 @@ pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<Ci
     for position in &circles {
         gizmos.circle_2d(*position.deref(), 1.0, Color::GREEN);
     }
+}
+
+/// Generate a color from the `ClientId`
+pub(crate) fn color_from_id(client_id: ClientId) -> Color {
+    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let s = 1.0;
+    let l = 0.5;
+    Color::hsl(h, s, l)
 }

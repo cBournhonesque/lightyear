@@ -1,12 +1,12 @@
 use anyhow::Result;
-use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
+use bevy::utils::HashMap;
 
 use crate::_reexport::ReadWordBuffer;
 use crate::connection::client::ClientConnection;
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 
-#[cfg(feature = "steam")]
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::server::SteamConfig;
 use crate::packet::packet::Packet;
 
@@ -50,7 +50,7 @@ pub enum NetConfig {
         config: NetcodeConfig,
         io: IoConfig,
     },
-    #[cfg(feature = "steam")]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
@@ -78,7 +78,7 @@ impl NetConfig {
             }
             // TODO: might want to distinguish between steam with direct ip connections
             //  vs steam with p2p connections
-            #[cfg(feature = "steam")]
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
                 config,
                 conditioner,
@@ -128,7 +128,7 @@ impl NetServer for ServerConnection {
     }
 }
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+type ServerConnectionIdx = usize;
 
 // TODO: add a way to get the server of a given type?
 /// On the server we allow the use of multiple types of ServerConnection at the same time
@@ -137,8 +137,8 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
     pub servers: Vec<ServerConnection>,
-    /// mapping from the connection's [`ClientId`] into a global [`ClientId`]-space (in case multiple transports use the same id)
-    pub(crate) global_id_map: client_map::GlobalClientIdMap,
+    /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
+    pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
 }
 
 impl ServerConnections {
@@ -150,100 +150,7 @@ impl ServerConnections {
         }
         ServerConnections {
             servers,
-            global_id_map: client_map::GlobalClientIdMap::new(),
-        }
-    }
-}
-
-/// Since we use multiple independent [`ServerConnection`]s and each of them have their own id space, there might be collisions
-/// between the [`ClientId`]s of different [`ServerConnection`]s. To solve this we will map the client ids from each [`ServerConnection`]
-/// into a global id space
-pub(crate) mod client_map {
-    use super::EntityHashMap;
-    use crate::prelude::ClientId;
-    use bevy::prelude::Entity;
-    use bevy::utils::HashMap;
-    use tracing::info;
-
-    pub(crate) type ServerConnectionIdx = usize;
-    pub(crate) type ServerConnectionClientId = ClientId;
-    pub(crate) type GlobalClientId = ClientId;
-
-    pub(crate) struct GlobalClientIdMap {
-        connection_to_global:
-            HashMap<(ServerConnectionIdx, ServerConnectionClientId), GlobalClientId>,
-        global_to_connection:
-            EntityHashMap<GlobalClientId, (ServerConnectionIdx, ServerConnectionClientId)>,
-    }
-
-    impl GlobalClientIdMap {
-        pub(crate) fn new() -> Self {
-            GlobalClientIdMap {
-                connection_to_global: HashMap::default(),
-                global_to_connection: EntityHashMap::default(),
-            }
-        }
-
-        pub(crate) fn insert(
-            &mut self,
-            server_idx: ServerConnectionIdx,
-            client_id: ServerConnectionClientId,
-        ) -> GlobalClientId {
-            // generate a new global id for the newly-connected client
-
-            // by default, try to reuse the same id as the connection's id
-            let global_id = if !self.global_to_connection.contains_key(&client_id) {
-                client_id as GlobalClientId
-            } else {
-                // there is a conflict! we need to find a new id
-                // we will just try randomly until we find one that isn't in use
-                let mut client_id = rand::random::<u64>();
-                while self
-                    .global_to_connection
-                    .contains_key(&(client_id as GlobalClientId))
-                {
-                    client_id = rand::random::<u64>();
-                }
-                info!("ClientId already used (presumably by another ServerConnection)! Generating a new ClientId: {:?}", client_id);
-                client_id as GlobalClientId
-            };
-            self.connection_to_global
-                .insert((server_idx, client_id), global_id);
-            self.global_to_connection
-                .insert(global_id, (server_idx, client_id));
-            global_id
-        }
-
-        #[inline]
-        pub(crate) fn get_global(
-            &self,
-            server_idx: ServerConnectionIdx,
-            client_id: ServerConnectionClientId,
-        ) -> Option<GlobalClientId> {
-            self.connection_to_global
-                .get(&(server_idx, client_id))
-                .copied()
-        }
-
-        #[inline]
-        pub(crate) fn get_local(
-            &self,
-            client_id: GlobalClientId,
-        ) -> Option<(ServerConnectionIdx, ServerConnectionClientId)> {
-            self.global_to_connection.get(&client_id).copied()
-        }
-
-        #[inline]
-        pub(crate) fn remove_by_local(
-            &mut self,
-            server_idx: ServerConnectionIdx,
-            client_id: ServerConnectionClientId,
-        ) -> Option<GlobalClientId> {
-            let global_id = self.connection_to_global.remove(&(server_idx, client_id));
-            if let Some(global_id) = global_id {
-                self.global_to_connection.remove(&global_id);
-            }
-            global_id
+            client_server_map: HashMap::default(),
         }
     }
 }

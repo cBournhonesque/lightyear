@@ -4,9 +4,10 @@ use std::str::FromStr;
 
 use crate::connection::client::{ClientConnection, NetClient};
 use bevy::ecs::system::SystemState;
-use bevy::prelude::{App, Mut, PluginGroup, Real, Time, World};
+use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time, World};
 use bevy::time::TimeUpdateStrategy;
 use bevy::{DefaultPlugins, MinimalPlugins};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
@@ -34,6 +35,35 @@ pub struct BevyStepper {
     pub current_time: bevy::utils::Instant,
 }
 
+impl Default for BevyStepper {
+    fn default() -> Self {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let link_conditioner = LinkConditionerConfig {
+            incoming_latency: Duration::from_millis(0),
+            incoming_jitter: Duration::from_millis(0),
+            incoming_loss: 0.0,
+        };
+        let sync_config = SyncConfig::default().speedup_factor(1.0);
+        let prediction_config = PredictionConfig::default().disable(false);
+        let interpolation_config = InterpolationConfig::default();
+        let mut stepper = Self::new(
+            shared_config,
+            sync_config,
+            prediction_config,
+            interpolation_config,
+            link_conditioner,
+            frame_duration,
+        );
+        stepper.init();
+        stepper
+    }
+}
+
 // Do not forget to use --features mock_time when using the LinkConditioner
 impl BevyStepper {
     pub fn new(
@@ -45,7 +75,8 @@ impl BevyStepper {
         frame_duration: Duration,
     ) -> Self {
         // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::DEBUG)
+        //     // .with_span_events(FmtSpan::ENTER)
+        //     .with_max_level(tracing::Level::INFO)
         //     .init();
 
         // Use local channels instead of UDP for testing
@@ -82,7 +113,7 @@ impl BevyStepper {
             shared: shared_config.clone(),
             net: vec![net_config],
             ping: PingConfig::default(),
-            packet: Default::default(),
+            ..default()
         };
         let plugin_config = server::PluginConfig::new(config, protocol());
         let plugin = server::ServerPlugin::new(plugin_config);
@@ -103,13 +134,11 @@ impl BevyStepper {
         };
         let config = ClientConfig {
             shared: shared_config.clone(),
-            input: InputConfig::default(),
             net: net_config,
-            ping: PingConfig::default(),
             sync: sync_config,
             prediction: prediction_config,
             interpolation: interpolation_config,
-            packet: Default::default(),
+            ..default()
         };
         let plugin_config = client::PluginConfig::new(config, protocol());
         let plugin = client::ClientPlugin::new(plugin_config);

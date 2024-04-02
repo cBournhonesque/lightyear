@@ -16,46 +16,14 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, Cli, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig::default().with_delay(
-                InterpolationDelay::default()
-                    .with_min_delay(Duration::from_millis(50))
-                    .with_send_interval_ratio(2.0),
-            ),
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-            .add(LeafwingInputPlugin::<MyProtocol, Inputs>::default())
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.init_resource::<ActionState<Inputs>>();
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, add_text.after(MainSet::ReceiveFlush));
+        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         app.add_systems(FixedUpdate, movement);
         app.add_systems(
             Update,
@@ -63,30 +31,32 @@ impl Plugin for ExampleClientPlugin {
                 add_input_map,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
-                log,
             ),
         );
     }
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
-pub(crate) fn add_text(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    if metadata.is_changed() {
-        if let Some(client_id) = metadata.client_id {
-            commands.spawn(TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ));
-        }
+/// Listen for events to know when the client is connected, and spawn a text entity
+/// to display the client id
+pub(crate) fn handle_connection(
+    mut commands: Commands,
+    mut connection_event: EventReader<ConnectEvent>,
+) {
+    for event in connection_event.read() {
+        let client_id = event.client_id();
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
     }
 }
 
@@ -136,29 +106,5 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
-    }
-}
-
-pub(crate) fn log(
-    tick_manager: Res<TickManager>,
-    connection: Res<ClientConnectionManager>,
-    confirmed: Query<&Position, With<Confirmed>>,
-    predicted: Query<&Position, (With<Predicted>, Without<Confirmed>)>,
-    mut interp_event: EventReader<ComponentInsertEvent<ShouldBeInterpolated>>,
-    mut predict_event: EventReader<ComponentInsertEvent<ShouldBePredicted>>,
-) {
-    let server_tick = connection.latest_received_server_tick();
-    for confirmed_pos in confirmed.iter() {
-        debug!(?server_tick, "Confirmed position: {:?}", confirmed_pos);
-    }
-    let client_tick = tick_manager.tick();
-    for predicted_pos in predicted.iter() {
-        debug!(?client_tick, "Predicted position: {:?}", predicted_pos);
-    }
-    for event in interp_event.read() {
-        info!("Interpolated event: {:?}", event.entity());
-    }
-    for event in predict_event.read() {
-        info!("Predicted event: {:?}", event.entity());
     }
 }

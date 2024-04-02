@@ -4,9 +4,9 @@ use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, ServerMarker};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{MainSet, TickManager, TimeManager};
+use crate::prelude::{TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
@@ -14,7 +14,8 @@ use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, E
 use crate::server::room::RoomManager;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::ReplicationSend;
-use crate::shared::time_manager::is_ready_to_send;
+use crate::shared::sets::InternalMainSet;
+use crate::shared::time_manager::is_server_ready_to_send;
 
 pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
     config: Vec<NetConfig>,
@@ -43,24 +44,28 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // in practice this mostly just starts the io (spawns server io tasks, etc.)
             .insert_resource(ServerConnections::new(self.config.clone()))
             // SYSTEM SETS
-            .configure_sets(PreUpdate, (MainSet::Receive, MainSet::ReceiveFlush).chain())
+            .configure_sets(
+                PreUpdate,
+                (InternalMainSet::<ServerMarker>::Receive,).chain(),
+            )
             .configure_sets(
                 PostUpdate,
                 (
                     // we don't send packets every frame, but on a timer instead
-                    MainSet::Send.run_if(is_ready_to_send),
-                    MainSet::SendPackets.in_set(MainSet::Send),
+                    InternalMainSet::<ServerMarker>::Send.run_if(is_server_ready_to_send),
+                    InternalMainSet::<ServerMarker>::SendPackets
+                        .in_set(InternalMainSet::<ServerMarker>::Send),
                 ),
             )
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
-                (
-                    receive::<P>.in_set(MainSet::Receive),
-                    apply_deferred.in_set(MainSet::ReceiveFlush),
-                ),
+                (receive::<P>.in_set(InternalMainSet::<ServerMarker>::Receive),),
             )
-            .add_systems(PostUpdate, (send::<P>.in_set(MainSet::SendPackets),));
+            .add_systems(
+                PostUpdate,
+                (send::<P>.in_set(InternalMainSet::<ServerMarker>::SendPackets),),
+            );
     }
 }
 
@@ -88,18 +93,17 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                 let _ = netserver
                                                     .try_update(delta.as_secs_f64())
                                                     .map_err(|e| error!("Error updating netcode server: {:?}", e));
-                                                for local_client_id in netserver.new_connections().iter().copied() {
-                                                    // map the netserver's client id to a global client id (in case multiple transports assign the same client id)
-                                                    let global_id = netservers.global_id_map.insert(server_idx, local_client_id);
-                                                    connection_manager.add(global_id);
+                                                for client_id in netserver.new_connections().iter().copied() {
+                                                    netservers.client_server_map.insert(client_id, server_idx);
+                                                    connection_manager.add(client_id);
                                                 }
                                                 // handle disconnections
-                                                for local_client_id in netserver.new_disconnections().iter().copied() {
-                                                    if let Some(global_id) = netservers.global_id_map.remove_by_local(server_idx, local_client_id) {
-                                                        connection_manager.remove(global_id);
-                                                        room_manager.client_disconnect(global_id);
+                                                for client_id in netserver.new_disconnections().iter().copied() {
+                                                    if netservers.client_server_map.remove(&client_id).is_some() {
+                                                        connection_manager.remove(client_id);
+                                                        room_manager.client_disconnect(client_id);
                                                     } else {
-                                                        error!("Client disconnected but could not map client_id to global_id");
+                                                        error!("Client disconnected but could not map client_id to the corresponding netserver");
                                                     }
                                                 };
                                             }
@@ -111,16 +115,12 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             // RECV_PACKETS: buffer packets into message managers
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
                                                 while let Some((packet, client_id)) = netserver.recv() {
-                                                    if let Some(global_id) = netservers.global_id_map.get_global(server_idx, client_id) {
-                                                        // TODO: use connection to apply on BOTH message manager and replication manager
-                                                        connection_manager
-                                                            .connection_mut(global_id)
-                                                            .expect("connection not found")
-                                                            .recv_packet(packet, tick_manager.as_ref())
-                                                            .expect("could not recv packet");
-                                                    } else {
-                                                        error!("Global client id was not found!");
-                                                    }
+                                                    // TODO: use connection to apply on BOTH message manager and replication manager
+                                                    connection_manager
+                                                        .connection_mut(client_id)
+                                                        .expect("connection not found")
+                                                        .recv_packet(packet, tick_manager.as_ref())
+                                                        .expect("could not recv packet");
                                                 }
                                             }
 
@@ -215,16 +215,16 @@ pub(crate) fn send<P: Protocol>(
         .try_for_each(|(client_id, connection)| {
             let client_span =
                 trace_span!("send_packets_to_client", client_id = ?client_id).entered();
-            let (netserver_idx, local_client_id) = netservers
-                .global_id_map
-                .get_local(*client_id)
-                .context("could not find global client id")?;
+            let netserver_idx = *netservers
+                .client_server_map
+                .get(client_id)
+                .context("could not find server connection corresponding to client id")?;
             let netserver = netservers
                 .servers
                 .get_mut(netserver_idx)
-                .context("could not find netserver")?;
+                .context("could not find server with the provided netserver idx")?;
             for packet_byte in connection.send_packets(&time_manager, &tick_manager)? {
-                netserver.send(packet_byte.as_slice(), local_client_id)?;
+                netserver.send(packet_byte.as_slice(), *client_id)?;
             }
             Ok(())
         })
@@ -238,7 +238,7 @@ pub(crate) fn send<P: Protocol>(
 }
 
 /// Clear the received events
-/// We put this in a separate as send because we want to run this every frame, and
+/// We put this in a separate system as send because we want to run this every frame, and
 /// Send only runs every send_interval
 pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<ConnectionManager<P>>) {
     connection_manager.events.clear();

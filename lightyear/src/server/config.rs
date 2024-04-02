@@ -5,7 +5,8 @@ use nonzero_ext::nonzero;
 
 use crate::connection::netcode::Key;
 use crate::connection::server::NetConfig;
-use crate::shared::config::SharedConfig;
+use crate::server::replication::ReplicationConfig;
+use crate::shared::config::{Mode, SharedConfig};
 use crate::shared::ping::manager::PingConfig;
 
 #[derive(Clone, Debug)]
@@ -93,4 +94,5 @@ pub struct ServerConfig {
     pub net: Vec<NetConfig>,
     pub packet: PacketConfig,
     pub ping: PingConfig,
+    pub replication: ReplicationConfig,
 }

@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_packet_stats() {
-        let mut time_manager = TimeManager::new(Duration::default());
+        let mut time_manager = TimeManager::default();
         let mut packet_stats_manager = PacketStatsManager::new(Duration::from_secs(2));
         // set the time to a value bigger than the stats buffer
         time_manager.update(Duration::from_secs(3));

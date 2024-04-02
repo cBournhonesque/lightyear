@@ -2,11 +2,13 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear::shared::config::Mode;
 
 use crate::protocol::*;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
@@ -14,6 +16,7 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        mode,
     }
 }
 
@@ -22,16 +25,14 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(Update, draw_boxes);
-            // app.add_plugins(LogDiagnosticsPlugin {
-            //     filter: Some(vec![
-            //         IoDiagnosticsPlugin::BYTES_IN,
-            //         IoDiagnosticsPlugin::BYTES_OUT,
-            //     ]),
-            //     ..default()
-            // });
         }
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 // This system defines how we update the player's positions when we receive an input
@@ -56,7 +57,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
     }
 }
 
-/// System that draws the boxed of the player positions.
+/// System that draws the boxes of the player positions.
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
     for (position, color) in &players {

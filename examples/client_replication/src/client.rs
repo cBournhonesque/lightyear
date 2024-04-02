@@ -14,41 +14,12 @@ use crate::protocol::*;
 use crate::shared::{color_from_id, shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
-pub struct ClientPluginGroup {
-    lightyear: ClientPlugin<MyProtocol>,
-}
-
-impl ClientPluginGroup {
-    pub(crate) fn new(net_config: NetConfig) -> ClientPluginGroup {
-        let config = ClientConfig {
-            shared: shared_config(),
-            net: net_config,
-            interpolation: InterpolationConfig::default()
-                .with_delay(InterpolationDelay::default().with_send_interval_ratio(2.0)),
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ClientPluginGroup {
-            lightyear: ClientPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ClientPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleClientPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, spawn_cursor.after(MainSet::ReceiveFlush));
+        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
@@ -71,41 +42,44 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut commands: Commands, mut client: ResMut<ClientConnection>) {
-    commands.spawn(Camera2dBundle::default());
+pub(crate) fn init(mut client: ResMut<ClientConnection>) {
     let _ = client.connect();
 }
 
-pub(crate) fn spawn_cursor(mut commands: Commands, metadata: Res<GlobalMetadata>) {
-    // the `GlobalMetadata` resource holds metadata related to the client
-    // once the connection is established.
-    if metadata.is_changed() {
-        if let Some(client_id) = metadata.client_id {
-            commands.spawn(TextBundle::from_section(
-                format!("Client {}", client_id),
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ));
-            // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
-            commands.spawn(CursorBundle::new(
-                client_id,
-                Vec2::ZERO,
-                color_from_id(client_id),
-            ));
-        }
+/// Listen for events to know when the client is connected;
+/// - spawn a text entity to display the client id
+/// - spawn a client-owned cursor entity that will be replicated to the server
+pub(crate) fn handle_connection(
+    mut commands: Commands,
+    mut connection_event: EventReader<ConnectEvent>,
+) {
+    for event in connection_event.read() {
+        let client_id = event.client_id();
+        commands.spawn(TextBundle::from_section(
+            format!("Client {}", client_id),
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
+        // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
+        commands.spawn(CursorBundle::new(
+            client_id,
+            Vec2::ZERO,
+            color_from_id(client_id),
+        ));
     }
 }
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
-    mut connection_manager: ResMut<ClientConnectionManager>,
+    mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     let tick = tick_manager.tick();
+    let mut input = Inputs::None;
     let mut direction = Direction {
         up: false,
         down: false,
@@ -125,16 +99,15 @@ pub(crate) fn buffer_input(
         direction.right = true;
     }
     if !direction.is_none() {
-        return connection_manager.add_input(Inputs::Direction(direction), tick);
+        input = Inputs::Direction(direction);
     }
     if keypress.pressed(KeyCode::KeyK) {
-        // currently, directions is an enum and we can only add one input per tick
-        return connection_manager.add_input(Inputs::Delete, tick);
+        input = Inputs::Delete;
     }
     if keypress.pressed(KeyCode::Space) {
-        return connection_manager.add_input(Inputs::Spawn, tick);
+        input = Inputs::Spawn;
     }
-    return connection_manager.add_input(Inputs::None, tick);
+    input_manager.add_input(input, tick);
 }
 
 // The client input only gets applied to predicted entities that we own
@@ -159,17 +132,14 @@ fn player_movement(
     }
 }
 
-/// Spawn a player when the space command is pressed
+/// Spawn a server-owned pre-predicted player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
-    // return early if we still don't have access to the client id
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
+    let client_id = connection.id();
 
     // do not spawn a new player if we already have one
     for player_id in players.iter() {
@@ -183,11 +153,11 @@ fn spawn_player(
                 Inputs::Spawn => {
                     debug!("got spawn input");
                     commands.spawn((
-                        PlayerBundle::new(client_id, Vec2::ZERO, color_from_id(client_id)),
+                        PlayerBundle::new(client_id, Vec2::ZERO),
                         // IMPORTANT: this lets the server know that the entity is pre-predicted
                         // when the server replicates this entity; we will get a Confirmed entity which will use this entity
                         // as the Predicted version
-                        ShouldBePredicted::default(),
+                        PrePredicted::default(),
                     ));
                 }
                 _ => {}
@@ -200,7 +170,7 @@ fn spawn_player(
 fn delete_player(
     mut commands: Commands,
     mut input_reader: EventReader<InputEvent<Inputs>>,
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     players: Query<
         (Entity, &PlayerId),
         (
@@ -210,11 +180,7 @@ fn delete_player(
         ),
     >,
 ) {
-    // return early if we still don't have access to the client id
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
-
+    let client_id = connection.id();
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             match input {
@@ -239,18 +205,14 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    metadata: Res<GlobalMetadata>,
+    connection: Res<ClientConnection>,
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
-        (Without<Confirmed>, Without<Interpolated>),
+        Or<((Without<Confirmed>, Without<Interpolated>),)>,
     >,
 ) {
-    // return early if we still don't have access to the client id
-    let Some(client_id) = metadata.client_id else {
-        return;
-    };
-
+    let client_id = connection.id();
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
         if player_id.0 != client_id {
             return;

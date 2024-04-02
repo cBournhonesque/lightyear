@@ -1,10 +1,12 @@
+use bevy::utils::Duration;
 use std::ops::Deref;
-use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy_screen_diagnostics::{Aggregate, ScreenDiagnostics, ScreenDiagnosticsPlugin};
 use leafwing_input_manager::action_state::ActionState;
+use lightyear::client::interpolation::Interpolated;
+use lightyear::client::prediction::Predicted;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
@@ -15,7 +17,7 @@ use crate::protocol::*;
 const MOVE_SPEED: f32 = 10.0;
 const PROP_SIZE: f32 = 5.0;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(100),
@@ -24,6 +26,7 @@ pub fn shared_config() -> SharedConfig {
             // (otherwise we can send multiple packets for the same tick at different frames)
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
+        mode,
     }
 }
 
@@ -32,6 +35,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             app.add_systems(Update, (draw_players, draw_props));
             // diagnostics
             app.add_systems(Startup, setup_diagnostic);
@@ -41,6 +45,10 @@ impl Plugin for SharedPlugin {
         // movement
         app.add_systems(FixedUpdate, player_movement);
     }
+}
+
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {

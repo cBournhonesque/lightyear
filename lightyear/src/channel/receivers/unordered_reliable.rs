@@ -81,9 +81,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
 
     fn read_message(&mut self) -> Option<SingleData> {
         // return if there are no messages in the buffer
-        let Some((message_id, message)) = self.recv_message_buffer.pop_first() else {
-            return None;
-        };
+        let (message_id, message) = self.recv_message_buffer.pop_first()?;
 
         // this was the message we were waiting for (as a reliable receiver)
         if self.pending_recv_message_id == message_id {

@@ -1,7 +1,7 @@
+use bevy::utils::Duration;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
-use std::time::Duration;
 
 use bevy::app::PluginGroupBuilder;
 use bevy::ecs::archetype::Archetype;
@@ -15,39 +15,6 @@ use crate::protocol::*;
 use crate::shared::shared_config;
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            packet: PacketConfig::default()
-                // by default there is no bandwidth limit so we need to enable it
-                .enable_bandwidth_cap()
-                // we can set the max bandwidth to 56 KB/s
-                .with_send_bandwidth_bytes_per_second_cap(1500),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
@@ -59,7 +26,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_plugins(LeafwingInputPlugin::<MyProtocol, Inputs>::default());
         app.add_systems(
             Update,
-            (handle_connections, log, (tick_timers, update_props).chain()),
+            (handle_connections, (tick_timers, update_props).chain()),
         );
     }
 }
@@ -73,17 +40,26 @@ pub(crate) struct Global {
     pub client_id_to_room_id: HashMap<ClientId, RoomId>,
 }
 
-pub(crate) fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        "Server",
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
+pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
+    for connection in &mut connections.servers {
+        let _ = connection.start().inspect_err(|e| {
+            error!("Failed to start server: {:?}", e);
+        });
+    }
+    commands.spawn(
+        TextBundle::from_section(
+            "Server",
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(Style {
+            align_self: AlignSelf::End,
             ..default()
-        },
-    ));
-
+        }),
+    );
     // spawn dots in a grid
     for x in -NUM_CIRCLES..NUM_CIRCLES {
         for y in -NUM_CIRCLES..NUM_CIRCLES {
@@ -116,21 +92,11 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.context();
-        // Generate pseudo random color from client id.
-        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let entity = commands.spawn(PlayerBundle::new(
-            *client_id,
-            Vec2::splat(300.0),
-            Color::hsl(h, s, l),
-        ));
+        let client_id = connection.client_id();
+        let entity = commands.spawn(PlayerBundle::new(client_id, Vec2::splat(300.0)));
         // Add a mapping from client id to entity id (so that when we receive an input from a client,
         // we know which entity to move)
-        global
-            .client_id_to_entity_id
-            .insert(*client_id, entity.id());
+        global.client_id_to_entity_id.insert(client_id, entity.id());
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
@@ -157,12 +123,5 @@ pub(crate) fn update_props(mut props: Query<(&mut Shape, &ShapeChangeTimer)>) {
                 *shape = Shape::Circle;
             }
         }
-    }
-}
-
-pub(crate) fn log(tick_manager: Res<TickManager>, position: Query<&Position, With<PlayerId>>) {
-    let server_tick = tick_manager.tick();
-    for pos in position.iter() {
-        debug!(?server_tick, "Confirmed position: {:?}", pos);
     }
 }

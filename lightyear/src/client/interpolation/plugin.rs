@@ -4,18 +4,20 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
 use crate::client::interpolation::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::interpolation::spawn::spawn_interpolated_entity;
+use crate::prelude::Mode;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
-use super::spawn_interpolated_entity;
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
 #[derive(Clone)]
@@ -124,13 +126,10 @@ pub enum InterpolationSet {
     // Update Sets,
     /// Spawn interpolation entities,
     SpawnInterpolation,
-    SpawnInterpolationFlush,
     /// Add component history for all interpolated entities' interpolated components
     SpawnHistory,
-    SpawnHistoryFlush,
     /// Set to handle interpolated/confirmed entities/components getting despawned
     Despawn,
-    DespawnFlush,
     /// Update component history, interpolation status
     PrepareInterpolation,
     /// Interpolate between last 2 server states. Has to be overriden if
@@ -141,13 +140,7 @@ pub enum InterpolationSet {
     VisualInterpolation,
 }
 
-// We want to run prediction:
-// - after we received network events (PreUpdate)
-// - before we run physics FixedUpdate (to not have to redo-them)
-
-// - a PROBLEM is that ideally we would like to rollback the physics simulation
-//   up to the client tick before we just updated the time. Maybe that's not a problem.. but we do need to keep track of the ticks correctly
-//  the tick we rollback to would not be the current client tick ?
+/// Add per-component systems related to interpolation
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::Components: SyncMetadata<C>,
@@ -213,28 +206,14 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
             Update,
             (
                 InterpolationSet::SpawnInterpolation,
-                InterpolationSet::SpawnInterpolationFlush,
                 InterpolationSet::SpawnHistory,
-                InterpolationSet::SpawnHistoryFlush,
                 InterpolationSet::Despawn,
-                InterpolationSet::DespawnFlush,
                 InterpolationSet::PrepareInterpolation,
                 InterpolationSet::Interpolate,
             )
                 .chain(),
         );
         // SYSTEMS
-        app.add_systems(
-            Update,
-            (
-                // TODO: we want to run these flushes only if something actually happened in the previous set!
-                //  because running the flush-system is expensive (needs exclusive world access)
-                //  check how I can do this in bevy
-                apply_deferred.in_set(InterpolationSet::SpawnInterpolationFlush),
-                apply_deferred.in_set(InterpolationSet::SpawnHistoryFlush),
-                apply_deferred.in_set(InterpolationSet::DespawnFlush),
-            ),
-        );
         app.add_systems(
             Update,
             (

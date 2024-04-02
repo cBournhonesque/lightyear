@@ -8,7 +8,6 @@ use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
-use lightyear::client::prediction::{Rollback, RollbackState};
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
@@ -21,7 +20,7 @@ const FIXED_TIMESTEP_HZ: f64 = 64.0;
 
 const EPS: f32 = 0.0001;
 
-pub fn shared_config() -> SharedConfig {
+pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_secs_f64(1.0 / 32.0),
@@ -29,6 +28,7 @@ pub fn shared_config() -> SharedConfig {
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         },
+        mode,
     }
 }
 
@@ -37,6 +37,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
+            app.add_systems(Startup, init);
             // draw after interpolation is done
             app.add_systems(
                 PostUpdate,
@@ -84,6 +85,10 @@ impl Plugin for SharedPlugin {
     }
 }
 
+fn init(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
+}
+
 fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
     onscreen
         .add("KB/S in".to_string(), IoDiagnosticsPlugin::BYTES_IN)
@@ -97,7 +102,7 @@ fn setup_diagnostic(mut onscreen: ResMut<ScreenDiagnostics>) {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id.wrapping_mul(90)) % 360) as f32) / 360.0;
+    let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
@@ -147,7 +152,7 @@ fn player_movement(
     tick_manager: Res<TickManager>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        (Without<Confirmed>, Without<Interpolated>),
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
@@ -200,7 +205,17 @@ pub(crate) fn move_bullet(
     mut commands: Commands,
     mut query: Query<
         (Entity, &mut Transform),
-        (With<BallMarker>, Without<Confirmed>, Without<Interpolated>),
+        (
+            With<BallMarker>,
+            Or<(
+                // move predicted bullets
+                With<Predicted>,
+                // move server entities
+                With<Replicate>,
+                // move prespawned bullets
+                With<PreSpawnedPlayerObject>,
+            )>,
+        ),
     >,
 ) {
     const BALL_MOVE_SPEED: f32 = 3.0;
@@ -216,7 +231,10 @@ pub(crate) fn move_bullet(
     }
 }
 
-// This system defines how we update the player's positions when we receive an input
+/// This system runs on both the client and the server, and is used to shoot a bullet
+/// The bullet is shot from the predicted player on the client, and from the server-entity on the server.
+/// When the bullet is replicated from server to client, it will use the existing client bullet with the `PreSpawnedPlayerObject` component
+/// as its `Predicted` entity
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
     tick_manager: Res<TickManager>,
@@ -228,7 +246,7 @@ pub(crate) fn shoot_bullet(
             &ColorComponent,
             &mut ActionState<PlayerActions>,
         ),
-        (Without<Interpolated>, Without<Confirmed>),
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
     let tick = tick_manager.tick();
@@ -272,7 +290,7 @@ pub(crate) fn shoot_bullet(
                             // the bullet is interpolated for other clients
                             interpolation_target: NetworkTarget::AllExceptSingle(id.0),
                             // NOTE: all predicted entities need to have the same replication group
-                            replication_group: ReplicationGroup::new_id(id.0),
+                            replication_group: ReplicationGroup::new_id(id.0.to_bits()),
                             ..default()
                         },
                     ));

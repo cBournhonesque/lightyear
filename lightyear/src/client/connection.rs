@@ -2,13 +2,13 @@
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::{Entity, Resource, World};
+use bevy::prelude::{Entity, Local, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use serde::Serialize;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, info, trace, trace_span, warn};
 
-use crate::_reexport::{EntityUpdatesChannel, PingChannel, ReplicationSend};
+use crate::_reexport::{ClientMarker, EntityUpdatesChannel, PingChannel, ReplicationSend};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
@@ -66,9 +66,10 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) events: ConnectionEvents<P>,
 
     pub(crate) ping_manager: PingManager,
-    pub(crate) input_buffer: InputBuffer<P::Input>,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
+    // track if we are connected or not
+    pub(crate) is_connected: bool,
 }
 
 impl<P: Protocol> ConnectionManager<P> {
@@ -99,9 +100,9 @@ impl<P: Protocol> ConnectionManager<P> {
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
-            input_buffer: InputBuffer::default(),
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
+            is_connected: false,
         }
     }
 
@@ -124,19 +125,8 @@ impl<P: Protocol> ConnectionManager<P> {
             .unwrap_or(Tick(0))
     }
 
-    /// Get a cloned version of the input (we might not want to pop from the buffer because we want
-    /// to keep it for rollback)
-    pub(crate) fn get_input(&self, tick: Tick) -> Option<P::Input> {
-        self.input_buffer.get(tick).cloned()
-    }
-
     pub(crate) fn clear(&mut self) {
         self.events.clear();
-    }
-
-    /// Add an input for the given tick
-    pub fn add_input(&mut self, input: P::Input, tick: Tick) {
-        self.input_buffer.set(tick, Some(input));
     }
 
     pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
@@ -153,6 +143,7 @@ impl<P: Protocol> ConnectionManager<P> {
     where
         P::Message: From<M>,
     {
+        // IF UNIFIED; send message directly
         let channel = ChannelKind::of::<C>();
         self.buffer_message(message.into(), channel, NetworkTarget::None)
     }
@@ -246,7 +237,7 @@ impl<P: Protocol> ConnectionManager<P> {
         // TODO: issues here: we would like to send the ping/pong messages immediately, otherwise the recorded current time is incorrect
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
-        if time_manager.is_ready_to_send() {
+        if time_manager.is_client_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
             // (and not have the delay between when we prepare the ping and when we send the packet)
@@ -401,6 +392,7 @@ impl<P: Protocol> ConnectionManager<P> {
 }
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+    type SetMarker = ClientMarker;
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,
@@ -423,7 +415,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // trace!(?entity, "Send entity spawn for tick {:?}", self.tick());
+        trace!(?entity, "Prepare entity spawn to server");
         let group_id = replicate.replication_group.group_id(Some(entity));
         let replication_sender = &mut self.replication_sender;
         // update the collect changes tick
@@ -440,7 +432,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         self.update_priority(
             group_id,
             // the client id argument is ignored on the client
-            0,
+            ClientId::Local(0),
             replicate.replication_group.priority(),
         )?;
         // Prediction/interpolation

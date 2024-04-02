@@ -12,34 +12,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour, shared_tail_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin group to add all server-related plugins
-pub struct ServerPluginGroup {
-    pub(crate) lightyear: ServerPlugin<MyProtocol>,
-}
-
-impl ServerPluginGroup {
-    pub(crate) fn new(net_configs: Vec<NetConfig>) -> ServerPluginGroup {
-        let config = ServerConfig {
-            shared: shared_config(),
-            net: net_configs,
-            ..default()
-        };
-        let plugin_config = PluginConfig::new(config, protocol());
-        ServerPluginGroup {
-            lightyear: ServerPlugin::new(plugin_config),
-        }
-    }
-}
-
-impl PluginGroup for ServerPluginGroup {
-    fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>()
-            .add(self.lightyear)
-            .add(ExampleServerPlugin)
-            .add(shared::SharedPlugin)
-    }
-}
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
@@ -59,16 +31,26 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, (Entity, Entity)>,
 }
 
-pub(crate) fn init(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
-    commands.spawn(TextBundle::from_section(
-        "Server",
-        TextStyle {
-            font_size: 30.0,
-            color: Color::WHITE,
+pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
+    for connection in &mut connections.servers {
+        let _ = connection.start().inspect_err(|e| {
+            error!("Failed to start server: {:?}", e);
+        });
+    }
+    commands.spawn(
+        TextBundle::from_section(
+            "Server",
+            TextStyle {
+                font_size: 30.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        )
+        .with_style(Style {
+            align_self: AlignSelf::End,
             ..default()
-        },
-    ));
+        }),
+    );
 }
 
 /// Server connection system, create a player upon connection
@@ -79,23 +61,19 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.context();
+        let client_id = *connection.context();
         // Generate pseudo random color from client id.
-        let h = (((client_id.wrapping_mul(30)) % 360) as f32) / 360.0;
+        let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
         let player_position = Vec2::ZERO;
         let player_entity = commands
-            .spawn(PlayerBundle::new(
-                *client_id,
-                player_position,
-                Color::hsl(h, s, l),
-            ))
+            .spawn(PlayerBundle::new(client_id, player_position))
             .id();
         let tail_length = 300.0;
         let tail_entity = commands
             .spawn(TailBundle::new(
-                *client_id,
+                client_id,
                 player_entity,
                 player_position,
                 tail_length,
@@ -104,7 +82,7 @@ pub(crate) fn handle_connections(
         // Add a mapping from client id to entity id
         global
             .client_id_to_entity_id
-            .insert(*client_id, (player_entity, tail_entity));
+            .insert(client_id, (player_entity, tail_entity));
     }
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();

@@ -119,6 +119,9 @@ pub fn component_protocol_impl(
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
+        PrePredicted(PrePredicted)
+    });
+    input.variants.push(parse_quote! {
         PreSpawnedPlayerObject(PreSpawnedPlayerObject)
     });
     input.variants.push(parse_quote! {
@@ -126,9 +129,6 @@ pub fn component_protocol_impl(
     });
     input.variants.push(parse_quote! {
         ParentSync(ParentSync)
-    });
-    input.variants.push(parse_quote! {
-        ClientMetadata(ClientMetadata)
     });
     #[cfg(feature = "leafwing")]
     for i in 1..3 {
@@ -377,25 +377,6 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
 fn sync_metadata_impl(fields: &Vec<SyncField>, enum_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
-        // skip components that are defined externally
-        // if field.external {
-        //     // if field.ident.as_ref().unwrap().eq("ShouldBePredicted")
-        //     //     || field.ident.as_ref().unwrap().eq("ShouldBeInterpolated")
-        //     //     || field
-        //     //         .ident
-        //     //         .as_ref()
-        //     //         .unwrap()
-        //     //         .to_string()
-        //     //         .starts_with("ActionState")
-        //     // || field
-        //     //     .ident
-        //     //     .as_ref()
-        //     //     .unwrap()
-        //     //     .to_string()
-        //     //     .starts_with("InputMap")
-        //     continue;
-        // }
-
         let component_type = &field.ty;
         // mode
         let mode = field.get_mode_tokens();

@@ -3,24 +3,25 @@ use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource, World};
-use bevy::utils::HashSet;
+use bevy::utils::{HashMap, HashSet};
 use hashbrown::hash_map::Entry;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span};
+use tracing::{debug, info, trace, trace_span, warn};
 
 use crate::_reexport::{
     EntityUpdatesChannel, FromType, InputMessageKind, MessageProtocol, PingChannel,
-    ReplicationSend, ShouldBeInterpolated,
+    ReplicationSend, ServerMarker, ShouldBeInterpolated,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
-use crate::connection::netcode::ClientId;
+use crate::connection::id::ClientId;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{
-    Channel, ChannelKind, LightyearMapEntities, Message, PreSpawnedPlayerObject, ShouldBePredicted,
+    Channel, ChannelKind, LightyearMapEntities, Message, Mode, PreSpawnedPlayerObject,
+    ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
@@ -44,7 +45,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
-    pub(crate) connections: EntityHashMap<ClientId, Connection<P>>,
+    pub(crate) connections: HashMap<ClientId, Connection<P>>,
     channel_registry: ChannelRegistry,
     pub(crate) events: ServerEvents<P>,
 
@@ -68,7 +69,7 @@ impl<P: Protocol> ConnectionManager<P> {
         ping_config: PingConfig,
     ) -> Self {
         Self {
-            connections: EntityHashMap::default(),
+            connections: HashMap::default(),
             channel_registry,
             events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
@@ -136,18 +137,19 @@ impl<P: Protocol> ConnectionManager<P> {
         });
     }
 
+    /// Add a new [`Connection`] to the list of connections with the given [`ClientId`]
     pub(crate) fn add(&mut self, client_id: ClientId) {
         if let Entry::Vacant(e) = self.connections.entry(client_id) {
             #[cfg(feature = "metrics")]
             metrics::gauge!("connected_clients").increment(1.0);
 
             info!("New connection from id: {}", client_id);
-            let mut connection = Connection::new(
+            let connection = Connection::new(
                 &self.channel_registry,
                 self.packet_config.clone(),
                 self.ping_config.clone(),
             );
-            connection.events.push_connection();
+            self.events.push_connection(client_id);
             self.new_clients.push(client_id);
             e.insert(connection);
         } else {
@@ -160,7 +162,7 @@ impl<P: Protocol> ConnectionManager<P> {
         metrics::gauge!("connected_clients").decrement(1.0);
 
         info!("Client {} disconnected", client_id);
-        self.events.push_disconnects(client_id);
+        self.events.push_disconnection(client_id);
         self.connections.remove(&client_id);
     }
 
@@ -172,6 +174,7 @@ impl<P: Protocol> ConnectionManager<P> {
         self.connections
             .iter_mut()
             .map(move |(client_id, connection)| {
+                trace!(input_buffer = ?connection.input_buffer, ?tick, ?client_id, "input buffer for client");
                 let received_input = connection.input_buffer.pop(tick);
                 let fallback = received_input.is_none();
 
@@ -269,8 +272,9 @@ impl<P: Protocol> ConnectionManager<P> {
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                // receive
+                // receive events on the connection
                 let events = connection.receive(world, time_manager, tick_manager);
+                // move the events from the connection to the connection manager
                 self.events.push_events(*client_id, events);
 
                 // rebroadcast messages
@@ -408,8 +412,8 @@ impl<P: Protocol> Connection<P> {
         //   - can give infinity priority to this channel?
         //   - can write directly to io otherwise?
 
-        // no need to check if `time_manager.is_ready_to_send()` since we only send packets when we are ready to send
-        if time_manager.is_ready_to_send() {
+        // no need to check if `time_manager.is_server_ready_to_send()` since we only send packets when we are ready to send
+        if time_manager.is_server_ready_to_send() {
             // maybe send pings
             // same thing, we want the correct send time for the ping
             // (and not have the delay between when we prepare the ping and when we send the packet)
@@ -552,6 +556,8 @@ impl<P: Protocol> Connection<P> {
 }
 
 impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
+    type SetMarker = ServerMarker;
+
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,
@@ -580,7 +586,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        // debug!(?entity, "Spawning entity");
+        trace!(?entity, "Prepare entity spawn to client");
         let group_id = replicate.replication_group.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
         self.apply_replication(target).try_for_each(|client_id| {
@@ -603,7 +609,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
                 replication_sender.prepare_component_insert(
                     entity,
                     group_id,
-                    P::Components::from(ShouldBePredicted::default()),
+                    P::Components::from(ShouldBePredicted),
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
@@ -660,6 +666,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         let kind: P::ComponentKinds = (&component).into();
 
         // TODO: think about this. this feels a bit clumsy
+        // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
 
         // handle ShouldBePredicted separately because of pre-spawning behaviour
         // Something to be careful of is this: let's say we receive on the server a pre-predicted entity with `ShouldBePredicted(1)`.

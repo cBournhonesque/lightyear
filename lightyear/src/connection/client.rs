@@ -6,9 +6,10 @@ use bevy::prelude::Resource;
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
-use crate::connection::netcode::{ClientId, ConnectToken};
+use crate::connection::id::ClientId;
+use crate::connection::netcode::ConnectToken;
 
-#[cfg(feature = "steam")]
+#[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::client::SteamConfig;
 use crate::packet::packet::Packet;
 
@@ -61,10 +62,13 @@ pub enum NetConfig {
         io: IoConfig,
     },
     // TODO: for steam, we can use a pass-through io that just computes stats?
-    #[cfg(feature = "steam")]
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
+    },
+    Local {
+        id: u64,
     },
 }
 
@@ -103,7 +107,7 @@ impl NetConfig {
                     client: Box::new(client),
                 }
             }
-            #[cfg(feature = "steam")]
+            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
             NetConfig::Steam {
                 config,
                 conditioner,
@@ -111,6 +115,12 @@ impl NetConfig {
                 // TODO: handle errors
                 let client = super::steam::client::Client::new(config, conditioner)
                     .expect("could not create steam client");
+                ClientConnection {
+                    client: Box::new(client),
+                }
+            }
+            NetConfig::Local { id } => {
+                let client = super::local::client::Client::new(id);
                 ClientConnection {
                     client: Box::new(client),
                 }

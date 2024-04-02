@@ -19,9 +19,12 @@ use crate::utils::named::Named;
 // each message must derive message
 
 pub enum InputMessageKind {
+    /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
     #[cfg(feature = "leafwing")]
     Leafwing,
+    /// This is a message for a [`UserAction`](crate::inputs::native::UserAction)
     Native,
+    /// This is not an input message, but a regular [`Message`]
     None,
 }
 
