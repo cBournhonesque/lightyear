@@ -22,6 +22,9 @@ pub trait NetClient: Send + Sync {
     /// Connect to server
     fn connect(&mut self) -> Result<()>;
 
+    /// Disconnect from the server
+    fn disconnect(&mut self) -> Result<()>;
+
     /// Returns true if the client is connected to the server
     fn is_connected(&self) -> bool;
 
@@ -132,6 +135,10 @@ impl NetConfig {
 impl NetClient for ClientConnection {
     fn connect(&mut self) -> Result<()> {
         self.client.connect()
+    }
+
+    fn disconnect(&mut self) -> Result<()> {
+        self.client.disconnect()
     }
 
     fn is_connected(&self) -> bool {

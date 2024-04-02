@@ -95,6 +95,13 @@ impl NetClient for Client {
         Ok(())
     }
 
+    fn disconnect(&mut self) -> Result<()> {
+        if let Some(connection) = &mut self.connection {
+            connection.close(NetConnectionEnd::AppGeneric, None, false);
+        }
+        Ok(())
+    }
+
     fn is_connected(&self) -> bool {
         matches!(
             self.connection_state(),

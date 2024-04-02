@@ -74,7 +74,7 @@ impl Transport for WebTransportClientSocket {
                 // - we spawn two different futures for receive and send datagrams
                 // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
                 // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
-                //   to poll the existing one. This is FAULTY behaviour
+                //   to poll the existing one. This is FAULTY behaviour because we lose the datagram that was being received.
                 // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
                 //   cancelled
                 let connection_recv = connection.clone();

@@ -660,6 +660,14 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
         Ok(())
     }
 
+    fn disconnect(&mut self) -> anyhow::Result<()> {
+        let io = self.io.as_mut().context("io is not initialized")?;
+        self.client
+            .disconnect(io)
+            .context("Error when disconnecting from server")
+        // TODO: close the io as well!
+    }
+
     fn is_connected(&self) -> bool {
         self.client.is_connected()
     }

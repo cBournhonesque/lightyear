@@ -71,7 +71,7 @@ pub enum TransportConfig {
 }
 
 // TODO: derive Debug directly on TransportConfig once the new version of wtransport is out
-impl std::fmt::Debug for TransportConfig {
+impl Debug for TransportConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
