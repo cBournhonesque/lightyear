@@ -1,14 +1,15 @@
-use bevy::utils::Duration;
-/**
-Contains the [`LinkConditionerConfig`] struct which can be used to simulate network conditions
-*/
-use std::io::Result;
+//! Contains the [`LinkConditioner`] struct which can be used to simulate network conditions
+use anyhow::Context;
 use std::net::SocketAddr;
+
+use bevy::utils::Duration;
 
 use cfg_if::cfg_if;
 use rand;
 use rand::{thread_rng, Rng};
 
+use crate::transport::error::Result;
+use crate::transport::wrapper::PacketReceiverWrapper;
 use crate::transport::PacketReceiver;
 use crate::utils::ready_buffer::ReadyBuffer;
 
@@ -34,80 +35,91 @@ pub struct LinkConditionerConfig {
     pub incoming_loss: f32,
 }
 
-// Conditions a packet-receiver T that sends packets P
-pub struct ConditionedPacketReceiver<T: PacketReceiver, P: Eq> {
-    packet_receiver: T,
+pub(crate) type PacketLinkConditioner = LinkConditioner<(SocketAddr, Box<[u8]>)>;
+
+pub(crate) struct LinkConditioner<P: Eq> {
     config: LinkConditionerConfig,
     pub time_queue: ReadyBuffer<Instant, P>,
     last_packet: Option<P>,
 }
 
-impl<T: PacketReceiver, P: Eq> ConditionedPacketReceiver<T, P> {
-    pub fn new(packet_receiver: T, link_conditioner_config: LinkConditionerConfig) -> Self {
-        ConditionedPacketReceiver {
-            packet_receiver,
-            config: link_conditioner_config,
+impl<P: Eq> LinkConditioner<P> {
+    pub fn new(config: LinkConditionerConfig) -> Self {
+        LinkConditioner {
+            config,
             time_queue: ReadyBuffer::new(),
             last_packet: None,
         }
     }
+
+    /// Add latency/jitter/loss to a packet
+    fn condition_packet(&mut self, packet: P) {
+        let mut rng = thread_rng();
+        if rng.gen_range(0.0..1.0) <= self.config.incoming_loss {
+            return;
+        }
+        let mut latency: i32 = self.config.incoming_latency.as_millis() as i32;
+        // TODO: how can i use the virtual time here?
+        let mut packet_timestamp = Instant::now();
+        if self.config.incoming_jitter > Duration::default() {
+            let jitter: i32 = self.config.incoming_jitter.as_millis() as i32;
+            latency += rng.gen_range(-jitter..jitter);
+        }
+        if latency > 0 {
+            packet_timestamp += Duration::from_millis(latency as u64);
+        }
+        self.time_queue.add_item(packet_timestamp, packet);
+    }
+
+    /// Check if a packet is ready to be returned
+    fn pop_packet(&mut self) -> Option<P> {
+        self.time_queue
+            .pop_item(&Instant::now())
+            .map(|(_, packet)| packet)
+    }
 }
 
-// Condition a packet by potentially adding latency/jitter/loss to it
-fn condition_packet<P: Eq>(
-    config: &LinkConditionerConfig,
-    time_queue: &mut ReadyBuffer<Instant, P>,
-    packet: P,
-) {
-    let mut rng = thread_rng();
-    if rng.gen_range(0.0..1.0) <= config.incoming_loss {
-        return;
+impl<T: PacketReceiver> PacketReceiverWrapper<T> for LinkConditioner<(SocketAddr, Box<[u8]>)> {
+    fn wrap(self, receiver: T) -> impl PacketReceiver {
+        ConditionedPacketReceiver {
+            packet_receiver: receiver,
+            conditioner: self,
+        }
     }
-    let mut latency: i32 = config.incoming_latency.as_millis() as i32;
-    // TODO: how can i use the virtual time here?
-    let mut packet_timestamp = Instant::now();
-    if config.incoming_jitter > Duration::default() {
-        let jitter: i32 = config.incoming_jitter.as_millis() as i32;
-        latency += rng.gen_range(-jitter..jitter);
-    }
-    if latency > 0 {
-        packet_timestamp += Duration::from_millis(latency as u64);
-    }
-    time_queue.add_item(packet_timestamp, packet);
+}
+
+/// A wrapper around a packet receiver that simulates network conditions
+/// by adding latency, jitter and packet loss to incoming packets.
+pub struct ConditionedPacketReceiver<T: PacketReceiver, P: Eq> {
+    packet_receiver: T,
+    conditioner: LinkConditioner<P>,
 }
 
 impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketAddr, Box<[u8]>)> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         loop {
             // keep trying to receive packets from the inner packet receiver
-            match self.packet_receiver.recv() {
-                Ok(option) => match option {
-                    None => break,
-                    // add conditioning (put the packets in the time queue)
-                    Some((data, addr)) => condition_packet(
-                        &self.config,
-                        &mut self.time_queue,
-                        (addr, data.to_vec().into_boxed_slice()),
-                    ),
-                },
-                Err(err) => {
-                    return Err(err);
-                }
+            let option = self.packet_receiver.recv()?;
+            match option {
+                None => break,
+                // add conditioning (put the packets in the time queue)
+                Some((data, addr)) => self
+                    .conditioner
+                    .condition_packet((addr, data.to_vec().into_boxed_slice())),
             }
         }
         // only return a packet if it is ready to be returned
-        match self.time_queue.pop_item(&Instant::now()) {
-            Some((_, (addr, data))) => {
+        match self.conditioner.pop_packet() {
+            Some((addr, data)) => {
                 // we use `last_packet` to get ownership of the data
-                self.last_packet = Some((addr, data));
-                Ok(Some((self.last_packet.as_mut().unwrap().1.as_mut(), addr)))
+                self.conditioner.last_packet = Some((addr, data));
+                Ok(Some((
+                    self.conditioner.last_packet.as_mut().unwrap().1.as_mut(),
+                    addr,
+                )))
             }
             None => Ok(None),
         }
-    }
-
-    fn close(&mut self) -> Result<()> {
-        self.packet_receiver.close()
     }
 }
 

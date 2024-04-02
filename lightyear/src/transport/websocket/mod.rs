@@ -10,8 +10,6 @@ cfg_if::cfg_if! {
     }
 }
 
-const MTU: usize = 1472;
-
 #[cfg(test)]
 mod tests {
     use super::client::*;

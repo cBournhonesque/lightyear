@@ -1,72 +1,76 @@
 //! The transport is a UDP socket
-use std::io::Result;
+use anyhow::Context;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
+use super::error::{Error, Result};
 use crate::transport::{
-    BoxedReceiver, BoxedSender, CloseFn, PacketReceiver, PacketSender, Transport,
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+    TransportBuilder, TransportEnum, MTU,
 };
 
-// Maximum transmission units; maximum size in bytes of a UDP packet
-// See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
-const MTU: usize = 1472;
+pub struct UdpSocketBuilder {
+    pub(crate) local_addr: SocketAddr,
+}
+
+impl TransportBuilder for UdpSocketBuilder {
+    fn connect(self) -> Result<TransportEnum> {
+        let udp_socket = std::net::UdpSocket::bind(self.local_addr)?;
+        let local_addr = udp_socket.local_addr()?;
+        let socket = Arc::new(Mutex::new(udp_socket));
+        socket.as_ref().lock().unwrap().set_nonblocking(true)?;
+        let sender = UdpSocketBuffer {
+            socket: socket.clone(),
+            buffer: [0; MTU],
+        };
+        let receiver = sender.clone();
+        Ok(TransportEnum::UdpSocket(UdpSocket {
+            local_addr,
+            sender,
+            receiver,
+        }))
+    }
+}
 
 /// UDP Socket
-#[derive(Clone)]
 pub struct UdpSocket {
+    local_addr: SocketAddr,
+    sender: UdpSocketBuffer,
+    receiver: UdpSocketBuffer,
+}
+
+impl Transport for UdpSocket {
+    fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+
+    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
+        (Box::new(self.sender), Box::new(self.receiver), None)
+    }
+}
+
+#[derive(Clone)]
+pub struct UdpSocketBuffer {
     /// The underlying UDP Socket. This is wrapped in an Arc<Mutex<>> so that it
     /// can be shared between threads
     socket: Arc<Mutex<std::net::UdpSocket>>,
     buffer: [u8; MTU],
 }
 
-impl UdpSocket {
-    /// Create a non-blocking UDP socket
-    pub fn new(local_addr: SocketAddr) -> Result<Self> {
-        let udp_socket = std::net::UdpSocket::bind(local_addr)?;
-        let socket = Arc::new(Mutex::new(udp_socket));
-        socket.as_ref().lock().unwrap().set_nonblocking(true)?;
-        Ok(Self {
-            socket,
-            buffer: [0; MTU],
-        })
-    }
-}
-
-impl Transport for UdpSocket {
-    fn local_addr(&self) -> SocketAddr {
-        self.socket
-            .as_ref()
-            .lock()
-            .unwrap()
-            .local_addr()
-            .expect("error getting local addr")
-    }
-
-    fn connect(&mut self) -> Result<(BoxedSender, BoxedReceiver, Option<CloseFn>)> {
-        Ok((Box::new(self.clone()), Box::new(self.clone()), None))
-    }
-}
-
-impl PacketSender for UdpSocket {
+impl PacketSender for UdpSocketBuffer {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.socket
             .as_ref()
             .lock()
             .unwrap()
-            .send_to(payload, address)
-            .map(|_| ())
-        // .context("error sending packet")
-    }
-
-    fn close(&mut self) -> Result<()> {
-        // the resources get released when the socket is dropped
+            .send_to(payload, address)?;
         Ok(())
     }
 }
 
-impl PacketReceiver for UdpSocket {
+impl PacketReceiver for UdpSocketBuffer {
     /// Receives a packet from the socket, and stores the results in the provided buffer
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self
@@ -82,13 +86,8 @@ impl PacketReceiver for UdpSocket {
                 Ok(None)
             }
             // Err(e) => Err(anyhow!("error receiving packet")),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
-    }
-
-    fn close(&mut self) -> Result<()> {
-        // the resources get released when the socket is dropped
-        Ok(())
     }
 }
 
@@ -98,8 +97,10 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
 
-    use crate::transport::conditioner::{ConditionedPacketReceiver, LinkConditionerConfig};
     use crate::transport::udp::UdpSocket;
+    use crate::transport::wrapper::conditioner::{
+        ConditionedPacketReceiver, LinkConditionerConfig,
+    };
     use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]

@@ -70,7 +70,7 @@ impl NetConfig {
     pub fn build_server(self) -> ServerConnection {
         match self {
             NetConfig::Netcode { config, io } => {
-                let io = io.get_io();
+                let io = io.build();
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
                     server: Box::new(server),

@@ -1,6 +1,7 @@
 //! WebTransport client implementation.
+use anyhow::Context;
 use async_compat::Compat;
-use bevy::tasks::IoTaskPool;
+use bevy::tasks::{futures_lite, IoTaskPool};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -11,28 +12,90 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tracing::{debug, error, info, trace};
 use wtransport;
 use wtransport::datagram::Datagram;
+use wtransport::endpoint::endpoint_side::Server;
 use wtransport::endpoint::IncomingSession;
 use wtransport::tls::Certificate;
 use wtransport::ServerConfig;
 use wtransport::{Connection, Endpoint};
 
-use crate::transport::webtransport::MTU;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::error::{Error, Result};
+use crate::transport::{
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+    TransportBuilder, TransportEnum, MTU,
+};
+
+pub(crate) struct WebTransportServerSocketBuilder {
+    pub(crate) server_addr: SocketAddr,
+    pub(crate) certificate: Certificate,
+}
+
+impl TransportBuilder for WebTransportServerSocketBuilder {
+    fn connect(self) -> Result<TransportEnum> {
+        let (to_client_sender, to_client_receiver) =
+            mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
+        let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
+        let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
+
+        let config = ServerConfig::builder()
+            .with_bind_address(self.server_addr)
+            .with_certificate(self.certificate)
+            .build();
+        // need to run this with Compat because it requires the tokio reactor
+        let endpoint = futures_lite::future::block_on(Compat::new(async {
+            let endpoint = wtransport::Endpoint::server(config)?;
+            Ok::<_, Error>(endpoint)
+        }))?;
+
+        let sender = WebTransportServerSocketSender {
+            server_addr: self.server_addr,
+            to_client_senders: to_client_senders.clone(),
+        };
+        let receiver = WebTransportServerSocketReceiver {
+            buffer: [0; MTU],
+            server_addr: self.server_addr,
+            from_client_receiver,
+        };
+
+        IoTaskPool::get()
+            .spawn(Compat::new(async move {
+                info!("Starting server webtransport task");
+                loop {
+                    // clone the channel for each client
+                    let from_client_sender = from_client_sender.clone();
+                    let to_client_senders = to_client_senders.clone();
+
+                    // new client connecting
+                    let incoming_session = endpoint.accept().await;
+
+                    IoTaskPool::get()
+                        .spawn(Compat::new(WebTransportServerSocket::handle_client(
+                            incoming_session,
+                            from_client_sender,
+                            to_client_senders,
+                        )))
+                        .detach();
+                }
+            }))
+            .detach();
+
+        Ok(TransportEnum::WebTransportServer(
+            WebTransportServerSocket {
+                local_addr: self.server_addr,
+                sender,
+                receiver,
+            },
+        ))
+    }
+}
 
 /// WebTransport client socket
 pub struct WebTransportServerSocket {
-    server_addr: SocketAddr,
-    certificate: Option<Certificate>,
+    local_addr: SocketAddr,
+    sender: WebTransportServerSocketSender,
+    receiver: WebTransportServerSocketReceiver,
 }
 
 impl WebTransportServerSocket {
-    pub(crate) fn new(server_addr: SocketAddr, certificate: Certificate) -> Self {
-        Self {
-            server_addr,
-            certificate: Some(certificate),
-        }
-    }
-
     pub async fn handle_client(
         incoming_session: IncomingSession,
         from_client_sender: UnboundedSender<(Datagram, SocketAddr)>,
@@ -52,7 +115,7 @@ impl WebTransportServerSocket {
                 error!("failed to accept new client: {:?}", e);
             })
             .unwrap();
-        let connection = std::sync::Arc::new(connection);
+        let connection = Arc::new(connection);
         let client_addr = connection.remote_address();
 
         info!(
@@ -108,63 +171,18 @@ impl WebTransportServerSocket {
         info!("Connection with {} closed", client_addr);
         to_client_channels.lock().unwrap().remove(&client_addr);
         debug!("Dropping tasks");
+        // the handles being dropped cancels the tasks
         // TODO: need to disconnect the client in netcode
     }
 }
 
 impl Transport for WebTransportServerSocket {
     fn local_addr(&self) -> SocketAddr {
-        self.server_addr
+        self.local_addr
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        // TODO: should i create my own task pool?
-        let server_addr = self.server_addr;
-        let certificate = self.certificate.unwrap();
-        let (to_client_sender, to_client_receiver) =
-            mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
-        let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
-        let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
-
-        let packet_sender = WebTransportServerSocketSender {
-            server_addr,
-            to_client_senders: to_client_senders.clone(),
-        };
-        let packet_receiver = WebTransportServerSocketReceiver {
-            buffer: [0; MTU],
-            server_addr,
-            from_client_receiver,
-        };
-
-        let config = ServerConfig::builder()
-            .with_bind_address(server_addr)
-            .with_certificate(certificate)
-            .build();
-
-        IoTaskPool::get()
-            .spawn(Compat::new(async move {
-                info!("Starting server webtransport task");
-                let endpoint = wtransport::Endpoint::server(config).unwrap();
-
-                loop {
-                    // clone the channel for each client
-                    let from_client_sender = from_client_sender.clone();
-                    let to_client_senders = to_client_senders.clone();
-
-                    // new client connecting
-                    let incoming_session = endpoint.accept().await;
-
-                    IoTaskPool::get()
-                        .spawn(Compat::new(Self::handle_client(
-                            incoming_session,
-                            from_client_sender,
-                            to_client_senders,
-                        )))
-                        .detach();
-                }
-            }))
-            .detach();
-        (Box::new(packet_sender), Box::new(packet_receiver))
+    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
+        (Box::new(self.sender), Box::new(self.receiver), None)
     }
 }
 
@@ -174,10 +192,10 @@ struct WebTransportServerSocketSender {
 }
 
 impl PacketSender for WebTransportServerSocketSender {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         if let Some(to_client_sender) = self.to_client_senders.lock().unwrap().get(address) {
             to_client_sender.send(payload.into()).map_err(|e| {
-                std::io::Error::other(format!("unable to send message to client: {}", e))
+                std::io::Error::other(format!("unable to send message to client: {}", e)).into()
             })
         } else {
             // consider that if the channel doesn't exist, it's because the connection was closed
@@ -188,10 +206,6 @@ impl PacketSender for WebTransportServerSocketSender {
             // )))
         }
     }
-
-    fn close(&mut self) -> std::io::Result<()> {
-        todo!()
-    }
 }
 
 struct WebTransportServerSocketReceiver {
@@ -200,7 +214,7 @@ struct WebTransportServerSocketReceiver {
     from_client_receiver: UnboundedReceiver<(Datagram, SocketAddr)>,
 }
 impl PacketReceiver for WebTransportServerSocketReceiver {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_client_receiver.try_recv() {
             Ok((data, addr)) => {
                 self.buffer[..data.len()].copy_from_slice(data.payload().as_ref());
@@ -213,13 +227,10 @@ impl PacketReceiver for WebTransportServerSocketReceiver {
                     Err(std::io::Error::other(format!(
                         "unable to receive message from client: {}",
                         e
-                    )))
+                    ))
+                    .into())
                 }
             }
         }
-    }
-
-    fn close(&mut self) -> std::io::Result<()> {
-        todo!()
     }
 }

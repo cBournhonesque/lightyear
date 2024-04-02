@@ -103,7 +103,7 @@ impl NetConfig {
                         .expect("could not create netcode client");
                 let client = super::netcode::Client {
                     client: netcode,
-                    io_config,
+                    io_config: Some(io_config),
                     io: None,
                 };
                 ClientConnection {

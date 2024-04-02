@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::{
     future::Future,
     io::BufReader,
@@ -6,7 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::hashbrown::HashMap;
@@ -31,19 +31,94 @@ use tokio_tungstenite::{
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
-use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::transport::error::{Error, Result};
+use crate::transport::{
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+    TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
+};
 
-use super::MTU;
+pub(crate) struct WebSocketClientSocketBuilder {
+    pub(crate) server_addr: SocketAddr,
+}
+
+impl TransportBuilder for WebSocketClientSocketBuilder {
+    fn connect(self) -> Result<TransportEnum> {
+        let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
+        let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
+        let (close_tx, mut close_rx) = mpsc::channel(1);
+
+        let sender = WebSocketClientSocketSender { serverbound_tx };
+        let receiver = WebSocketClientSocketReceiver {
+            buffer: [0; MTU],
+            server_addr: self.server_addr,
+            clientbound_rx,
+        };
+
+        // TODO: make connect async?
+        // connect to the server
+        let (ws_stream, _) = IoTaskPool::get()
+            .scope(|scope| {
+                scope.spawn(Compat::new(async move {
+                    connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
+                        .await
+                }))
+            })
+            .pop()
+            .unwrap()?;
+        info!("WebSocket handshake has been successfully completed");
+        let (mut write, mut read) = ws_stream.split();
+
+        let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
+            while let Some(msg) = read.next().await {
+                let msg = msg
+                    .map_err(|e| {
+                        error!("Error while receiving websocket msg: {}", e);
+                    })
+                    .unwrap();
+
+                clientbound_tx
+                    .send(msg)
+                    .expect("Unable to propagate the read websocket message to the receiver");
+            }
+            // when we reach this point, the stream is closed
+        }));
+        let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
+            while let Some(msg) = serverbound_rx.recv().await {
+                write
+                    .send(msg)
+                    .await
+                    .map_err(|e| {
+                        error!("Encountered error while sending websocket msg: {}", e);
+                    })
+                    .unwrap();
+            }
+        }));
+        // wait for a signal that the io should be closed
+        IoTaskPool::get()
+            .spawn(async move {
+                close_rx.recv().await;
+                info!("Close websocket connection");
+                send_handle.cancel().await;
+                recv_handle.cancel().await;
+            })
+            .detach();
+        Ok(TransportEnum::WebSocketClient(WebSocketClientSocket {
+            local_addr: self.server_addr,
+            sender,
+            receiver,
+            close_sender: close_tx,
+        }))
+    }
+}
 
 pub struct WebSocketClientSocket {
-    server_addr: SocketAddr,
+    local_addr: SocketAddr,
+    sender: WebSocketClientSocketSender,
+    receiver: WebSocketClientSocketReceiver,
+    close_sender: mpsc::Sender<()>,
 }
 
 impl WebSocketClientSocket {
-    pub(crate) fn new(server_addr: SocketAddr) -> Self {
-        Self { server_addr }
-    }
-
     /*fn get_tls_connector(&self) -> TlsConnector {
         let root_store = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -69,94 +144,34 @@ impl Transport for WebSocketClientSocket {
         LOCAL_SOCKET
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
-        let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
-        let (close_tx, mut close_rx) = mpsc::channel(1);
-
-        let packet_sender = WebSocketClientSocketSender {
-            serverbound_tx,
-            close_channel: close_tx.clone(),
+    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
+        let close_fn = move || {
+            self.close_sender
+                .blocking_send(())
+                .map_err(|e| Error::from(std::io::Error::other(format!("close error: {:?}", e))))
         };
-
-        let packet_receiver = WebSocketClientSocketReceiver {
-            buffer: [0; MTU],
-            server_addr: self.server_addr,
-            clientbound_rx,
-            close_channel: close_tx,
-        };
-
-        IoTaskPool::get()
-            .spawn(Compat::new(async move {
-                info!("Starting client websocket task");
-                let (ws_stream, _) =
-                    connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
-                        .await
-                        .expect("Unable to connect to websocket server");
-                info!("WebSocket handshake has been successfully completed");
-
-                let (mut write, mut read) = ws_stream.split();
-
-                IoTaskPool::get()
-                    .spawn(async move {
-                        while let Some(msg) = read.next().await {
-                            let msg = msg
-                                .map_err(|e| {
-                                    error!("Error while receiving websocket msg: {}", e);
-                                })
-                                .unwrap();
-
-                            clientbound_tx.send(msg).expect(
-                                "Unable to propagate the read websocket message to the receiver",
-                            );
-                        }
-                        // when we reach this point, the stream is closed
-                    })
-                    .detach();
-
-                IoTaskPool::get()
-                    .spawn(async move {
-                        while let Some(msg) = serverbound_rx.recv().await {
-                            write
-                                .send(msg)
-                                .await
-                                .map_err(|e| {
-                                    error!("Encountered error while sending websocket msg: {}", e);
-                                })
-                                .unwrap();
-                        }
-                    })
-                    .detach();
-
-                // wait for a signal that the io should be closed
-                let _closed = close_rx.recv().await;
-                let close_write = write.close().await;
-                let close_read = read.close().await;
-            }))
-            .detach();
-
-        (Box::new(packet_sender), Box::new(packet_receiver))
+        (
+            Box::new(self.sender),
+            Box::new(self.receiver),
+            Some(Box::new(close_fn)),
+        )
     }
 }
 
 struct WebSocketClientSocketSender {
     serverbound_tx: UnboundedSender<Message>,
-    close_channel: Sender<()>,
 }
 
 impl PacketSender for WebSocketClientSocketSender {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.serverbound_tx
             .send(Message::Binary(payload.to_vec()))
             .map_err(|e| {
-                std::io::Error::other(format!("unable to send message to server: {:?}", e))
+                Error::WebSocket(
+                    std::io::Error::other(format!("unable to send message to server: {:?}", e))
+                        .into(),
+                )
             })
-    }
-
-    fn close(&mut self) -> std::io::Result<()> {
-        self.close_channel
-            .blocking_send(())
-            .map_err(|e| std::io::Error::other(format!("unable to close connection: {:?}", e)))
     }
 }
 
@@ -164,11 +179,10 @@ struct WebSocketClientSocketReceiver {
     buffer: [u8; MTU],
     server_addr: SocketAddr,
     clientbound_rx: UnboundedReceiver<Message>,
-    close_channel: Sender<()>,
 }
 
 impl PacketReceiver for WebSocketClientSocketReceiver {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self.clientbound_rx.try_recv() {
             Ok(msg) => match msg {
                 Message::Binary(buf) => {
@@ -185,17 +199,15 @@ impl PacketReceiver for WebSocketClientSocketReceiver {
                 if e == TryRecvError::Empty {
                     Ok(None)
                 } else {
-                    Err(std::io::Error::other(format!(
-                        "unable to receive message from client: {}",
-                        e
-                    )))
+                    Err(Error::WebSocket(
+                        std::io::Error::other(format!(
+                            "unable to receive message from client: {}",
+                            e
+                        ))
+                        .into(),
+                    ))
                 }
             }
         }
-    }
-    fn close(&mut self) -> std::io::Result<()> {
-        self.close_channel
-            .blocking_send(())
-            .map_err(|e| std::io::Error::other(format!("unable to close connection: {:?}", e)))
     }
 }

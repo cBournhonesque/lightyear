@@ -12,7 +12,7 @@ use crate::prelude::IoConfig;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
+use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 use super::{
     bytes::Bytes,
@@ -171,9 +171,7 @@ pub enum ClientState {
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-/// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
-/// #    addr))
-/// # );
+/// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).get_io();
 /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
@@ -572,7 +570,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)));
+    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).get_io();
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///
@@ -647,13 +645,17 @@ impl<Ctx> NetcodeClient<Ctx> {
 #[derive(Resource)]
 pub struct Client<Ctx> {
     pub client: NetcodeClient<Ctx>,
-    pub io_config: IoConfig,
+    pub io_config: Option<IoConfig>,
     pub io: Option<Io>,
 }
 
 impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     fn connect(&mut self) -> anyhow::Result<()> {
-        self.io = Some(Io::from_config(self.io_config.clone()));
+        let mut io = std::mem::take(&mut self.io_config)
+            .context("io config is not initialized")?
+            .build();
+        io.connect().context("could not connect io")?;
+        self.io = Some(io);
         self.client.connect();
         // TODO: have a separate explicit function to start listening on the io
         // creating the io starts the io connection!
