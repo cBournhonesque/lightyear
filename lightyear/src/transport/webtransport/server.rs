@@ -188,6 +188,10 @@ impl PacketSender for WebTransportServerSocketSender {
             // )))
         }
     }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        todo!()
+    }
 }
 
 struct WebTransportServerSocketReceiver {
@@ -213,5 +217,9 @@ impl PacketReceiver for WebTransportServerSocketReceiver {
                 }
             }
         }
+    }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        todo!()
     }
 }

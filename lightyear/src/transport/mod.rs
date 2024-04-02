@@ -56,11 +56,18 @@ pub trait Transport {
 pub trait PacketSender: Send + Sync {
     /// Send data on the socket to the remote address
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()>;
+
+    /// Close the packet sender (release any resources)
+    fn close(&mut self) -> Result<()>;
 }
 
 impl PacketSender for Box<dyn PacketSender> {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         (**self).send(payload, address)
+    }
+
+    fn close(&mut self) -> Result<()> {
+        (**self).close()
     }
 }
 
@@ -70,10 +77,17 @@ pub trait PacketReceiver: Send + Sync {
     ///
     /// Returns Ok(None) if no data is available
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>>;
+
+    /// Close the packet receiver (release any resources)
+    fn close(&mut self) -> Result<()>;
 }
 
 impl PacketReceiver for Box<dyn PacketReceiver> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         (**self).recv()
+    }
+
+    fn close(&mut self) -> Result<()> {
+        (**self).close()
     }
 }

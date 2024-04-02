@@ -8,23 +8,22 @@ use std::{
 
 use anyhow::Result;
 use async_compat::Compat;
-use bevy::tasks::IoTaskPool;
+use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::hashbrown::HashMap;
 
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{
-        mpsc::{self, error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+        mpsc::{
+            self, error::TryRecvError, unbounded_channel, Sender, UnboundedReceiver,
+            UnboundedSender,
+        },
         Mutex,
     },
 };
 
 use futures_util::stream::FusedStream;
-use futures_util::{
-    future, pin_mut,
-    stream::{SplitSink, TryStreamExt},
-    SinkExt, StreamExt, TryFutureExt,
-};
+use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
 
 use tokio_tungstenite::{
     connect_async, connect_async_with_config, tungstenite::Message, MaybeTlsStream,
@@ -73,13 +72,18 @@ impl Transport for WebSocketClientSocket {
     fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
+        let (close_tx, mut close_rx) = mpsc::channel(1);
 
-        let packet_sender = WebSocketClientSocketSender { serverbound_tx };
+        let packet_sender = WebSocketClientSocketSender {
+            serverbound_tx,
+            close_channel: close_tx.clone(),
+        };
 
         let packet_receiver = WebSocketClientSocketReceiver {
             buffer: [0; MTU],
             server_addr: self.server_addr,
             clientbound_rx,
+            close_channel: close_tx,
         };
 
         IoTaskPool::get()
@@ -123,6 +127,11 @@ impl Transport for WebSocketClientSocket {
                         }
                     })
                     .detach();
+
+                // wait for a signal that the io should be closed
+                let _closed = close_rx.recv().await;
+                let close_write = write.close().await;
+                let close_read = read.close().await;
             }))
             .detach();
 
@@ -132,6 +141,7 @@ impl Transport for WebSocketClientSocket {
 
 struct WebSocketClientSocketSender {
     serverbound_tx: UnboundedSender<Message>,
+    close_channel: Sender<()>,
 }
 
 impl PacketSender for WebSocketClientSocketSender {
@@ -142,12 +152,19 @@ impl PacketSender for WebSocketClientSocketSender {
                 std::io::Error::other(format!("unable to send message to server: {:?}", e))
             })
     }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        self.close_channel
+            .blocking_send(())
+            .map_err(|e| std::io::Error::other(format!("unable to close connection: {:?}", e)))
+    }
 }
 
 struct WebSocketClientSocketReceiver {
     buffer: [u8; MTU],
     server_addr: SocketAddr,
     clientbound_rx: UnboundedReceiver<Message>,
+    close_channel: Sender<()>,
 }
 
 impl PacketReceiver for WebSocketClientSocketReceiver {
@@ -175,5 +192,10 @@ impl PacketReceiver for WebSocketClientSocketReceiver {
                 }
             }
         }
+    }
+    fn close(&mut self) -> std::io::Result<()> {
+        self.close_channel
+            .blocking_send(())
+            .map_err(|e| std::io::Error::other(format!("unable to close connection: {:?}", e)))
     }
 }

@@ -110,6 +110,10 @@ impl PacketReceiver for ChannelsReceiver {
             op
         })
     }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 struct ChannelsSender {
@@ -126,5 +130,9 @@ impl PacketSender for ChannelsSender {
             .unwrap()
             .try_send(payload.to_vec())
             .map_err(|_| std::io::Error::other("error sending packet"))
+    }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }

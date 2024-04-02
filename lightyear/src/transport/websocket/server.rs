@@ -138,7 +138,7 @@ impl Transport for WebSocketServerSocket {
                             });
 
                             let _closed =
-                                futures_lite::future::or(clientbound_handle, serverbound_handle)
+                                futures_lite::future::race(clientbound_handle, serverbound_handle)
                                     .await;
 
                             info!("Connection with {} closed", addr);
@@ -176,6 +176,10 @@ impl PacketSender for WebSocketServerSocketSender {
             // )))
         }
     }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        todo!()
+    }
 }
 
 struct WebSocketServerSocketReceiver {
@@ -209,5 +213,9 @@ impl PacketReceiver for WebSocketServerSocketReceiver {
                 }
             }
         }
+    }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        todo!()
     }
 }

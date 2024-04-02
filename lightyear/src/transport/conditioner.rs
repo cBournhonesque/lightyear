@@ -105,6 +105,10 @@ impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketA
             None => Ok(None),
         }
     }
+
+    fn close(&mut self) -> Result<()> {
+        self.packet_receiver.close()
+    }
 }
 
 impl LinkConditionerConfig {

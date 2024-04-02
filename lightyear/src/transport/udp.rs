@@ -60,6 +60,11 @@ impl PacketSender for UdpSocket {
             .map(|_| ())
         // .context("error sending packet")
     }
+
+    fn close(&mut self) -> Result<()> {
+        // the resources get released when the socket is dropped
+        Ok(())
+    }
 }
 
 impl PacketReceiver for UdpSocket {
@@ -80,6 +85,11 @@ impl PacketReceiver for UdpSocket {
             // Err(e) => Err(anyhow!("error receiving packet")),
             Err(e) => Err(e),
         }
+    }
+
+    fn close(&mut self) -> Result<()> {
+        // the resources get released when the socket is dropped
+        Ok(())
     }
 }
 

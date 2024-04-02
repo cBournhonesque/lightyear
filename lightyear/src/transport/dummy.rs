@@ -20,10 +20,18 @@ impl PacketSender for DummyIo {
     fn send(&mut self, data: &[u8], addr: &SocketAddr) -> Result<()> {
         panic!("DummyIo::send should not be called")
     }
+
+    fn close(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl PacketReceiver for DummyIo {
     fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
         panic!("DummyIo::receive should not be called")
+    }
+
+    fn close(&mut self) -> Result<()> {
+        Ok(())
     }
 }

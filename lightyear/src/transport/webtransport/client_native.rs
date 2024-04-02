@@ -2,8 +2,9 @@
 //! WebTransport client implementation.
 use super::MTU;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
+use anyhow::Context;
 use async_compat::Compat;
-use bevy::tasks::{IoTaskPool, TaskPool};
+use bevy::tasks::{futures_lite, IoTaskPool, TaskPool};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -41,6 +42,9 @@ impl Transport for WebTransportClientSocket {
         let server_addr = self.server_addr;
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
+        // channels used to cancel the task
+        let (send_close_sender, mut send_close_receiver) = mpsc::channel(1);
+        let (recv_close_sender, mut recv_close_receiver) = mpsc::channel(1);
 
         let config = ClientConfig::builder()
             .with_bind_address(client_addr)
@@ -102,7 +106,25 @@ impl Transport for WebTransportClientSocket {
                         }
                     }
                 });
-                connection.closed().await;
+
+                // Wait for a close signal from the receiver or sender, or for the quic connection to be closed
+                tokio::select! {
+                    _ = connection.closed() => {},
+                    _ = async { send_close_receiver.recv() } => {}
+                    _ = async { recv_close_receiver.recv() } => {}
+                }
+                // let _closed = futures_lite::future::race(
+                //     futures_lite::future::race(
+                //         async {
+                //             send_close_receiver.recv().await;
+                //         },
+                //         async {
+                //             recv_close_receiver.recv().await;
+                //         },
+                //     ),
+                //     connection.closed(),
+                // )
+                // .await;
                 info!("WebTransport connection closed.");
                 recv_handle.cancel().await;
                 send_handle.cancel().await;
@@ -113,11 +135,15 @@ impl Transport for WebTransportClientSocket {
             .detach();
         // TODO: maybe wait for the connection to be ready before returning here?
 
-        let packet_sender = WebTransportClientPacketSender { to_server_sender };
+        let packet_sender = WebTransportClientPacketSender {
+            to_server_sender,
+            close_channel: send_close_sender,
+        };
         let packet_receiver = WebTransportClientPacketReceiver {
             server_addr,
             from_server_receiver,
             buffer: [0; MTU],
+            close_channel: recv_close_sender,
         };
         (Box::new(packet_sender), Box::new(packet_receiver))
     }
@@ -125,6 +151,7 @@ impl Transport for WebTransportClientSocket {
 
 struct WebTransportClientPacketSender {
     to_server_sender: mpsc::UnboundedSender<Box<[u8]>>,
+    close_channel: mpsc::Sender<()>,
 }
 
 impl PacketSender for WebTransportClientPacketSender {
@@ -134,12 +161,19 @@ impl PacketSender for WebTransportClientPacketSender {
             .send(data)
             .map_err(|e| std::io::Error::other(format!("send_datagram error: {:?}", e)))
     }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        self.close_channel
+            .blocking_send(())
+            .map_err(|e| std::io::Error::other(format!("close error: {:?}", e)))
+    }
 }
 
 struct WebTransportClientPacketReceiver {
     server_addr: SocketAddr,
     from_server_receiver: mpsc::UnboundedReceiver<Datagram>,
     buffer: [u8; MTU],
+    close_channel: mpsc::Sender<()>,
 }
 
 impl PacketReceiver for WebTransportClientPacketReceiver {
@@ -161,5 +195,11 @@ impl PacketReceiver for WebTransportClientPacketReceiver {
                 }
             }
         }
+    }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        self.close_channel
+            .blocking_send(())
+            .map_err(|e| std::io::Error::other(format!("close error: {:?}", e)))
     }
 }

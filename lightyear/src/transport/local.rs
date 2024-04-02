@@ -55,6 +55,11 @@ impl PacketReceiver for LocalChannelReceiver {
             },
         )
     }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        // no resources to close, the io will be dropped afterwards
+        Ok(())
+    }
 }
 
 struct LocalChannelSender {
@@ -66,5 +71,10 @@ impl PacketSender for LocalChannelSender {
         self.send
             .try_send(payload.to_vec())
             .map_err(|_| std::io::Error::other("error sending packet"))
+    }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        // no resources to close, the io will be dropped afterwards
+        Ok(())
     }
 }

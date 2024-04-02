@@ -282,6 +282,11 @@ impl Io {
     pub fn stats(&self) -> &IoStats {
         &self.stats
     }
+
+    pub fn close(&mut self) -> Result<()> {
+        self.sender.close()?;
+        self.receiver.close()
+    }
 }
 
 impl Debug for Io {
@@ -306,6 +311,10 @@ impl PacketReceiver for Io {
             x
         })
     }
+
+    fn close(&mut self) -> Result<()> {
+        self.receiver.close()
+    }
 }
 
 impl PacketSender for Io {
@@ -319,6 +328,9 @@ impl PacketSender for Io {
         self.stats.bytes_sent += payload.len();
         self.stats.packets_sent += 1;
         self.sender.send(payload, address)
+    }
+    fn close(&mut self) -> Result<()> {
+        self.sender.close()
     }
 }
 
@@ -388,11 +400,19 @@ impl PacketSender for Box<dyn PacketSender + Send + Sync> {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         (**self).send(payload, address)
     }
+
+    fn close(&mut self) -> Result<()> {
+        (**self).close()
+    }
 }
 
 impl PacketReceiver for Box<dyn PacketReceiver + Send + Sync> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         (**self).recv()
+    }
+
+    fn close(&mut self) -> Result<()> {
+        (**self).close()
     }
 }
 
