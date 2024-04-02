@@ -45,8 +45,25 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         (Box::new(self.clone()), Box::new(self.clone()))
+    }
+
+    fn close(&mut self) -> Result<()> {
+        // the resources get released when the socket is dropped
+        Ok(())
+    }
+
+    fn connect(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn receiver(&mut self) -> &mut Box<dyn PacketReceiver> {
+        &mut Box::new(self)
+    }
+
+    fn sender(&mut self) -> &mut Box<dyn PacketSender> {
+        &mut Box::new(self)
     }
 }
 

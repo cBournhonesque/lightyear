@@ -271,10 +271,6 @@ impl Io {
         self.local_addr
     }
 
-    pub fn to_parts(self) -> (Box<dyn PacketReceiver>, Box<dyn PacketSender>) {
-        (self.receiver, self.sender)
-    }
-
     pub fn split(&mut self) -> (&mut Box<dyn PacketSender>, &mut Box<dyn PacketReceiver>) {
         (&mut self.sender, &mut self.receiver)
     }

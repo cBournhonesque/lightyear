@@ -45,7 +45,14 @@ pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
 pub trait Transport {
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
+
+    fn connect(&mut self) -> Result<()>;
+
+    fn receiver(&mut self) -> &mut Box<dyn PacketReceiver>;
+
+    fn sender(&mut self) -> &mut Box<dyn PacketSender>;
+
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>);
 
     // TODO maybe add a `async fn ready() -> bool` function?
 

@@ -9,13 +9,16 @@ use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 // TODO: this is client only; separate client/server transport traits
 #[derive(Clone)]
 pub struct LocalChannel {
-    recv: Receiver<Vec<u8>>,
-    send: Sender<Vec<u8>>,
+    recv: Option<Receiver<Vec<u8>>>,
+    send: Option<Sender<Vec<u8>>>,
 }
 
 impl LocalChannel {
     pub(crate) fn new(recv: Receiver<Vec<u8>>, send: Sender<Vec<u8>>) -> Self {
-        LocalChannel { recv, send }
+        LocalChannel {
+            recv: Some(recv),
+            send: Some(send),
+        }
     }
 }
 
@@ -24,11 +27,13 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let sender = LocalChannelSender { send: self.send };
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+        let sender = LocalChannelSender {
+            send: std::mem::take(&mut self.send).unwrap(),
+        };
         let receiver = LocalChannelReceiver {
             buffer: vec![],
-            recv: self.recv,
+            recv: std::mem::take(&mut self.recv).unwrap(),
         };
         (Box::new(sender), Box::new(receiver))
     }

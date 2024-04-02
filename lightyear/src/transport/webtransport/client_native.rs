@@ -37,7 +37,7 @@ impl Transport for WebTransportClientSocket {
 
     // TODO: listen (i.e. creating the sender/receiver) should not connect right away!
     //  instead we should have a separate function that starts the connection!
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
         let client_addr = self.client_addr;
         let server_addr = self.server_addr;
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
