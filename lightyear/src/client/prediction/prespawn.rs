@@ -465,7 +465,6 @@ mod tests {
     #[test]
     fn test_compute_hash() {
         let mut stepper = BevyStepper::default();
-        stepper.init();
 
         // check default compute hash, with multiple entities sharing the same tick
         stepper

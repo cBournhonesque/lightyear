@@ -353,7 +353,8 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(
 ///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
-/// )).get_io();
+/// )).build();
+/// io.connect();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -857,7 +858,8 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).get_io();
+    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).build();
+    /// # io.connect();
     /// #
     /// let start = Instant::now();
     /// loop {

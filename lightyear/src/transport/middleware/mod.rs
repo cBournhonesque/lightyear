@@ -10,6 +10,6 @@ pub trait PacketReceiverWrapper<T: PacketReceiver> {
     fn wrap(self, receiver: T) -> impl PacketReceiver;
 }
 
-pub trait PacketSenderWrapper {
-    fn wrap(&mut self, sender: Box<&mut dyn PacketSender>) -> Box<&mut dyn PacketSender>;
+pub trait PacketSenderWrapper<T: PacketSender> {
+    fn wrap(self, sender: T) -> impl PacketSender;
 }

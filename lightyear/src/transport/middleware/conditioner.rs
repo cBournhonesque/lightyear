@@ -1,4 +1,4 @@
-//! Contains the [`LinkConditioner`] struct which can be used to simulate network conditions
+//! Contains the `LinkConditioner` struct which can be used to simulate network conditions
 use anyhow::Context;
 use std::net::SocketAddr;
 
@@ -9,7 +9,7 @@ use rand;
 use rand::{thread_rng, Rng};
 
 use crate::transport::error::Result;
-use crate::transport::wrapper::PacketReceiverWrapper;
+use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::PacketReceiver;
 use crate::utils::ready_buffer::ReadyBuffer;
 

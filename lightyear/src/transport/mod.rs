@@ -19,14 +19,14 @@ pub(crate) mod channels;
 #[cfg(feature = "webtransport")]
 pub(crate) mod webtransport;
 
+pub(crate) mod middleware;
+
 pub mod config;
 pub(crate) mod dummy;
 pub(crate) mod error;
 #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
 #[cfg(feature = "websocket")]
 pub(crate) mod websocket;
-pub(crate) mod wrapper;
-
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
@@ -47,14 +47,13 @@ use crate::transport::webtransport::server::{
 use enum_dispatch::enum_dispatch;
 use error::Result;
 use std::net::SocketAddr;
-use tokio::sync::mpsc;
 
 pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
     0,
 );
 /// Maximum transmission units; maximum size in bytes of a UDP packet
-/// See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
+/// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
 pub(crate) const MTU: usize = 1472;
 
 pub(crate) type BoxedSender = Box<dyn PacketSender + Send + Sync>;
@@ -112,6 +111,8 @@ impl Default for TransportBuilderEnum {
     }
 }
 
+// TODO: maybe box large items?
+#[allow(clippy::large_enum_variant)]
 #[enum_dispatch(Transport)]
 pub(crate) enum TransportEnum {
     #[cfg(not(target_family = "wasm"))]

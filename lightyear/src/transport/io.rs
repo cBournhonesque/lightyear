@@ -36,14 +36,14 @@ use crate::transport::webtransport::client::{
     WebTransportClientSocket, WebTransportClientSocketBuilder,
 };
 
+use crate::transport::middleware::conditioner::{
+    ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
+};
+use crate::transport::middleware::PacketReceiverWrapper;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServerSocketBuilder};
-use crate::transport::wrapper::conditioner::{
-    ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
-};
-use crate::transport::wrapper::PacketReceiverWrapper;
 
 // TODO: separate unconnected io from connected io? maybe similar 'states' generic as wtransport?
 #[derive(Resource)]

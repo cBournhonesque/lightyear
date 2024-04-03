@@ -171,7 +171,8 @@ pub enum ClientState {
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-/// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).get_io();
+/// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).build();
+/// # io.connect();
 /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
@@ -570,7 +571,8 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).get_io();
+    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).build();
+    /// # io.connect();
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///

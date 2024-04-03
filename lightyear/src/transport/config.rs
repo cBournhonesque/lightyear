@@ -1,4 +1,4 @@
-use crate::prelude::{Io, LinkConditionerConfig};
+use crate::prelude::Io;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
@@ -20,7 +20,7 @@ use {
     wtransport::tls::Certificate,
 };
 
-use crate::transport::wrapper::conditioner::LinkConditioner;
+use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
 use crate::transport::{Transport, TransportBuilderEnum};
 use crossbeam_channel::{Receiver, Sender};
 use std::fmt::{Debug, Formatter};
@@ -156,7 +156,7 @@ impl IoConfig {
     }
 
     pub fn build(self) -> Io {
-        let conditioner = self.conditioner.map(|config| LinkConditioner::new(config));
+        let conditioner = self.conditioner.map(LinkConditioner::new);
         let transport_builder = self.transport.build();
         Io::new(transport_builder, conditioner)
     }
