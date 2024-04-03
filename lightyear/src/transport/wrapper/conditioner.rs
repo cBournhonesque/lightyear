@@ -78,18 +78,18 @@ impl<P: Eq> LinkConditioner<P> {
 }
 
 impl PacketReceiverWrapper for LinkConditioner<(SocketAddr, Box<[u8]>)> {
-    fn wrap(&mut self, receiver: Box<&mut dyn PacketReceiver>) -> Box<&mut dyn PacketReceiver> {
-        Box::new(&mut ConditionedPacketReceiver {
+    fn wrap(&mut self, receiver: &mut dyn PacketReceiver) -> &mut dyn PacketReceiver {
+        ConditionedPacketReceiver {
             packet_receiver: receiver,
             conditioner: self,
-        })
+        }
     }
 }
 
 /// A wrapper around a packet receiver that simulates network conditions
 /// by adding latency, jitter and packet loss to incoming packets.
 pub struct ConditionedPacketReceiver<'a, 'b, P: Eq> {
-    packet_receiver: Box<&'a mut dyn PacketReceiver>,
+    packet_receiver: &'a mut dyn PacketReceiver,
     conditioner: &'b mut LinkConditioner<P>,
 }
 

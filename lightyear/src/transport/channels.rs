@@ -56,8 +56,8 @@ impl Transport for Channels {
         Ok(())
     }
 
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
-        (Box::new(&mut self.sender), Box::new(&mut self.receiver))
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+        (&mut self.sender, &mut self.receiver)
     }
 }
 

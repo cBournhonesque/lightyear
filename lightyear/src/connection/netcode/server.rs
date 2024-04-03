@@ -474,7 +474,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         addr: SocketAddr,
         packet: Packet,
-        sender: &mut Box<&mut dyn PacketSender>,
+        sender: &mut dyn PacketSender,
     ) -> Result<()> {
         let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
         trace!(
@@ -517,7 +517,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         packet: Packet,
         addr: SocketAddr,
         key: Key,
-        sender: &mut impl PacketSender,
+        sender: &mut dyn PacketSender,
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
@@ -529,7 +529,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         packet: Packet,
         id: ClientId,
-        sender: &mut impl PacketSender,
+        sender: &mut dyn PacketSender,
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let conn = &mut self
@@ -577,7 +577,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         from_addr: SocketAddr,
         mut packet: RequestPacket,
-        sender: &mut impl PacketSender,
+        sender: &mut dyn PacketSender,
     ) -> Result<()> {
         let mut reader = std::io::Cursor::new(&mut packet.token_data[..]);
         let Ok(token) = ConnectTokenPrivate::read_from(&mut reader) else {
@@ -665,7 +665,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         from_addr: SocketAddr,
         mut packet: ResponsePacket,
-        sender: &mut impl PacketSender,
+        sender: &mut dyn PacketSender,
     ) -> Result<()> {
         let Ok(challenge_token) =
             ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
@@ -752,7 +752,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         buf: &mut [u8],
         now: u64,
         addr: SocketAddr,
-        sender: &mut Box<&mut dyn PacketSender>,
+        sender: &mut dyn PacketSender,
     ) -> Result<()> {
         if buf.len() <= 1 {
             // TODO: make token request something else than this?
@@ -804,8 +804,8 @@ impl<Ctx> NetcodeServer<Ctx> {
 
     fn recv_packets(
         &mut self,
-        sender: &mut Box<&mut dyn PacketSender>,
-        mut receiver: &mut Box<&mut dyn PacketReceiver>,
+        sender: &mut dyn PacketSender,
+        receiver: &mut dyn PacketReceiver,
     ) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         while let Some((buf, addr)) = receiver.recv().map_err(Error::from)? {
@@ -835,9 +835,9 @@ impl<Ctx> NetcodeServer<Ctx> {
     pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<()> {
         self.time += delta_ms;
         self.conn_cache.update(delta_ms);
-        let (mut sender, mut receiver) = io.split();
+        let (sender, receiver) = io.split();
         self.check_for_timeouts();
-        self.recv_packets(&mut sender, &mut receiver)?;
+        self.recv_packets(sender, receiver)?;
         self.send_packets(io)?;
         Ok(())
     }

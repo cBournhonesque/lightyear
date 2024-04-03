@@ -45,6 +45,8 @@ pub(crate) const MTU: usize = 1472;
 /// This trait is used to abstract the raw transport layer that sends and receives packets.
 /// There are multiple implementations of this trait, such as UdpSocket, WebSocket, WebTransport, etc.
 pub trait Transport: Send + Sync {
+    // type Sender: PacketSender;
+    // type Receiver: PacketReceiver;
     /// Return the local socket address for this transport
     fn local_addr(&self) -> SocketAddr;
 
@@ -54,7 +56,9 @@ pub trait Transport: Send + Sync {
 
     /// Return the [`PacketSender`] and [`PacketReceiver`] for this transport
     /// (this is useful to have a mutable reference to the sender and receiver at the same time)
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>);
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver);
+
+    // fn split(&mut self) -> (&mut impl PacketSender, &mut impl PacketReceiver);
 
     // TODO maybe add a `async fn ready() -> bool` function?
 }
@@ -79,9 +83,21 @@ impl PacketSender for Box<dyn PacketSender> {
     }
 }
 
+impl<T: PacketSender> PacketSender for &mut T {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
+        (*self).send(payload, address)
+    }
+}
+
 impl PacketReceiver for Box<dyn PacketReceiver> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         (**self).recv()
+    }
+}
+
+impl<T: PacketReceiver> PacketReceiver for &mut T {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
+        (*self).recv()
     }
 }
 

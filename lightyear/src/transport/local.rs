@@ -9,18 +9,18 @@ use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
 
 // TODO: this is client only; separate client/server transport traits
 pub struct LocalChannel {
-    send: LocalChannelSender,
-    recv: LocalChannelReceiver,
+    sender: LocalChannelSender,
+    receiver: LocalChannelReceiver,
 }
 
 impl LocalChannel {
     pub(crate) fn new(recv: Receiver<Vec<u8>>, send: Sender<Vec<u8>>) -> Self {
-        let send = LocalChannelSender { send };
-        let recv = LocalChannelReceiver {
+        let sender = LocalChannelSender { send };
+        let receiver = LocalChannelReceiver {
             buffer: vec![],
             recv,
         };
-        LocalChannel { recv, send }
+        LocalChannel { receiver, sender }
     }
 }
 
@@ -33,8 +33,8 @@ impl Transport for LocalChannel {
         Ok(())
     }
 
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
-        (Box::new(&mut self.send), Box::new(&mut self.recv))
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+        (&mut self.sender, &mut self.receiver)
     }
 }
 

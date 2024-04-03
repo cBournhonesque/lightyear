@@ -134,12 +134,25 @@ impl Transport for WebSocketClientSocket {
         Ok(())
     }
 
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
         (
-            Box::new(self.sender.as_mut().unwrap()),
-            Box::new(self.receiver.as_mut().unwrap()),
+            self.sender.as_mut().unwrap(),
+            self.receiver.as_mut().unwrap(),
         )
     }
+    // fn split(&mut self) -> (&mut impl PacketSender, &mut impl PacketReceiver) {
+    //     (
+    //         self.sender.as_mut().unwrap(),
+    //         self.receiver.as_mut().unwrap(),
+    //     )
+    // }
+
+    // fn split(&mut self) -> (&mut Box<dyn PacketSender>, &mut Box<dyn PacketReceiver>) {
+    //     (
+    //         &mut Box::new(self.sender.as_mut().unwrap()),
+    //         &mut Box::new(self.receiver.as_mut().unwrap()),
+    //     )
+    // }
 }
 
 struct WebSocketClientSocketSender {

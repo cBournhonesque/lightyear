@@ -15,8 +15,8 @@ impl Transport for DummyIo {
         Ok(())
     }
 
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
-        (Box::new(self), Box::new(self))
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+        (self, self)
     }
 }
 

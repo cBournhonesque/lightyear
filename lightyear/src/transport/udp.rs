@@ -6,20 +6,13 @@ use std::sync::{Arc, Mutex};
 use tracing::info;
 
 use super::error::{Error, Result};
-use super::{PacketReceiver, PacketSender, Transport};
-
-// Maximum transmission units; maximum size in bytes of a UDP packet
-// See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
-const MTU: usize = 1472;
+use super::{PacketReceiver, PacketSender, Transport, MTU};
 
 /// UDP Socket
-#[derive(Clone)]
 pub struct UdpSocket {
     local_addr: SocketAddr,
-    /// The underlying UDP Socket. This is wrapped in an Arc<Mutex<>> so that it
-    /// can be shared between threads
-    socket: Option<Arc<Mutex<std::net::UdpSocket>>>,
-    buffer: [u8; MTU],
+    sender: Option<UdpSocketBuffer>,
+    receiver: Option<UdpSocketBuffer>,
 }
 
 impl UdpSocket {
@@ -27,18 +20,19 @@ impl UdpSocket {
     pub fn new(local_addr: SocketAddr) -> Self {
         Self {
             local_addr,
-            socket: None,
-            buffer: [0; MTU],
+            sender: None,
+            receiver: None,
         }
     }
 }
 
 impl Transport for UdpSocket {
     fn local_addr(&self) -> SocketAddr {
-        self.socket.as_ref().map_or_else(
+        self.sender.as_ref().map_or_else(
             || self.local_addr,
             |socket| {
                 socket
+                    .socket
                     .as_ref()
                     .lock()
                     .unwrap()
@@ -52,19 +46,36 @@ impl Transport for UdpSocket {
         let udp_socket = std::net::UdpSocket::bind(self.local_addr)?;
         let socket = Arc::new(Mutex::new(udp_socket));
         socket.as_ref().lock().unwrap().set_nonblocking(true)?;
+        let sender = UdpSocketBuffer {
+            socket: socket.clone(),
+            buffer: [0; MTU],
+        };
+        let receiver = sender.clone();
+        self.sender = Some(sender);
+        self.receiver = Some(receiver);
         Ok(())
     }
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
-        // TODO: assert that the socket is connected?
-        (Box::new(&mut self.clone()), Box::new(self))
+
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+        (
+            self.sender.as_mut().unwrap(),
+            self.receiver.as_mut().unwrap(),
+        )
     }
 }
 
-impl PacketSender for UdpSocket {
+#[derive(Clone)]
+pub struct UdpSocketBuffer {
+    /// The underlying UDP Socket. This is wrapped in an Arc<Mutex<>> so that it
+    /// can be shared between threads
+    socket: Arc<Mutex<std::net::UdpSocket>>,
+    buffer: [u8; MTU],
+}
+
+impl PacketSender for UdpSocketBuffer {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.socket
             .as_ref()
-            .ok_or(Error::NotConnected)?
             .lock()
             .unwrap()
             .send_to(payload, address)?;
@@ -72,13 +83,12 @@ impl PacketSender for UdpSocket {
     }
 }
 
-impl PacketReceiver for UdpSocket {
+impl PacketReceiver for UdpSocketBuffer {
     /// Receives a packet from the socket, and stores the results in the provided buffer
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self
             .socket
             .as_ref()
-            .ok_or(Error::NotConnected)?
             .lock()
             .unwrap()
             .recv_from(&mut self.buffer)

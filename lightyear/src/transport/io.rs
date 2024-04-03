@@ -181,7 +181,7 @@ impl IoConfig {
                 Io::new(Box::new(transport), conditioner)
             }
             TransportConfig::Channels { channels } => {
-                let mut transport = Channels::new(channels);
+                let transport = Channels::new(channels);
                 Io::new(Box::new(transport), conditioner)
             }
             TransportConfig::LocalChannel { recv, send } => {
@@ -243,12 +243,14 @@ impl Transport for Io {
         self.transport.connect()
     }
 
-    fn split(&mut self) -> (Box<&mut dyn PacketSender>, Box<&mut dyn PacketReceiver>) {
+    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
         // todo: compression + bandwidth monitoring
-        let (sender, mut receiver) = self.transport.split();
-        if let Some(conditioner) = &mut self.conditioner {
-            receiver = conditioner.wrap(receiver)
-        }
+        let (sender, receiver) = self.transport.split();
+        let receiver = if let Some(conditioner) = &mut self.conditioner {
+            conditioner.wrap(receiver)
+        } else {
+            receiver
+        };
         (sender, receiver)
     }
 }
