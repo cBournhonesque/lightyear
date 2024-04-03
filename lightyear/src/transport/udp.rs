@@ -8,9 +8,6 @@ use crate::transport::{
     BoxedReceiver, BoxedSender, CloseFn, PacketReceiver, PacketSender, Transport,
 };
 
-// use anyhow::Result;
-// use anyhow::{anyhow, Context};
-
 // Maximum transmission units; maximum size in bytes of a UDP packet
 // See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
 const MTU: usize = 1472;
@@ -47,17 +44,8 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    fn connect(&mut self) -> Result<(BoxedSender, BoxedReceiver, CloseFn)> {
-        (Box::new(self.clone()), Box::new(self.clone()))
-    }
-
-    fn close(&mut self) -> Result<()> {
-        // the resources get released when the socket is dropped
-        Ok(())
-    }
-
-    fn connect(&mut self) -> Result<()> {
-        Ok(())
+    fn connect(&mut self) -> Result<(BoxedSender, BoxedReceiver, Option<CloseFn>)> {
+        Ok((Box::new(self.clone()), Box::new(self.clone()), None))
     }
 }
 

@@ -57,7 +57,7 @@ pub trait Transport {
     /// - a PacketSender to send data to the remote
     /// - a PacketReceiver to receive data from the remote
     /// - a closure to close the connection
-    fn connect(self) -> Result<(BoxedSender, BoxedReceiver, CloseFn)>;
+    fn connect(self) -> Result<(BoxedSender, BoxedReceiver, Option<CloseFn>)>;
 
     // TODO maybe add a `async fn ready() -> bool` function?
 
