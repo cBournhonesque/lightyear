@@ -1,11 +1,14 @@
 #![cfg(target_family = "wasm")]
 //! WebTransport client implementation.
-use super::MTU;
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-use anyhow::Context;
+use crate::transport::error::{Error, Result};
+use crate::transport::{
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+    TransportBuilder, TransportEnum, MTU,
+};
 use bevy::tasks::{IoTaskPool, TaskPool};
 use std::net::SocketAddr;
 use std::rc::Rc;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace};
@@ -17,49 +20,21 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use xwt_core::prelude::*;
 use xwt_web_sys::{Connection, Endpoint};
 
-/// WebTransport client socket
-pub struct WebTransportClientSocket {
-    client_addr: SocketAddr,
-    server_addr: SocketAddr,
-    certificate_digest: String,
+pub struct WebTransportClientSocketBuilder {
+    pub(crate) client_addr: SocketAddr,
+    pub(crate) server_addr: SocketAddr,
+    pub(crate) certificate_digest: String,
 }
 
-impl WebTransportClientSocket {
-    pub fn new(
-        client_addr: SocketAddr,
-        server_addr: SocketAddr,
-        certificate_digest: String,
-    ) -> Self {
-        Self {
-            client_addr,
-            server_addr,
-            certificate_digest,
-        }
-    }
-}
-
-fn js_array(values: &[&str]) -> JsValue {
-    return JsValue::from(
-        values
-            .into_iter()
-            .map(|x| JsValue::from_str(x))
-            .collect::<Array>(),
-    );
-}
-
-impl Transport for WebTransportClientSocket {
-    fn local_addr(&self) -> SocketAddr {
-        self.client_addr
-    }
-
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let client_addr = self.client_addr;
-        let server_addr = self.server_addr;
+impl TransportBuilder for WebTransportClientSocketBuilder {
+    fn connect(self) -> Result<TransportEnum> {
         // TODO: This can exhaust all available memory unless there is some other way to limit the amount of in-flight data in place
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
+        // channels used to cancel the task
+        let (close_tx, mut close_rx) = mpsc::channel(1);
 
-        let server_url = format!("https://{}", server_addr);
+        let server_url = format!("https://{}", self.server_addr);
         info!(
             "Starting client webtransport task with server url: {}",
             &server_url
@@ -77,31 +52,39 @@ impl Transport for WebTransportClientSocket {
             jshash.algorithm("sha-256").value(&digest);
             hashes.push(&jshash);
         }
+        // let hashes = [self.certificate_digest]
+        //     .into_iter()
+        //     .map(|x| {
+        //         let hash = ring::test::from_hex(&x).unwrap();
+        //         let digest = Uint8Array::from(hash.as_slice());
+        //         let mut jshash = WebTransportHash::new();
+        //         jshash.algorithm("sha-256").value(&digest);
+        //         jshash
+        //     })
+        //     .collect::<Array>();
         options.server_certificate_hashes(&hashes);
         let endpoint = xwt_web_sys::Endpoint { options };
 
         let (send, recv) = tokio::sync::oneshot::channel();
         let (send2, recv2) = tokio::sync::oneshot::channel();
-        let connection = IoTaskPool::get().spawn_local(async move {
+        let (send3, recv3) = tokio::sync::oneshot::channel();
+        IoTaskPool::get().spawn_local(async move {
             info!("Starting webtransport io thread");
 
             let connecting = endpoint
                 .connect(&server_url)
                 .await
-                .map_err(|e| {
-                    error!("failed to connect to server: {:?}", e);
-                })
-                .unwrap();
+                .map_err(|e| std::io::Error::other(format!("failed to connect to server: {:?}", e)))
+                .expect("failed to connect to server");
             let connection = connecting
                 .wait_connect()
                 .await
-                .map_err(|e| {
-                    error!("failed to connect to server: {:?}", e);
-                })
-                .unwrap();
+                .map_err(|e| std::io::Error::other(format!("failed to connect to server: {:?}", e)))
+                .expect("failed to connect to server");
             let connection = Rc::new(connection);
             send.send(connection.clone()).unwrap();
             send2.send(connection.clone()).unwrap();
+            send3.send(connection.clone()).unwrap();
         });
 
         // NOTE (IMPORTANT!):
@@ -140,14 +123,68 @@ impl Transport for WebTransportClientSocket {
                 }
             })
             .detach();
+        IoTaskPool::get()
+            .spawn(async move {
+                let connection = recv3.await.expect("could not get connection");
+                // Wait for a close signal from the close channel, or for the quic connection to be closed
+                close_rx.recv().await;
+                info!("WebTransport connection closed.");
+                // close the connection
+                connection.transport.close();
+                // TODO: how do we close the other tasks?
+            })
+            .detach();
 
-        let packet_sender = WebTransportClientPacketSender { to_server_sender };
-        let packet_receiver = WebTransportClientPacketReceiver {
-            server_addr,
+        let sender = WebTransportClientPacketSender { to_server_sender };
+        let receiver = WebTransportClientPacketReceiver {
+            server_addr: self.server_addr,
             from_server_receiver,
             buffer: [0; MTU],
         };
-        (Box::new(packet_sender), Box::new(packet_receiver))
+        Ok(TransportEnum::WebTransportClient(
+            WebTransportClientSocket {
+                local_addr: self.client_addr,
+                sender,
+                receiver,
+                close_sender: close_tx,
+            },
+        ))
+    }
+}
+
+/// WebTransport client socket
+pub struct WebTransportClientSocket {
+    local_addr: SocketAddr,
+    sender: WebTransportClientPacketSender,
+    receiver: WebTransportClientPacketReceiver,
+    close_sender: mpsc::Sender<()>,
+}
+
+fn js_array(values: &[&str]) -> JsValue {
+    return JsValue::from(
+        values
+            .into_iter()
+            .map(|x| JsValue::from_str(x))
+            .collect::<Array>(),
+    );
+}
+
+impl Transport for WebTransportClientSocket {
+    fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+
+    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
+        let close_fn = move || {
+            self.close_sender
+                .blocking_send(())
+                .map_err(|e| Error::from(std::io::Error::other(format!("close error: {:?}", e))))
+        };
+        (
+            Box::new(self.sender),
+            Box::new(self.receiver),
+            Some(Box::new(close_fn)),
+        )
     }
 }
 
@@ -156,11 +193,11 @@ struct WebTransportClientPacketSender {
 }
 
 impl PacketSender for WebTransportClientPacketSender {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> std::io::Result<()> {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         let data = payload.to_vec().into_boxed_slice();
         self.to_server_sender
             .send(data)
-            .map_err(|e| std::io::Error::other(format!("send_datagram error: {:?}", e)))
+            .map_err(|e| std::io::Error::other(format!("send_datagram error: {:?}", e)).into())
     }
 }
 
@@ -171,7 +208,7 @@ struct WebTransportClientPacketReceiver {
 }
 
 impl PacketReceiver for WebTransportClientPacketReceiver {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         match self.from_server_receiver.try_recv() {
             Ok(datagram) => {
                 // convert from datagram to payload via xwt
@@ -183,10 +220,7 @@ impl PacketReceiver for WebTransportClientPacketReceiver {
                 if e == TryRecvError::Empty {
                     Ok(None)
                 } else {
-                    Err(std::io::Error::other(format!(
-                        "receive_datagram error: {:?}",
-                        e
-                    )))
+                    Err(std::io::Error::other(format!("receive_datagram error: {:?}", e)).into())
                 }
             }
         }

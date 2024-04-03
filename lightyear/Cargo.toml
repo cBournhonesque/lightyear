@@ -117,6 +117,7 @@ futures-util = { version = "0.3.30", optional = true }
 tokio = { version = "1.36", features = [
   "sync",
 ], default-features = false, optional = true }
+futures = "0.3.30"
 async-compat = "0.2.3"
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]

@@ -26,6 +26,11 @@ impl NetClient for Client {
         Ok(())
     }
 
+    fn disconnect(&mut self) -> Result<()> {
+        self.is_connected = false;
+        Ok(())
+    }
+
     fn is_connected(&self) -> bool {
         self.is_connected
     }

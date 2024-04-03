@@ -70,7 +70,7 @@ impl NetConfig {
     pub fn build_server(self) -> ServerConnection {
         match self {
             NetConfig::Netcode { config, io } => {
-                let io = io.get_io();
+                let io = io.build();
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
                     server: Box::new(server),
@@ -145,7 +145,9 @@ impl ServerConnections {
     pub fn new(config: Vec<NetConfig>) -> Self {
         let mut servers = vec![];
         for config in config {
-            let server = config.build_server();
+            let mut server = config.build_server();
+            // TODO: make this controllable! we might not want to start right away?
+            server.start().expect("could not start server");
             servers.push(server);
         }
         ServerConnections {

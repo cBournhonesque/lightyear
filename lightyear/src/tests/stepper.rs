@@ -10,6 +10,7 @@ use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::connection::netcode::generate_key;
+use crate::connection::server::{NetServer, ServerConnection};
 use crate::prelude::client::{
     Authentication, ClientConfig, InputConfig, InterpolationConfig, PredictionConfig, SyncConfig,
 };
@@ -187,7 +188,7 @@ impl BevyStepper {
             .world
             .resource_mut::<ClientConnection>()
             .connect()
-            .expect("could not connect");
+            .expect("could not connect client");
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
