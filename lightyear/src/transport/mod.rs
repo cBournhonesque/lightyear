@@ -56,7 +56,7 @@ pub trait Transport: Send + Sync {
 
     /// Return the [`PacketSender`] and [`PacketReceiver`] for this transport
     /// (this is useful to have a mutable reference to the sender and receiver at the same time)
-    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver);
+    fn split(&mut self) -> (&mut (dyn PacketSender + '_), &mut (dyn PacketReceiver + '_));
 
     // fn split(&mut self) -> (&mut impl PacketSender, &mut impl PacketReceiver);
 
@@ -83,11 +83,11 @@ impl PacketSender for Box<dyn PacketSender> {
     }
 }
 
-impl<T: PacketSender> PacketSender for &mut T {
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
-        (*self).send(payload, address)
-    }
-}
+// impl<T: PacketSender> PacketSender for &mut T {
+//     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
+//         (*self).send(payload, address)
+//     }
+// }
 
 impl PacketReceiver for Box<dyn PacketReceiver> {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
@@ -95,15 +95,27 @@ impl PacketReceiver for Box<dyn PacketReceiver> {
     }
 }
 
-impl<T: PacketReceiver> PacketReceiver for &mut T {
-    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
-        (*self).recv()
+// impl<T: PacketReceiver> PacketReceiver for &mut T {
+//     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
+//         (*self).recv()
+//     }
+// }
+
+impl PacketSender for &mut dyn PacketSender {
+    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
+        (*self).send(payload, address)
     }
 }
 
 impl PacketSender for Box<&mut dyn PacketSender> {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         (**self).send(payload, address)
+    }
+}
+
+impl PacketReceiver for &mut dyn PacketReceiver {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
+        (*self).recv()
     }
 }
 

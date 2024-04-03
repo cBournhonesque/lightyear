@@ -15,8 +15,8 @@ impl Transport for DummyIo {
         Ok(())
     }
 
-    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
-        (self, self)
+    fn split(&mut self) -> (&mut (dyn PacketSender + '_), &mut (dyn PacketReceiver + '_)) {
+        panic!("DummyIo::split should not be called")
     }
 }
 

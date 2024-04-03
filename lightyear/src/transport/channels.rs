@@ -56,7 +56,7 @@ impl Transport for Channels {
         Ok(())
     }
 
-    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+    fn split(&mut self) -> (&mut (dyn PacketSender + '_), &mut (dyn PacketReceiver + '_)) {
         (&mut self.sender, &mut self.receiver)
     }
 }

@@ -7,7 +7,7 @@ use crate::transport::{PacketReceiver, PacketSender};
 pub(crate) mod conditioner;
 
 pub trait PacketReceiverWrapper {
-    fn wrap(&mut self, receiver: &mut dyn PacketReceiver) -> &mut dyn PacketReceiver;
+    fn wrap(&mut self, receiver: &mut dyn PacketReceiver) -> Box<dyn PacketReceiver>;
 }
 
 pub trait PacketSenderWrapper {

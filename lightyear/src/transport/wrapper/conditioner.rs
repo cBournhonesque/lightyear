@@ -77,23 +77,41 @@ impl<P: Eq> LinkConditioner<P> {
     }
 }
 
-impl PacketReceiverWrapper for LinkConditioner<(SocketAddr, Box<[u8]>)> {
-    fn wrap(&mut self, receiver: &mut dyn PacketReceiver) -> &mut dyn PacketReceiver {
+// impl PacketReceiverWrapper for LinkConditioner<(SocketAddr, Box<[u8]>)> {
+//     fn wrap(&mut self, receiver: &mut dyn PacketReceiver) -> Box<dyn PacketReceiver> {
+//         Box::new(ConditionedPacketReceiver {
+//             packet_receiver: receiver,
+//             conditioner: self,
+//         })
+//     }
+// }
+
+// /// A wrapper around a packet receiver that simulates network conditions
+// /// by adding latency, jitter and packet loss to incoming packets.
+// pub struct ConditionedPacketReceiver<'a, 'b, P: Eq> {
+//     packet_receiver: &'a mut dyn PacketReceiver,
+//     conditioner: &'b mut LinkConditioner<P>,
+// }
+
+/// A wrapper around a packet receiver that simulates network conditions
+/// by adding latency, jitter and packet loss to incoming packets.
+pub struct ConditionedPacketReceiver<'a, T: PacketReceiver + Sized, P: Eq> {
+    packet_receiver: T,
+    conditioner: &'a mut LinkConditioner<P>,
+}
+
+impl<'a, T: PacketReceiver, P: Eq> ConditionedPacketReceiver<'a, T, P> {
+    pub(crate) fn new(packet_receiver: T, conditioner: &'a mut LinkConditioner<P>) -> Self {
         ConditionedPacketReceiver {
-            packet_receiver: receiver,
-            conditioner: self,
+            packet_receiver,
+            conditioner,
         }
     }
 }
 
-/// A wrapper around a packet receiver that simulates network conditions
-/// by adding latency, jitter and packet loss to incoming packets.
-pub struct ConditionedPacketReceiver<'a, 'b, P: Eq> {
-    packet_receiver: &'a mut dyn PacketReceiver,
-    conditioner: &'b mut LinkConditioner<P>,
-}
-
-impl PacketReceiver for ConditionedPacketReceiver<'_, '_, (SocketAddr, Box<[u8]>)> {
+impl<T: PacketReceiver> PacketReceiver
+    for ConditionedPacketReceiver<'_, T, (SocketAddr, Box<[u8]>)>
+{
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         loop {
             // keep trying to receive packets from the inner packet receiver

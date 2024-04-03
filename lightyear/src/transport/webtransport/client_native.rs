@@ -123,7 +123,7 @@ impl Transport for WebTransportClientSocket {
         Ok(())
     }
 
-    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+    fn split(&mut self) -> (&mut (dyn PacketSender + '_), &mut (dyn PacketReceiver + '_)) {
         (
             self.sender.as_mut().unwrap(),
             self.receiver.as_mut().unwrap(),

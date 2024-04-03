@@ -35,7 +35,9 @@ use crate::transport::webtransport::client::WebTransportClientSocket;
 use crate::transport::websocket::client::WebSocketClientSocket;
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::WebSocketServerSocket;
-use crate::transport::wrapper::conditioner::{LinkConditioner, LinkConditionerConfig};
+use crate::transport::wrapper::conditioner::{
+    ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig,
+};
 use crate::transport::wrapper::PacketReceiverWrapper;
 
 /// Use this to configure the [`Transport`] that will be used to establish a connection with the
@@ -200,6 +202,7 @@ impl IoConfig {
 pub struct Io {
     transport: Box<dyn Transport>,
     conditioner: Option<LinkConditioner<(SocketAddr, Box<[u8]>)>>,
+    receiver: Option<Box<dyn PacketReceiver>>,
     pub(crate) stats: IoStats,
 }
 
@@ -225,6 +228,7 @@ impl Io {
         Self {
             transport,
             conditioner,
+            receiver: None,
             stats: IoStats::default(),
         }
     }
@@ -243,15 +247,18 @@ impl Transport for Io {
         self.transport.connect()
     }
 
-    fn split(&mut self) -> (&mut dyn PacketSender, &mut dyn PacketReceiver) {
+    fn split(&mut self) -> (&mut (dyn PacketSender + '_), &mut (dyn PacketReceiver + '_)) {
         // todo: compression + bandwidth monitoring
         let (sender, receiver) = self.transport.split();
-        let receiver = if let Some(conditioner) = &mut self.conditioner {
-            conditioner.wrap(receiver)
+        if let Some(conditioner) = &mut self.conditioner {
+            self.receiver = Some(Box::new(ConditionedPacketReceiver::new(
+                receiver,
+                conditioner,
+            )));
+            (sender, self.receiver.as_mut().unwrap())
         } else {
-            receiver
-        };
-        (sender, receiver)
+            (sender, receiver)
+        }
     }
 }
 
