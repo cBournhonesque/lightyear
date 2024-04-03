@@ -4,7 +4,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-use crate::transport::{PacketReceiver, PacketSender, Transport};
+use crate::transport::{
+    BoxedReceiver, BoxedSender, CloseFn, PacketReceiver, PacketSender, Transport,
+};
 
 // use anyhow::Result;
 // use anyhow::{anyhow, Context};
@@ -45,7 +47,7 @@ impl Transport for UdpSocket {
             .expect("error getting local addr")
     }
 
-    fn listen(&mut self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
+    fn connect(&mut self) -> Result<(BoxedSender, BoxedReceiver, CloseFn)> {
         (Box::new(self.clone()), Box::new(self.clone()))
     }
 
@@ -56,14 +58,6 @@ impl Transport for UdpSocket {
 
     fn connect(&mut self) -> Result<()> {
         Ok(())
-    }
-
-    fn receiver(&mut self) -> &mut Box<dyn PacketReceiver> {
-        &mut Box::new(self)
-    }
-
-    fn sender(&mut self) -> &mut Box<dyn PacketSender> {
-        &mut Box::new(self)
     }
 }
 
