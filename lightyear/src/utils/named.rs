@@ -4,15 +4,16 @@
 //! (so that we can use the name for metrics, debugging, etc.)
 use bevy::prelude::TypePath;
 
-pub trait Named {
-    const NAME: &'static str;
+pub trait Named: TypePath {
     fn type_name() -> &'static str {
-        Self::NAME
+        Self::short_type_path()
     }
     fn name(&self) -> &'static str {
-        Self::NAME
+        Self::type_name()
     }
 }
+
+impl<T: TypePath> Named for T {}
 
 /// A trait for structs who can get the name for another type.
 /// This is used to avoid the orphan rule, as we can't implement [`Named`] on external types.

@@ -1,11 +1,9 @@
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Reflect, Resource};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
-
-use lightyear_macros::MessageInternal;
 
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
@@ -28,7 +26,7 @@ pub(crate) enum InputData<T: UserAction> {
 }
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
-#[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
 pub struct InputMessage<T: UserAction> {

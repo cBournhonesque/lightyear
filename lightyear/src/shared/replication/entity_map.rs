@@ -10,13 +10,13 @@ pub trait ExternalMapper<C> {
     fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M);
 }
 
-/// Any type can perform the mapping for another type C if C implements [`MapEntities`]
-/// If it doesn't, you can implement [`ExternalMapper`] on your `ComponentProtocol`
-impl<T, C: MapEntities> ExternalMapper<C> for T {
-    fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M) {
-        component.map_entities(entity_mapper);
-    }
-}
+// /// Any type can perform the mapping for another type C if C implements [`MapEntities`]
+// /// If it doesn't, you can implement [`ExternalMapper`] on your `ComponentProtocol`
+// impl<T, C: MapEntities> ExternalMapper<C> for T {
+//     fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M) {
+//         component.map_entities(entity_mapper);
+//     }
+// }
 
 #[derive(Default, Debug)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)

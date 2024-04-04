@@ -9,10 +9,6 @@ use tracing::{info, trace};
 
 use crate::prelude::{Message, Named};
 
-impl Named for Transform {
-    const NAME: &'static str = "Transform";
-}
-
 pub struct TransformLinearInterpolation;
 
 impl LerpFn<Transform> for TransformLinearInterpolation {

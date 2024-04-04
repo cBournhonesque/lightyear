@@ -1,16 +1,15 @@
 pub mod some_component {
     use bevy::ecs::entity::MapEntities;
-    use bevy::prelude::{Component, Entity, EntityMapper};
+    use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
     use derive_more::Add;
     use serde::{Deserialize, Serialize};
     use std::ops::Mul;
 
     use lightyear::prelude::client::LerpFn;
     use lightyear::prelude::*;
-    use lightyear::shared::replication::entity_map::ExternalMapper;
     use lightyear_macros::{component_protocol, message_protocol};
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Add)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
     pub struct Component1(pub f32);
 
     impl Mul<f32> for &Component1 {
@@ -20,7 +19,7 @@ pub mod some_component {
         }
     }
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component2(pub(crate) Entity);
 
     impl MapEntities for Component2 {
@@ -29,13 +28,13 @@ pub mod some_component {
         }
     }
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component3(String);
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component4(String);
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component5(pub f32);
 
     #[component_protocol(protocol = "MyProtocol")]
@@ -59,7 +58,7 @@ pub mod some_component {
         }
     }
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Message1(pub u32);
 
     #[message_protocol(protocol = "MyProtocol")]

@@ -44,7 +44,9 @@ pub struct ChannelContainer {
 /// });
 /// ```
 pub trait Channel: 'static + Named {
-    fn get_builder(settings: ChannelSettings) -> ChannelBuilder;
+    fn get_builder(settings: ChannelSettings) -> ChannelBuilder {
+        ChannelBuilder { settings }
+    }
 
     fn kind() -> ChannelKind
     where
@@ -214,28 +216,28 @@ impl ReliableSettings {
 /// Default channel to replicate entity actions.
 /// This is an Unordered Reliable channel.
 /// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
-#[derive(ChannelInternal)]
+#[derive(ChannelInternal, Reflect)]
 pub struct EntityActionsChannel;
 
-#[derive(ChannelInternal)]
+#[derive(ChannelInternal, Reflect)]
 /// Default channel to replicate entity updates (ComponentUpdate)
 /// This is a Sequenced Unreliable channel
 pub struct EntityUpdatesChannel;
 
 /// Default channel to send pings. This is a Sequenced Unreliable channel, because
 /// there is no point in getting older pings.
-#[derive(ChannelInternal)]
+#[derive(ChannelInternal, Reflect)]
 pub struct PingChannel;
 
-#[derive(ChannelInternal)]
+#[derive(ChannelInternal, Reflect)]
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
 
 /// Default Unordedered Unreliable channel, to send messages as fast as possible without any ordering.
-#[derive(ChannelInternal)]
+#[derive(ChannelInternal, Reflect)]
 pub struct DefaultUnorderedUnreliableChannel;
 
 /// Channel where the messages are buffered according to the tick they are associated with
 /// At each server tick, we can read the messages that were sent from the corresponding client tick
-#[derive(ChannelInternal)]
+#[derive(ChannelInternal, Reflect)]
 pub struct TickBufferChannel;

@@ -1,11 +1,9 @@
 //! Components used for replication
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, Reflect};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
-
-use lightyear_macros::MessageInternal;
 
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
@@ -454,18 +452,19 @@ impl NetworkTarget {
     }
 }
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct ShouldBeInterpolated;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+//  because we already do the mapping at other steps
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct PrePredicted {
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
 }
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct ShouldBePredicted;
 
 #[cfg(test)]

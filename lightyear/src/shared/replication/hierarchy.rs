@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
-use lightyear_macros::MessageInternal;
 
 use crate::prelude::ReplicationGroup;
 use crate::protocol::Protocol;
@@ -17,19 +16,7 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 ///
 /// Updates entity's `Parent` component on change.
 /// Removes the parent if `None`.
-#[derive(
-    MessageInternal,
-    Component,
-    Default,
-    Reflect,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    Debug,
-    PartialEq,
-)]
-#[message(custom_map)]
+#[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ParentSync(Option<Entity>);
 
 impl MapEntities for ParentSync {

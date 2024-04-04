@@ -22,7 +22,7 @@ pub mod _reexport {
     pub use paste::paste;
 
     pub use lightyear_macros::{
-        component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
+        component_protocol_internal, message_protocol_internal, ChannelInternal,
     };
 
     pub use crate::channel::builder::TickBufferChannel;
@@ -67,7 +67,7 @@ pub mod _reexport {
 
 /// Prelude containing commonly used types
 pub mod prelude {
-    pub use lightyear_macros::{component_protocol, message_protocol, Channel, Message};
+    pub use lightyear_macros::{component_protocol, message_protocol, Channel};
 
     pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
