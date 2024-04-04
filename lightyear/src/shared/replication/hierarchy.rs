@@ -1,11 +1,12 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
 use lightyear_macros::MessageInternal;
 
-use crate::prelude::{LightyearMapEntities, ReplicationGroup};
+use crate::prelude::ReplicationGroup;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
@@ -31,7 +32,7 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 #[message(custom_map)]
 pub struct ParentSync(Option<Entity>);
 
-impl LightyearMapEntities for ParentSync {
+impl MapEntities for ParentSync {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(entity) = &mut self.0 {
             *entity = entity_mapper.map_entity(*entity);

@@ -1,3 +1,4 @@
+use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -11,14 +12,13 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
-use crate::prelude::{LightyearMapEntities, Message, Named, PreSpawnedPlayerObject};
+use crate::prelude::{Message, Named, PreSpawnedPlayerObject};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::events::connection::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
-use crate::shared::replication::entity_map::Mapper;
 use crate::shared::replication::ReplicationSend;
 
 // client writes an Enum containing all their message type
@@ -30,7 +30,7 @@ pub trait ComponentProtocol:
     BitSerializable
     + Serialize
     + DeserializeOwned
-    + LightyearMapEntities
+    + MapEntities
     + ComponentBehaviour
     + Debug
     + Send
@@ -105,7 +105,7 @@ pub trait ComponentProtocol:
         TypeId::of::<<Self as SyncMetadata<C>>::Corrector>() != TypeId::of::<InstantCorrector>()
     }
 
-    /// Get the sync mode for the component
+    /// Interpolate the component between two states, using the Interpolator associated with the component
     fn lerp<C>(start: &C, other: &C, t: f32) -> C
     where
         Self: SyncMetadata<C>,
@@ -113,6 +113,7 @@ pub trait ComponentProtocol:
         <Self as SyncMetadata<C>>::Interpolator::lerp(start, other, t)
     }
 
+    /// Visually correct the component between two states, using the Corrector associated with the component
     fn correct<C>(predicted: &C, corrected: &C, t: f32) -> C
     where
         Self: SyncMetadata<C>,
@@ -143,7 +144,7 @@ cfg_if!(
             BitSerializable
             + Serialize
             + DeserializeOwned
-            + LightyearMapEntities
+            + MapEntities
             + PartialEq
             + Eq
             + PartialOrd
@@ -171,7 +172,7 @@ cfg_if!(
             BitSerializable
             + Serialize
             + DeserializeOwned
-            + LightyearMapEntities
+            + MapEntities
             + PartialEq
             + Eq
             + PartialOrd

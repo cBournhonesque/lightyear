@@ -5,7 +5,6 @@ use bytes::Bytes;
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::prelude::LightyearMapEntities;
 use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
@@ -22,6 +21,14 @@ use bevy::ecs::entity::MapEntities;
 
 // Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);
+
+// TODO: for now messages must be able to be used as events, since we output them in our message events
+/// A [`Message`] is basically any type that can be (de)serialized over the network.
+///
+/// Every type that can be sent over the network must implement this trait.
+///
+pub trait Message: EventContext + Named {}
+impl<T: EventContext + Named> Message for T {}
 
 pub type FragmentIndex = u8;
 
@@ -287,14 +294,6 @@ impl MessageContainer {
         }
     }
 }
-
-// TODO: for now messages must be able to be used as events, since we output them in our message events
-/// A [`Message`] is basically any type that can be (de)serialized over the network.
-///
-/// Every type that can be sent over the network must implement this trait.
-///
-pub trait Message: EventContext + Named + LightyearMapEntities {}
-impl<T: EventContext + Named + LightyearMapEntities> Message for T {}
 
 #[cfg(test)]
 mod tests {

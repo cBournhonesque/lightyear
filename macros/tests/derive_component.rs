@@ -1,13 +1,13 @@
 pub mod some_component {
     use bevy::ecs::entity::MapEntities;
-    use bevy::prelude::{Component, EntityMapper};
+    use bevy::prelude::{Component, Entity, EntityMapper};
     use derive_more::Add;
     use serde::{Deserialize, Serialize};
     use std::ops::Mul;
 
     use lightyear::prelude::client::LerpFn;
     use lightyear::prelude::*;
-    use lightyear::shared::replication::entity_map::Mapper;
+    use lightyear::shared::replication::entity_map::ExternalMapper;
     use lightyear_macros::{component_protocol, message_protocol};
 
     #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone, Add)]
@@ -21,7 +21,13 @@ pub mod some_component {
     }
 
     #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Component2(pub f32);
+    pub struct Component2(pub(crate) Entity);
+
+    impl MapEntities for Component2 {
+        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+            self.0 = entity_mapper.map_entity(self.0);
+        }
+    }
 
     #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
     pub struct Component3(String);
@@ -34,9 +40,9 @@ pub mod some_component {
 
     #[component_protocol(protocol = "MyProtocol")]
     pub enum MyComponentProtocol {
-        #[protocol(sync(mode = "full", lerp = "NullInterpolator"), map)]
+        #[protocol(sync(mode = "full", lerp = "LinearInterpolator"))]
         Component1(Component1),
-        #[protocol(sync(mode = "simple"))]
+        #[protocol(sync(mode = "simple"), map_entities)]
         Component2(Component2),
         #[protocol(sync(mode = "once"))]
         Component3(Component3),
@@ -45,36 +51,11 @@ pub mod some_component {
         Component5(Component5),
     }
 
-    impl<C: MapEntities> Mapper<C> for MyComponentProtocol {
-        fn map_entities<M: EntityMapper>(component: &mut C, entity_mapper: &mut M) {
-            component.map_entities(entity_mapper)
-        }
-    }
-
-    impl MapEntities for MyComponentProtocol {
-        fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-            match self {
-                MyComponentProtocol::Component1(x) => {
-                    <Self as Mapper<Component1>>::map_entities(x, entity_mapper)
-                }
-                MyComponentProtocol::Component2(_) => {}
-                MyComponentProtocol::Component3(_) => {}
-                MyComponentProtocol::Component4(_) => {}
-                MyComponentProtocol::Component5(_) => {}
-                MyComponentProtocol::ShouldBePredicted(_) => {}
-                MyComponentProtocol::PrePredicted(_) => {}
-                MyComponentProtocol::PreSpawnedPlayerObject(_) => {}
-                MyComponentProtocol::ShouldBeInterpolated(_) => {}
-                MyComponentProtocol::ParentSync(_) => {}
-            }
-        }
-    }
-
     // custom interpolation logic
     pub struct MyCustomInterpolator;
-    impl<C> LerpFn<C> for MyCustomInterpolator {
+    impl<C: Clone> LerpFn<C> for MyCustomInterpolator {
         fn lerp(start: &C, _other: &C, _t: f32) -> C {
-            start
+            start.clone()
         }
     }
 
@@ -95,7 +76,10 @@ pub mod some_component {
 
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::entity::MapEntities;
+    use bevy::prelude::Entity;
     use lightyear::_reexport::ComponentProtocol;
+    use lightyear::prelude::RemoteEntityMap;
     use lightyear::protocol::BitSerializable;
     use lightyear::serialize::reader::ReadBuffer;
     use lightyear::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -127,6 +111,16 @@ mod tests {
             Component1(0.5),
             MyComponentProtocol::lerp(&component1, &Component1(1.0), 0.5)
         );
+
+        let mut mapper = RemoteEntityMap::default();
+        let remote_entity = Entity::from_raw(0);
+        let local_entity = Entity::from_raw(1);
+        mapper.insert(remote_entity, local_entity);
+        let component2 = Component2(remote_entity);
+        let mut protocol_component2 = MyComponentProtocol::Component2(component2.clone());
+        protocol_component2.map_entities(&mut mapper);
+        let mapped_component2: Component2 = protocol_component2.try_into().unwrap();
+        assert_eq!(mapped_component2.0, local_entity);
 
         Ok(())
     }

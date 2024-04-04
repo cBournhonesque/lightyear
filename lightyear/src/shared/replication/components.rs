@@ -454,24 +454,13 @@ impl NetworkTarget {
     }
 }
 
-// TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
-//  that's pretty dangerous because it's now hard for the user to derive new traits.
-//  let's think of another approach later.
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ShouldBeInterpolated;
 
-// TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
-//  that's pretty dangerous because it's now hard for the user to derive new traits.
-//  let's think of another approach later.
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-
 /// Indicates that an entity was pre-predicted
+// NOTE: we do not map entities for this component, we want to receive the entities as is
 #[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct PrePredicted {
-    // TODO: rename this?
-    //  - also the server already gets the client entity in the message, so it's a waste of space...
-    //  - maybe use a different component: ClientToServer -> Prespawned (None)
-    //  - ServerToClient -> Prespawned (entity)
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
 }

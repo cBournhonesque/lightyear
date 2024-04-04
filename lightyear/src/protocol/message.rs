@@ -1,3 +1,4 @@
+use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
 
@@ -7,7 +8,6 @@ use serde::Serialize;
 
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
-use crate::prelude::LightyearMapEntities;
 use crate::protocol::registry::TypeKind;
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 #[cfg(feature = "leafwing")]
@@ -35,7 +35,7 @@ pub trait MessageProtocol:
     + Serialize
     + DeserializeOwned
     + Clone
-    + LightyearMapEntities
+    + MapEntities
     + Debug
     + Send
     + Sync

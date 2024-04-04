@@ -11,7 +11,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::TickManager;
+use crate::prelude::{ExternalMapper, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -86,6 +86,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
 {
     let current_tick = connection
         .sync_manager
@@ -104,7 +105,10 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                     let history = ConfirmedHistory::<C>::new();
                     // map any entities from confirmed to interpolated
                     let mut new_component = confirmed_component.deref().clone();
-                    new_component.map_entities(&mut manager.interpolated_entity_map);
+                    P::Components::map_entities_for(
+                        &mut new_component,
+                        &mut manager.interpolated_entity_map,
+                    );
                     match P::Components::mode() {
                         ComponentSyncMode::Full => {
                             trace!(?interpolated_entity, tick=?tick_manager.tick(),  "spawn interpolation history");
@@ -144,6 +148,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
 {
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
@@ -163,7 +168,10 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
 
                     // map any entities from confirmed to predicted
                     let mut component = confirmed_component.deref().clone();
-                    component.map_entities(&mut manager.interpolated_entity_map);
+                    P::Components::map_entities_for(
+                        &mut component,
+                        &mut manager.interpolated_entity_map,
+                    );
                     trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
                     history.buffer.add_item(tick, component);
@@ -183,6 +191,7 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent, P: Protocol>(
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
 {
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
@@ -191,7 +200,10 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent, P: Protocol>(
                     // for sync-components, we just match the confirmed component
                     // map any entities from confirmed to interpolated first
                     let mut component = confirmed_component.deref().clone();
-                    component.map_entities(&mut manager.interpolated_entity_map);
+                    P::Components::map_entities_for(
+                        &mut component,
+                        &mut manager.interpolated_entity_map,
+                    );
                     *interpolated_component = component;
                 }
             }

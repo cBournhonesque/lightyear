@@ -1,7 +1,7 @@
 //! Specify how a Server sends/receives messages with a Client
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHash;
+use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{Entity, Resource, World};
 use bevy::utils::{HashMap, HashSet};
 use hashbrown::hash_map::Entry;
@@ -20,8 +20,7 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
 use crate::prelude::{
-    Channel, ChannelKind, LightyearMapEntities, Message, Mode, PreSpawnedPlayerObject,
-    ShouldBePredicted,
+    Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;

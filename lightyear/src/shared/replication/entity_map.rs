@@ -4,19 +4,18 @@ use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
 use bevy::prelude::{Component, Entity, EntityWorldMut, World};
 use bevy::utils::hashbrown::hash_map::Entry;
 
-// TODO: another solution to avoid the orphan rule would be to implement MapEntities directly on the enum type?
-/// [`LightyearMapEntities`] is basically identical to [`MapEntities`]; I provide it to circumvent the orphan rule
-/// and to be able to implement [`MapEntities`] on external types.
-pub trait LightyearMapEntities {
-    /// Updates all [`Entity`] references stored inside using `entity_mapper`.
-    ///
-    /// Implementors should look up any and all [`Entity`] values stored within `self` and
-    /// update them to the mapped values via `entity_mapper`.
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M);
+/// A trait for structs who can do entity mapping for another type.
+/// This is used to avoid the orphan rule, as we can't implement [`MapEntities`] on external types.
+pub trait ExternalMapper<C> {
+    fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M);
 }
 
-pub trait Mapper<C> {
-    fn map_entities<M: EntityMapper>(component: &mut C, entity_mapper: &mut M);
+/// Any type can perform the mapping for another type C if C implements [`MapEntities`]
+/// If it doesn't, you can implement [`ExternalMapper`] on your `ComponentProtocol`
+impl<T, C: MapEntities> ExternalMapper<C> for T {
+    fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M) {
+        component.map_entities(entity_mapper);
+    }
 }
 
 #[derive(Default, Debug)]

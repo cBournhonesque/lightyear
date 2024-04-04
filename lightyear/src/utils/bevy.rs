@@ -7,7 +7,7 @@ use bevy::prelude::{Children, Entity, EntityMapper, Transform};
 use std::ops::Mul;
 use tracing::{info, trace};
 
-use crate::prelude::{LightyearMapEntities, Message, Named};
+use crate::prelude::{Message, Named};
 
 impl Named for Transform {
     const NAME: &'static str = "Transform";
@@ -36,10 +36,6 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
     }
 }
 
-impl LightyearMapEntities for Transform {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
-}
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "render")] {
         use bevy::prelude::{Color,  Visibility};
@@ -47,16 +43,9 @@ cfg_if::cfg_if! {
             const NAME: &'static str = "Color";
         }
 
-        impl LightyearMapEntities for Color {
-            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
-        }
-
         impl Named for Visibility {
             const NAME: &'static str = "Visibility";
         }
 
-        impl LightyearMapEntities for Visibility {
-            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
-        }
     }
 }

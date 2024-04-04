@@ -90,7 +90,7 @@ pub mod prelude {
     pub use crate::shared::replication::components::{
         NetworkTarget, PrePredicted, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
-    pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
+    pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
@@ -99,7 +99,7 @@ pub mod prelude {
     pub use crate::transport::config::{IoConfig, TransportConfig};
     pub use crate::transport::io::Io;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
-    pub use crate::utils::named::Named;
+    pub use crate::utils::named::{ExternalNamer, Named};
 
     pub mod client {
         pub use crate::client::components::{

@@ -25,6 +25,7 @@ use crate::client::prediction::prespawn::{
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
+use crate::prelude::ExternalMapper;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::InternalMainSet;
@@ -154,6 +155,7 @@ pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::ComponentKinds: FromType<C>,
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
 {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
