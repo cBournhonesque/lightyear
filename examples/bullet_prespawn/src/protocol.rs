@@ -113,6 +113,7 @@ pub enum Components {
     BallMarker(BallMarker),
     #[protocol(sync(mode = "full", lerp = "TransformLinearInterpolation"))]
     Transform(Transform),
+    Visibility(Visibility),
 }
 
 // Channels

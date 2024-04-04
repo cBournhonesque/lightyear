@@ -148,4 +148,11 @@ impl ServerConnections {
             client_server_map: HashMap::default(),
         }
     }
+
+    pub fn start(&mut self) -> Result<()> {
+        for server in &mut self.servers {
+            server.start()?;
+        }
+        Ok(())
+    }
 }

@@ -210,26 +210,7 @@ mod tests {
     pub struct Toggle(bool);
 
     fn setup(tick_duration: Duration, frame_duration: Duration) -> (BevyStepper, Entity) {
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let link_conditioner = LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(0),
-            incoming_jitter: Duration::from_millis(0),
-            incoming_loss: 0.0,
-        };
-        let sync_config = SyncConfig::default().speedup_factor(1.0);
-        let prediction_config = PredictionConfig::default().disable(false);
-        let interpolation_config = InterpolationConfig::default();
-        let mut stepper = BevyStepper::new(
-            shared_config,
-            sync_config,
-            prediction_config,
-            interpolation_config,
-            link_conditioner,
-            frame_duration,
-        );
+        let mut stepper = BevyStepper::default();
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);
