@@ -1,6 +1,7 @@
 //! Components used for replication
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -9,6 +10,7 @@ use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
+use crate::prelude::ParentSync;
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
@@ -462,6 +464,14 @@ pub struct ShouldBeInterpolated;
 pub struct PrePredicted {
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
+}
+
+impl MapEntities for PrePredicted {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        if let Some(entity) = &mut self.client_entity {
+            *entity = entity_mapper.map_entity(*entity);
+        }
+    }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]

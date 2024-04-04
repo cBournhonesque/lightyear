@@ -610,7 +610,7 @@ impl PacketBuilder {
 mod tests {
     use std::collections::{BTreeMap, VecDeque};
 
-    use bevy::prelude::default;
+    use bevy::prelude::{default, TypePath};
     use bytes::Bytes;
 
     use lightyear_macros::ChannelInternal;
@@ -622,13 +622,13 @@ mod tests {
 
     use super::*;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, TypePath)]
     struct Channel1;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, TypePath)]
     struct Channel2;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, TypePath)]
     struct Channel3;
 
     fn get_channel_registry() -> ChannelRegistry {

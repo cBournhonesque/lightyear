@@ -144,7 +144,6 @@ cfg_if!(
             BitSerializable
             + Serialize
             + DeserializeOwned
-            + MapEntities
             + PartialEq
             + Eq
             + PartialOrd
@@ -172,7 +171,6 @@ cfg_if!(
             BitSerializable
             + Serialize
             + DeserializeOwned
-            + MapEntities
             + PartialEq
             + Eq
             + PartialOrd

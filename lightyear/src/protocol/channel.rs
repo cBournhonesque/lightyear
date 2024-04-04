@@ -98,14 +98,14 @@ impl ChannelRegistry {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::default;
+    use bevy::prelude::{default, TypePath};
     use lightyear_macros::ChannelInternal;
 
     use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
 
     use super::*;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, TypePath)]
     pub struct MyChannel;
 
     #[test]

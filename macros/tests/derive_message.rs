@@ -1,15 +1,15 @@
 pub mod some_message {
     use bevy::ecs::entity::MapEntities;
-    use bevy::prelude::{Component, Entity, EntityMapper};
+    use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
     use serde::{Deserialize, Serialize};
 
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Message1(pub u8);
 
-    #[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Message2(Entity);
 
     impl MapEntities for Message2 {
@@ -25,7 +25,7 @@ pub mod some_message {
         Message2(Message2),
     }
 
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component1(pub u8);
 
     #[component_protocol(protocol = "MyProtocol")]
@@ -44,9 +44,8 @@ pub mod some_message {
 mod tests {
     use super::some_message::*;
     use lightyear::_reexport::{
-        BitSerializable, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
+        BitSerializable, MessageProtocol, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
     };
-    use lightyear::prelude::*;
 
     #[test]
     fn test_message_derive() -> anyhow::Result<()> {

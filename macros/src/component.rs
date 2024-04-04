@@ -100,6 +100,7 @@ pub fn component_protocol_impl(
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
+        #[protocol(map_entities)]
         PrePredicted(PrePredicted)
     });
     input.variants.push(parse_quote! {
@@ -109,6 +110,7 @@ pub fn component_protocol_impl(
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     input.variants.push(parse_quote! {
+        #[protocol(map_entities)]
         ParentSync(ParentSync)
     });
     #[cfg(feature = "leafwing")]
@@ -558,10 +560,6 @@ fn map_entities_method(
                 match self {
                     #map_entities_body
                 }
-            }
-        }
-        impl MapEntities for #enum_kind_name {
-            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
             }
         }
     }

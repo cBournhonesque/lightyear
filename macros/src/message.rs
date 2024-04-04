@@ -25,7 +25,16 @@ struct AttrField {
     ident: Option<Ident>,
     ty: Type,
     #[darling(default)]
-    map_entities: bool,
+    map_entities: MapField,
+}
+
+#[derive(Debug, Default, FromMeta, PartialEq, Eq)]
+enum MapField {
+    #[default]
+    NoMapEntities,
+    Custom,
+    #[darling(word)]
+    MapWithMapEntity,
 }
 
 pub fn message_protocol_impl(
@@ -108,7 +117,7 @@ pub fn message_protocol_impl(
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]
             #extra_derives
-            #input
+            #input_without_attributes
 
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
@@ -303,22 +312,52 @@ fn name_method(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
 fn map_entities_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let enum_name = &input.ident;
     let mut map_entities_body = quote! {};
+    let mut external_mapper_body = quote! {};
     for field in fields.iter() {
-        let message_type = &field.ty;
-        let field_impl = if !field.map_entities {
-            quote! { {} }
-        } else {
-            quote! { <Self as ExternalMapper<#message_type>>::map_entities_for(x, entity_mapper) }
-        };
+        let component_type = &field.ty;
         let ident = &field.ident;
-        map_entities_body = quote! {
-            #map_entities_body
-            Self::#ident(ref mut x) => #field_impl,
-        };
+        match &field.map_entities {
+            MapField::NoMapEntities => {
+                // if there is no mapping, still implement the ExternalMapper trait which is used to perform the mapping on the component directly
+                // if there's no map entities, no need to do any mapping.
+                external_mapper_body = quote! {
+                    #external_mapper_body
+                    impl ExternalMapper<#component_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {}
+                    }
+                };
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => {},
+                };
+            }
+            MapField::Custom => {
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                };
+            }
+            MapField::MapWithMapEntity => {
+                // if there is an MapEntities defined on the component, we use it for ExternalMapper
+                external_mapper_body = quote! {
+                    #external_mapper_body
+                    impl ExternalMapper<#component_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {
+                            x.map_entities(entity_mapper);
+                        }
+                    }
+                };
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                };
+            }
+        }
     }
 
     // TODO: make it work with generics (generic components)
     quote! {
+        #external_mapper_body
         impl MapEntities for #enum_name {
             fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
                 match self {
