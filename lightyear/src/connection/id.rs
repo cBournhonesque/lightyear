@@ -1,5 +1,4 @@
 //! Module to handle the various possible ClientIds
-
 use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;

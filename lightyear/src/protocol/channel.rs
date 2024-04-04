@@ -64,7 +64,7 @@ impl ChannelRegistry {
     pub fn add<T: Channel>(&mut self, settings: ChannelSettings) {
         let kind = self.kind_map.add::<T>();
         self.builder_map.insert(kind, T::get_builder(settings));
-        let name = T::short_type_path();
+        let name = T::name();
         self.name_map.insert(kind, name.to_string());
     }
 

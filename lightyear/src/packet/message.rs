@@ -5,7 +5,7 @@ use bytes::Bytes;
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::packet::packet::FRAGMENT_SIZE;
-use crate::protocol::EventContext;
+use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
@@ -26,8 +26,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext {}
-impl<T: EventContext> Message for T {}
+pub trait Message: EventContext + BitSerializable {}
+impl<T: EventContext + BitSerializable> Message for T {}
 
 pub type FragmentIndex = u8;
 
