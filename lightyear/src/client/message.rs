@@ -34,15 +34,12 @@ pub enum ClientMessage<P: Protocol> {
 impl<P: Protocol> BitSerializable for ClientMessage<P> {
     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
         writer.encode(self, Fixed).context("could not encode")
-        // Encode::encode(self, Fixed, writer).context("could not encode")
-        // self.encode(Fixed, writer).context("could not encode")
     }
     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
         reader.decode::<Self>(Fixed).context("could not decode")
-        // <Self as Decode>::decode(Fixed, reader).context("could not decode")
     }
 }
 

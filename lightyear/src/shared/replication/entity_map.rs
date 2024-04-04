@@ -1,7 +1,7 @@
 //! Map between local and remote entities
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
-use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::prelude::{Component, Entity, EntityWorldMut, World};
 use bevy::utils::hashbrown::hash_map::Entry;
 
 // TODO: another solution to avoid the orphan rule would be to implement MapEntities directly on the enum type?
@@ -13,6 +13,10 @@ pub trait LightyearMapEntities {
     /// Implementors should look up any and all [`Entity`] values stored within `self` and
     /// update them to the mapped values via `entity_mapper`.
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M);
+}
+
+pub trait Mapper<C> {
+    fn map_entities<M: EntityMapper>(component: &mut C, entity_mapper: &mut M);
 }
 
 #[derive(Default, Debug)]

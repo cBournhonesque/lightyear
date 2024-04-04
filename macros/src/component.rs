@@ -1,6 +1,6 @@
 use darling::ast::NestedMeta;
-use darling::util::PathList;
-use darling::{Error, FromField, FromMeta};
+use darling::util::{Flag, PathList};
+use darling::{Error, FromField, FromMeta, FromVariant};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use std::ops::Deref;
@@ -11,33 +11,39 @@ use syn::{
 };
 
 #[derive(Debug, FromMeta)]
-/// Struct that will hold the value of attributes passed to the macro
+/// Struct that will hold the value of attributes passed to the macro itself (component_protocol(...))
 struct MacroAttrs {
     protocol: Ident,
     #[darling(default)]
     derive: PathList,
 }
 
-const ATTRIBUTES: &[&str] = &["sync"];
+const ATTRIBUTES: &[&str] = &["protocol"];
 
 #[derive(Debug, FromField)]
-#[darling(attributes(sync))]
-struct SyncField {
-    // name of the enum field
+#[darling(attributes(protocol))]
+struct AttrField {
     ident: Option<Ident>,
-
-    // type of the field
     ty: Type,
 
+    sync: Option<SyncField>,
     #[darling(default)]
-    full: bool,
-    #[darling(default)]
-    simple: bool,
-    #[darling(default)]
-    once: bool,
-    #[darling(default)]
-    external: bool,
+    map: bool,
+}
 
+#[derive(Debug, Default, FromMeta, PartialEq, Eq)]
+enum SyncMode {
+    Full,
+    Simple,
+    Once,
+    #[default]
+    None,
+}
+
+#[derive(Debug, FromMeta)]
+struct SyncField {
+    #[darling(default)]
+    mode: SyncMode,
     #[darling(default)]
     lerp: Option<Ident>,
     #[darling(default)]
@@ -46,43 +52,11 @@ struct SyncField {
 
 impl SyncField {
     fn get_mode_tokens(&self) -> TokenStream {
-        let mut tokens = quote! {};
-        if self.full {
-            tokens = quote! {
-                ComponentSyncMode::Full
-            };
-        } else if self.simple {
-            tokens = quote! {
-                ComponentSyncMode::Simple
-            };
-        } else if self.once {
-            tokens = quote! {
-                ComponentSyncMode::Once
-            };
-        } else {
-            tokens = quote! {
-                ComponentSyncMode::None
-            };
-        }
-        tokens
-    }
-
-    fn check_is_valid(&self) {
-        let mut count = 0;
-        if self.full {
-            count += 1;
-        }
-        if self.simple {
-            count += 1;
-        }
-        if self.once {
-            count += 1;
-        }
-        if count > 1 {
-            panic!(
-                "The field {:?} cannot have multiple sync attributes set at the same time",
-                self
-            );
+        match self.mode {
+            SyncMode::Full => quote! {ComponentSyncMode::Full},
+            SyncMode::Simple => quote! {ComponentSyncMode::Simple},
+            SyncMode::Once => quote! {ComponentSyncMode::Once},
+            SyncMode::None => quote! {ComponentSyncMode::None},
         }
     }
 }
@@ -143,16 +117,13 @@ pub fn component_protocol_impl(
     // Helper Properties
     let fields = get_fields(&input);
     let input_without_attributes = strip_attributes(&input);
-
-    // Use darling to parse the attributes for each field
-    let sync_fields: Vec<SyncField> = fields
+    let sync_fields: Vec<AttrField> = fields
         .iter()
         // .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("sync")))
         .map(|field| FromField::from_field(field).unwrap())
+        // .filter_map(|field| FromField::from_field(field).ok())
         .collect();
-    for field in &sync_fields {
-        field.check_is_valid();
-    }
+    dbg!(&sync_fields);
 
     // Names
     let enum_name = &input.ident;
@@ -164,13 +135,13 @@ pub fn component_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Impls
-    let sync_component_impl = sync_metadata_impl(&sync_fields, enum_name);
+    // let sync_component_impl = sync_metadata_impl(&sync_fields, enum_name);
 
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
-    let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
+    // let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
     // let mode_method = mode_method(&input, &fields);
     let encode_method = encode_method();
     let decode_method = decode_method();
@@ -214,7 +185,7 @@ pub fn component_protocol_impl(
                 #add_systems_method
                 #add_events_method
                 #push_component_events_method
-                #add_sync_systems_method
+                // #add_sync_systems_method
 
                 // #mode_method
             }
@@ -239,7 +210,7 @@ pub fn component_protocol_impl(
                 }
             }
 
-            #sync_component_impl
+            // #sync_component_impl
             #delegate_method
 
             #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -374,81 +345,81 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn sync_metadata_impl(fields: &Vec<SyncField>, enum_name: &Ident) -> TokenStream {
-    let mut body = quote! {};
-    for field in fields {
-        let component_type = &field.ty;
-        // mode
-        let mode = field.get_mode_tokens();
-        // interpolation
-        let interpolator = &field.lerp.clone().unwrap_or_else(|| {
-            if field.full {
-                Ident::new("LinearInterpolator", Span::call_site())
-            } else {
-                Ident::new("NullInterpolator", Span::call_site())
-            }
-        });
-        // prediction
-        let mut corrector = field
-            .corrector
-            .clone()
-            .unwrap_or(Ident::new("InstantCorrector", Span::call_site()));
-        if corrector == "InterpolatedCorrector" {
-            corrector = interpolator.clone();
-        }
-        body = quote! {
-            #body
-            impl SyncMetadata<#component_type> for #enum_name {
-                type Interpolator = #interpolator;
-                type Corrector = #corrector;
-                fn mode() -> ComponentSyncMode {
-                    #mode
-                }
-            }
-        }
-    }
-    body
-}
+// fn sync_metadata_impl(fields: &Vec<AttrField>, enum_name: &Ident) -> TokenStream {
+//     let mut body = quote! {};
+//     for field in fields {
+//         let component_type = &field.ty;
+//         // mode
+//         let mode = field.get_mode_tokens();
+//         // interpolation
+//         let interpolator = &field.lerp.clone().unwrap_or_else(|| {
+//             if field.full {
+//                 Ident::new("LinearInterpolator", Span::call_site())
+//             } else {
+//                 Ident::new("NullInterpolator", Span::call_site())
+//             }
+//         });
+//         // prediction
+//         let mut corrector = field
+//             .corrector
+//             .clone()
+//             .unwrap_or(Ident::new("InstantCorrector", Span::call_site()));
+//         if corrector == "InterpolatedCorrector" {
+//             corrector = interpolator.clone();
+//         }
+//         body = quote! {
+//             #body
+//             impl SyncMetadata<#component_type> for #enum_name {
+//                 type Interpolator = #interpolator;
+//                 type Corrector = #corrector;
+//                 fn mode() -> ComponentSyncMode {
+//                     #mode
+//                 }
+//             }
+//         }
+//     }
+//     body
+// }
 
-fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
-    let mut prediction_body = quote! {};
-    let mut prepare_interpolation_body = quote! {};
-    let mut interpolation_body = quote! {};
-    for field in fields {
-        let component_type = &field.ty;
-        // we only add sync systems if the SyncComponent is not None
-        if field.full || field.once || field.simple {
-            prediction_body = quote! {
-                #prediction_body
-                add_prediction_systems::<#component_type, #protocol_name>(app);
-            };
-            prepare_interpolation_body = quote! {
-                #prepare_interpolation_body
-                add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
-            };
-        }
-        if field.full {
-            interpolation_body = quote! {
-                #interpolation_body
-                add_interpolation_systems::<#component_type, #protocol_name>(app);
-            };
-        }
-    }
-    quote! {
-        fn add_prediction_systems(app: &mut App)
-        {
-            #prediction_body
-        }
-        fn add_prepare_interpolation_systems(app: &mut App)
-        {
-            #prepare_interpolation_body
-        }
-        fn add_interpolation_systems(app: &mut App)
-        {
-            #interpolation_body
-        }
-    }
-}
+// fn add_sync_systems_method(fields: &Vec<AttrField>, protocol_name: &Ident) -> TokenStream {
+//     let mut prediction_body = quote! {};
+//     let mut prepare_interpolation_body = quote! {};
+//     let mut interpolation_body = quote! {};
+//     for field in fields {
+//         let component_type = &field.ty;
+//         // we only add sync systems if the SyncComponent is not None
+//         if field.full || field.once || field.simple {
+//             prediction_body = quote! {
+//                 #prediction_body
+//                 add_prediction_systems::<#component_type, #protocol_name>(app);
+//             };
+//             prepare_interpolation_body = quote! {
+//                 #prepare_interpolation_body
+//                 add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
+//             };
+//         }
+//         if field.full {
+//             interpolation_body = quote! {
+//                 #interpolation_body
+//                 add_interpolation_systems::<#component_type, #protocol_name>(app);
+//             };
+//         }
+//     }
+//     quote! {
+//         fn add_prediction_systems(app: &mut App)
+//         {
+//             #prediction_body
+//         }
+//         fn add_prepare_interpolation_systems(app: &mut App)
+//         {
+//             #prepare_interpolation_body
+//         }
+//         fn add_interpolation_systems(app: &mut App)
+//         {
+//             #interpolation_body
+//         }
+//     }
+// }
 
 fn encode_method() -> TokenStream {
     quote! {
@@ -556,13 +527,17 @@ fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> 
 //     }
 // }
 
-fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
+fn delegate_method(
+    // map_fields: &Vec<MapField>,
+    input: &ItemEnum,
+    enum_kind_name: &Ident,
+) -> TokenStream {
     let enum_name = &input.ident;
     let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut map_entities_body = quote! {};
     let mut entities_body = quote! {};
-    for variant in input.variants.iter() {
-        let ident = &variant.ident;
+    for field in input.variants.iter() {
+        let ident = &field.ident;
         map_entities_body = quote! {
             #map_entities_body
             Self::#ident(ref mut x) => LightyearMapEntities::map_entities(x, entity_mapper),
