@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use crate::_reexport::FromType;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
@@ -149,7 +150,9 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
 ) where
     P::Components: SyncMetadata<C>,
     P::Components: ExternalMapper<C>,
+    P::ComponentKinds: FromType<C>,
 {
+    let kind = P::ComponentKinds::from_type();
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
@@ -172,7 +175,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
                         &mut component,
                         &mut manager.interpolated_entity_map,
                     );
-                    trace!(component = ?component.name(), tick = ?tick, "adding confirmed update to history");
+                    trace!(?kind, tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
                     history.buffer.add_item(tick, component);
 

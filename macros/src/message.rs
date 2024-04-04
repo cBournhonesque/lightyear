@@ -293,13 +293,13 @@ fn name_method(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let enum_name = &input.ident;
     let mut body = quote! {};
     for field in fields.iter() {
-        let ident = &field.ident;
+        let ident = field.ident.as_ref().unwrap();
+        let name = LitStr::new(&ident.to_string(), Span::call_site());
         body = quote! {
             #body
-            &#enum_name::#ident(ref x) => x.name(),
+            &#enum_name::#ident(ref x) => #name,
         };
     }
-
     quote! {
         fn name(&self) -> &'static str {
             match self {

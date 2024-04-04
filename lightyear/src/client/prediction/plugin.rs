@@ -171,7 +171,7 @@ where
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
                 // between the predicted and corrected state)
-                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
+                restore_corrected_state::<C, P>.in_set(PredictionSet::RestoreVisualCorrection),
             );
             app.add_systems(
                 PreUpdate,

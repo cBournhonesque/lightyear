@@ -1,3 +1,4 @@
+use bevy::ecs::entity::MapEntities;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 
@@ -14,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use crate::prelude::client::SyncComponent;
-use crate::prelude::{LightyearMapEntities, Message, Named};
+use crate::prelude::Message;
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
 
@@ -33,47 +34,6 @@ use super::LeafwingUserAction;
 // - we receive a message containing for each tick a list of diffs
 // - we apply the ticks on the right tick to the entity/resource
 // - no need to maintain our inputbuffer on the server
-
-impl<A: LeafwingUserAction> LightyearMapEntities for ActionState<A> {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
-}
-
-impl<A: LeafwingUserAction> Named for ActionState<A> {
-    // const NAME: &'static str = formatcp!("ActionState<{}>", A::short_type_path());
-    const NAME: &'static str = "ActionState";
-    // const NAME: &'static str = Self::short_type_path();
-}
-
-// impl<A: LeafwingUserAction> SyncComponent for ActionState<A> {
-//     fn mode() -> ComponentSyncMode {
-//         // For client-side prediction of other clients, we need the ActionState to be synced from the Confirmed
-//         // to the predicted entity
-//         ComponentSyncMode::Simple
-//     }
-// }
-
-// impl<A: UserAction> Message for InputMap<A> {}
-// impl<'a, A: UserAction> MapEntities<'a> for InputMap<A> {
-//     fn map_entities(&mut self, entity_mapper: Box<dyn EntityMapper + 'a>) {}
-//     fn entities(&self) -> EntityHashSet<Entity> {
-//         EntityHashSet::default()
-//     }
-// }
-// impl<A: UserAction> Named for InputMap<A> {
-//     fn name(&self) -> &'static str {
-//         std::any::type_name::<InputMap<A>>()
-//         // <A as TypePath>::short_type_path()
-//         // const SHORT_TYPE_PATH: &'static str = <A as TypePath>::short_type_path();
-//         // formatcp!("ActionState<{}>", SHORT_TYPE_PATH)
-//     }
-// }
-//
-// impl<A: UserAction> SyncComponent for InputMap<A> {
-//     fn mode() -> ComponentSyncMode {
-//         // TODO: change this to Simple (in case the input map changes?)
-//         ComponentSyncMode::Once
-//     }
-// }
 
 // NOTE: right now, for simplicity, we will send all the action-diffs for all entities in one single message.
 // TODO: improve this data structure
@@ -233,13 +193,7 @@ pub enum InputTarget {
     PrePredictedEntity(Entity),
 }
 
-impl<A: LeafwingUserAction> Named for InputMessage<A> {
-    // const NAME: &'static str = formatcp!("InputMessage<{}>", A::short_type_path());
-    const NAME: &'static str = "InputMessage";
-    // const NAME: &'static str = <Self as TypePath>::short_type_path();
-}
-
-impl<A: LeafwingUserAction> LightyearMapEntities for InputMessage<A> {
+impl<A: LeafwingUserAction> MapEntities for InputMessage<A> {
     // NOTE: we do NOT map the entities for input-message because when already convert
     //  the entities on the message to the corresponding client entities when we write them
     //  in the input message

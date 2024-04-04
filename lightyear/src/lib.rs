@@ -99,7 +99,6 @@ pub mod prelude {
     pub use crate::transport::config::{IoConfig, TransportConfig};
     pub use crate::transport::io::Io;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
-    pub use crate::utils::named::{ExternalNamer, Named};
 
     pub mod client {
         pub use crate::client::components::{

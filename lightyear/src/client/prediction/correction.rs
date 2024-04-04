@@ -9,7 +9,7 @@
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
 use crate::client::easings::ease_out_quad;
 use crate::prelude::{Tick, TickManager};
@@ -88,7 +88,9 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
     mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
+    let kind = P::ComponentKinds::from_type();
     for (entity, mut component, mut correction) in query.iter_mut() {
         let current_tick = tick_manager.tick();
         let mut t = (current_tick - correction.original_tick) as f32
@@ -98,13 +100,12 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
         if t == 1.0 || &correction.original_prediction == component.as_ref() {
             debug!(
                 ?t,
-                "Correction is over. Removing Correction for: {:?}",
-                component.name()
+                "Correction is over. Removing Correction for: {:?}", kind
             );
             // correction is over
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", component.name());
+            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
@@ -120,17 +121,20 @@ pub(crate) fn get_visually_corrected_state<C: SyncComponent, P: Protocol>(
 }
 
 /// At the start of the next frame, restore
-pub(crate) fn restore_corrected_state<C: SyncComponent>(
+pub(crate) fn restore_corrected_state<C: SyncComponent, P: Protocol>(
     mut query: Query<(&mut C, &mut Correction<C>)>,
-) {
+) where
+    P::ComponentKinds: FromType<C>,
+{
+    let kind = P::ComponentKinds::from_type();
     for (mut component, mut correction) in query.iter_mut() {
         if let Some(correction) = std::mem::take(&mut correction.current_correction) {
-            debug!("restoring corrected component: {:?}", component.name());
+            debug!("restoring corrected component: {:?}", kind);
             *component.bypass_change_detection() = correction;
         } else {
             debug!(
                 "Corrected component was None so couldn't restore: {:?}",
-                component.name()
+                kind
             );
         }
     }

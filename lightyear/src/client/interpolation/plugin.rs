@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::_reexport::FromType;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -145,6 +146,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mu
 where
     P::Components: SyncMetadata<C>,
     P::Components: ExternalMapper<C>,
+    P::ComponentKinds: FromType<C>,
 {
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?

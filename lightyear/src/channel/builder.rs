@@ -1,4 +1,5 @@
 //! This module contains the [`Channel`] trait
+use bevy::prelude::TypePath;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 
@@ -17,7 +18,7 @@ use crate::channel::senders::tick_unreliable::TickUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::channel::senders::ChannelSender;
-use crate::prelude::{ChannelKind, Named};
+use crate::prelude::ChannelKind;
 
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
 pub struct ChannelContainer {
@@ -43,7 +44,7 @@ pub struct ChannelContainer {
 ///     priority: 1.0,
 /// });
 /// ```
-pub trait Channel: 'static + Named {
+pub trait Channel: 'static + TypePath {
     fn get_builder(settings: ChannelSettings) -> ChannelBuilder {
         ChannelBuilder { settings }
     }

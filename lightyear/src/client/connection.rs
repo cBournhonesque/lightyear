@@ -141,7 +141,8 @@ impl<P: Protocol> ConnectionManager<P> {
     where
         P::Message: From<M>,
     {
-        // IF UNIFIED; send message directly
+        // TODO: if unified; send message directly to the client's message receiver
+        // TODO: add metrics?
         let channel = ChannelKind::of::<C>();
         self.buffer_message(message.into(), channel, NetworkTarget::None)
     }

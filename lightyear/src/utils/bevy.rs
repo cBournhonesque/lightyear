@@ -7,7 +7,7 @@ use bevy::prelude::{Children, Entity, EntityMapper, Transform};
 use std::ops::Mul;
 use tracing::{info, trace};
 
-use crate::prelude::{Message, Named};
+use crate::prelude::Message;
 
 pub struct TransformLinearInterpolation;
 
@@ -29,19 +29,5 @@ impl LerpFn<Transform> for TransformLinearInterpolation {
             res
         );
         res
-    }
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "render")] {
-        use bevy::prelude::{Color,  Visibility};
-        impl Named for Color {
-            const NAME: &'static str = "Color";
-        }
-
-        impl Named for Visibility {
-            const NAME: &'static str = "Visibility";
-        }
-
     }
 }

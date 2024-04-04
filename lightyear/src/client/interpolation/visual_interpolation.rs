@@ -35,7 +35,7 @@
 
 use bevy::prelude::*;
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::prelude::client::InterpolationSet;
 use crate::prelude::{Protocol, TickManager, TimeManager};
@@ -61,6 +61,7 @@ where
 impl<C: SyncComponent, P: Protocol> Plugin for VisualInterpolationPlugin<C, P>
 where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
     fn build(&self, app: &mut App) {
         // SETS
@@ -75,7 +76,7 @@ where
         if P::Components::mode() == ComponentSyncMode::Full {
             app.add_systems(
                 PreUpdate,
-                restore_from_visual_interpolation::<C>
+                restore_from_visual_interpolation::<C, P>
                     .in_set(InterpolationSet::RestoreVisualInterpolation),
             );
             app.add_systems(
@@ -131,8 +132,9 @@ pub(crate) fn visual_interpolation<C: SyncComponent, P: Protocol>(
     mut query: Query<(&mut C, &VisualInterpolateStatus<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
-    let kind = C::type_name();
+    let kind = P::ComponentKinds::from_type();
     let tick = tick_manager.tick();
     let overstep = time_manager.overstep();
     for (mut component, interpolate_status) in query.iter_mut() {
@@ -176,10 +178,12 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
+pub(crate) fn restore_from_visual_interpolation<C: SyncComponent, P: Protocol>(
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>)>,
-) {
-    let kind = C::type_name();
+) where
+    P::ComponentKinds: FromType<C>,
+{
+    let kind = P::ComponentKinds::from_type();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
             trace!(?kind, "Restoring visual interpolation");

@@ -9,7 +9,6 @@ use crate::protocol::EventContext;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
-use crate::utils::named::Named;
 use crate::utils::wrapping_id::wrapping_id;
 use bevy::ecs::entity::MapEntities;
 
@@ -27,8 +26,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + Named {}
-impl<T: EventContext + Named> Message for T {}
+pub trait Message: EventContext {}
+impl<T: EventContext> Message for T {}
 
 pub type FragmentIndex = u8;
 
