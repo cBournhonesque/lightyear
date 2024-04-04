@@ -105,11 +105,11 @@ pub(crate) enum TransportBuilderEnum {
     Dummy(DummyIo),
 }
 
-impl Default for TransportBuilderEnum {
-    fn default() -> Self {
-        Self::Dummy(DummyIo)
-    }
-}
+// impl Default for TransportBuilderEnum {
+//     fn default() -> Self {
+//         Self::Dummy(DummyIo)
+//     }
+// }
 
 // TODO: maybe box large items?
 #[allow(clippy::large_enum_variant)]

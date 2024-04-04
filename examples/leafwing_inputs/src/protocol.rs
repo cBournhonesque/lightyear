@@ -117,22 +117,22 @@ impl PhysicsBundle {
 }
 
 // Components
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerId(PlayerId),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     ColorComponent(ColorComponent),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     BallMarker(BallMarker),
     // You need to specify how to do interpolation for the component
     // Normally LinearInterpolation is fine, but it's not possible for xpbd's components
@@ -143,22 +143,22 @@ pub enum Components {
     // The default is `InstantCorrector` which just snaps to the corrected value
     // You can also use `InterpolatedCorrector` which will re-use your interpolation function to
     // interpolate smoothly from the previously predicted value to the newly corrected value
-    #[sync(
-        full,
+    #[protocol(sync(
+        mode = "full",
         lerp = "PositionLinearInterpolation",
         corrector = "InterpolatedCorrector"
-    )]
+    ))]
     Position(Position),
-    #[sync(
-        full,
+    #[protocol(sync(
+        mode = "full",
         lerp = "RotationLinearInterpolation",
         corrector = "InterpolatedCorrector"
-    )]
+    ))]
     Rotation(Rotation),
     // NOTE: correction is only needed for components that are visually displayed!
-    #[sync(full, lerp = "LinearVelocityLinearInterpolation")]
+    #[protocol(sync(mode = "full", lerp = "LinearVelocityLinearInterpolation"))]
     LinearVelocity(LinearVelocity),
-    #[sync(full, lerp = "AngularVelocityLinearInterpolation")]
+    #[protocol(sync(mode = "full", lerp = "AngularVelocityLinearInterpolation"))]
     AngularVelocity(AngularVelocity),
 }
 
@@ -169,7 +169,7 @@ pub struct Channel1;
 
 // Messages
 
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 #[message_protocol(protocol = "MyProtocol")]

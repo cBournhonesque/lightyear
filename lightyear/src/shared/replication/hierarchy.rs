@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
-
 use crate::prelude::ReplicationGroup;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
@@ -164,15 +163,12 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchyReceivePlugin<P, R>
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
     use std::ops::Deref;
 
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
-    use crate::client::sync::SyncConfig;
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{LinkConditionerConfig, ReplicationGroup, SharedConfig, TickConfig};
+    use crate::prelude::ReplicationGroup;
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};

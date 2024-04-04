@@ -1,6 +1,7 @@
 use std::ops::Mul;
 
 use bevy::ecs::entity::MapEntities;
+use bevy::prelude::Parent;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };

@@ -18,7 +18,7 @@ pub mod input_buffer;
 // TODO: the bound should be `BitSerializable`, not `Serialize + DeserializeOwned`
 //  but it causes the derive macro for InputMessage to fail
 pub trait UserAction:
-    Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + TypePath + 'static
+    Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static
 {
 }
 

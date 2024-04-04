@@ -5,7 +5,6 @@ use crate::connection::server::NetServer;
 use crate::packet::packet::Packet;
 use crate::prelude::{Io, LinkConditionerConfig};
 use crate::serialize::wordbuffer::reader::BufferPool;
-use crate::transport::dummy::DummyIo;
 use anyhow::{Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;

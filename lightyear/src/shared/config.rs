@@ -1,9 +1,8 @@
 //! Configuration that has to be the same between the server and the client.
-use crate::prelude::ClientId;
-use crate::server::config::ServerConfig;
 use bevy::prelude::Res;
 use bevy::utils::Duration;
 
+use crate::server::config::ServerConfig;
 use crate::shared::tick_manager::TickConfig;
 
 /// Configuration that has to be the same between the server and the client.

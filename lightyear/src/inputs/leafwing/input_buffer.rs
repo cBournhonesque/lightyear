@@ -85,7 +85,7 @@ impl<A: LeafwingUserAction> Default for InputBuffer<A> {
 ///
 /// These are typically accessed using the `Events<ActionDiffEvent>` resource.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Event)]
-pub struct ActionDiffEvent<A: LeafwingUserAction> {
+pub struct ActionDiffEvent<A> {
     /// If some: the entity that has the `ActionState<A>` component
     /// If none: `ActionState<A>` is a Resource, not a component
     pub owner: Option<Entity>,
@@ -100,7 +100,7 @@ pub struct ActionDiffEvent<A: LeafwingUserAction> {
 ///
 /// An `ActionState` can be fully reconstructed from a stream of `ActionDiff`
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
-pub enum ActionDiff<A: LeafwingUserAction> {
+pub enum ActionDiff<A> {
     /// The action was pressed
     Pressed {
         /// The value of the action
@@ -177,7 +177,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// We serialize the inputs by sending only the ActionDiffs of the last few ticks
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<A: LeafwingUserAction> {
+pub struct InputMessage<A> {
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     pub(crate) diffs: Vec<(InputTarget, Vec<Vec<ActionDiff<A>>>)>,
