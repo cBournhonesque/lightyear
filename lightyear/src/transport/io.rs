@@ -70,6 +70,10 @@ impl Io {
         self.local_addr.expect("The transport is not connected yet")
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.sender.is_some()
+    }
+
     pub fn connect(&mut self) -> Result<()> {
         // TODO: allow for connection retries
         let transport_builder = std::mem::take(&mut self.transport_builder)

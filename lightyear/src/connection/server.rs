@@ -134,6 +134,8 @@ pub struct ServerConnections {
     pub servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
+    /// Track whether the server is ready to listen to incoming connections
+    is_listening: bool,
 }
 
 impl ServerConnections {
@@ -146,6 +148,7 @@ impl ServerConnections {
         ServerConnections {
             servers,
             client_server_map: HashMap::default(),
+            is_listening: false,
         }
     }
 
@@ -153,6 +156,11 @@ impl ServerConnections {
         for server in &mut self.servers {
             server.start()?;
         }
+        self.is_listening = true;
         Ok(())
+    }
+
+    pub(crate) fn is_listening(&self) -> bool {
+        self.is_listening
     }
 }
