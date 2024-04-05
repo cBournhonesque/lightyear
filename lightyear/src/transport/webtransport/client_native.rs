@@ -5,12 +5,13 @@ use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
 };
+use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool, TaskPool};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use wtransport;
 use wtransport::datagram::Datagram;
@@ -28,22 +29,20 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         // channels used to cancel the task
         let (close_tx, mut close_rx) = mpsc::channel(1);
 
-        let config = ClientConfig::builder()
-            .with_bind_address(self.client_addr)
-            .with_no_cert_validation()
-            .build();
-        let server_url = format!("https://{}", self.server_addr);
-        debug!(
-            "Starting client webtransport task with server url: {}",
-            &server_url
-        );
-
-        let connection = futures_lite::future::block_on(async move {
-            info!("connecting client");
+        let connection = futures_lite::future::block_on(Compat::new(async move {
+            let config = ClientConfig::builder()
+                .with_bind_address(self.client_addr)
+                .with_no_cert_validation()
+                .build();
+            let server_url = format!("https://{}", self.server_addr);
+            info!(
+                "Connection to server via webtransport at server url: {}",
+                &server_url
+            );
             let endpoint = wtransport::Endpoint::client(config)?;
             let connection = endpoint.connect(&server_url).await?;
             Ok::<wtransport::Connection, Error>(connection)
-        })?;
+        }))?;
 
         let connection = Arc::new(connection);
 
@@ -55,7 +54,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
         //   cancelled
         let connection_recv = connection.clone();
-        let recv_handle = IoTaskPool::get().spawn(async move {
+        let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
             loop {
                 match connection_recv.receive_datagram().await {
                     Ok(data) => {
@@ -67,7 +66,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                     }
                 }
             }
-        });
+        }));
         let connection_send = connection.clone();
         let send_handle = IoTaskPool::get().spawn(async move {
             loop {
