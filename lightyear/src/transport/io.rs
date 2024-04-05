@@ -15,35 +15,13 @@ use super::error::Result;
 use super::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
 };
-use crate::transport::channels::Channels;
-use crate::transport::dummy::DummyIo;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
 use crate::transport::{PacketReceiver, PacketSender, Transport};
-
-#[cfg(not(target_family = "wasm"))]
-use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
-
-#[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-use {
-    crate::transport::webtransport::server::{
-        WebTransportServerSocket, WebTransportServerSocketBuilder,
-    },
-    wtransport::tls::Certificate,
-};
-
-#[cfg(feature = "webtransport")]
-use crate::transport::webtransport::client::{
-    WebTransportClientSocket, WebTransportClientSocketBuilder,
-};
 
 use crate::transport::middleware::conditioner::{
     ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
 };
 use crate::transport::middleware::PacketReceiverWrapper;
-#[cfg(feature = "websocket")]
-use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
-#[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServerSocketBuilder};
 
 // TODO: separate unconnected io from connected io? maybe similar 'states' generic as wtransport?
 #[derive(Resource)]
@@ -92,14 +70,15 @@ impl Io {
         self.local_addr.expect("The transport is not connected yet")
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.sender.is_some()
+    }
+
     pub fn connect(&mut self) -> Result<()> {
         // TODO: allow for connection retries
-        let transport = std::mem::take(
-            self.transport_builder
-                .as_mut()
-                .expect("The transport has already been connected"),
-        )
-        .connect()?;
+        let transport_builder = std::mem::take(&mut self.transport_builder)
+            .expect("The transport has already been connected");
+        let transport = transport_builder.connect()?;
         self.local_addr = Some(transport.local_addr());
         let (sender, receiver, close_fn) = transport.split();
         self.close_fn = close_fn;

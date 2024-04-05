@@ -146,16 +146,6 @@ impl MultiBevyStepper {
             .unwrap()
             .update_with_instant(now);
 
-        // get the actual socket address for the udp transport
-        let server_addr = server_app
-            .world
-            .resource::<ServerConnections>()
-            .servers
-            .last()
-            .unwrap()
-            .io()
-            .local_addr();
-
         let build_client = |net_config: NetConfig| -> App {
             let mut client_app = App::new();
             client_app.add_plugins(
@@ -204,6 +194,11 @@ impl MultiBevyStepper {
     }
 
     pub fn init(&mut self) {
+        let _ = self
+            .server_app
+            .world
+            .resource_mut::<ServerConnections>()
+            .start();
         let _ = self
             .client_app_1
             .world

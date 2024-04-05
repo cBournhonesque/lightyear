@@ -247,6 +247,9 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                     .for_each(|(client_id, visibility)| {
                         if replicate.replication_target.should_send_to(client_id) {
                             match visibility {
+                                // TODO: here we required the component to be clone because we send it to multiple clients.
+                                //  but maybe we can instead serialize it to Bytes early and then have the bytes be shared between clients?
+                                //  or just pass a reference?
                                 ClientVisibility::Gained => {
                                     let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
                                     let _ = sender

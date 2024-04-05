@@ -1,7 +1,7 @@
 use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without};
 use tracing::{debug, info, trace};
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -64,8 +64,9 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     )>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
-    let kind = C::type_name();
+    let kind = P::ComponentKinds::from_type();
     if !connection.is_synced() {
         return;
     }

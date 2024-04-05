@@ -634,6 +634,7 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
+        stepper.init();
 
         // set time to end of wrapping
         let new_tick = Tick(u16::MAX - 1000);
@@ -643,7 +644,6 @@ mod tests {
             FixedPreUpdate,
             press_input.in_set(InputSystemSet::BufferInputs),
         );
-        stepper.server_app.add_systems(FixedUpdate, increment);
 
         stepper
             .server_app
@@ -668,10 +668,15 @@ mod tests {
             ))
             .id();
 
+        // cross tick boundary
         for i in 0..200 {
             stepper.frame_step();
         }
-        stepper.init();
+        stepper
+            .server_app
+            .world
+            .entity_mut(server_entity)
+            .insert(Component1(1.0));
         dbg!(&stepper.server_tick());
         dbg!(&stepper.client_tick());
         dbg!(&stepper.server_app.world.get::<Component1>(server_entity));
@@ -689,6 +694,13 @@ mod tests {
             .remote_entity_map
             .get_local(server_entity)
             .unwrap();
-        dbg!(&stepper.client_app.world.get::<Component1>(client_entity));
+        assert_eq!(
+            stepper
+                .client_app
+                .world
+                .get::<Component1>(client_entity)
+                .unwrap(),
+            &Component1(1.0)
+        );
     }
 }

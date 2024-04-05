@@ -64,7 +64,7 @@ impl ChannelRegistry {
     pub fn add<T: Channel>(&mut self, settings: ChannelSettings) {
         let kind = self.kind_map.add::<T>();
         self.builder_map.insert(kind, T::get_builder(settings));
-        let name = T::type_name();
+        let name = T::name();
         self.name_map.insert(kind, name.to_string());
     }
 
@@ -98,14 +98,14 @@ impl ChannelRegistry {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::default;
+    use bevy::prelude::{default, TypePath};
     use lightyear_macros::ChannelInternal;
 
     use crate::channel::builder::{ChannelDirection, ChannelMode, ChannelSettings};
 
     use super::*;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, TypePath)]
     pub struct MyChannel;
 
     #[test]

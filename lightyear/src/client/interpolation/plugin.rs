@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::_reexport::FromType;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -11,7 +12,7 @@ use crate::client::interpolation::interpolate::{
 };
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
-use crate::prelude::Mode;
+use crate::prelude::{ExternalMapper, Mode};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
@@ -144,6 +145,8 @@ pub enum InterpolationSet {
 pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
+    P::ComponentKinds: FromType<C>,
 {
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?

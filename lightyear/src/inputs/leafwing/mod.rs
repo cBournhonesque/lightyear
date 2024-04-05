@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use bevy::prelude::{FromReflect, TypePath};
 use bevy::reflect::Reflect;
 use leafwing_input_manager::Actionlike;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub use input_buffer::InputMessage;
@@ -17,7 +18,8 @@ pub(crate) mod input_buffer;
 ///
 /// See more information in the leafwing_input_manager crate: [`Actionlike`]
 pub trait LeafwingUserAction:
-    BitSerializable
+    Serialize
+    + DeserializeOwned
     + Copy
     + Clone
     + PartialEq

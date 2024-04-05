@@ -92,7 +92,7 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.client_id();
+        let client_id = *connection.context();
         let entity = commands.spawn(PlayerBundle::new(client_id, Vec2::splat(300.0)));
         // Add a mapping from client id to entity id (so that when we receive an input from a client,
         // we know which entity to move)

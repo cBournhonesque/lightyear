@@ -94,25 +94,26 @@ impl BallBundle {
 }
 
 // Components
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerId(PlayerId),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     ColorComponent(ColorComponent),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     BallMarker(BallMarker),
-    #[sync(full, lerp = "TransformLinearInterpolation")]
+    #[protocol(sync(mode = "full", lerp = "TransformLinearInterpolation"))]
     Transform(Transform),
+    Visibility(Visibility),
 }
 
 // Channels
@@ -122,7 +123,7 @@ pub struct Channel1;
 
 // Messages
 
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 #[message_protocol(protocol = "MyProtocol")]

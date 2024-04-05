@@ -22,7 +22,7 @@ pub mod _reexport {
     pub use paste::paste;
 
     pub use lightyear_macros::{
-        component_protocol_internal, message_protocol_internal, ChannelInternal, MessageInternal,
+        component_protocol_internal, message_protocol_internal, ChannelInternal,
     };
 
     pub use crate::channel::builder::TickBufferChannel;
@@ -67,7 +67,7 @@ pub mod _reexport {
 
 /// Prelude containing commonly used types
 pub mod prelude {
-    pub use lightyear_macros::{component_protocol, message_protocol, Channel, Message};
+    pub use lightyear_macros::{component_protocol, message_protocol, Channel};
 
     pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
@@ -90,7 +90,7 @@ pub mod prelude {
     pub use crate::shared::replication::components::{
         NetworkTarget, PrePredicted, ReplicationGroup, ReplicationMode, ShouldBePredicted,
     };
-    pub use crate::shared::replication::entity_map::{LightyearMapEntities, RemoteEntityMap};
+    pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
@@ -99,7 +99,6 @@ pub mod prelude {
     pub use crate::transport::config::{IoConfig, TransportConfig};
     pub use crate::transport::io::Io;
     pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
-    pub use crate::utils::named::Named;
 
     pub mod client {
         pub use crate::client::components::{

@@ -1,18 +1,13 @@
 use anyhow::Result;
-use bevy::prelude::{Entity, Resource};
+use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 
-use crate::_reexport::ReadWordBuffer;
-use crate::connection::client::ClientConnection;
 use crate::connection::id::ClientId;
-
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::server::SteamConfig;
 use crate::packet::packet::Packet;
-
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
-use crate::utils::free_list::FreeList;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
@@ -139,20 +134,33 @@ pub struct ServerConnections {
     pub servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
+    /// Track whether the server is ready to listen to incoming connections
+    is_listening: bool,
 }
 
 impl ServerConnections {
     pub fn new(config: Vec<NetConfig>) -> Self {
         let mut servers = vec![];
         for config in config {
-            let mut server = config.build_server();
-            // TODO: make this controllable! we might not want to start right away?
-            server.start().expect("could not start server");
+            let server = config.build_server();
             servers.push(server);
         }
         ServerConnections {
             servers,
             client_server_map: HashMap::default(),
+            is_listening: false,
         }
+    }
+
+    pub fn start(&mut self) -> Result<()> {
+        for server in &mut self.servers {
+            server.start()?;
+        }
+        self.is_listening = true;
+        Ok(())
+    }
+
+    pub(crate) fn is_listening(&self) -> bool {
+        self.is_listening
     }
 }

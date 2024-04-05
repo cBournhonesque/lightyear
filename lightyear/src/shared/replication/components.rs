@@ -1,16 +1,16 @@
 //! Components used for replication
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
-
-use lightyear_macros::MessageInternal;
 
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
+use crate::prelude::ParentSync;
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
@@ -454,29 +454,27 @@ impl NetworkTarget {
     }
 }
 
-// TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
-//  that's pretty dangerous because it's now hard for the user to derive new traits.
-//  let's think of another approach later.
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct ShouldBeInterpolated;
 
-// TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
-//  that's pretty dangerous because it's now hard for the user to derive new traits.
-//  let's think of another approach later.
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-
 /// Indicates that an entity was pre-predicted
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+// NOTE: we do not map entities for this component, we want to receive the entities as is
+//  because we already do the mapping at other steps
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct PrePredicted {
-    // TODO: rename this?
-    //  - also the server already gets the client entity in the message, so it's a waste of space...
-    //  - maybe use a different component: ClientToServer -> Prespawned (None)
-    //  - ServerToClient -> Prespawned (entity)
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
 }
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+impl MapEntities for PrePredicted {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        if let Some(entity) = &mut self.client_entity {
+            *entity = entity_mapper.map_entity(*entity);
+        }
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct ShouldBePredicted;
 
 #[cfg(test)]

@@ -10,8 +10,6 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::ReplicationMode;
-use UserAction;
 
 // Player
 #[derive(Bundle)]
@@ -67,12 +65,10 @@ impl PlayerBundle {
 
 // Components
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
-)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
 pub struct Position(pub(crate) Vec2);
 
 impl Mul<f32> for &Position {
@@ -83,13 +79,13 @@ impl Mul<f32> for &Position {
     }
 }
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
 #[derive(Component, Deref, DerefMut)]
 pub struct ShapeChangeTimer(pub(crate) Timer);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub enum Shape {
     Circle,
     Triangle,
@@ -98,11 +94,11 @@ pub enum Shape {
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerId(PlayerId),
-    #[sync(full)]
+    #[protocol(sync(mode = "full"))]
     PlayerPosition(Position),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerColor(PlayerColor),
     Shape(Shape),
 }
@@ -114,7 +110,7 @@ pub struct Channel1;
 
 // Messages
 
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 #[message_protocol(protocol = "MyProtocol")]

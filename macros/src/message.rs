@@ -1,84 +1,40 @@
-use crate::shared::generate_unique_ident;
+use crate::shared::{generate_unique_ident, strip_attributes};
 use darling::ast::NestedMeta;
 use darling::util::PathList;
-use darling::{Error, FromDeriveInput, FromMeta};
+use darling::{Error, FromDeriveInput, FromField, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use std::ops::Deref;
 use syn::{
     parse_macro_input, parse_quote, parse_quote_spanned, DeriveInput, Field, Fields, GenericParam,
-    Generics, ItemEnum, LifetimeParam, LitStr,
+    Generics, ItemEnum, LifetimeParam, LitStr, Type,
 };
 
-#[derive(Debug, FromDeriveInput)]
-#[darling(attributes(message))]
-struct MessageAttrs {
-    #[darling(default)]
-    custom_map: bool,
-}
-pub fn message_impl(
-    input: proc_macro::TokenStream,
-    shared_crate_name: TokenStream,
-) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let attrs = <MessageAttrs as FromDeriveInput>::from_derive_input(&input).unwrap();
-
-    // Helper Properties
-    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-    let map_entities = !attrs.custom_map;
-
-    // Names
-    let struct_name = &input.ident;
-    // let struct_name_str = LitStr::new(&struct_name.to_string(), struct_name.span());
-    let struct_name_str = &struct_name.to_string();
-    let lowercase_struct_name =
-        format_ident!("{}", struct_name.to_string().to_lowercase().as_str());
-    let module_name = generate_unique_ident(&format!("mod_{}", lowercase_struct_name));
-    let map_entities_trait = map_entities_trait(&input, map_entities);
-
-    // Methods
-    let gen = quote! {
-        pub mod #module_name {
-            use super::*;
-            use bevy::prelude::*;
-            use bevy::ecs::entity::{MapEntities, EntityMapper};
-            use #shared_crate_name::prelude::*;
-
-            #map_entities_trait
-
-            // TODO: maybe we should just be able to convert a message into a MessageKind, and impl Display/Debug on MessageKind?
-            impl #impl_generics Named for #struct_name #type_generics #where_clause {
-                const NAME: &'static str = #struct_name_str;
-            }
-        }
-    };
-
-    proc_macro::TokenStream::from(gen)
-}
-
-// Add the MapEntities trait for the message.
-// Need to combine the generics from the message with the generics from the trait
-fn map_entities_trait(input: &DeriveInput, ident_map: bool) -> TokenStream {
-    // type generics
-    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-
-    let struct_name = &input.ident;
-    if ident_map {
-        quote! {
-            impl #impl_generics LightyearMapEntities for #struct_name #type_generics #where_clause {
-                fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
-            }
-        }
-    } else {
-        quote! {}
-    }
-}
+const ATTRIBUTES: &[&str] = &["protocol"];
 
 #[derive(Debug, FromMeta)]
 struct MessageProtocolAttrs {
     protocol: Ident,
     #[darling(default)]
     derive: PathList,
+}
+
+#[derive(Debug, FromField)]
+#[darling(attributes(protocol))]
+struct AttrField {
+    ident: Option<Ident>,
+    ty: Type,
+    #[darling(default)]
+    map_entities: MapField,
+}
+
+#[derive(Debug, Default, FromMeta, PartialEq, Eq)]
+enum MapField {
+    #[default]
+    NoMapEntities,
+    Custom,
+    #[darling(word)]
+    MapWithMapEntity,
 }
 
 pub fn message_protocol_impl(
@@ -123,6 +79,11 @@ pub fn message_protocol_impl(
 
     // Helper Properties
     let fields = get_fields(&input);
+    let input_without_attributes = strip_attributes(&input, ATTRIBUTES);
+    let fields: Vec<AttrField> = fields
+        .iter()
+        .map(|field| FromField::from_field(field).unwrap())
+        .collect();
 
     // Names
     let enum_name = &input.ident;
@@ -139,7 +100,7 @@ pub fn message_protocol_impl(
     let add_events_method = add_events_method(&fields);
     let push_message_events_method = push_message_events_method(&fields, protocol);
     let name_method = name_method(&input, &fields);
-    let map_entities_impl = map_entities_impl(&input);
+    let map_entities_impl = map_entities_impl(&input, &fields);
     let encode_method = encode_method();
     let decode_method = decode_method();
 
@@ -156,7 +117,7 @@ pub fn message_protocol_impl(
 
             #[derive(Serialize, Deserialize, Clone, PartialEq)]
             #extra_derives
-            #input
+            #input_without_attributes
 
             impl MessageProtocol for #enum_name {
                 type Protocol = #protocol;
@@ -190,7 +151,7 @@ pub fn message_protocol_impl(
     proc_macro::TokenStream::from(output)
 }
 
-fn push_message_events_method(fields: &Vec<Field>, protocol_name: &Ident) -> TokenStream {
+fn push_message_events_method(fields: &Vec<AttrField>, protocol_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let message_type = &field.ty;
@@ -210,7 +171,7 @@ fn push_message_events_method(fields: &Vec<Field>, protocol_name: &Ident) -> Tok
     }
 }
 
-fn from_into_impl(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+fn from_into_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let enum_name = &input.ident;
     let mut body = quote! {};
     for field in fields.iter() {
@@ -256,7 +217,7 @@ fn from_into_impl(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
     body
 }
 
-fn message_kind_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+fn message_kind_method(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let enum_name = &input.ident;
     let mut body = quote! {};
     for field in fields.iter() {
@@ -311,7 +272,7 @@ fn input_message_kind_method(input: &ItemEnum) -> TokenStream {
     }
 }
 
-fn add_events_method(fields: &Vec<Field>) -> TokenStream {
+fn add_events_method(fields: &Vec<AttrField>) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
         let component_type = &field.ty;
@@ -328,17 +289,17 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn name_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+fn name_method(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let enum_name = &input.ident;
     let mut body = quote! {};
     for field in fields.iter() {
-        let ident = &field.ident;
+        let ident = field.ident.as_ref().unwrap();
+        let name = LitStr::new(&ident.to_string(), Span::call_site());
         body = quote! {
             #body
-            &#enum_name::#ident(ref x) => x.name(),
+            &#enum_name::#ident(ref x) => #name,
         };
     }
-
     quote! {
         fn name(&self) -> &'static str {
             match self {
@@ -348,21 +309,56 @@ fn name_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn map_entities_impl(input: &ItemEnum) -> TokenStream {
+fn map_entities_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let enum_name = &input.ident;
-    let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut map_entities_body = quote! {};
-    let mut entities_body = quote! {};
-    for variant in input.variants.iter() {
-        let ident = &variant.ident;
-        map_entities_body = quote! {
-            #map_entities_body
-            #enum_name::#ident(ref mut x) => x.map_entities(entity_mapper),
-        };
+    let mut external_mapper_body = quote! {};
+    for field in fields.iter() {
+        let component_type = &field.ty;
+        let ident = &field.ident;
+        match &field.map_entities {
+            MapField::NoMapEntities => {
+                // if there is no mapping, still implement the ExternalMapper trait which is used to perform the mapping on the component directly
+                // if there's no map entities, no need to do any mapping.
+                external_mapper_body = quote! {
+                    #external_mapper_body
+                    impl ExternalMapper<#component_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {}
+                    }
+                };
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => {},
+                };
+            }
+            MapField::Custom => {
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                };
+            }
+            MapField::MapWithMapEntity => {
+                // if there is an MapEntities defined on the component, we use it for ExternalMapper
+                external_mapper_body = quote! {
+                    #external_mapper_body
+                    impl ExternalMapper<#component_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {
+                            x.map_entities(entity_mapper);
+                        }
+                    }
+                };
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                };
+            }
+        }
     }
 
+    // TODO: make it work with generics (generic components)
     quote! {
-        impl LightyearMapEntities for #enum_name {
+        #external_mapper_body
+        impl MapEntities for #enum_name {
             fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
                 match self {
                     #map_entities_body

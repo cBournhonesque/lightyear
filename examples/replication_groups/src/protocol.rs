@@ -1,3 +1,4 @@
+use bevy::ecs::entity::MapEntities;
 use std::collections::VecDeque;
 use std::ops::Mul;
 
@@ -79,12 +80,10 @@ impl TailBundle {
 
 // Components
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
-#[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add,
-)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add)]
 pub struct PlayerPosition(pub(crate) Vec2);
 
 impl Mul<f32> for &PlayerPosition {
@@ -139,13 +138,13 @@ impl PlayerPosition {
     }
 }
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct TailLength(pub(crate) f32);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 // tail inflection points, from front (point closest to the head) to back (tail end point)
 pub struct TailPoints(pub(crate) VecDeque<(Vec2, Direction)>);
 
@@ -198,11 +197,10 @@ impl TailPoints {
 // to the client World.
 // This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
 // deriving the `MapEntities` trait for the component.
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
-#[message(custom_map)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerParent(pub(crate) Entity);
 
-impl LightyearMapEntities for PlayerParent {
+impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.0 = entity_mapper.map_entity(self.0);
     }
@@ -210,19 +208,20 @@ impl LightyearMapEntities for PlayerParent {
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerId(PlayerId),
-    #[sync(full)]
+    #[protocol(sync(mode = "full"))]
     PlayerPosition(PlayerPosition),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerColor(PlayerColor),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     TailLength(TailLength),
     // we set the interpolation function to NoInterpolation because we are using our own custom interpolation logic
     // (by default it would use LinearInterpolator, which requires Add and Mul bounds on this component)
-    #[sync(full, lerp = "NullInterpolator")]
+    #[protocol(sync(mode = "once", lerp = "NullInterpolator"))]
     TailPoints(TailPoints),
-    #[sync(once)]
+    // we specify `map_entities` because the entity contained in this component needs to be mapped
+    #[protocol(sync(mode = "once"), map_entities)]
     PlayerParent(PlayerParent),
 }
 
@@ -233,7 +232,7 @@ pub struct Channel1;
 
 // Messages
 
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 #[message_protocol(protocol = "MyProtocol")]

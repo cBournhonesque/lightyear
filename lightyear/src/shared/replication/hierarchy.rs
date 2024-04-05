@@ -1,11 +1,10 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
-use lightyear_macros::MessageInternal;
-
-use crate::prelude::{LightyearMapEntities, ReplicationGroup};
+use crate::prelude::ReplicationGroup;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
@@ -16,22 +15,10 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 ///
 /// Updates entity's `Parent` component on change.
 /// Removes the parent if `None`.
-#[derive(
-    MessageInternal,
-    Component,
-    Default,
-    Reflect,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    Debug,
-    PartialEq,
-)]
-#[message(custom_map)]
+#[derive(Component, Default, Reflect, Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ParentSync(Option<Entity>);
 
-impl LightyearMapEntities for ParentSync {
+impl MapEntities for ParentSync {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(entity) = &mut self.0 {
             *entity = entity_mapper.map_entity(*entity);
@@ -176,15 +163,12 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchyReceivePlugin<P, R>
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
     use std::ops::Deref;
 
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
-    use crate::client::sync::SyncConfig;
-    use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{LinkConditionerConfig, ReplicationGroup, SharedConfig, TickConfig};
+    use crate::prelude::ReplicationGroup;
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
