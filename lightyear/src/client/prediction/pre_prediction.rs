@@ -100,7 +100,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
                 let Ok(mut predicted_entity_mut) = predicted_entities.get_mut(predicted_entity)
                 else {
                     error!(
-                    "The pre-predicted entity corresponding to the Confirmed entity ({confirmed_entity:?}) does not exist!"
+                    "The pre-predicted entity ({predicted_entity:?}) corresponding to the Confirmed entity ({confirmed_entity:?}) does not exist!"
                 );
                     continue;
                 };

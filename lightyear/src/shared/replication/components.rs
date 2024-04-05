@@ -466,14 +466,6 @@ pub struct PrePredicted {
     pub(crate) client_entity: Option<Entity>,
 }
 
-impl MapEntities for PrePredicted {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(entity) = &mut self.client_entity {
-            *entity = entity_mapper.map_entity(*entity);
-        }
-    }
-}
-
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct ShouldBePredicted;
 

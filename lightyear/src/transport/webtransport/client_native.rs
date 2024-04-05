@@ -36,11 +36,12 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 .build();
             let server_url = format!("https://{}", self.server_addr);
             info!(
-                "Connection to server via webtransport at server url: {}",
+                "Connecting to server via webtransport at server url: {}",
                 &server_url
             );
             let endpoint = wtransport::Endpoint::client(config)?;
             let connection = endpoint.connect(&server_url).await?;
+            info!("Connected.");
             Ok::<wtransport::Connection, Error>(connection)
         }))?;
 
@@ -68,7 +69,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             }
         }));
         let connection_send = connection.clone();
-        let send_handle = IoTaskPool::get().spawn(async move {
+        let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
             loop {
                 if let Some(msg) = to_server_receiver.recv().await {
                     trace!("send datagram to server: {:?}", &msg);
@@ -77,15 +78,14 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                     });
                 }
             }
-        });
+        }));
         IoTaskPool::get()
             .spawn(async move {
                 // Wait for a close signal from the close channel, or for the quic connection to be closed
                 tokio::select! {
-                    _ = connection.closed() => {},
-                    _ = async { close_rx.recv() } => {}
+                    reason = connection.closed() => {info!("WebTransport connection closed. Reason: {reason:?}")},
+                    _ = close_rx.recv() => {info!("WebTransport connection closed. Reason: client requested disconnection.");}
                 }
-                info!("WebTransport connection closed.");
                 // close the other tasks
                 recv_handle.cancel().await;
                 send_handle.cancel().await;

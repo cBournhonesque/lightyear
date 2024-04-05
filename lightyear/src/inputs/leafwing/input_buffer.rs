@@ -12,7 +12,7 @@ use leafwing_input_manager::axislike::DualAxisData;
 use leafwing_input_manager::prelude::ActionState;
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::{trace, warn};
 
 use crate::prelude::client::SyncComponent;
 use crate::prelude::Message;

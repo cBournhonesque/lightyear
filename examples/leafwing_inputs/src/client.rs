@@ -184,11 +184,13 @@ fn player_movement(
     >,
 ) {
     for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
-        // note that we also apply the input to the other predicted clients! even though
-        //  their inputs are only replicated with a delay!
-        // TODO: add input decay?
-        shared_movement_behaviour(velocity, action_state);
-        info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+        if !action_state.get_pressed().is_empty() {
+            info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+            // note that we also apply the input to the other predicted clients! even though
+            //  their inputs are only replicated with a delay!
+            // TODO: add input decay?
+            shared_movement_behaviour(velocity, action_state);
+        }
     }
 }
 

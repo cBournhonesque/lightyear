@@ -4,7 +4,7 @@ use std::{collections::VecDeque, net::SocketAddr};
 
 use anyhow::Context;
 use bevy::prelude::Resource;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::connection::client::NetClient;
 use crate::connection::id;

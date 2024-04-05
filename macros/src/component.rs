@@ -100,7 +100,6 @@ pub fn component_protocol_impl(
         ShouldBePredicted(ShouldBePredicted)
     });
     input.variants.push(parse_quote! {
-        #[protocol(map_entities)]
         PrePredicted(PrePredicted)
     });
     input.variants.push(parse_quote! {

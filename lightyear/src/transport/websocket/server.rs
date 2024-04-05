@@ -47,7 +47,6 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
         };
 
         let listener = futures_lite::future::block_on(Compat::new(async move {
-            info!("Starting server websocket task");
             TcpListener::bind(self.server_addr).await
         }))?;
 

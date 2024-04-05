@@ -1,4 +1,4 @@
-use crate::shared::{generate_unique_ident, strip_attributes};
+use crate::shared::{generate_unique_ident, get_fields, strip_attributes};
 use darling::ast::NestedMeta;
 use darling::util::PathList;
 use darling::{Error, FromDeriveInput, FromField, FromMeta};
@@ -73,6 +73,7 @@ pub fn message_protocol_impl(
         let variant = Ident::new(&format!("LeafwingInput{}Message", i), Span::call_site());
         let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
         input.variants.push(parse_quote! {
+            #[protocol(map_entities)]
             #variant(#shared_crate_name::inputs::leafwing::InputMessage<<#protocol as Protocol>::#ty>)
         });
     }
@@ -314,7 +315,7 @@ fn map_entities_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
     let mut map_entities_body = quote! {};
     let mut external_mapper_body = quote! {};
     for field in fields.iter() {
-        let component_type = &field.ty;
+        let message_type = &field.ty;
         let ident = &field.ident;
         match &field.map_entities {
             MapField::NoMapEntities => {
@@ -322,8 +323,8 @@ fn map_entities_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
                 // if there's no map entities, no need to do any mapping.
                 external_mapper_body = quote! {
                     #external_mapper_body
-                    impl ExternalMapper<#component_type> for #enum_name {
-                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {}
+                    impl ExternalMapper<#message_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #message_type, entity_mapper: &mut M) {}
                     }
                 };
                 map_entities_body = quote! {
@@ -334,15 +335,15 @@ fn map_entities_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
             MapField::Custom => {
                 map_entities_body = quote! {
                     #map_entities_body
-                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                    Self::#ident(ref mut x) => <Self as ExternalMapper<#message_type>>::map_entities_for(x, entity_mapper),
                 };
             }
             MapField::MapWithMapEntity => {
                 // if there is an MapEntities defined on the component, we use it for ExternalMapper
                 external_mapper_body = quote! {
                     #external_mapper_body
-                    impl ExternalMapper<#component_type> for #enum_name {
-                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {
+                    impl ExternalMapper<#message_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #message_type, entity_mapper: &mut M) {
                             x.map_entities(entity_mapper);
                         }
                     }
@@ -383,18 +384,4 @@ fn decode_method() -> TokenStream {
             reader.deserialize::<Self>()
         }
     }
-}
-
-fn get_fields(input: &ItemEnum) -> Vec<Field> {
-    let mut fields = Vec::new();
-    for field in &input.variants {
-        let Fields::Unnamed(unnamed) = &field.fields else {
-            panic!("Field must be unnamed");
-        };
-        assert_eq!(unnamed.unnamed.len(), 1);
-        let mut component = unnamed.unnamed.first().unwrap().clone();
-        component.ident = Some(field.ident.clone());
-        fields.push(component);
-    }
-    fields
 }

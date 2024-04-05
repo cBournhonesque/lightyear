@@ -167,8 +167,11 @@ impl WebTransportServerSocket {
         });
 
         // await for the quic connection to be closed for any reason
-        connection.closed().await;
-        info!("Connection with {} closed", client_addr);
+        let reason = connection.closed().await;
+        info!(
+            "Connection with {} closed. Reason: {:?}",
+            client_addr, reason
+        );
         to_client_channels.lock().unwrap().remove(&client_addr);
         debug!("Dropping tasks");
         // the handles being dropped cancels the tasks

@@ -180,7 +180,7 @@ pub(crate) fn after_physics_log(
         }
     }
     for (entity, position, rotation) in players.iter() {
-        info!(
+        debug!(
             ?tick,
             ?entity,
             ?position,
@@ -209,8 +209,8 @@ pub(crate) fn last_log(
 ) {
     let tick = tick_manager.tick();
     for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        info!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        info!(
+        debug!(?tick, ?entity, ?position, ?correction, "Player LAST update");
+        debug!(
             ?tick,
             ?entity,
             rotation = ?rotation.as_degrees(),
