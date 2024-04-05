@@ -53,11 +53,7 @@ pub(crate) fn init(
     mut connections: ResMut<ServerConnections>,
     global: Res<Global>,
 ) {
-    for connection in &mut connections.servers {
-        let _ = connection.start().inspect_err(|e| {
-            error!("Failed to start server: {:?}", e);
-        });
-    }
+    connections.start().expect("Failed to start server");
     commands.spawn(
         TextBundle::from_section(
             "Server",
