@@ -11,7 +11,17 @@ use crate::server::config::NetcodeConfig;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
+    /// (i.e. start listening for client connections)
     fn start(&mut self) -> Result<()>;
+
+    /// Stop the server
+    /// (i.e. stop listening for client connections and stop all networking)
+    fn stop(&mut self) -> Result<()>;
+
+    // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
+    //  and we decide whether to accept it or not
+    /// Disconnect a specific client
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
@@ -94,6 +104,14 @@ impl NetServer for ServerConnection {
         self.server.start()
     }
 
+    fn stop(&mut self) -> Result<()> {
+        self.server.stop()
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        self.server.disconnect(client_id)
+    }
+
     fn connected_client_ids(&self) -> Vec<ClientId> {
         self.server.connected_client_ids()
     }
@@ -131,7 +149,7 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub servers: Vec<ServerConnection>,
+    servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
     /// Track whether the server is ready to listen to incoming connections

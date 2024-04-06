@@ -105,6 +105,15 @@ impl NetServer for Server {
         Ok(())
     }
 
+    fn stop(&mut self) -> Result<()> {
+        self.listen_socket.unwrap(). = None;
+        todo!()
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        todo!()
+    }
+
     fn connected_client_ids(&self) -> Vec<ClientId> {
         self.connections.keys().cloned().collect()
     }

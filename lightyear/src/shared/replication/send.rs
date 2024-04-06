@@ -130,7 +130,7 @@ impl<P: Protocol> ReplicationSender<P> {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }
             } else {
-                error!("Received an update message-id ack but we know the corresponding group id");
+                error!("Received an update message-id ack but we don't know the corresponding group id");
             }
         }
     }
