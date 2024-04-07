@@ -12,6 +12,7 @@ use crate::client::interpolation::interpolate::{
 };
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
+use crate::client::sync::client_is_synced;
 use crate::prelude::{ExternalMapper, Mode};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
@@ -163,7 +164,7 @@ where
                 Update,
                 (
                     apply_confirmed_update_mode_full::<C, P>,
-                    update_interpolate_status::<C, P>,
+                    update_interpolate_status::<C, P>.run_if(client_is_synced::<P>),
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
                     insert_interpolated_component::<C, P>,
