@@ -150,7 +150,7 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    servers: Vec<ServerConnection>,
+    pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
     /// Track whether the server is ready to listen to incoming connections

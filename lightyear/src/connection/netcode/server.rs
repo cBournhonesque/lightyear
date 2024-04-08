@@ -1027,13 +1027,17 @@ impl NetServer for Server {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        let connected_clients = self.server.connected_client_ids().collect::<Vec<_>>();
+        let mut connected_clients = self
+            .server
+            .connected_client_ids()
+            .map(id::ClientId::Netcode)
+            .collect::<Vec<_>>();
         self.server.disconnect_all(&mut self.io)?;
         self.server
             .cfg
             .context
             .disconnections
-            .extend(connected_clients);
+            .append(&mut connected_clients);
         self.io.close()?;
         Ok(())
     }
