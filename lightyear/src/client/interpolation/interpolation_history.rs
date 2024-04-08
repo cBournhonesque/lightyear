@@ -120,7 +120,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                                 // new_component,
                                 history,
                                 InterpolateStatus::<C> {
-                                    start: None,
+                                    start: Some((current_tick, new_component)),
                                     end: None,
                                     current_tick,
                                     current_overstep,

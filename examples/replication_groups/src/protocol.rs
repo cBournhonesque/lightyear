@@ -218,7 +218,7 @@ pub enum Components {
     TailLength(TailLength),
     // we set the interpolation function to NoInterpolation because we are using our own custom interpolation logic
     // (by default it would use LinearInterpolator, which requires Add and Mul bounds on this component)
-    #[protocol(sync(mode = "once", lerp = "NullInterpolator"))]
+    #[protocol(sync(mode = "full", lerp = "NullInterpolator"))]
     TailPoints(TailPoints),
     // we specify `map_entities` because the entity contained in this component needs to be mapped
     #[protocol(sync(mode = "once"), map_entities)]

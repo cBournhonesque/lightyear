@@ -17,7 +17,7 @@ use crate::shared::tick_manager::Tick;
 //   but will also make it more likely to have a wrong interpolation when we have packet loss
 // - however we can combat packet loss by having a bigger delay
 // TODO: this value should depend on jitter I think
-const SEND_INTERVAL_TICK_FACTOR: f32 = 1.5;
+const SEND_INTERVAL_TICK_FACTOR: f32 = 1.3;
 
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?
@@ -237,29 +237,19 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
         let mut entity_commands = commands.entity(entity);
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
+            trace!(is_end = ?status.end.is_some(), "start tick exists, checking if we need to insert the component");
             // we have two updates!, add the component
             if let Some((end_tick, end_value)) = &status.end {
                 assert!(status.current_tick < *end_tick);
                 assert_ne!(start_tick, end_tick);
-                trace!(?entity, ?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
-                if status.current_tick == *end_tick {
-                    info!("insert comp value curr=end");
-                    entity_commands.insert(end_value.clone());
-                    continue;
-                }
-                if start_tick != end_tick {
-                    info!("insert comp value ");
-                    let t = status.interpolation_fraction().unwrap();
-                    let value = P::Components::lerp(start_value, end_value, t);
-                    entity_commands.insert(value);
-                } else {
-                    info!("insert comp value start=end");
-                    entity_commands.insert(start_value.clone());
-                }
+                trace!("insert interpolated comp value because we have 2 updates");
+                let t = status.interpolation_fraction().unwrap();
+                let value = P::Components::lerp(start_value, end_value, t);
+                entity_commands.insert(value);
             } else {
                 // we only have one update, but enough time has passed that we should add the component anyway
                 if tick - *start_tick >= send_interval_delta_tick {
-                    info!("insert interpolated comp value, enough time");
+                    trace!("insert interpolated comp value because enough time has passed");
                     entity_commands.insert(start_value.clone());
                 }
             }
