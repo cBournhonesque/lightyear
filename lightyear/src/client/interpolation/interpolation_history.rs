@@ -24,7 +24,7 @@ pub struct ConfirmedHistory<T: SyncComponent> {
 
     // TODO: add a max size for the buffer
     // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
-    // We can afford to use a ReadyBuffer because we will get server updates with monotically increasing ticks
+    // We can afford to use a ReadyBuffer because we will get server updates with monotonically increasing ticks
     // therefore we can get rid of the old ticks before the server update
 
     // We will only store the history for the ticks where the component got updated
@@ -115,11 +115,12 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                             trace!(?interpolated_entity, tick=?tick_manager.tick(),  "spawn interpolation history");
                             interpolated_entity_mut.insert((
                                 // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
-                                //  we can interpolate between. Otherwise it will look jarring if send_interval is low.
+                                //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
+                                //  stay fixed until we get the next update, then it will start moving)
                                 // new_component,
                                 history,
                                 InterpolateStatus::<C> {
-                                    start: None,
+                                    start: Some((current_tick, new_component)),
                                     end: None,
                                     current_tick,
                                     current_overstep,
