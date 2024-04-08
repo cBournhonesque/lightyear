@@ -80,10 +80,12 @@ impl TailBundle {
 
 // Components
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(ClientId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add)]
+#[derive(
+    Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Reflect,
+)]
 pub struct PlayerPosition(pub(crate) Vec2);
 
 impl Mul<f32> for &PlayerPosition {
@@ -197,7 +199,7 @@ impl TailPoints {
 // to the client World.
 // This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
 // deriving the `MapEntities` trait for the component.
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerParent(pub(crate) Entity);
 
 impl MapEntities for PlayerParent {
