@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 
@@ -11,7 +11,18 @@ use crate::server::config::NetcodeConfig;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
+    /// (i.e. start listening for client connections)
     fn start(&mut self) -> Result<()>;
+
+    /// Stop the server
+    /// (i.e. stop listening for client connections and stop all networking)
+    fn stop(&mut self) -> Result<()>;
+
+    // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
+    //  and we decide whether to accept it or not
+    /// Disconnect a specific client
+    /// Is also responsible for adding the client to the list of new disconnections.
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
@@ -94,6 +105,14 @@ impl NetServer for ServerConnection {
         self.server.start()
     }
 
+    fn stop(&mut self) -> Result<()> {
+        self.server.stop()
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        self.server.disconnect(client_id)
+    }
+
     fn connected_client_ids(&self) -> Vec<ClientId> {
         self.server.connected_client_ids()
     }
@@ -131,7 +150,7 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub servers: Vec<ServerConnection>,
+    pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
     /// Track whether the server is ready to listen to incoming connections
@@ -152,6 +171,7 @@ impl ServerConnections {
         }
     }
 
+    /// Start listening for client connections on all internal servers
     pub fn start(&mut self) -> Result<()> {
         for server in &mut self.servers {
             server.start()?;
@@ -160,6 +180,32 @@ impl ServerConnections {
         Ok(())
     }
 
+    /// Stop listening for client connections on all internal servers
+    pub fn stop(&mut self) -> Result<()> {
+        for server in &mut self.servers {
+            server.stop()?;
+        }
+        self.is_listening = false;
+        Ok(())
+    }
+
+    /// Disconnect a specific client
+    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        self.client_server_map.get(&client_id).map_or(
+            Err(anyhow!(
+                "Could not find the server instance associated with client: {client_id:?}"
+            )),
+            |&server_idx| {
+                self.servers[server_idx].disconnect(client_id)?;
+                // NOTE: we don't remove the client from the map here because it is done
+                //  in the server's `receive` method
+                // self.client_server_map.remove(&client_id);
+                Ok(())
+            },
+        )
+    }
+
+    /// Returns true if the server is currently listening for client packets
     pub(crate) fn is_listening(&self) -> bool {
         self.is_listening
     }

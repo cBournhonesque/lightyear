@@ -1026,6 +1026,35 @@ impl NetServer for Server {
         Ok(())
     }
 
+    fn stop(&mut self) -> anyhow::Result<()> {
+        let mut connected_clients = self
+            .server
+            .connected_client_ids()
+            .map(id::ClientId::Netcode)
+            .collect::<Vec<_>>();
+        self.server.disconnect_all(&mut self.io)?;
+        self.server
+            .cfg
+            .context
+            .disconnections
+            .append(&mut connected_clients);
+        self.io.close()?;
+        Ok(())
+    }
+
+    fn disconnect(&mut self, client_id: id::ClientId) -> anyhow::Result<()> {
+        match client_id {
+            id::ClientId::Netcode(id) => {
+                self.server
+                    .disconnect(id, &mut self.io)
+                    .context("Could not disconnect client")?;
+                self.server.cfg.context.disconnections.push(client_id);
+                Ok(())
+            }
+            _ => Err(anyhow!("the client id must be of type Netcode")),
+        }
+    }
+
     fn connected_client_ids(&self) -> Vec<id::ClientId> {
         self.server
             .connected_client_ids()
