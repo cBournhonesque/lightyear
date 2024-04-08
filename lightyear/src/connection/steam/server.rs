@@ -159,9 +159,15 @@ impl NetServer for Server {
                 ListenSocketEvent::Disconnected(event) => {
                     if let Some(steam_id) = event.remote().steam_id() {
                         let client_id = ClientId::Steam(steam_id.raw());
-                        info!("Client with id: {:?} disconnected!", client_id);
-                        // SAFETY: this can only panic if provide a non-steam `client_id`
-                        self.disconnect(client_id).unwrap();
+                        info!(
+                            "Client with id: {:?} disconnected! Reason: {:?}",
+                            client_id,
+                            event.end_reason()
+                        );
+                        if let Some(connection) = self.connections.remove(&client_id) {
+                            let _ = connection.close(NetConnectionEnd::AppGeneric, None, true);
+                            self.new_disconnections.push(client_id);
+                        }
                     } else {
                         error!("Received disconnection attempt from invalid steam id");
                     }
