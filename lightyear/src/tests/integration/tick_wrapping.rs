@@ -134,6 +134,7 @@ fn test_sync_after_tick_half_wrap() {
         link_conditioner,
         frame_duration,
     );
+    stepper.init();
 
     // set time to end of wrapping
     let new_tick = Tick(u16::MAX / 2 - 10);
@@ -153,7 +154,6 @@ fn test_sync_after_tick_half_wrap() {
         FixedPreUpdate,
         press_input.in_set(InputSystemSet::BufferInputs),
     );
-    stepper.server_app.add_systems(FixedUpdate, increment);
 
     let server_entity = stepper
         .server_app
@@ -170,9 +170,13 @@ fn test_sync_after_tick_half_wrap() {
     for i in 0..200 {
         stepper.frame_step();
     }
-    stepper.init();
-    dbg!(&stepper.server_tick());
-    dbg!(&stepper.client_tick());
+    stepper
+        .server_app
+        .world
+        .entity_mut(server_entity)
+        .insert(Component1(1.0));
+    // dbg!(&stepper.server_tick());
+    // dbg!(&stepper.client_tick());
     let server_value = stepper
         .server_app
         .world
@@ -198,6 +202,6 @@ fn test_sync_after_tick_half_wrap() {
             .world
             .get::<Component1>(client_entity)
             .unwrap(),
-        &Component1(47.0)
+        &Component1(1.0)
     );
 }
