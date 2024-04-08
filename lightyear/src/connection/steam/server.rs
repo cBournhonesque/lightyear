@@ -1,4 +1,5 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
+use crate::connection::id;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::MAX_PACKET_SIZE;
 use crate::connection::server::NetServer;
@@ -16,7 +17,6 @@ use steamworks::networking_types::{
 };
 use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
 use tracing::{error, info};
-use crate::connection::id;
 
 use super::{get_networking_options, SingleClientThreadSafe};
 
@@ -108,18 +108,24 @@ impl NetServer for Server {
 
     fn stop(&mut self) -> Result<()> {
         self.listen_socket = None;
+        for (client_id, connection) in self.connections.drain() {
+            let _ = connection.close(NetConnectionEnd::AppGeneric, None, true);
+            self.new_disconnections.push(client_id);
+        }
         info!("Steam socket has been closed.");
+        Ok(())
     }
 
     fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
         match client_id {
-                ClientId::Steam(id) => {
+            ClientId::Steam(id) => {
+                if let Some(connection) = self.connections.remove(&client_id) {
+                    let _ = connection.close(NetConnectionEnd::AppGeneric, None, true);
                     self.new_disconnections.push(client_id);
-                    self.connections.remove(&client_id);
-                    Ok(())
-                },
-                _ => Err(anyhow!("the client id must be of type Steam")),
+                }
+                Ok(())
             }
+            _ => Err(anyhow!("the client id must be of type Steam")),
         }
     }
 

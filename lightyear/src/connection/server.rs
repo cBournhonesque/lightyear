@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 
@@ -21,6 +21,7 @@ pub trait NetServer: Send + Sync {
     // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
     //  and we decide whether to accept it or not
     /// Disconnect a specific client
+    /// Is also responsible for adding the client to the list of new disconnections.
     fn disconnect(&mut self, client_id: ClientId) -> Result<()>;
 
     /// Return the list of connected clients
@@ -188,7 +189,23 @@ impl ServerConnections {
         Ok(())
     }
 
-    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {}
+    /// Disconnect a specific client
+    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        self.client_server_map.get(&client_id).map_or(
+            Err(anyhow!(
+                "Could not find the server instance associated with client: {client_id:?}"
+            )),
+            |&server_idx| {
+                self.servers[server_idx].disconnect(client_id)?;
+                // NOTE: we don't remove the client from the map here because it is done
+                //  in the server's `receive` method
+                // self.client_server_map.remove(&client_id);
+                Ok(())
+            },
+        )
+    }
+
+    /// Returns true if the server is currently listening for client packets
     pub(crate) fn is_listening(&self) -> bool {
         self.is_listening
     }
