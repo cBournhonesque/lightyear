@@ -170,6 +170,7 @@ impl ServerConnections {
         }
     }
 
+    /// Start listening for client connections on all internal servers
     pub fn start(&mut self) -> Result<()> {
         for server in &mut self.servers {
             server.start()?;
@@ -178,6 +179,16 @@ impl ServerConnections {
         Ok(())
     }
 
+    /// Stop listening for client connections on all internal servers
+    pub fn stop(&mut self) -> Result<()> {
+        for server in &mut self.servers {
+            server.stop()?;
+        }
+        self.is_listening = false;
+        Ok(())
+    }
+
+    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {}
     pub(crate) fn is_listening(&self) -> bool {
         self.is_listening
     }

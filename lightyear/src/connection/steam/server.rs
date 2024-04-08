@@ -5,7 +5,7 @@ use crate::connection::server::NetServer;
 use crate::packet::packet::Packet;
 use crate::prelude::{Io, LinkConditionerConfig};
 use crate::serialize::wordbuffer::reader::BufferPool;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bevy::utils::HashMap;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -16,6 +16,7 @@ use steamworks::networking_types::{
 };
 use steamworks::{ClientManager, Manager, ServerManager, ServerMode, SingleClient, SteamError};
 use tracing::{error, info};
+use crate::connection::id;
 
 use super::{get_networking_options, SingleClientThreadSafe};
 
@@ -106,12 +107,20 @@ impl NetServer for Server {
     }
 
     fn stop(&mut self) -> Result<()> {
-        self.listen_socket.unwrap(). = None;
-        todo!()
+        self.listen_socket = None;
+        info!("Steam socket has been closed.");
     }
 
     fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
-        todo!()
+        match client_id {
+                ClientId::Steam(id) => {
+                    self.new_disconnections.push(client_id);
+                    self.connections.remove(&client_id);
+                    Ok(())
+                },
+                _ => Err(anyhow!("the client id must be of type Steam")),
+            }
+        }
     }
 
     fn connected_client_ids(&self) -> Vec<ClientId> {
@@ -145,8 +154,8 @@ impl NetServer for Server {
                     if let Some(steam_id) = event.remote().steam_id() {
                         let client_id = ClientId::Steam(steam_id.raw());
                         info!("Client with id: {:?} disconnected!", client_id);
-                        self.new_disconnections.push(client_id);
-                        self.connections.remove(&client_id);
+                        // SAFETY: this can only panic if provide a non-steam `client_id`
+                        self.disconnect(client_id).unwrap();
                     } else {
                         error!("Received disconnection attempt from invalid steam id");
                     }
