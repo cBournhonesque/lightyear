@@ -1,3 +1,11 @@
+//! The server side of the example.
+//! It is possible (and recommended) to run the server in headless mode (without any rendering plugins).
+//!
+//! The server will:
+//! - spawn a new player entity for each client that connects
+//! - read inputs from the clients and move the player entities accordingly
+//!
+//! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -12,7 +20,6 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ServerTransports, SharedSettings};
 
-// Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
