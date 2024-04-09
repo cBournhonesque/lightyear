@@ -1,3 +1,9 @@
+//! The client plugin.
+//! The client will be responsible for:
+//! - connecting to the server at Startup
+//! - sending inputs to the server
+//! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
+//! predicted entity and the server entity)
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
@@ -64,7 +70,8 @@ pub(crate) fn handle_connection(
     }
 }
 
-// System that reads from peripherals and adds inputs to the buffer
+/// System that reads from peripherals and adds inputs to the buffer
+/// This system must be run in the
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
     connection: Res<ClientConnection>,
@@ -104,9 +111,9 @@ pub(crate) fn buffer_input(
     input_manager.add_input(input, tick)
 }
 
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
+/// The client input only gets applied to predicted entities that we own
+/// This works because we only predict the user's controlled entity.
+/// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
     // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
@@ -124,39 +131,39 @@ fn player_movement(
     }
 }
 
-// System to receive messages on the client
+/// System to receive messages on the client
 pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) {
     for event in reader.read() {
         info!("Received message: {:?}", event.message());
     }
 }
 
-// Example system to handle EntitySpawn events
+/// Example system to handle EntitySpawn events
 pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
     for event in reader.read() {
         info!("Received entity spawn: {:?}", event.entity());
     }
 }
 
-// Example system to handle EntitySpawn events
+/// Example system to handle EntitySpawn events
 pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
     for event in reader.read() {
         info!("Received entity despawn: {:?}", event.entity());
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
         color.0.set_s(0.3);
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
 ) {

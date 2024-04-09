@@ -1,10 +1,16 @@
+//! This example showcases how to use Lightyear with Bevy, to easily get replication along with prediction/interpolation working.
+//!
+//! There is a lot of setup code, but it's mostly to have the examples work in all possible configurations of transport.
+//! (all transports are supported, as well as running the example in listen-server or host-server mode)
+//!
+//!
+//! Run with
+//! - `cargo run -- server`
+//! - `cargo run -- client -c 1`
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-//! Run with
-//! - `cargo run -- server`
-//! - `cargo run -- client -c 1`
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -60,6 +66,7 @@ enum Cli {
     },
 }
 
+/// We parse the settings.ron file to read the settings, than create the apps and run them
 fn main() {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
@@ -76,6 +83,14 @@ fn main() {
     run(settings, cli);
 }
 
+/// This is the main function
+/// The cli argument is used to determine if we are running as a client or a server (or listen-server)
+/// Then we build the app and run it.
+///
+/// To build a lightyear app you will need to add either the [`client::ClientPlugin`] or [`server::ServerPlugin`]
+/// They can be created by providing a [`client::ClientConfig`] or [`server::ServerConfig`] struct, along with a
+/// shared [`Protocol`](lightyear::prelude::Protocol) which defines the messages (Messages, Components, Inputs) that
+/// can be sent between client and server.
 fn run(settings: Settings, cli: Cli) {
     match cli {
         // ListenServer using a single app

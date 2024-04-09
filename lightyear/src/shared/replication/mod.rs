@@ -198,8 +198,8 @@ pub trait ReplicationSend<P: Protocol>: Resource {
 mod tests {
     use bevy::utils::Duration;
 
-    use crate::prelude::*;
     use crate::prelude::client::*;
+    use crate::prelude::*;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

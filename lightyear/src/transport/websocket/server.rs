@@ -8,8 +8,8 @@ use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::hashbrown::HashMap;
 use futures_util::{
     future, pin_mut,
-    SinkExt,
-    stream::{SplitSink, TryStreamExt}, StreamExt, TryFutureExt,
+    stream::{SplitSink, TryStreamExt},
+    SinkExt, StreamExt, TryFutureExt,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -19,11 +19,11 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use tracing::{info, trace};
 use tracing_log::log::error;
 
-use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, MTU, PacketReceiver, PacketSender,
-    Transport, TransportBuilder, TransportEnum,
-};
 use crate::transport::error::{Error, Result};
+use crate::transport::{
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+    TransportBuilder, TransportEnum, MTU,
+};
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
