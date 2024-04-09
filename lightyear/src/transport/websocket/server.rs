@@ -6,26 +6,24 @@ use std::{
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::hashbrown::HashMap;
-
-use tracing::{info, trace};
-use tracing_log::log::error;
-
 use futures_util::{
     future, pin_mut,
-    stream::{SplitSink, TryStreamExt},
-    SinkExt, StreamExt, TryFutureExt,
+    SinkExt,
+    stream::{SplitSink, TryStreamExt}, StreamExt, TryFutureExt,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
+use tracing::{info, trace};
+use tracing_log::log::error;
 
-use crate::transport::error::{Error, Result};
 use crate::transport::{
-    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
-    TransportBuilder, TransportEnum, MTU,
+    BoxedCloseFn, BoxedReceiver, BoxedSender, MTU, PacketReceiver, PacketSender,
+    Transport, TransportBuilder, TransportEnum,
 };
+use crate::transport::error::{Error, Result};
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,

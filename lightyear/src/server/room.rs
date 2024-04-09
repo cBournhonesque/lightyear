@@ -2,7 +2,6 @@
 //!
 //! This module contains the room system, which is used to perform interest management. (being able to predict certain entities to certain clients only).
 //! You can also find more information in the [book](https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/interest_management.html).
-use crate::_reexport::ServerMarker;
 use bevy::app::App;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{
@@ -12,6 +11,7 @@ use bevy::prelude::{
 use bevy::utils::{HashMap, HashSet};
 use tracing::{info, trace};
 
+use crate::_reexport::ServerMarker;
 use crate::connection::id::ClientId;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
@@ -557,7 +557,7 @@ fn clean_entity_despawns(
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
-    use bevy::utils::{Duration, HashMap};
+    use bevy::utils::HashMap;
 
     use crate::prelude::client::*;
     use crate::prelude::*;

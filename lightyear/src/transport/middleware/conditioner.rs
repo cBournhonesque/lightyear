@@ -1,9 +1,7 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
-use anyhow::Context;
 use std::net::SocketAddr;
 
 use bevy::utils::Duration;
-
 use cfg_if::cfg_if;
 use rand;
 use rand::{thread_rng, Rng};

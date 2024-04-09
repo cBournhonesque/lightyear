@@ -1,10 +1,12 @@
 //! Dummy io for connections that provide their own way of sending and receiving raw bytes (for example steamworks).
-use super::error::Result;
+use std::net::SocketAddr;
+
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET,
 };
-use std::net::SocketAddr;
+
+use super::error::Result;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DummyIo;

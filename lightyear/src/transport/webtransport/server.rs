@@ -1,11 +1,11 @@
 //! WebTransport client implementation.
-use anyhow::Context;
-use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+use anyhow::Context;
+use async_compat::Compat;
+use bevy::tasks::{futures_lite, IoTaskPool};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};

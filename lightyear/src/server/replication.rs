@@ -1,14 +1,13 @@
+use bevy::ecs::query::QueryFilter;
+use bevy::prelude::*;
+
 use crate::_reexport::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
-use bevy::ecs::query::QueryFilter;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{Mode, PrePredicted, Protocol, SharedConfig, Tick};
+use crate::prelude::{Mode, PrePredicted, Protocol};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::prediction::compute_hash;

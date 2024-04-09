@@ -1,15 +1,15 @@
 //! The transport is a UDP socket
-use anyhow::Context;
-use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use tracing::info;
 
-use super::error::{Error, Result};
+use anyhow::Context;
+
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
 };
+
+use super::error::Result;
 
 pub struct UdpSocketBuilder {
     pub(crate) local_addr: SocketAddr,
@@ -93,16 +93,15 @@ impl PacketReceiver for UdpSocketBuffer {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Context;
-    use bevy::utils::Duration;
     use std::net::SocketAddr;
     use std::str::FromStr;
 
-    use crate::transport::middleware::conditioner::{
-        ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig,
-    };
+    use anyhow::Context;
+    use bevy::utils::Duration;
+
+    use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
     use crate::transport::middleware::PacketReceiverWrapper;
-    use crate::transport::udp::{UdpSocket, UdpSocketBuffer, UdpSocketBuilder};
+    use crate::transport::udp::UdpSocketBuilder;
     use crate::transport::{PacketReceiver, PacketSender, Transport, TransportBuilder};
 
     #[test]

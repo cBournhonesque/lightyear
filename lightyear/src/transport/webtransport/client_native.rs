@@ -1,21 +1,22 @@
 #![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use async_compat::Compat;
+use bevy::tasks::{futures_lite, IoTaskPool, TaskPool};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
+use tracing::{debug, error, info, trace, warn};
+use wtransport;
+use wtransport::datagram::Datagram;
+use wtransport::ClientConfig;
+
 use crate::transport::error::{Error, Result};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
 };
-use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool, TaskPool};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, error, info, trace, warn};
-
-use wtransport;
-use wtransport::datagram::Datagram;
-use wtransport::ClientConfig;
 
 pub(crate) struct WebTransportClientSocketBuilder {
     pub(crate) client_addr: SocketAddr,

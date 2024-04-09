@@ -1,12 +1,13 @@
 //! Implement lightyear traits for some common bevy types
-use crate::_reexport::LinearInterpolator;
-use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
+use std::ops::Mul;
+
 use bevy::ecs::entity::{EntityHashSet, MapEntities};
 use bevy::hierarchy::Parent;
 use bevy::prelude::{Children, Entity, EntityMapper, Transform};
-use std::ops::Mul;
 use tracing::{info, trace};
 
+use crate::_reexport::LinearInterpolator;
+use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
 use crate::prelude::Message;
 
 pub struct TransformLinearInterpolation;

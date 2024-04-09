@@ -4,11 +4,12 @@ use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use super::error::{Error, Result};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET,
 };
+
+use super::error::{Error, Result};
 
 // TODO: this is client only; separate client/server transport traits
 pub(crate) struct LocalChannelBuilder {

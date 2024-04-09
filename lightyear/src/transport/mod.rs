@@ -1,5 +1,29 @@
 //! The transport layer is responsible for sending and receiving raw byte arrays packets through the network.
 
+use std::net::SocketAddr;
+
+use enum_dispatch::enum_dispatch;
+
+use error::Result;
+
+use crate::transport::channels::Channels;
+use crate::transport::dummy::DummyIo;
+use crate::transport::local::{LocalChannel, LocalChannelBuilder};
+#[cfg(not(target_family = "wasm"))]
+use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
+#[cfg(feature = "websocket")]
+use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
+#[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServerSocketBuilder};
+#[cfg(feature = "webtransport")]
+use crate::transport::webtransport::client::{
+    WebTransportClientSocket, WebTransportClientSocketBuilder,
+};
+#[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+use crate::transport::webtransport::server::{
+    WebTransportServerSocket, WebTransportServerSocketBuilder,
+};
+
 /// io is a wrapper around the underlying transport layer
 pub mod io;
 
@@ -27,26 +51,6 @@ pub(crate) mod error;
 #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
 #[cfg(feature = "websocket")]
 pub(crate) mod websocket;
-use crate::transport::channels::Channels;
-use crate::transport::dummy::DummyIo;
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
-#[cfg(not(target_family = "wasm"))]
-use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
-#[cfg(feature = "websocket")]
-use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
-#[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServerSocketBuilder};
-#[cfg(feature = "webtransport")]
-use crate::transport::webtransport::client::{
-    WebTransportClientSocket, WebTransportClientSocketBuilder,
-};
-#[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-use crate::transport::webtransport::server::{
-    WebTransportServerSocket, WebTransportServerSocketBuilder,
-};
-use enum_dispatch::enum_dispatch;
-use error::Result;
-use std::net::SocketAddr;
 
 pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),

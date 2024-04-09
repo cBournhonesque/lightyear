@@ -3,16 +3,16 @@
 use std::net::SocketAddr;
 
 use bevy::utils::HashMap;
-
 use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::info;
 
-use super::error::{Error, Result};
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET,
 };
+
+use super::error::{Error, Result};
 
 pub struct Channels {
     sender: ChannelsSender,

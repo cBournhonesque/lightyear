@@ -1,5 +1,4 @@
 use std::ops::Deref;
-use std::os::fd::AsRawFd;
 use std::{
     future::Future,
     io::BufReader,
@@ -10,7 +9,8 @@ use std::{
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
 use bevy::utils::hashbrown::HashMap;
-
+use futures_util::stream::FusedStream;
+use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{
@@ -21,10 +21,6 @@ use tokio::{
         Mutex,
     },
 };
-
-use futures_util::stream::FusedStream;
-use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
-
 use tokio_tungstenite::{
     connect_async, connect_async_with_config, tungstenite::Message, MaybeTlsStream,
 };

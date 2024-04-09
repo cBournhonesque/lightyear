@@ -1,15 +1,21 @@
 //! Implement lightyear traits for some common bevy types
-use crate::_reexport::LinearInterpolator;
-use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
-use bevy::prelude::{Entity, EntityMapper};
-use bevy_xpbd_2d::components::*;
 use std::ops::{Add, Mul};
-use tracing::{info, trace};
 
+use bevy::prelude::EntityMapper;
+use bevy_xpbd_2d::components::*;
+use tracing::trace;
+
+pub use angular_velocity::*;
+pub use linear_velocity::*;
+pub use position::*;
+pub use rotation::*;
+
+use crate::client::components::{LerpFn, SyncComponent};
 use crate::prelude::Message;
 
 pub mod position {
     use super::*;
+
     pub struct PositionLinearInterpolation;
 
     impl LerpFn<Position> for PositionLinearInterpolation {
@@ -26,7 +32,6 @@ pub mod position {
         }
     }
 }
-pub use position::*;
 
 pub mod rotation {
     use super::*;
@@ -55,7 +60,6 @@ pub mod rotation {
         }
     }
 }
-pub use rotation::*;
 
 pub mod linear_velocity {
     use super::*;
@@ -76,7 +80,6 @@ pub mod linear_velocity {
         }
     }
 }
-pub use linear_velocity::*;
 
 pub mod angular_velocity {
     use super::*;
@@ -97,4 +100,3 @@ pub mod angular_velocity {
         }
     }
 }
-pub use angular_velocity::*;

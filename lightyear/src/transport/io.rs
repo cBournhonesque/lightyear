@@ -1,27 +1,27 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
+use std::fmt::{Debug, Formatter};
+use std::net::{IpAddr, SocketAddr};
+
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::{Real, Res, Resource, Time};
 use crossbeam_channel::{Receiver, Sender};
-use std::fmt::{Debug, Formatter};
-use std::net::{IpAddr, SocketAddr};
-
 #[cfg(feature = "metrics")]
 use metrics;
 use tracing::info;
+
+use crate::transport::local::{LocalChannel, LocalChannelBuilder};
+use crate::transport::middleware::conditioner::{
+    ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
+};
+use crate::transport::middleware::PacketReceiverWrapper;
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::error::Result;
 use super::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
 };
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
-use crate::transport::{PacketReceiver, PacketSender, Transport};
-
-use crate::transport::middleware::conditioner::{
-    ConditionedPacketReceiver, LinkConditioner, LinkConditionerConfig, PacketLinkConditioner,
-};
-use crate::transport::middleware::PacketReceiverWrapper;
 
 // TODO: separate unconnected io from connected io? maybe similar 'states' generic as wtransport?
 #[derive(Resource)]

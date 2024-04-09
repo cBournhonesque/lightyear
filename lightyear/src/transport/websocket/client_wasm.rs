@@ -6,14 +6,11 @@ use std::{
 };
 
 use bevy::{tasks::IoTaskPool, utils::hashbrown::HashMap};
-
 use tokio::sync::{
     mpsc::{self, error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
     Mutex,
 };
-
 use tracing::{debug, error, info, warn};
-
 use wasm_bindgen::{closure::Closure, JsCast};
 use web_sys::{
     js_sys::{ArrayBuffer, Uint8Array},

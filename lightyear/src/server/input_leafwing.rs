@@ -1,14 +1,14 @@
 //! Handles client-generated inputs
 use std::ops::DerefMut;
 
+use bevy::prelude::*;
+use leafwing_input_manager::prelude::*;
+
 use crate::_reexport::ServerMarker;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
-use bevy::prelude::*;
-use leafwing_input_manager::prelude::*;
-
 use crate::inputs::leafwing::input_buffer::{
     ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputTarget,
 };
