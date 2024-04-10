@@ -2,7 +2,9 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use crate::prelude::Protocol;
+use crate::prelude::{
+    IoConfig, LinkConditionerConfig, Mode, PingConfig, Protocol, TickConfig, TransportConfig,
+};
 use crate::server::config::ServerConfig;
 use crate::shared::config::SharedConfig;
 use crate::shared::tick_manager::TickManagerPlugin;
@@ -40,6 +42,14 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
 
 impl<P: Protocol> Plugin for SharedPlugin<P> {
     fn build(&self, app: &mut App) {
+        // REFLECTION
+        app.register_type::<Mode>()
+            .register_type::<SharedConfig>()
+            .register_type::<TickConfig>()
+            .register_type::<PingConfig>()
+            .register_type::<LinkConditionerConfig>()
+            .register_type::<IoConfig>();
+
         // RESOURCES
         // NOTE: this tick duration must be the same as any previous existing fixed timesteps
         app.insert_resource(Time::<Fixed>::from_seconds(

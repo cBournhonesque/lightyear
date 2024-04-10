@@ -1,6 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
-use bevy::prelude::{Res, SystemSet};
+use bevy::prelude::{Reflect, Res, SystemSet};
 use bevy::utils::Duration;
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, info, trace};
@@ -31,7 +31,7 @@ pub struct SyncSet;
 ///     for tick T sent from the client arrive on the server at tick T
 /// - the interpolation tick/time: this is the interpolation timeline, which runs behind the server time so that interpolation
 ///     always has at least one packet to interpolate towards
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time
     /// a packet will get received by the server

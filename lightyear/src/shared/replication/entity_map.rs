@@ -2,6 +2,7 @@
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
 use bevy::prelude::{Component, Entity, EntityWorldMut, World};
+use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
 
 /// A trait for structs who can do entity mapping for another type.
@@ -18,14 +19,14 @@ pub trait ExternalMapper<C> {
 //     }
 // }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
     remote_to_local: EntityHashMap<Entity>,
     local_to_remote: EntityHashMap<Entity>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 pub struct PredictedEntityMap {
     // map from the confirmed entity to the predicted entity
     // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
@@ -41,7 +42,7 @@ impl EntityMapper for PredictedEntityMap {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 pub struct InterpolatedEntityMap {
     // map from the confirmed entity to the interpolated entity
     // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore

@@ -28,6 +28,7 @@ use bevy::prelude::{
     not, App, Condition, EventReader, EventWriter, Events, FixedPostUpdate, FixedPreUpdate, In,
     IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
 };
+use bevy::reflect::Reflect;
 use tracing::{debug, error, info, trace};
 
 use crate::channel::builder::InputChannel;
@@ -47,7 +48,7 @@ use crate::shared::config::Mode;
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct InputConfig {
     /// How many consecutive packets losses do we want to handle?
     /// This is used to compute the redundancy of the input messages.
@@ -126,6 +127,8 @@ pub struct CurrentInput<T: UserAction> {
 
 impl<P: Protocol> Plugin for InputPlugin<P> {
     fn build(&self, app: &mut App) {
+        // REFLECTION
+        app.register_type::<InputConfig>();
         // RESOURCES
         app.init_resource::<InputManager<P::Input>>();
         // EVENT
