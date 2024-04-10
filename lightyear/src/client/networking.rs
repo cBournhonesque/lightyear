@@ -78,17 +78,20 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             );
 
         // CONNECTING
-        // when we try to connect, rebuild the net config if the ClientConfig was modified
-        app.add_systems(
-            OnEnter(NetworkingState::Connecting),
-            rebuild_net_config.run_if(resource_changed::<ClientConfig>),
-        );
 
         // CONNECTED
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
 
         // DISCONNECTED
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+        // note, we cannot rebuild the net config in OnEnter(NetworkingState::Connecting) because this would
+        // create a new netclient where the io is None!
+        app.add_systems(
+            PostUpdate,
+            rebuild_net_config.run_if(
+                resource_changed::<ClientConfig>.and_then(in_state(NetworkingState::Disconnected)),
+            ),
+        );
     }
 }
 
@@ -115,7 +118,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                 world.resource_scope(
                                                     |world: &mut World, mut next_state: Mut<NextState<NetworkingState>>| {
                                                         let delta = world.resource::<Time<Virtual>>().delta();
-
                                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
                                                         time_manager.update(delta);
                                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
@@ -155,6 +157,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                             time_manager.as_ref(),
                                                             tick_manager.as_ref(),
                                                         );
+                                                        info!("received events: {events:?}");
                                                         // TODO: run these in EventsPlugin!
                                                         // HANDLE EVENTS
                                                         if !events.is_empty() {
@@ -326,6 +329,7 @@ fn rebuild_net_config(world: &mut World) {
     world.insert_resource(netclient);
 }
 
+/// This system param is used to connect/disconnect the client.
 #[derive(SystemParam)]
 pub struct ClientConnectionParam<'w, 's> {
     next_state: ResMut<'w, NextState<NetworkingState>>,

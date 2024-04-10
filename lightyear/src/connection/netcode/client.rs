@@ -680,7 +680,10 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
+        let io = self
+            .io
+            .as_mut()
+            .context("io is not initialized, did you call connect?")?;
         self.client
             .try_update(delta_ms, io)
             .inspect_err(|e| error!("error updating client: {:?}", e))
