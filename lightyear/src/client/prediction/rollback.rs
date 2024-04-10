@@ -2,10 +2,12 @@ use std::fmt::Debug;
 
 use bevy::app::FixedMain;
 use bevy::ecs::entity::EntityHashSet;
+use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::{
     Commands, DespawnRecursiveExt, DetectChanges, Entity, Query, Ref, Res, ResMut, Resource, With,
     Without, World,
 };
+use bevy::reflect::Reflect;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, FromType};
@@ -23,7 +25,8 @@ use super::predicted_history::PredictionHistory;
 use super::Predicted;
 
 /// Resource that indicates whether we are in a rollback state or not
-#[derive(Resource)]
+#[derive(Default, Resource, Reflect)]
+#[reflect(Resource)]
 pub struct Rollback {
     pub state: RollbackState,
     // pub rollback_groups: EntityHashMap<ReplicationGroupId, RollbackState>,
@@ -31,9 +34,10 @@ pub struct Rollback {
 
 /// Resource that will track whether we should do rollback or not
 /// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Reflect)]
 pub enum RollbackState {
     /// We are not in a rollback state
+    #[default]
     Default,
     /// We should do a rollback starting from the current_tick
     ShouldRollback {

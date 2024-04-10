@@ -10,7 +10,7 @@ use crate::prelude::Protocol;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::sets::InternalReplicationSet;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct ReplicationConfig {
     /// Set to true to enable replicating this client's entities to the server
     pub enable_send: bool,

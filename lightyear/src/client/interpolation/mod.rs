@@ -1,7 +1,7 @@
 //! Handles interpolation of entities between server updates
 use std::ops::{Add, Mul};
 
-use bevy::prelude::{Added, Commands, Component, Entity, Query, Res, ResMut};
+use bevy::prelude::{Added, Commands, Component, Entity, Query, Reflect, Res, ResMut};
 use tracing::trace;
 
 pub use interpolate::InterpolateStatus;
@@ -46,7 +46,7 @@ impl<C: Clone> LerpFn<C> for NullInterpolator {
 }
 
 /// Marker component for an entity that is being interpolated by the client
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
 pub struct Interpolated {
     // TODO: maybe here add an interpolation function?
     pub confirmed_entity: Entity,

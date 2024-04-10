@@ -8,6 +8,7 @@ use bevy::prelude::{
     Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Query, RemovedComponents,
     Res, ResMut, Resource, SystemSet,
 };
+use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
 use tracing::{info, trace};
 
@@ -421,7 +422,7 @@ impl RoomEvents {
 
 // TODO: this should not be public?
 /// Event related to [`Entities`](Entity) which are visible to a client
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Reflect)]
 pub enum ClientVisibility {
     /// the entity was not replicated to the client, but now is
     Gained,

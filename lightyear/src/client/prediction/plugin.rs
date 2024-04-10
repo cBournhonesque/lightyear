@@ -4,17 +4,18 @@ use bevy::prelude::{
     apply_deferred, App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
     PostUpdate, PreUpdate, Res, SystemSet,
 };
+use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
 use crate::_reexport::{ClientMarker, FromType};
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back,
+    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
 use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
@@ -23,9 +24,10 @@ use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
+use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::ExternalMapper;
+use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::InternalMainSet;
@@ -39,7 +41,7 @@ use super::rollback::{
 use super::spawn::spawn_predicted_entity;
 
 /// Configuration to specify how the prediction plugin should behave
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Reflect)]
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin
     pub disable: bool,
@@ -230,6 +232,15 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         if self.config.disable {
             return;
         }
+
+        // REFLECTION
+        app.register_type::<Predicted>()
+            .register_type::<Confirmed>()
+            .register_type::<PreSpawnedPlayerObject>()
+            .register_type::<Rollback>()
+            .register_type::<RollbackState>()
+            .register_type::<PredictionDespawnMarker>()
+            .register_type::<PredictionConfig>();
 
         P::Components::add_prediction_systems(app);
 

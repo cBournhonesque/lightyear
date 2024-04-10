@@ -1,4 +1,5 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
+use bevy::reflect::Reflect;
 use std::net::SocketAddr;
 
 use bevy::utils::Duration;
@@ -20,7 +21,7 @@ cfg_if! {
 }
 
 /// Contains configuration required to initialize a LinkConditioner
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct LinkConditionerConfig {
     /// Delay to receive incoming messages in milliseconds (half the RTT)
     pub incoming_latency: Duration,

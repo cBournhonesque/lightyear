@@ -64,6 +64,8 @@ where
     P::ComponentKinds: FromType<C>,
 {
     fn build(&self, app: &mut App) {
+        // REFLECTION
+        app.register_type::<VisualInterpolateMarker>();
         // SETS
         app.configure_sets(PreUpdate, InterpolationSet::RestoreVisualInterpolation);
         app.configure_sets(
@@ -120,7 +122,7 @@ impl<C: Component> Default for VisualInterpolateStatus<C> {
 }
 
 /// Marker component to indicate that this entity will be visually interpolated
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
 pub struct VisualInterpolateMarker;
 
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?

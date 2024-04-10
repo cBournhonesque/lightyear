@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
-    Commands, Component, Entity, Query, RemovedComponents, ResMut, With, Without, World,
+    Commands, Component, Entity, Query, Reflect, RemovedComponents, ResMut, With, Without, World,
 };
 use tracing::{debug, error, trace};
 
@@ -25,7 +25,7 @@ pub struct PredictionDespawnCommand<P: Protocol> {
     _marker: PhantomData<P>,
 }
 
-#[derive(Component, PartialEq, Debug)]
+#[derive(Component, PartialEq, Debug, Reflect)]
 pub(crate) struct PredictionDespawnMarker {
     // TODO: do we need this?
     // TODO: it's pub just for integration tests right now

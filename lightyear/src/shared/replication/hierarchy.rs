@@ -152,6 +152,9 @@ impl<P: Protocol, R: ReplicationSend<P>> HierarchyReceivePlugin<P, R> {
 
 impl<P: Protocol, R: ReplicationSend<P>> Plugin for HierarchyReceivePlugin<P, R> {
     fn build(&self, app: &mut App) {
+        // REFLECTION
+        app.register_type::<ParentSync>();
+
         // TODO: does this work for client replication? (client replicating to other clients via the server?)
         // when we receive a ParentSync update from the remote, update the hierarchy
         app.add_systems(
