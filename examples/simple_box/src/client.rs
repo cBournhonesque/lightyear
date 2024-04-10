@@ -11,7 +11,6 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
-use lightyear::client::prediction::plugin::is_connected;
 
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;

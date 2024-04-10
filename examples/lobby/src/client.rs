@@ -11,7 +11,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
-use lightyear::client::prediction::plugin::is_connected;
+use bevy_mod_picking::prelude::*;
 
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -21,11 +21,15 @@ use crate::protocol::*;
 use crate::shared::{shared_config, shared_movement_behaviour};
 use crate::{shared, ClientTransports, SharedSettings};
 
+const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
+const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
+const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
+
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
+        app.add_systems(Startup, spawn_connect_button);
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
@@ -41,14 +45,12 @@ impl Plugin for ExampleClientPlugin {
                 receive_entity_despawn,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
+                button_system,
             ),
         );
+        // despawn the entities upon disconnection
+        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
     }
-}
-
-// Startup system for the client
-pub(crate) fn init(mut client: ResMut<ClientConnection>) {
-    let _ = client.connect();
 }
 
 /// Listen for events to know when the client is connected, and spawn a text entity
@@ -169,5 +171,109 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     for mut color in interpolated.iter_mut() {
         color.0.set_s(0.1);
+    }
+}
+
+/// Create two buttons that allow you to connect/disconnect to a server
+pub(crate) fn spawn_connect_button(mut commands: Commands) {
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    align_items: AlignItems::End,
+                    justify_content: JustifyContent::End,
+                    ..default()
+                },
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .with_children(|parent| {
+            parent
+                .spawn((
+                    ButtonBundle {
+                        style: Style {
+                            width: Val::Px(150.0),
+                            height: Val::Px(65.0),
+                            border: UiRect::all(Val::Px(5.0)),
+                            // horizontally center child text
+                            justify_content: JustifyContent::Center,
+                            // vertically center child text
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        border_color: BorderColor(Color::BLACK),
+                        background_color: NORMAL_BUTTON.into(),
+                        ..default()
+                    },
+                    On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
+                        info!("clicked on connect");
+                        connection.connect();
+                    }),
+                ))
+                .with_children(|parent| {
+                    parent.spawn((
+                        TextBundle::from_section(
+                            "Connect",
+                            TextStyle {
+                                font_size: 20.0,
+                                color: Color::rgb(0.9, 0.9, 0.9),
+                                ..default()
+                            },
+                        ),
+                        Pickable::IGNORE,
+                    ));
+                });
+        });
+}
+
+fn on_disconnect(mut commands: Commands, entities: Query<Entity, With<PlayerId>>) {
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+fn button_system(
+    mut commands: Commands,
+    mut interaction_query: Query<(Entity, &Children), (With<Button>, With<On<Pointer<Click>>>)>,
+    mut text_query: Query<&mut Text>,
+    state: Res<State<NetworkingState>>,
+) {
+    if state.is_changed() {
+        for (entity, children) in &mut interaction_query {
+            let mut text = text_query.get_mut(children[0]).unwrap();
+            let new_on_click = match state.get() {
+                NetworkingState::Disconnected => {
+                    info!("updating on click");
+                    text.sections[0].value = "Connect".to_string();
+                    commands.entity(entity).remove::<On<Pointer<Click>>>();
+                    On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
+                        info!("clicked on connect");
+                        let _ = connection
+                            .connect()
+                            .inspect_err(|e| error!("Failed to connect: {e:?}"));
+                    })
+                }
+                NetworkingState::Disconnecting => {
+                    text.sections[0].value = "Disconnecting".to_string();
+                    On::<Pointer<Click>>::run(|| {})
+                }
+                NetworkingState::Connecting => {
+                    text.sections[0].value = "Connecting".to_string();
+                    On::<Pointer<Click>>::run(|| {})
+                }
+                NetworkingState::Connected => {
+                    text.sections[0].value = "Disconnect".to_string();
+                    On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
+                        connection
+                            .disconnect()
+                            .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
+                    })
+                }
+            };
+            commands.entity(entity).insert(new_on_click);
+        }
     }
 }

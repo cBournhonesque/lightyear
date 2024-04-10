@@ -10,6 +10,7 @@ use crate::_reexport::{ClientMarker, ComponentProtocol};
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
+use crate::client::networking::NetworkingState;
 use crate::client::prediction::plugin::is_connected;
 use crate::client::prediction::pre_prediction::PrePredictionPlugin;
 use crate::client::prediction::resource::PredictionManager;

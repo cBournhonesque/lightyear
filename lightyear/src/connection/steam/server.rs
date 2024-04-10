@@ -244,7 +244,7 @@ impl NetServer for Server {
         self.new_disconnections.clone()
     }
 
-    fn io(&self) -> &Io {
-        todo!()
+    fn io(&self) -> Option<&Io> {
+        None
     }
 }

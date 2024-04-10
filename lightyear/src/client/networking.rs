@@ -12,7 +12,7 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::sync::SyncSet;
-use crate::connection::client::{ClientConnection, NetClient};
+use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -60,7 +60,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                             .and_then(not(in_state(NetworkingState::Disconnected))),
                     ),
                 )
-                    .run_if(SharedConfig::is_host_server_condition)
+                    .run_if(not(SharedConfig::is_host_server_condition))
                     .chain(),
             )
             // SYSTEMS
@@ -108,7 +108,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
-                |world: &mut World, mut netcode: Mut<ClientConnection>| {
+                |world: &mut World, mut netclient: Mut<ClientConnection>| {
                         world.resource_scope(
                             |world: &mut World, mut time_manager: Mut<TimeManager>| {
                                 world.resource_scope(
@@ -121,13 +121,13 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                         // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
                                                         time_manager.update(delta);
                                                         trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
-                                                        let _ = netcode
+                                                        let _ = netclient
                                                             .try_update(delta.as_secs_f64())
                                                             .map_err(|e| {
                                                                 error!("Error updating netcode: {}", e);
                                                             });
 
-                                                        if netcode.is_connected() {
+                                                        if netclient.is_connected() {
                                                             // we just connected
                                                             if state.get() != &NetworkingState::Connected {
                                                                 next_state.set(NetworkingState::Connected);
@@ -146,7 +146,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                         }
 
                                                         // RECV PACKETS: buffer packets into message managers
-                                                        while let Some(packet) = netcode.recv() {
+                                                        while let Some(packet) = netclient.recv() {
                                                             connection
                                                                 .recv_packet(packet, tick_manager.as_ref())
                                                                 .unwrap();
@@ -157,7 +157,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                             time_manager.as_ref(),
                                                             tick_manager.as_ref(),
                                                         );
-                                                        info!("received events: {events:?}");
                                                         // TODO: run these in EventsPlugin!
                                                         // HANDLE EVENTS
                                                         if !events.is_empty() {
@@ -321,11 +320,28 @@ fn on_disconnect(
     }
 }
 
+/// This run condition is provided to check if the client is connected.
+///
+/// To avoid having one frame of delay the first time we set the state to Connected,
+/// we also check directly if the netclient is connected when the state is Connecting.
+/// This only matters for systems that run during `PreUpdate`, because the `StateTransition` schedule
+/// runs after `PreUpdate`
+fn is_connected(netclient: Res<ClientConnection>, state: Res<State<NetworkingState>>) -> bool {
+    *state.get() == NetworkingState::Connected
+        || (*state.get() == NetworkingState::Connecting && netclient.is_connected())
+}
+
 /// If the client is disconnected, we can try to reload the net config.
 /// Only runs if the client config has changed!
 fn rebuild_net_config(world: &mut World) {
     let client_config = world.get_resource_ref::<ClientConfig>().unwrap();
     let netclient = client_config.net.clone().build_client();
+    if client_config.shared.mode == Mode::HostServer {
+        assert!(
+            matches!(client_config.net, NetConfig::Local { .. }),
+            "When running in HostServer mode, the client connection needs to be of type Local"
+        );
+    }
     world.insert_resource(netclient);
 }
 

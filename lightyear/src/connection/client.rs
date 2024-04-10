@@ -58,12 +58,6 @@ pub struct ClientConnection {
     pub(crate) client: Box<dyn NetClient>,
 }
 
-// #[derive(SystemParam)]
-// pub struct ClientConnection<'w, 's> {
-//     state: ResMut<'w, NextState<NetworkingState>>,
-//     connection: ResMut<'w, BoxedClientConnection>,
-// }
-
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum NetConfig {
@@ -102,7 +96,6 @@ impl NetConfig {
                 io: io_config,
             } => {
                 let token = auth
-                    .clone()
                     .get_token(config.client_timeout_secs)
                     .expect("could not generate token");
                 let token_bytes = token.try_into_bytes().unwrap();
@@ -111,7 +104,7 @@ impl NetConfig {
                         .expect("could not create netcode client");
                 let client = super::netcode::Client {
                     client: netcode,
-                    io_config: Some(io_config),
+                    io_config,
                     io: None,
                 };
                 ClientConnection {
