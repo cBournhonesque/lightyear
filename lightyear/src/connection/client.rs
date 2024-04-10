@@ -2,10 +2,12 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use anyhow::Result;
-use bevy::prelude::Resource;
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{NextState, ResMut, Resource};
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
+use crate::client::networking::NetworkingState;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::ConnectToken;
 
@@ -55,6 +57,12 @@ pub trait NetClient: Send + Sync {
 pub struct ClientConnection {
     pub(crate) client: Box<dyn NetClient>,
 }
+
+// #[derive(SystemParam)]
+// pub struct ClientConnection<'w, 's> {
+//     state: ResMut<'w, NextState<NetworkingState>>,
+//     connection: ResMut<'w, BoxedClientConnection>,
+// }
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
@@ -176,7 +184,7 @@ impl NetClient for ClientConnection {
 
 #[derive(Resource, Default, Clone)]
 #[allow(clippy::large_enum_variant)]
-/// Struct used to authenticate with the server
+/// Struct used to authenticate with the server when using the netcode connection
 pub enum Authentication {
     /// Use a `ConnectToken` that was already received (usually from a secure-connection to a webserver)
     Token(ConnectToken),

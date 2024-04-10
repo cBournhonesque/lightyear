@@ -121,6 +121,7 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
+        pub use crate::client::networking::ClientConnectionParam;
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
