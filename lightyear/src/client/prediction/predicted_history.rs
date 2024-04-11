@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use crate::_reexport::FromType;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
     With, Without,
@@ -9,7 +10,7 @@ use tracing::{debug, error};
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
-use crate::prelude::{Named, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
+use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
@@ -133,7 +134,10 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     confirmed_entities: Query<(Entity, &Confirmed, Option<Ref<C>>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
+    P::ComponentKinds: FromType<C>,
 {
+    let kind = P::ComponentKinds::from_type();
     let tick = tick_manager.tick();
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.predicted {
@@ -146,13 +150,16 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                 // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
                     if confirmed_component.is_added() {
-                        debug!(kind = ?confirmed_component.name(), "Component added on confirmed side");
+                        debug!(?kind, "Component added on confirmed side");
                         // safety: we know the entity exists
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();
                         // map any entities from confirmed to predicted
                         let mut new_component = confirmed_component.deref().clone();
-                        new_component.map_entities(&mut manager.predicted_entity_map);
+                        P::Components::map_entities_for(
+                            &mut new_component,
+                            &mut manager.predicted_entity_map,
+                        );
                         match P::Components::mode() {
                             ComponentSyncMode::Full => {
                                 // insert history, it will be quickly filled by a rollback (since it starts empty before the current client tick)
@@ -165,7 +172,10 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                                 predicted_entity_mut.insert((new_component, history));
                             }
                             ComponentSyncMode::Simple => {
-                                debug!(kind = ?new_component.name(), "Component simple synced between confirmed and predicted");
+                                debug!(
+                                    ?kind,
+                                    "Component simple synced between confirmed and predicted"
+                                );
                                 // we only sync the components once, but we don't do rollback so no need for a component history
                                 predicted_entity_mut.insert(new_component);
                             }
@@ -202,6 +212,7 @@ pub fn add_prespawned_component_history<C: SyncComponent, P: Protocol>(
     >,
 ) where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
     // add component history for pre-spawned entities right away
     for (predicted_entity, predicted_component) in prespawned_query.iter() {
@@ -222,8 +233,9 @@ fn add_history<C: SyncComponent, P: Protocol>(
     commands: &mut Commands,
 ) where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
-    let kind = C::type_name();
+    let kind = P::ComponentKinds::from_type();
     if P::Components::mode() == ComponentSyncMode::Full {
         if let Some(predicted_component) = predicted_component {
             // component got added on predicted side, add history
@@ -327,6 +339,7 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::Components: ExternalMapper<C>,
 {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.predicted {
@@ -346,7 +359,10 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Simple => {
                             // map any entities from confirmed to predicted
                             let mut component = confirmed_component.deref().clone();
-                            component.map_entities(&mut manager.predicted_entity_map);
+                            P::Components::map_entities_for(
+                                &mut component,
+                                &mut manager.predicted_entity_map,
+                            );
                             *predicted_component = component;
                         }
                         _ => {}

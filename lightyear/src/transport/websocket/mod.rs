@@ -10,16 +10,14 @@ cfg_if::cfg_if! {
     }
 }
 
-const MTU: usize = 1472;
-
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
+
+    use crate::transport::{PacketReceiver, PacketSender};
+
     use super::client::*;
     use super::server::*;
-    use crate::transport::{PacketReceiver, PacketSender, Transport};
-    use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
-    use bevy::utils::Duration;
-    use tracing::info;
 
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]

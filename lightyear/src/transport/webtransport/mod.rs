@@ -10,19 +10,15 @@ cfg_if::cfg_if! {
     }
 }
 
-// Maximum transmission units; maximum size in bytes of a UDP packet
-// See: https://gafferongames.com/post/packet_fragmentation_and_reassembly/
-const MTU: usize = 1472;
-
 #[cfg(test)]
 mod tests {
+    use bevy::utils::Duration;
+    use wtransport::tls::Certificate;
+
+    use crate::transport::{PacketReceiver, PacketSender};
+
     use super::client::*;
     use super::server::*;
-    use crate::transport::{PacketReceiver, PacketSender, Transport};
-    use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
-    use bevy::utils::Duration;
-    use tracing::info;
-    use wtransport::tls::Certificate;
 
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]

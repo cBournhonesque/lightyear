@@ -50,6 +50,10 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         app
             // SYSTEM SETS
             .configure_sets(
+                PreUpdate,
+                InternalMainSet::<ClientMarker>::Receive.run_if(is_io_connected),
+            )
+            .configure_sets(
                 PostUpdate,
                 // run sync before send because some send systems need to know if the client is synced
                 // we don't send packets every frame, but on a timer instead
@@ -57,6 +61,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                     SyncSet,
                     InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
                 )
+                    .run_if(is_io_connected)
                     .chain(),
             )
             // SYSTEMS
@@ -75,6 +80,10 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
         );
     }
+}
+
+pub(crate) fn is_io_connected(netcode: Res<ClientConnection>) -> bool {
+    netcode.io().map_or(false, |io| io.is_connected())
 }
 
 /// In host server mode, we don't send/receive packets at all

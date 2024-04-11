@@ -26,6 +26,9 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<PlayerId>();
+        app.register_type::<PlayerPosition>();
+        app.register_type::<PlayerParent>();
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             app.add_systems(Update, draw_snakes);

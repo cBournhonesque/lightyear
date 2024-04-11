@@ -53,11 +53,7 @@ pub(crate) fn init(
     mut connections: ResMut<ServerConnections>,
     global: Res<Global>,
 ) {
-    for connection in &mut connections.servers {
-        let _ = connection.start().inspect_err(|e| {
-            error!("Failed to start server: {:?}", e);
-        });
-    }
+    connections.start().expect("Failed to start server");
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -109,14 +105,18 @@ pub(crate) fn movement(
             &mut LinearVelocity,
             &ActionState<PlayerActions>,
         ),
+        // if we run in host-server mode, we don't want to apply this system to the local client's entities
+        // because they are already moved by the client plugin
         (Without<Confirmed>, Without<Predicted>),
     >,
 ) {
     for (entity, position, velocity, action) in action_query.iter_mut() {
-        // NOTE: be careful to directly pass Mut<PlayerPosition>
-        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-        shared_movement_behaviour(velocity, action);
-        info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
+        if !action.get_pressed().is_empty() {
+            // NOTE: be careful to directly pass Mut<PlayerPosition>
+            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            shared_movement_behaviour(velocity, action);
+            info!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
+        }
     }
 }
 
@@ -127,9 +127,9 @@ pub(crate) fn replicate_players(
     mut player_spawn_reader: EventReader<ComponentInsertEvent<PlayerId>>,
 ) {
     for event in player_spawn_reader.read() {
-        debug!("received player spawn event: {:?}", event);
         let client_id = *event.context();
         let entity = event.entity();
+        info!("received player spawn event: {:?}", event);
 
         // for all cursors we have received, add a Replicate component so that we can start replicating it
         // to other clients

@@ -1,16 +1,16 @@
 //! Components used for replication
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity};
+use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
 use bevy::utils::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
-
-use lightyear_macros::MessageInternal;
 
 use crate::_reexport::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
+use crate::prelude::ParentSync;
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
@@ -20,7 +20,7 @@ pub struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
-#[derive(Component, Clone, PartialEq, Debug)]
+#[derive(Component, Clone, PartialEq, Debug, Reflect)]
 pub struct Replicate<P: Protocol> {
     /// Which clients should this entity be replicated to
     pub replication_target: NetworkTarget,
@@ -50,7 +50,7 @@ pub struct Replicate<P: Protocol> {
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct PerComponentReplicationMetadata {
     /// If true, do not replicate the component. (By default, all components of this entity that are present in the
     /// ComponentProtocol) will be replicated.
@@ -192,7 +192,7 @@ impl<P: Protocol> Replicate<P> {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
 pub enum ReplicationGroupIdBuilder {
     // the group id is the entity id
     #[default]
@@ -204,7 +204,7 @@ pub enum ReplicationGroupIdBuilder {
     Group(u64),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Reflect)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,
     /// the priority of the accumulation group
@@ -260,10 +260,10 @@ impl ReplicationGroup {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
     /// We will replicate this entity only to clients that are in the same room as the entity
     Room,
@@ -301,7 +301,7 @@ impl<P: Protocol> Default for Replicate<P> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]
@@ -454,29 +454,19 @@ impl NetworkTarget {
     }
 }
 
-// TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
-//  that's pretty dangerous because it's now hard for the user to derive new traits.
-//  let's think of another approach later.
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct ShouldBeInterpolated;
 
-// TODO: Right now we use the approach that we add an extra component to the Protocol of components to be replicated.
-//  that's pretty dangerous because it's now hard for the user to derive new traits.
-//  let's think of another approach later.
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-
 /// Indicates that an entity was pre-predicted
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+// NOTE: we do not map entities for this component, we want to receive the entities as is
+//  because we already do the mapping at other steps
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct PrePredicted {
-    // TODO: rename this?
-    //  - also the server already gets the client entity in the message, so it's a waste of space...
-    //  - maybe use a different component: ClientToServer -> Prespawned (None)
-    //  - ServerToClient -> Prespawned (entity)
     // if this is set, the predicted entity has been pre-spawned on the client
     pub(crate) client_entity: Option<Entity>,
 }
 
-#[derive(Component, MessageInternal, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct ShouldBePredicted;
 
 #[cfg(test)]

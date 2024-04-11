@@ -41,11 +41,7 @@ pub(crate) struct Global {
 }
 
 pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    for connection in &mut connections.servers {
-        let _ = connection.start().inspect_err(|e| {
-            error!("Failed to start server: {:?}", e);
-        });
-    }
+    connections.start().expect("Failed to start server");
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -92,7 +88,7 @@ pub(crate) fn handle_connections(
     mut commands: Commands,
 ) {
     for connection in connections.read() {
-        let client_id = connection.client_id();
+        let client_id = *connection.context();
         let entity = commands.spawn(PlayerBundle::new(client_id, Vec2::splat(300.0)));
         // Add a mapping from client id to entity id (so that when we receive an input from a client,
         // we know which entity to move)

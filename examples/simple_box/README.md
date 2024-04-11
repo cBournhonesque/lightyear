@@ -2,7 +2,9 @@
 
 A simple example that shows how to use Lightyear to create a server-authoritative multiplayer game.
 
-It also showcases how to enable client-side prediction and snapshot interpolation.
+It also showcases how to enable client-side prediction and snapshot interpolation:
+- For the client sending inputs: the pink cube is client-predicted (so inputs are used with no delay, and there is a rollback in case of mismatch with the server) and the red cube shows the received server state. (the server state arrives with some delay, and is a bit choppy since the replication rate is only 10Hz).
+- For the other clients: the red cube still shows the server states arriving at 10Hz, and the pink cube is a smooth interpolation between those states (there is a slight delay because we can only interpolate between 2 received server states).
 
 https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a16f-f991a394c852
 

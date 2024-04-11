@@ -1,3 +1,4 @@
+use bevy::ecs::entity::MapEntities;
 use std::ops::Mul;
 
 use bevy::math::Vec2;
@@ -68,12 +69,10 @@ impl PlayerBundle {
 
 // Components
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(pub ClientId);
 
-#[derive(
-    Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul,
-)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Add, Mul)]
 pub struct Position(pub(crate) Vec2);
 
 impl Mul<f32> for &Position {
@@ -84,10 +83,10 @@ impl Mul<f32> for &Position {
     }
 }
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 // Marker component
 pub struct CircleMarker;
 
@@ -96,11 +95,10 @@ pub struct CircleMarker;
 // to the client World.
 // This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
 // deriving the `MapEntities` trait for the component.
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
-#[message(custom_map)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerParent(Entity);
 
-impl LightyearMapEntities for PlayerParent {
+impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.0 = entity_mapper.map_entity(self.0);
     }
@@ -108,13 +106,13 @@ impl LightyearMapEntities for PlayerParent {
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum Components {
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerId(PlayerId),
-    #[sync(full)]
+    #[protocol(sync(mode = "full"))]
     PlayerPosition(Position),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     PlayerColor(PlayerColor),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     CircleMarker(CircleMarker),
 }
 
@@ -125,7 +123,7 @@ pub struct Channel1;
 
 // Messages
 
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 #[message_protocol(protocol = "MyProtocol")]

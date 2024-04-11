@@ -1,13 +1,13 @@
 //! Configuration that has to be the same between the server and the client.
-use crate::prelude::ClientId;
-use crate::server::config::ServerConfig;
 use bevy::prelude::Res;
+use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 
+use crate::server::config::ServerConfig;
 use crate::shared::tick_manager::TickConfig;
 
 /// Configuration that has to be the same between the server and the client.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct SharedConfig {
     /// how often does the client send updates to the server?
     /// A duration of 0 means that we send updates every frame
@@ -20,7 +20,7 @@ pub struct SharedConfig {
     pub mode: Mode,
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum Mode {
     #[default]
     /// Run the client and server in two different apps

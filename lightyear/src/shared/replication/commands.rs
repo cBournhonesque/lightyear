@@ -34,17 +34,16 @@ impl<P: Protocol, R: ReplicationSend<P>> RemoveReplicateCommandsExt<P, R> for En
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use bevy::utils::Duration;
+
     use crate::client::sync::SyncConfig;
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
     use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
-    use crate::server::connection::ConnectionManager;
-    use crate::server::replication::ServerReplicationPlugin;
     use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::*;
-    use bevy::utils::Duration;
+
+    use super::*;
 
     // TODO: simplify tests, we don't need a client-server connection here
     #[test]

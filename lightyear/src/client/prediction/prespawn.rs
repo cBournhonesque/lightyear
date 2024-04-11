@@ -6,8 +6,6 @@ use std::any::{Any, TypeId};
 use std::hash::{BuildHasher, Hash, Hasher};
 use tracing::{debug, info, trace, warn};
 
-use lightyear_macros::MessageInternal;
-
 use crate::_reexport::{ClientMarker, ComponentProtocol};
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
@@ -353,7 +351,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
 }
 
 #[derive(
-    MessageInternal, Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq,
+    Component, Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect,
 )]
 pub struct PreSpawnedPlayerObject {
     /// The hash that will identify the spawned entity
@@ -465,7 +463,6 @@ mod tests {
     #[test]
     fn test_compute_hash() {
         let mut stepper = BevyStepper::default();
-        stepper.init();
 
         // check default compute hash, with multiple entities sharing the same tick
         stepper

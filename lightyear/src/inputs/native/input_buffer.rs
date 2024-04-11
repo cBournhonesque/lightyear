@@ -1,11 +1,9 @@
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Reflect, Resource};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
-
-use lightyear_macros::MessageInternal;
 
 use crate::protocol::BitSerializable;
 use crate::shared::tick_manager::Tick;
@@ -21,17 +19,17 @@ pub struct InputBuffer<T: UserAction> {
 // TODO: add encode directive to encode even more efficiently
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-pub(crate) enum InputData<T: UserAction> {
+pub(crate) enum InputData<T> {
     Absent,
     SameAsPrecedent,
     Input(T),
 }
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
-#[derive(MessageInternal, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<T: UserAction> {
+pub struct InputMessage<T> {
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     pub(crate) inputs: Vec<InputData<T>>,

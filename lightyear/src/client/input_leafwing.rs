@@ -637,7 +637,6 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         //  could we find a way to do it?
         //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
         //   on their end?
-
         if pre_predicted.is_some() {
             debug!(
                 ?tick,
@@ -650,7 +649,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
             // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
             //  for which client the inputs were!
 
-            // 0. the entity is pre-predicted
+            // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server)
             action_diff_buffer.add_to_message(
                 &mut message,
                 tick,

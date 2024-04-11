@@ -66,10 +66,11 @@
 //!
 //! [`std::sync::Arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
 
-use parking_lot::Mutex;
 use std::iter::FromIterator;
 use std::mem::{forget, ManuallyDrop};
 use std::ops::{Deref, DerefMut};
+
+use parking_lot::Mutex;
 
 pub type Stack<T> = Vec<T>;
 
@@ -184,8 +185,9 @@ impl<'a, T> Drop for Reusable<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Pool, Reusable};
     use std::mem::drop;
+
+    use super::{Pool, Reusable};
 
     #[test]
     fn detach() {

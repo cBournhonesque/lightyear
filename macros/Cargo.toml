@@ -28,7 +28,6 @@ anyhow = "1.0.75"
 darling = "0.20"
 uuid = { version = "1.6.1", features = ["v4"] }
 
-
 [dev-dependencies]
 lightyear = { path = "../lightyear" }
 leafwing-input-manager = { version = "0.13" }

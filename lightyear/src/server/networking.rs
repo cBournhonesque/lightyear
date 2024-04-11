@@ -46,7 +46,7 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                (InternalMainSet::<ServerMarker>::Receive,).chain(),
+                InternalMainSet::<ServerMarker>::Receive.run_if(is_server_listening),
             )
             .configure_sets(
                 PostUpdate,
@@ -54,6 +54,7 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
                     // we don't send packets every frame, but on a timer instead
                     InternalMainSet::<ServerMarker>::Send.run_if(is_server_ready_to_send),
                     InternalMainSet::<ServerMarker>::SendPackets
+                        .run_if(is_server_listening)
                         .in_set(InternalMainSet::<ServerMarker>::Send),
                 ),
             )
@@ -242,4 +243,9 @@ pub(crate) fn send<P: Protocol>(
 /// Send only runs every send_interval
 pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<ConnectionManager<P>>) {
     connection_manager.events.clear();
+}
+
+/// Run condition to check that the server is ready to listen to incoming connections
+pub(crate) fn is_server_listening(netservers: Res<ServerConnections>) -> bool {
+    netservers.is_listening()
 }

@@ -1,7 +1,7 @@
 use bevy::prelude::{Commands, Component, DetectChanges, Entity, Query, Ref, Res, With, Without};
 use tracing::{debug, info, trace};
 
-use crate::_reexport::ComponentProtocol;
+use crate::_reexport::{ComponentProtocol, FromType};
 use crate::client::components::{SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -16,7 +16,8 @@ use crate::shared::tick_manager::Tick;
 // - lower values (with a minimum of 1.0) will make the interpolation look better when we receive an update,
 //   but will also make it more likely to have a wrong interpolation when we have packet loss
 // - however we can combat packet loss by having a bigger delay
-const SEND_INTERVAL_TICK_FACTOR: f32 = 1.5;
+// TODO: this value should depend on jitter I think
+const SEND_INTERVAL_TICK_FACTOR: f32 = 1.3;
 
 // TODO: the inner fields are pub just for integration testing.
 //  maybe put the test here?
@@ -51,7 +52,7 @@ impl<C: Component> InterpolateStatus<C> {
 }
 
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
-/// Invariant: start_tick <= current_interpolate_tick <= end_tick
+/// Invariant: start_tick <= current_interpolate_tick + overstep < end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager<P>>,
@@ -64,11 +65,9 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     )>,
 ) where
     P::Components: SyncMetadata<C>,
+    P::ComponentKinds: FromType<C>,
 {
-    let kind = C::type_name();
-    if !connection.is_synced() {
-        return;
-    }
+    let kind = P::ComponentKinds::from_type();
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
@@ -208,38 +207,49 @@ pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     }
 }
 
-/// Only sync the component from the Confirmed to the Interpolated entity
-/// after we have at least 2 confirmed updates, otherwise if the server send rate is low
-/// the component could be stuck at the 'start_tick' value until we have another update to interpolate towards
+/// Insert the component on the `Interpolated` entity.
+/// We do not insert the component immediately on `Interpolated` when the component gets added on the `Confirmed` entity,
+/// because then the component value would be constant (= to the starting value) until we get another component update,
+/// and then it starts moving. This can be jarring if the server send rate is low (then for example a bullet is frozen for a bit
+/// before it starts moving).
+/// Instead we will insert the component after either:
+/// - we have received 2 updates on the Confirmed entity (so we can interpolate between them)
+/// - or at least SEND_INTERVAL_TICK_FACTOR * send_interval has passed. (this is to deal with the case where we only receive
+/// one update; for example if we spawn the player and then they don't move. If we didn't do this the interpolated entity would
+/// simply not appear)
 pub(crate) fn insert_interpolated_component<C: SyncComponent, P: Protocol>(
+    config: Res<ClientConfig>,
+    tick_manager: Res<TickManager>,
     mut commands: Commands,
     mut query: Query<(Entity, &InterpolateStatus<C>), Without<C>>,
 ) where
     P::Components: SyncMetadata<C>,
 {
+    let tick = tick_manager.tick();
+    // how many ticks between each interpolation update (add 1 to roughly take the ceil)
+    // TODO: use something more precise, with the interpolation overstep?
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+        * config.shared.server_send_interval.as_secs_f32()
+        / config.shared.tick.tick_duration.as_secs_f32()) as i16
+        + 1;
     for (entity, status) in query.iter_mut() {
-        trace!("checking if we do interpolation");
+        trace!("checking if we need to insert the component on the Interpolated entity");
         let mut entity_commands = commands.entity(entity);
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
-            // TODO: maybe that's not correct? we only want to insert the component if we are interpolating
-            //  between two values!
-            // if status.current_ == *start_tick {
-            //     debug!(?entity, ?start_tick, "setting component to start value");
-            //     entity_commands.insert(start_value.clone());
-            //     continue;
-            // }
+            trace!(is_end = ?status.end.is_some(), "start tick exists, checking if we need to insert the component");
+            // we have two updates!, add the component
             if let Some((end_tick, end_value)) = &status.end {
-                trace!(?entity, ?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
-                if status.current_tick == *end_tick {
-                    entity_commands.insert(end_value.clone());
-                    continue;
-                }
-                if start_tick != end_tick {
-                    let t = status.interpolation_fraction().unwrap();
-                    let value = P::Components::lerp(start_value, end_value, t);
-                    entity_commands.insert(value);
-                } else {
+                assert!(status.current_tick < *end_tick);
+                assert_ne!(start_tick, end_tick);
+                trace!("insert interpolated comp value because we have 2 updates");
+                let t = status.interpolation_fraction().unwrap();
+                let value = P::Components::lerp(start_value, end_value, t);
+                entity_commands.insert(value);
+            } else {
+                // we only have one update, but enough time has passed that we should add the component anyway
+                if tick - *start_tick >= send_interval_delta_tick {
+                    trace!("insert interpolated comp value because enough time has passed");
                     entity_commands.insert(start_value.clone());
                 }
             }

@@ -1,10 +1,9 @@
 //! Handles client-generated inputs
 use bevy::prelude::{
-    App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs,
-    IntoSystemSetConfigs, Plugin, Res, ResMut, SystemSet,
+    App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs, Plugin, Res,
+    ResMut, SystemSet,
 };
 
-use crate::connection::id::ClientId;
 use crate::prelude::{TickManager, UserAction};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;

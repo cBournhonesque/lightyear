@@ -13,7 +13,7 @@ use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::server::config::NetcodeConfig;
 use crate::transport::io::Io;
-use crate::transport::{PacketReceiver, PacketSender};
+use crate::transport::{PacketReceiver, PacketSender, Transport};
 
 use super::{
     bytes::Bytes,
@@ -351,9 +351,10 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use bevy::utils::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
-/// let mut io = Io::from_config(IoConfig::from_transport(TransportConfig::UdpSocket(
-///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)))
-/// );
+/// let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(
+///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
+/// )).build();
+/// io.connect();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -857,9 +858,9 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = Io::from_config(
-    /// #     IoConfig::from_transport(TransportConfig::UdpSocket(addr))
-    /// # );
+    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).build();
+    /// # io.connect();
+    /// #
     /// let start = Instant::now();
     /// loop {
     ///    let now = start.elapsed().as_secs_f64();
@@ -1021,7 +1022,37 @@ pub struct Server {
 
 impl NetServer for Server {
     fn start(&mut self) -> anyhow::Result<()> {
+        self.io.connect()?;
         Ok(())
+    }
+
+    fn stop(&mut self) -> anyhow::Result<()> {
+        let mut connected_clients = self
+            .server
+            .connected_client_ids()
+            .map(id::ClientId::Netcode)
+            .collect::<Vec<_>>();
+        self.server.disconnect_all(&mut self.io)?;
+        self.server
+            .cfg
+            .context
+            .disconnections
+            .append(&mut connected_clients);
+        self.io.close()?;
+        Ok(())
+    }
+
+    fn disconnect(&mut self, client_id: id::ClientId) -> anyhow::Result<()> {
+        match client_id {
+            id::ClientId::Netcode(id) => {
+                self.server
+                    .disconnect(id, &mut self.io)
+                    .context("Could not disconnect client")?;
+                self.server.cfg.context.disconnections.push(client_id);
+                Ok(())
+            }
+            _ => Err(anyhow!("the client id must be of type Netcode")),
+        }
     }
 
     fn connected_client_ids(&self) -> Vec<id::ClientId> {

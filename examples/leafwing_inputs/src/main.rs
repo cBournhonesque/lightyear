@@ -143,7 +143,7 @@ fn run(settings: Settings, cli: Cli) {
 fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::WARN,
+        level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
@@ -229,7 +229,7 @@ fn combined_app(
 ) -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::WARN,
+        level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));

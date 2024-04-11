@@ -4,19 +4,34 @@ use std::net::SocketAddr;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::transport::{PacketReceiver, PacketSender, Transport, LOCAL_SOCKET};
+use crate::transport::{
+    BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+    TransportBuilder, TransportEnum, LOCAL_SOCKET,
+};
+
+use super::error::{Error, Result};
 
 // TODO: this is client only; separate client/server transport traits
-#[derive(Clone)]
-pub struct LocalChannel {
-    recv: Receiver<Vec<u8>>,
-    send: Sender<Vec<u8>>,
+pub(crate) struct LocalChannelBuilder {
+    pub(crate) recv: Receiver<Vec<u8>>,
+    pub(crate) send: Sender<Vec<u8>>,
 }
 
-impl LocalChannel {
-    pub(crate) fn new(recv: Receiver<Vec<u8>>, send: Sender<Vec<u8>>) -> Self {
-        LocalChannel { recv, send }
+impl TransportBuilder for LocalChannelBuilder {
+    fn connect(self) -> Result<TransportEnum> {
+        Ok(TransportEnum::LocalChannel(LocalChannel {
+            sender: LocalChannelSender { send: self.send },
+            receiver: LocalChannelReceiver {
+                buffer: vec![],
+                recv: self.recv,
+            },
+        }))
     }
+}
+
+pub struct LocalChannel {
+    sender: LocalChannelSender,
+    receiver: LocalChannelReceiver,
 }
 
 impl Transport for LocalChannel {
@@ -24,13 +39,8 @@ impl Transport for LocalChannel {
         LOCAL_SOCKET
     }
 
-    fn listen(self) -> (Box<dyn PacketSender>, Box<dyn PacketReceiver>) {
-        let sender = LocalChannelSender { send: self.send };
-        let receiver = LocalChannelReceiver {
-            buffer: vec![],
-            recv: self.recv,
-        };
-        (Box::new(sender), Box::new(receiver))
+    fn split(self) -> (BoxedSender, BoxedReceiver, Option<BoxedCloseFn>) {
+        (Box::new(self.sender), Box::new(self.receiver), None)
     }
 }
 
@@ -40,14 +50,14 @@ struct LocalChannelReceiver {
 }
 
 impl PacketReceiver for LocalChannelReceiver {
-    fn recv(&mut self) -> std::io::Result<Option<(&mut [u8], SocketAddr)>> {
+    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         self.recv.try_recv().map_or_else(
             |e| match e {
                 crossbeam_channel::TryRecvError::Empty => Ok(None),
-                _ => Err(std::io::Error::other(format!(
+                _ => Err(Error::Io(std::io::Error::other(format!(
                     "error receiving packet: {:?}",
                     e
-                ))),
+                )))),
             },
             |data| {
                 self.buffer = data;
@@ -62,9 +72,9 @@ struct LocalChannelSender {
 }
 
 impl PacketSender for LocalChannelSender {
-    fn send(&mut self, payload: &[u8], _: &SocketAddr) -> std::io::Result<()> {
+    fn send(&mut self, payload: &[u8], _: &SocketAddr) -> Result<()> {
         self.send
             .try_send(payload.to_vec())
-            .map_err(|_| std::io::Error::other("error sending packet"))
+            .map_err(|e| std::io::Error::other("error sending packet").into())
     }
 }

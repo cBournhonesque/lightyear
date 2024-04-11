@@ -1,6 +1,7 @@
+use crate::shared::{get_fields, strip_attributes};
 use darling::ast::NestedMeta;
-use darling::util::PathList;
-use darling::{Error, FromField, FromMeta};
+use darling::util::{Flag, PathList};
+use darling::{Error, FromField, FromMeta, FromVariant};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use std::ops::Deref;
@@ -10,79 +11,59 @@ use syn::{
     PathArguments, Token, Type, TypeParam,
 };
 
+// TODO: use FromDeriveInput ?
 #[derive(Debug, FromMeta)]
-/// Struct that will hold the value of attributes passed to the macro
+/// Struct that will hold the value of attributes passed to the macro itself (component_protocol(...))
 struct MacroAttrs {
     protocol: Ident,
     #[darling(default)]
     derive: PathList,
 }
 
-const ATTRIBUTES: &[&str] = &["sync"];
+const ATTRIBUTES: &[&str] = &["protocol"];
 
 #[derive(Debug, FromField)]
-#[darling(attributes(sync))]
-struct SyncField {
-    // name of the enum field
+#[darling(attributes(protocol))]
+struct AttrField {
     ident: Option<Ident>,
-
-    // type of the field
     ty: Type,
 
+    sync: Option<SyncField>,
     #[darling(default)]
-    full: bool,
-    #[darling(default)]
-    simple: bool,
-    #[darling(default)]
-    once: bool,
-    #[darling(default)]
-    external: bool,
+    map_entities: MapField,
+}
 
+#[derive(Debug, FromMeta, PartialEq, Eq)]
+enum SyncMode {
+    Full,
+    Simple,
+    Once,
+}
+
+#[derive(Debug, FromMeta)]
+struct SyncField {
+    mode: SyncMode,
     #[darling(default)]
     lerp: Option<Ident>,
     #[darling(default)]
     corrector: Option<Ident>,
 }
 
+#[derive(Debug, Default, FromMeta, PartialEq, Eq)]
+enum MapField {
+    #[default]
+    NoMapEntities,
+    Custom,
+    #[darling(word)]
+    MapWithMapEntity,
+}
+
 impl SyncField {
     fn get_mode_tokens(&self) -> TokenStream {
-        let mut tokens = quote! {};
-        if self.full {
-            tokens = quote! {
-                ComponentSyncMode::Full
-            };
-        } else if self.simple {
-            tokens = quote! {
-                ComponentSyncMode::Simple
-            };
-        } else if self.once {
-            tokens = quote! {
-                ComponentSyncMode::Once
-            };
-        } else {
-            tokens = quote! {
-                ComponentSyncMode::None
-            };
-        }
-        tokens
-    }
-
-    fn check_is_valid(&self) {
-        let mut count = 0;
-        if self.full {
-            count += 1;
-        }
-        if self.simple {
-            count += 1;
-        }
-        if self.once {
-            count += 1;
-        }
-        if count > 1 {
-            panic!(
-                "The field {:?} cannot have multiple sync attributes set at the same time",
-                self
-            );
+        match self.mode {
+            SyncMode::Full => quote! {ComponentSyncMode::Full},
+            SyncMode::Simple => quote! {ComponentSyncMode::Simple},
+            SyncMode::Once => quote! {ComponentSyncMode::Once},
         }
     }
 }
@@ -128,6 +109,7 @@ pub fn component_protocol_impl(
         ShouldBeInterpolated(ShouldBeInterpolated)
     });
     input.variants.push(parse_quote! {
+        #[protocol(map_entities)]
         ParentSync(ParentSync)
     });
     #[cfg(feature = "leafwing")]
@@ -135,24 +117,18 @@ pub fn component_protocol_impl(
         let variant = Ident::new(&format!("ActionState{}", i), Span::call_site());
         let ty = Ident::new(&format!("LeafwingInput{}", i), Span::call_site());
         input.variants.push(parse_quote! {
-            #[sync(simple)]
+            #[protocol(sync(mode="simple"))]
             #variant(ActionState<<#protocol as Protocol>::#ty>)
         });
     }
 
     // Helper Properties
     let fields = get_fields(&input);
-    let input_without_attributes = strip_attributes(&input);
-
-    // Use darling to parse the attributes for each field
-    let sync_fields: Vec<SyncField> = fields
+    let input_without_attributes = strip_attributes(&input, ATTRIBUTES);
+    let attr_fields: Vec<AttrField> = fields
         .iter()
-        // .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("sync")))
         .map(|field| FromField::from_field(field).unwrap())
         .collect();
-    for field in &sync_fields {
-        field.check_is_valid();
-    }
 
     // Names
     let enum_name = &input.ident;
@@ -164,17 +140,17 @@ pub fn component_protocol_impl(
     let module_name = format_ident!("define_{}", lowercase_struct_name);
 
     // Impls
-    let sync_component_impl = sync_metadata_impl(&sync_fields, enum_name);
+    let sync_component_impl = sync_metadata_impl(&attr_fields, enum_name);
 
     // Methods
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
-    let add_sync_systems_method = add_sync_systems_method(&sync_fields, protocol);
+    let add_sync_systems_method = add_sync_systems_method(&attr_fields, protocol);
     // let mode_method = mode_method(&input, &fields);
     let encode_method = encode_method();
     let decode_method = decode_method();
-    let delegate_method = delegate_method(&input, &enum_kind_name);
+    let map_entities_method = map_entities_method(&attr_fields, &input, &enum_kind_name);
     let insert_method = insert_method(&input, &fields);
     let update_method = update_method(&input, &fields);
     let type_ids_method = type_ids_method(&fields, &enum_kind_name);
@@ -193,7 +169,7 @@ pub fn component_protocol_impl(
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
             use bevy::ecs::entity::{EntityHashSet, MapEntities, EntityMapper};
-            use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
+            use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World, Reflect};
             use bevy::utils::HashMap;
             use std::any::TypeId;
             use #shared_crate_name::shared::events::components::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
@@ -240,9 +216,9 @@ pub fn component_protocol_impl(
             }
 
             #sync_component_impl
-            #delegate_method
+            #map_entities_method
 
-            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
             #[repr(C)]
             #enum_kind
 
@@ -272,40 +248,6 @@ pub fn component_protocol_impl(
     };
 
     proc_macro::TokenStream::from(gen)
-}
-
-/// Get a copy of the type inside each enum variants
-fn get_fields(input: &ItemEnum) -> Vec<Field> {
-    let mut fields = Vec::new();
-    for mut variant in input.variants.iter() {
-        let Fields::Unnamed(ref unnamed) = variant.fields else {
-            panic!("Field must be unnamed");
-        };
-        assert_eq!(unnamed.unnamed.len(), 1);
-        let mut component = unnamed.unnamed.first().unwrap().clone();
-        // get the attrs from the variant
-        component.attrs = variant.attrs.clone();
-        // set the field ident as the variant ident
-        component.ident = Some(variant.ident.clone());
-        // make field immutable
-        fields.push(component);
-    }
-    fields
-}
-
-/// Make a copy of the input enum but remove all the field attributes defined by me
-fn strip_attributes(input: &ItemEnum) -> ItemEnum {
-    let mut input = input.clone();
-    for variant in input.variants.iter_mut() {
-        // remove all attributes that are used in this macro
-        variant.attrs.retain(|v| {
-            v.path()
-                .segments
-                .first()
-                .map_or(true, |s| ATTRIBUTES.iter().all(|attr| s.ident != *attr))
-        })
-    }
-    input
 }
 
 fn add_per_component_replication_send_systems_method(
@@ -374,22 +316,24 @@ fn add_events_method(fields: &Vec<Field>) -> TokenStream {
     }
 }
 
-fn sync_metadata_impl(fields: &Vec<SyncField>, enum_name: &Ident) -> TokenStream {
+fn sync_metadata_impl(fields: &Vec<AttrField>, enum_name: &Ident) -> TokenStream {
     let mut body = quote! {};
     for field in fields {
+        let Some(sync) = &field.sync else { continue };
         let component_type = &field.ty;
+        let mode = sync.get_mode_tokens();
+
         // mode
-        let mode = field.get_mode_tokens();
         // interpolation
-        let interpolator = &field.lerp.clone().unwrap_or_else(|| {
-            if field.full {
+        let interpolator = &sync.lerp.clone().unwrap_or_else(|| {
+            if sync.mode == SyncMode::Full {
                 Ident::new("LinearInterpolator", Span::call_site())
             } else {
                 Ident::new("NullInterpolator", Span::call_site())
             }
         });
         // prediction
-        let mut corrector = field
+        let mut corrector = sync
             .corrector
             .clone()
             .unwrap_or(Ident::new("InstantCorrector", Span::call_site()));
@@ -410,24 +354,25 @@ fn sync_metadata_impl(fields: &Vec<SyncField>, enum_name: &Ident) -> TokenStream
     body
 }
 
-fn add_sync_systems_method(fields: &Vec<SyncField>, protocol_name: &Ident) -> TokenStream {
+fn add_sync_systems_method(fields: &Vec<AttrField>, protocol_name: &Ident) -> TokenStream {
     let mut prediction_body = quote! {};
     let mut prepare_interpolation_body = quote! {};
     let mut interpolation_body = quote! {};
     for field in fields {
+        let Some(sync) = &field.sync else {
+            continue;
+        };
         let component_type = &field.ty;
         // we only add sync systems if the SyncComponent is not None
-        if field.full || field.once || field.simple {
-            prediction_body = quote! {
-                #prediction_body
-                add_prediction_systems::<#component_type, #protocol_name>(app);
-            };
-            prepare_interpolation_body = quote! {
-                #prepare_interpolation_body
-                add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
-            };
-        }
-        if field.full {
+        prediction_body = quote! {
+            #prediction_body
+            add_prediction_systems::<#component_type, #protocol_name>(app);
+        };
+        prepare_interpolation_body = quote! {
+            #prepare_interpolation_body
+            add_prepare_interpolation_systems::<#component_type, #protocol_name>(app);
+        };
+        if sync.mode == SyncMode::Full {
             interpolation_body = quote! {
                 #interpolation_body
                 add_interpolation_systems::<#component_type, #protocol_name>(app);
@@ -535,12 +480,12 @@ fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> 
     }
 }
 
-// fn mode_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
+// fn mode_method(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
 //     let mut body = quote! {};
 //     for field in fields {
 //         let ident = &field.ident;
-//
 //         let component_type = &field.ty;
+//         let mode = field.
 //         body = quote! {
 //             #body
 //             Self::#ident(_) => <#component_type>::mode(),
@@ -556,34 +501,64 @@ fn remove_method(input: &ItemEnum, fields: &[Field], enum_kind_name: &Ident) -> 
 //     }
 // }
 
-fn delegate_method(input: &ItemEnum, enum_kind_name: &Ident) -> TokenStream {
+fn map_entities_method(
+    fields: &Vec<AttrField>,
+    input: &ItemEnum,
+    enum_kind_name: &Ident,
+) -> TokenStream {
     let enum_name = &input.ident;
-    let variants = input.variants.iter().map(|v| v.ident.clone());
     let mut map_entities_body = quote! {};
-    let mut entities_body = quote! {};
-    for variant in input.variants.iter() {
-        let ident = &variant.ident;
-        map_entities_body = quote! {
-            #map_entities_body
-            Self::#ident(ref mut x) => LightyearMapEntities::map_entities(x, entity_mapper),
-        };
-        entities_body = quote! {
-            #entities_body
-            Self::#ident(ref x) => x.entities(),
-        };
+    let mut external_mapper_body = quote! {};
+    for field in fields.iter() {
+        let component_type = &field.ty;
+        let ident = &field.ident;
+        match field.map_entities {
+            MapField::NoMapEntities => {
+                // if there is no mapping, still implement the ExternalMapper trait which is used to perform the mapping on the component directly
+                // if there's no map entities, no need to do any mapping.
+                external_mapper_body = quote! {
+                    #external_mapper_body
+                    impl ExternalMapper<#component_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {}
+                    }
+                };
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => {},
+                };
+            }
+            MapField::Custom => {
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                };
+            }
+            MapField::MapWithMapEntity => {
+                // if there is an MapEntities defined on the component, we use it for ExternalMapper
+                external_mapper_body = quote! {
+                    #external_mapper_body
+                    impl ExternalMapper<#component_type> for #enum_name {
+                        fn map_entities_for<M: EntityMapper>(x: &mut #component_type, entity_mapper: &mut M) {
+                            x.map_entities(entity_mapper);
+                        }
+                    }
+                };
+                map_entities_body = quote! {
+                    #map_entities_body
+                    Self::#ident(ref mut x) => x.map_entities(entity_mapper),
+                };
+            }
+        }
     }
 
     // TODO: make it work with generics (generic components)
     quote! {
-        impl LightyearMapEntities for #enum_name {
+        #external_mapper_body
+        impl MapEntities for #enum_name {
             fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
                 match self {
                     #map_entities_body
                 }
-            }
-        }
-        impl LightyearMapEntities for #enum_kind_name {
-            fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
             }
         }
     }

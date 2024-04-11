@@ -1,7 +1,7 @@
 //! Specify how a Client sends/receives messages with a Server
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHashMap;
+use bevy::ecs::entity::{EntityHashMap, MapEntities};
 use bevy::prelude::{Entity, Local, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
@@ -17,9 +17,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
 use crate::packet::packet_manager::Payload;
-use crate::prelude::{
-    Channel, ChannelKind, ClientId, LightyearMapEntities, Message, NetworkTarget,
-};
+use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -73,7 +71,7 @@ pub struct ConnectionManager<P: Protocol> {
 }
 
 impl<P: Protocol> ConnectionManager<P> {
-    pub fn new(
+    pub(crate) fn new(
         channel_registry: &ChannelRegistry,
         packet_config: PacketConfig,
         sync_config: SyncConfig,
@@ -143,7 +141,8 @@ impl<P: Protocol> ConnectionManager<P> {
     where
         P::Message: From<M>,
     {
-        // IF UNIFIED; send message directly
+        // TODO: if unified; send message directly to the client's message receiver
+        // TODO: add metrics?
         let channel = ChannelKind::of::<C>();
         self.buffer_message(message.into(), channel, NetworkTarget::None)
     }

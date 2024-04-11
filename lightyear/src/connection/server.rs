@@ -1,22 +1,28 @@
-use anyhow::Result;
-use bevy::prelude::{Entity, Resource};
+use anyhow::{anyhow, Result};
+use bevy::prelude::Resource;
 use bevy::utils::HashMap;
 
-use crate::_reexport::ReadWordBuffer;
-use crate::connection::client::ClientConnection;
 use crate::connection::id::ClientId;
-
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::server::SteamConfig;
 use crate::packet::packet::Packet;
-
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
-use crate::utils::free_list::FreeList;
 
 pub trait NetServer: Send + Sync {
     /// Start the server
+    /// (i.e. start listening for client connections)
     fn start(&mut self) -> Result<()>;
+
+    /// Stop the server
+    /// (i.e. stop listening for client connections and stop all networking)
+    fn stop(&mut self) -> Result<()>;
+
+    // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
+    //  and we decide whether to accept it or not
+    /// Disconnect a specific client
+    /// Is also responsible for adding the client to the list of new disconnections.
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()>;
 
     /// Return the list of connected clients
     fn connected_client_ids(&self) -> Vec<ClientId>;
@@ -70,7 +76,7 @@ impl NetConfig {
     pub fn build_server(self) -> ServerConnection {
         match self {
             NetConfig::Netcode { config, io } => {
-                let io = io.get_io();
+                let io = io.build();
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
                     server: Box::new(server),
@@ -97,6 +103,14 @@ impl NetConfig {
 impl NetServer for ServerConnection {
     fn start(&mut self) -> Result<()> {
         self.server.start()
+    }
+
+    fn stop(&mut self) -> Result<()> {
+        self.server.stop()
+    }
+
+    fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        self.server.disconnect(client_id)
     }
 
     fn connected_client_ids(&self) -> Vec<ClientId> {
@@ -136,9 +150,11 @@ type ServerConnectionIdx = usize;
 #[derive(Resource)]
 pub struct ServerConnections {
     /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub servers: Vec<ServerConnection>,
+    pub(crate) servers: Vec<ServerConnection>,
     /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
     pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
+    /// Track whether the server is ready to listen to incoming connections
+    is_listening: bool,
 }
 
 impl ServerConnections {
@@ -151,6 +167,46 @@ impl ServerConnections {
         ServerConnections {
             servers,
             client_server_map: HashMap::default(),
+            is_listening: false,
         }
+    }
+
+    /// Start listening for client connections on all internal servers
+    pub fn start(&mut self) -> Result<()> {
+        for server in &mut self.servers {
+            server.start()?;
+        }
+        self.is_listening = true;
+        Ok(())
+    }
+
+    /// Stop listening for client connections on all internal servers
+    pub fn stop(&mut self) -> Result<()> {
+        for server in &mut self.servers {
+            server.stop()?;
+        }
+        self.is_listening = false;
+        Ok(())
+    }
+
+    /// Disconnect a specific client
+    pub fn disconnect(&mut self, client_id: ClientId) -> Result<()> {
+        self.client_server_map.get(&client_id).map_or(
+            Err(anyhow!(
+                "Could not find the server instance associated with client: {client_id:?}"
+            )),
+            |&server_idx| {
+                self.servers[server_idx].disconnect(client_id)?;
+                // NOTE: we don't remove the client from the map here because it is done
+                //  in the server's `receive` method
+                // self.client_server_map.remove(&client_id);
+                Ok(())
+            },
+        )
+    }
+
+    /// Returns true if the server is currently listening for client packets
+    pub(crate) fn is_listening(&self) -> bool {
+        self.is_listening
     }
 }

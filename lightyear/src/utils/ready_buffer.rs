@@ -1,6 +1,7 @@
 //! Wrapper around a min-heap
-use bevy::reflect::Reflect;
 use std::{cmp::Ordering, collections::BinaryHeap};
+
+use bevy::reflect::Reflect;
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)
 ///
@@ -168,7 +169,6 @@ impl<K: Ord, T: PartialEq> Ord for ItemWithReadyKey<K, T> {
 #[cfg(test)]
 mod tests {
     use bevy::utils::Duration;
-
     use mock_instant::Instant;
     use mock_instant::MockClock;
 

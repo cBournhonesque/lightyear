@@ -23,4 +23,6 @@ pub enum Error {
     Packet(#[from] super::packet::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Transport(#[from] crate::transport::error::Error),
 }

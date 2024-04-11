@@ -232,13 +232,13 @@ pub(crate) fn debug_interpolate(
         &ConfirmedHistory<TailPoints>,
     )>,
 ) {
-    info!(tick = ?tick_manager.tick(), "interpolation debug");
+    debug!(tick = ?tick_manager.tick(), "interpolation debug");
     for (parent, tail_status, tail_history) in tail_query.iter() {
         let (parent_status, parent_history) = parent_query
             .get(parent.0)
             .expect("Tail entity has no parent entity!");
-        info!(?parent_status, ?parent_history, "parent");
-        info!(?tail_status, ?tail_history, "tail");
+        debug!(?parent_status, ?parent_history, "parent");
+        debug!(?tail_status, ?tail_history, "tail");
     }
 }
 
@@ -259,7 +259,7 @@ pub(crate) fn interpolate(
         let (mut parent_position, parent_status) = parent_query
             .get_mut(parent.0)
             .expect("Tail entity has no parent entity!");
-        info!(
+        debug!(
             ?parent_position,
             ?tail,
             ?parent_status,

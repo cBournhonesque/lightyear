@@ -3,21 +3,17 @@ use std::ops::DerefMut;
 use std::sync::Mutex;
 
 use bevy::prelude::*;
-use tracing::error;
 
-use crate::connection::server::NetServer;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::{ConnectEvent, ServerEventsPlugin};
+use crate::server::events::ServerEventsPlugin;
 use crate::server::input::InputPlugin;
 use crate::server::networking::ServerNetworkingPlugin;
 use crate::server::replication::ServerReplicationPlugin;
 use crate::server::room::RoomPlugin;
 use crate::shared::plugin::SharedPlugin;
-use crate::shared::replication::plugin::ReplicationPlugin;
-use crate::shared::time_manager::TimePlugin;
 
 use super::config::ServerConfig;
 

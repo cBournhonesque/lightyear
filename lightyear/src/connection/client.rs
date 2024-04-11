@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use anyhow::Result;
-use bevy::prelude::Resource;
+use bevy::prelude::{Reflect, Resource};
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
@@ -21,6 +21,9 @@ pub trait NetClient: Send + Sync {
 
     /// Connect to server
     fn connect(&mut self) -> Result<()>;
+
+    /// Disconnect from the server
+    fn disconnect(&mut self) -> Result<()>;
 
     /// Returns true if the client is connected to the server
     fn is_connected(&self) -> bool;
@@ -54,16 +57,20 @@ pub struct ClientConnection {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
+#[reflect(from_reflect = false)]
 pub enum NetConfig {
     Netcode {
+        #[reflect(ignore)]
         auth: Authentication,
         config: NetcodeConfig,
+        #[reflect(ignore)]
         io: IoConfig,
     },
     // TODO: for steam, we can use a pass-through io that just computes stats?
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
+        #[reflect(ignore)]
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
     },
@@ -100,7 +107,7 @@ impl NetConfig {
                         .expect("could not create netcode client");
                 let client = super::netcode::Client {
                     client: netcode,
-                    io_config,
+                    io_config: Some(io_config),
                     io: None,
                 };
                 ClientConnection {
@@ -132,6 +139,10 @@ impl NetConfig {
 impl NetClient for ClientConnection {
     fn connect(&mut self) -> Result<()> {
         self.client.connect()
+    }
+
+    fn disconnect(&mut self) -> Result<()> {
+        self.client.disconnect()
     }
 
     fn is_connected(&self) -> bool {

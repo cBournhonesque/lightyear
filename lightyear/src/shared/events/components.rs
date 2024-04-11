@@ -7,8 +7,8 @@ use bevy::prelude::{Component, Entity, Event};
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::InputMessage;
 use crate::packet::message::Message;
-use crate::prelude::ClientId;
 
+/// This event is emitted whenever a client connects to the server
 #[derive(Event)]
 pub struct ConnectEvent<Ctx = ()>(Ctx);
 
@@ -21,6 +21,7 @@ impl<Ctx> ConnectEvent<Ctx> {
     }
 }
 
+/// This event is emitted whenever a client disconnects from the server
 #[derive(Event)]
 pub struct DisconnectEvent<Ctx = ()>(Ctx);
 
@@ -33,6 +34,7 @@ impl<Ctx> DisconnectEvent<Ctx> {
     }
 }
 
+/// This event is emitted whenever we receive a message containing a user action
 #[cfg(feature = "leafwing")]
 #[derive(Event)]
 pub(crate) struct InputMessageEvent<A: crate::inputs::leafwing::LeafwingUserAction, Ctx = ()> {
@@ -53,6 +55,7 @@ impl<A: crate::inputs::leafwing::LeafwingUserAction, Ctx> InputMessageEvent<A, C
     }
 }
 
+/// This event is emitted whenever we receive a message from the remote
 #[derive(Event)]
 pub struct MessageEvent<M: Message, Ctx = ()> {
     message: M,
@@ -95,7 +98,7 @@ impl<I: crate::inputs::native::UserAction, Ctx> InputEvent<I, Ctx> {
 }
 
 #[derive(Event)]
-/// Event emitted whenever an replicated entity gets received
+/// Event emitted whenever we spawn an entity from the remote world
 pub struct EntitySpawnEvent<Ctx = ()> {
     entity: Entity,
     context: Ctx,
@@ -115,6 +118,7 @@ impl<Ctx> EntitySpawnEvent<Ctx> {
     }
 }
 
+/// Event emitted whenever we despawn an entity from the remote world
 #[derive(Event)]
 pub struct EntityDespawnEvent<Ctx = ()> {
     entity: Entity,
@@ -135,6 +139,7 @@ impl<Ctx> EntityDespawnEvent<Ctx> {
     }
 }
 
+/// Event emitted whenever we update a component from the remote world
 #[derive(Event)]
 pub struct ComponentUpdateEvent<C: Component, Ctx = ()> {
     entity: Entity,
@@ -161,6 +166,7 @@ impl<C: Component, Ctx> ComponentUpdateEvent<C, Ctx> {
     }
 }
 
+/// Event emitted whenever we insert a component from the remote world
 #[derive(Event, Debug)]
 pub struct ComponentInsertEvent<C: Component, Ctx = ()> {
     entity: Entity,
@@ -187,6 +193,7 @@ impl<C: Component, Ctx> ComponentInsertEvent<C, Ctx> {
     }
 }
 
+/// Event emitted whenever we remove a component from the remote world
 #[derive(Event)]
 pub struct ComponentRemoveEvent<C: Component, Ctx = ()> {
     entity: Entity,

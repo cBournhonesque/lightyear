@@ -54,7 +54,7 @@ hashbrown = "0.14"
 # used to have the same instant in wasm and native. (maybe can be replaced by bevy_utils in 0.13)
 instant = "0.1.12"
 governor = "0.6.0"
-mock_instant = { version = "0.3.1", optional = true }
+mock_instant = { version = "0.4.0", optional = true }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.1"
 paste = "1.0"
@@ -117,6 +117,7 @@ futures-util = { version = "0.3.30", optional = true }
 tokio = { version = "1.36", features = [
   "sync",
 ], default-features = false, optional = true }
+futures = "0.3.30"
 async-compat = "0.2.3"
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
@@ -165,7 +166,7 @@ wasm-bindgen = { version = "0.2.90", optional = true }
 [dev-dependencies]
 wasm-bindgen-test = "0.3.39"
 derive_more = { version = "0.99", features = ["add", "mul"] }
-mock_instant = { version = "0.3.1" }
+mock_instant = { version = "0.4.0" }
 tracing-subscriber = "0.3.17"
 bitvec = "1.0"
 approx = "0.5.1"

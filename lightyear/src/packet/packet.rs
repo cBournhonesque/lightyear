@@ -360,7 +360,7 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::default;
+    use bevy::prelude::{default, Reflect};
     use bytes::Bytes;
 
     use bitcode::encoding::Gamma;
@@ -375,10 +375,10 @@ mod tests {
 
     use super::*;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, Reflect)]
     struct Channel1;
 
-    #[derive(ChannelInternal)]
+    #[derive(ChannelInternal, Reflect)]
     struct Channel2;
 
     fn get_channel_registry() -> ChannelRegistry {
