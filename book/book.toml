@@ -10,6 +10,6 @@ title = "Lightyear cheatbook"
 [preprocessor.mermaid]
 command = "mdbook-mermaid"
 
-[output]
+[output.html]
 
 [output.linkcheck]
