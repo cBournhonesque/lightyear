@@ -96,7 +96,7 @@ impl NetConfig {
                 io: io_config,
             } => {
                 let token = auth
-                    .get_token(config.client_timeout_secs)
+                    .get_token(config.client_timeout_secs, config.token_expire_secs)
                     .expect("could not generate token");
                 let token_bytes = token.try_into_bytes().unwrap();
                 let netcode =
@@ -194,7 +194,11 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    pub fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+    pub fn get_token(
+        self,
+        client_timeout_secs: i32,
+        token_expire_secs: i32,
+    ) -> Option<ConnectToken> {
         match self {
             Authentication::Token(token) => Some(token),
             Authentication::Manual {
@@ -204,6 +208,7 @@ impl Authentication {
                 protocol_id,
             } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
                 .timeout_seconds(client_timeout_secs)
+                .expire_seconds(token_expire_secs)
                 .generate()
                 .ok(),
             Authentication::RequestConnectToken => {

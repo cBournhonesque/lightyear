@@ -504,7 +504,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             }
             Packet::Disconnect(_) => {
                 if let Some(idx) = client_id {
-                    error!("server disconnected client {idx}");
+                    debug!("server disconnected client {idx}");
                     self.on_disconnect(idx);
                     self.conn_cache.remove(idx);
                 }
@@ -1094,6 +1094,7 @@ impl Server {
             });
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
+        cfg = cfg.client_timeout_secs(config.client_timeout_secs);
         let server = NetcodeServer::with_config(config.protocol_id, private_key, cfg)
             .expect("Could not create server netcode");
 

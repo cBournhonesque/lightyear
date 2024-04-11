@@ -72,7 +72,12 @@ pub(crate) fn handle_connection(
                     color: Color::WHITE,
                     ..default()
                 },
-            ),
+            )
+            .with_style(Style {
+                position_type: PositionType::Absolute,
+                align_self: AlignSelf::End,
+                ..default()
+            }),
             DebugText,
         ));
     }
@@ -188,8 +193,9 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                 style: Style {
                     width: Val::Percent(100.0),
                     height: Val::Percent(100.0),
-                    align_items: AlignItems::End,
-                    justify_content: JustifyContent::End,
+                    align_items: AlignItems::FlexEnd,
+                    justify_content: JustifyContent::FlexEnd,
+                    flex_direction: FlexDirection::Row,
                     ..default()
                 },
                 ..default()

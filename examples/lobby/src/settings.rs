@@ -241,8 +241,8 @@ pub fn build_client_netcode_config(
         protocol_id: shared.protocol_id,
     };
     let netcode_config = client::NetcodeConfig {
-        // disable the timeout so that we can keep re-using the same `ConnectToken`
-        client_timeout_secs: -1,
+        // disable token expiry so that we can keep re-using the same `ConnectToken`
+        token_expire_secs: -1,
         ..default()
     };
     let io_config = IoConfig::from_transport(transport_config);
