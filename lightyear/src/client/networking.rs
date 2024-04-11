@@ -74,7 +74,8 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             );
 
         // STARTUP
-        // TODO: update all systems that need these to only run when needed
+        // TODO: update all systems that need these to only run when needed, so that we don't have to create
+        //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
         app.add_systems(Startup, rebuild_net_config::<P>);

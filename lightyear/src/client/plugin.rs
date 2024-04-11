@@ -78,6 +78,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default());
 
+        // TODO: add a way to disable these at runtime
         if config.client_config.shared.mode == Mode::Separate {
             app
                 // PLUGINS

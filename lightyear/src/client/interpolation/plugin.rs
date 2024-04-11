@@ -141,6 +141,9 @@ pub enum InterpolationSet {
     // PostUpdate sets
     /// Interpolate the visual state of the game with 1 tick of delay
     VisualInterpolation,
+
+    /// SystemSet encompassing all other interpolation sets
+    All,
 }
 
 /// Add per-component systems related to interpolation
@@ -221,8 +224,10 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
                 InterpolationSet::PrepareInterpolation,
                 InterpolationSet::Interpolate,
             )
+                .in_set(InterpolationSet::All)
                 .chain(),
         );
+        app.configure_sets(Update, InterpolationSet::All.run_if(client_is_synced::<P>));
         // SYSTEMS
         app.add_systems(
             Update,

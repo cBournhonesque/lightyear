@@ -129,8 +129,7 @@ impl<P: Protocol> ConnectionManager<P> {
             .update(time_manager, &self.ping_manager, tick_manager);
         self.ping_manager.update(time_manager);
 
-        // we update the sync manager in POST_UPDATE
-        // self.sync_manager.update(time_manager);
+        // (we update the sync manager in POST_UPDATE)
     }
 
     /// Send a message to the server
