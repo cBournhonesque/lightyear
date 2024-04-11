@@ -23,16 +23,13 @@ use super::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
 };
 
-// TODO: separate unconnected io from connected io? maybe similar 'states' generic as wtransport?
+/// Connected io layer that can send/receive bytes
 #[derive(Resource)]
 pub struct Io {
-    transport_builder: Option<TransportBuilderEnum>,
-    local_addr: Option<SocketAddr>,
-    // TODO: use enum dispatch on receiver/sender as well
-    sender: Option<BoxedSender>,
-    receiver: Option<BoxedReceiver>,
-    close_fn: Option<BoxedCloseFn>,
-    conditioner: Option<PacketLinkConditioner>,
+    pub(crate) local_addr: SocketAddr,
+    pub(crate) sender: BoxedSender,
+    pub(crate) receiver: BoxedReceiver,
+    pub(crate) close_fn: Option<BoxedCloseFn>,
     pub(crate) stats: IoStats,
 }
 
@@ -52,55 +49,13 @@ pub struct IoStats {
 }
 
 impl Io {
-    pub(crate) fn new(
-        transport_builder: TransportBuilderEnum,
-        conditioner: Option<PacketLinkConditioner>,
-    ) -> Self {
-        Self {
-            transport_builder: Some(transport_builder),
-            local_addr: None,
-            sender: None,
-            receiver: None,
-            close_fn: None,
-            conditioner,
-            stats: IoStats::default(),
-        }
-    }
     pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr.expect("The transport is not connected yet")
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.sender.is_some()
-    }
-
-    pub fn connect(&mut self) -> Result<()> {
-        // TODO: allow for connection retries
-        let transport_builder = std::mem::take(&mut self.transport_builder)
-            .expect("The transport has already been connected");
-        let transport = transport_builder.connect()?;
-        self.local_addr = Some(transport.local_addr());
-        let (sender, receiver, close_fn) = transport.split();
-        self.close_fn = close_fn;
-        self.sender = Some(sender);
-        if let Some(conditioner) = std::mem::take(&mut self.conditioner) {
-            self.receiver = Some(Box::new(conditioner.wrap(receiver)));
-        } else {
-            self.receiver = Some(receiver);
-        }
-        Ok(())
+        self.local_addr
     }
 
     // TODO: no stats are being computed here!
     pub fn split(&mut self) -> (&mut impl PacketSender, &mut impl PacketReceiver) {
-        (
-            self.sender
-                .as_mut()
-                .expect("The transport has not been connected"),
-            self.receiver
-                .as_mut()
-                .expect("The transport has not been connected"),
-        )
+        (&mut self.sender, &mut self.receiver)
     }
 
     pub fn stats(&self) -> &IoStats {
@@ -124,7 +79,7 @@ impl Debug for Io {
 impl PacketReceiver for Io {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
         // todo: compression + bandwidth monitoring
-        self.receiver.as_mut().unwrap().recv().map(|x| {
+        self.receiver.as_mut().recv().map(|x| {
             if let Some((ref buffer, _)) = x {
                 #[cfg(feature = "metrics")]
                 {
@@ -149,7 +104,7 @@ impl PacketSender for Io {
         }
         self.stats.bytes_sent += payload.len();
         self.stats.packets_sent += 1;
-        self.sender.as_mut().unwrap().send(payload, address)
+        self.sender.as_mut().send(payload, address)
     }
 }
 

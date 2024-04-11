@@ -504,7 +504,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             }
             Packet::Disconnect(_) => {
                 if let Some(idx) = client_id {
-                    debug!("server disconnected client {idx}");
+                    error!("server disconnected client {idx}");
                     self.on_disconnect(idx);
                     self.conn_cache.remove(idx);
                 }

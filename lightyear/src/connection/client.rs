@@ -27,8 +27,8 @@ pub trait NetClient: Send + Sync {
     /// Disconnect from the server
     fn disconnect(&mut self) -> Result<()>;
 
-    /// Returns true if the client is connected to the server
-    fn is_connected(&self) -> bool;
+    /// Returns the [`NetworkingState`] of the client
+    fn state(&self) -> NetworkingState;
 
     /// Update the connection state + internal bookkeeping (keep-alives, etc.)
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
@@ -142,8 +142,8 @@ impl NetClient for ClientConnection {
         self.client.disconnect()
     }
 
-    fn is_connected(&self) -> bool {
-        self.client.is_connected()
+    fn state(&self) -> NetworkingState {
+        self.client.state()
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {

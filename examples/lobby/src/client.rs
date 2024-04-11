@@ -53,6 +53,9 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
+#[derive(Component)]
+pub struct DebugText;
+
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
 pub(crate) fn handle_connection(
@@ -61,13 +64,16 @@ pub(crate) fn handle_connection(
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
+        commands.spawn((
+            TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ),
+            DebugText,
         ));
     }
 }
@@ -208,10 +214,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                         background_color: NORMAL_BUTTON.into(),
                         ..default()
                     },
-                    On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
-                        info!("clicked on connect");
-                        connection.connect();
-                    }),
+                    On::<Pointer<Click>>::run(|| {}),
                 ))
                 .with_children(|parent| {
                     parent.spawn((
@@ -229,51 +232,52 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
         });
 }
 
-fn on_disconnect(mut commands: Commands, entities: Query<Entity, With<PlayerId>>) {
-    for entity in entities.iter() {
+fn on_disconnect(
+    mut commands: Commands,
+    player_entities: Query<Entity, With<PlayerId>>,
+    debug_text: Query<Entity, With<DebugText>>,
+) {
+    for entity in player_entities.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    for entity in debug_text.iter() {
         commands.entity(entity).despawn_recursive();
     }
 }
 
 fn button_system(
-    mut commands: Commands,
-    mut interaction_query: Query<(Entity, &Children), (With<Button>, With<On<Pointer<Click>>>)>,
+    mut interaction_query: Query<(Entity, &Children, &mut On<Pointer<Click>>), With<Button>>,
     mut text_query: Query<&mut Text>,
     state: Res<State<NetworkingState>>,
 ) {
     if state.is_changed() {
-        for (entity, children) in &mut interaction_query {
+        for (entity, children, mut on_click) in &mut interaction_query {
             let mut text = text_query.get_mut(children[0]).unwrap();
-            let new_on_click = match state.get() {
+            match state.get() {
                 NetworkingState::Disconnected => {
-                    info!("updating on click");
                     text.sections[0].value = "Connect".to_string();
-                    commands.entity(entity).remove::<On<Pointer<Click>>>();
-                    On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
-                        info!("clicked on connect");
-                        let _ = connection
-                            .connect()
-                            .inspect_err(|e| error!("Failed to connect: {e:?}"));
-                    })
-                }
-                NetworkingState::Disconnecting => {
-                    text.sections[0].value = "Disconnecting".to_string();
-                    On::<Pointer<Click>>::run(|| {})
+                    *on_click =
+                        On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
+                            info!("clicked on connect");
+                            let _ = connection
+                                .connect()
+                                .inspect_err(|e| error!("Failed to connect: {e:?}"));
+                        });
                 }
                 NetworkingState::Connecting => {
                     text.sections[0].value = "Connecting".to_string();
-                    On::<Pointer<Click>>::run(|| {})
+                    *on_click = On::<Pointer<Click>>::run(|| {});
                 }
                 NetworkingState::Connected => {
                     text.sections[0].value = "Disconnect".to_string();
-                    On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
-                        connection
-                            .disconnect()
-                            .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
-                    })
+                    *on_click =
+                        On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
+                            let _ = connection
+                                .disconnect()
+                                .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
+                        });
                 }
             };
-            commands.entity(entity).insert(new_on_click);
         }
     }
 }

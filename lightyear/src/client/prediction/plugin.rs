@@ -146,11 +146,6 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
     rollback.is_some_and(|rollback| matches!(rollback.state, RollbackState::ShouldRollback { .. }))
 }
 
-/// Returns true if the client is connected
-pub fn is_connected(netclient: Res<ClientConnection>) -> bool {
-    netclient.is_connected()
-}
-
 pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App)
 where
     P::ComponentKinds: FromType<C>,

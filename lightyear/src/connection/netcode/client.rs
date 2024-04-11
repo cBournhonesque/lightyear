@@ -8,6 +8,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::connection::client::NetClient;
 use crate::connection::id;
+use crate::prelude::client::NetworkingState;
 use crate::prelude::IoConfig;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
@@ -669,8 +670,14 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
         Ok(())
     }
 
-    fn is_connected(&self) -> bool {
-        self.client.is_connected()
+    fn state(&self) -> NetworkingState {
+        match self.client.state() {
+            ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
+                NetworkingState::Connecting
+            }
+            ClientState::Connected => NetworkingState::Connected,
+            _ => NetworkingState::Disconnected,
+        }
     }
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {

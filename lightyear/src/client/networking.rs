@@ -45,8 +45,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             .configure_sets(
                 PreUpdate,
                 InternalMainSet::<ClientMarker>::Receive.run_if(
-                    not(SharedConfig::is_host_server_condition)
-                        .and_then(not(in_state(NetworkingState::Disconnected))),
+                    not(SharedConfig::is_host_server_condition).and_then(not(is_disconnected)),
                 ),
             )
             .configure_sets(
@@ -55,10 +54,8 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 // we don't send packets every frame, but on a timer instead
                 (
                     SyncSet.run_if(in_state(NetworkingState::Connected)),
-                    InternalMainSet::<ClientMarker>::Send.run_if(
-                        is_client_ready_to_send
-                            .and_then(not(in_state(NetworkingState::Disconnected))),
-                    ),
+                    InternalMainSet::<ClientMarker>::Send
+                        .run_if(is_client_ready_to_send.and_then(not(is_disconnected))),
                 )
                     .run_if(not(SharedConfig::is_host_server_condition))
                     .chain(),
@@ -84,13 +81,16 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
 
         // DISCONNECTED
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+
+        // Everytime we try to connect, we rebuild the net config because:
+        // - we do not call update() while the client is disconnected, so the internal connection's time is wrong
+        // - this allows us to take into account any changes to the client config
         // note, we cannot rebuild the net config in OnEnter(NetworkingState::Connecting) because this would
         // create a new netclient where the io is None!
         app.add_systems(
-            PostUpdate,
-            rebuild_net_config.run_if(
-                resource_changed::<ClientConfig>.and_then(in_state(NetworkingState::Disconnected)),
-            ),
+            OnEnter(NetworkingState::Connecting),
+            rebuild_net_config_and_connect.run_if(is_disconnected),
+            // rebuild_net_config.run_if(resource_changed::<ClientConfig>.and_then(is_disconnected)),
         );
     }
 }
@@ -127,8 +127,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 error!("Error updating netcode: {}", e);
                                                             });
 
-                                                        if netclient.is_connected() {
-                                                            // we just connected
+                                                        if netclient.state() == NetworkingState::Connected {
+                                                            // we just connected, do a state transition
                                                             if state.get() != &NetworkingState::Connected {
                                                                 next_state.set(NetworkingState::Connected);
                                                             }
@@ -138,11 +138,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 time_manager.as_ref(),
                                                                 tick_manager.as_ref(),
                                                             );
-                                                        } else {
-                                                            // we just disconnected
-                                                            if state.get() == &NetworkingState::Disconnecting {
-                                                                next_state.set(NetworkingState::Disconnected);
-                                                            }
                                                         }
 
                                                         // RECV PACKETS: buffer packets into message managers
@@ -276,7 +271,6 @@ pub(crate) fn sync_update<P: Protocol>(
 pub enum NetworkingState {
     #[default]
     Disconnected,
-    Disconnecting,
     Connecting,
     Connected,
 }
@@ -322,26 +316,38 @@ fn on_disconnect(
 
 /// This run condition is provided to check if the client is connected.
 ///
-/// To avoid having one frame of delay the first time we set the state to Connected,
-/// we also check directly if the netclient is connected when the state is Connecting.
-/// This only matters for systems that run during `PreUpdate`, because the `StateTransition` schedule
-/// runs after `PreUpdate`
-fn is_connected(netclient: Res<ClientConnection>, state: Res<State<NetworkingState>>) -> bool {
-    *state.get() == NetworkingState::Connected
-        || (*state.get() == NetworkingState::Connecting && netclient.is_connected())
+/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
+/// since the `StateTransition` schedule runs after `PreUpdate`
+pub(crate) fn is_connected(netclient: Res<ClientConnection>) -> bool {
+    netclient.state() == NetworkingState::Connected
 }
 
-/// If the client is disconnected, we can try to reload the net config.
-/// Only runs if the client config has changed!
-fn rebuild_net_config(world: &mut World) {
+/// This run condition is provided to check if the client is disconnected.
+///
+/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
+/// since the `StateTransition` schedule runs after `PreUpdate`
+pub(crate) fn is_disconnected(netclient: Res<ClientConnection>) -> bool {
+    netclient.state() == NetworkingState::Disconnected
+}
+
+/// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.
+///
+/// We rebuild the [`ClientConnection`] by using the latest [`ClientConfig`].
+/// This has several benefits:
+/// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
+/// - we can take into account any changes to the client config
+fn rebuild_net_config_and_connect(world: &mut World) {
     let client_config = world.get_resource_ref::<ClientConfig>().unwrap();
-    let netclient = client_config.net.clone().build_client();
+    let mut netclient = client_config.net.clone().build_client();
     if client_config.shared.mode == Mode::HostServer {
         assert!(
             matches!(client_config.net, NetConfig::Local { .. }),
             "When running in HostServer mode, the client connection needs to be of type Local"
         );
     }
+    let _ = netclient
+        .connect()
+        .inspect_err(|e| error!("Error connecting: {e:?}"));
     world.insert_resource(netclient);
 }
 
@@ -356,7 +362,7 @@ pub struct ClientConnectionParam<'w, 's> {
 impl<'w, 's> ClientConnectionParam<'w, 's> {
     /// Public system that should be used by the user to connect
     pub fn connect(&mut self) -> Result<()> {
-        self.connection.connect().context("Error connecting")?;
+        // self.connection.connect().context("Error connecting")?;
         self.next_state.set(NetworkingState::Connecting);
         Ok(())
     }
@@ -366,7 +372,7 @@ impl<'w, 's> ClientConnectionParam<'w, 's> {
         self.connection
             .disconnect()
             .context("Error disconnecting")?;
-        self.next_state.set(NetworkingState::Disconnecting);
+        self.next_state.set(NetworkingState::Disconnected);
         Ok(())
     }
 }

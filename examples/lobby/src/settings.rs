@@ -3,6 +3,7 @@ use bevy::utils::Duration;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use async_compat::Compat;
+use bevy::prelude::default;
 use bevy::tasks::IoTaskPool;
 use serde::{Deserialize, Serialize};
 
@@ -239,7 +240,11 @@ pub fn build_client_netcode_config(
         private_key: shared.private_key,
         protocol_id: shared.protocol_id,
     };
-    let netcode_config = client::NetcodeConfig::default();
+    let netcode_config = client::NetcodeConfig {
+        // disable the timeout so that we can keep re-using the same `ConnectToken`
+        client_timeout_secs: -1,
+        ..default()
+    };
     let io_config = IoConfig::from_transport(transport_config);
     let io_config = if let Some(conditioner) = conditioner {
         io_config.with_conditioner(conditioner)

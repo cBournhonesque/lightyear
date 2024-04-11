@@ -116,6 +116,8 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             // RECV_PACKETS: buffer packets into message managers
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
                                                 while let Some((packet, client_id)) = netserver.recv() {
+                                                    // Note: the client_id might not be present in the connection_manager if we receive
+                                                    // packets from a client
                                                     // TODO: use connection to apply on BOTH message manager and replication manager
                                                     connection_manager
                                                         .connection_mut(client_id)
