@@ -54,12 +54,12 @@ pub enum TransportConfig {
     /// Use [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) as a transport
     #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
     WebSocketServer { server_addr: SocketAddr },
-    /// Use [`Channels`](crossbeam_channel::channel) as a transport. This is useful for testing.
+    /// Use a crossbeam_channel as a transport. This is useful for testing.
     /// This is server-only: each tuple corresponds to a different client.
     Channels {
         channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>,
     },
-    /// Use [`Channels`](crossbeam_channel::channel) as a transport. This is useful for testing.
+    /// Use a crossbeam_channel as a transport. This is useful for testing.
     /// This is mostly for clients.
     LocalChannel {
         recv: Receiver<Vec<u8>>,
