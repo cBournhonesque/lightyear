@@ -276,7 +276,7 @@ pub fn get_client_net_config(settings: &Settings, client_id: u64) -> client::Net
                 client_addr,
                 server_addr,
                 #[cfg(target_family = "wasm")]
-                certificate_digest: certificat_digest.to_string(),
+                certificate_digest: certificate_digest.to_string(),
             },
         ),
         ClientTransports::WebSocket => build_client_netcode_config(
