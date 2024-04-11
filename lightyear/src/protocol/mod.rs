@@ -84,7 +84,7 @@ pub(crate) mod registry;
 ///
 /// [`Message`]: crate::prelude::Message
 /// [`Component`]: bevy::prelude::Component
-pub trait Protocol: Send + Sync + Clone + Debug + 'static {
+pub trait Protocol: Send + Sync + Clone + Debug + Resource + 'static {
     type Input: crate::inputs::native::UserAction;
     #[cfg(feature = "leafwing")]
     type LeafwingInput1: crate::inputs::leafwing::LeafwingUserAction;

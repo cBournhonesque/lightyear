@@ -126,7 +126,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                         // it's still possible to receive some packets from a client that just disconnected.
                                                         // (multiple packets arrived at the same time from that client)
                                                         if netserver.new_disconnections().contains(&client_id) {
-                                                            error!("received packet from client that just got disconnected");
+                                                            trace!("received packet from client that just got disconnected. Ignoring.");
                                                             // we ignore packets from disconnected clients
                                                             // this is not an error
                                                             continue;

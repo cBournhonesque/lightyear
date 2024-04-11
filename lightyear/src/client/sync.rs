@@ -16,8 +16,8 @@ use crate::shared::time_manager::{TimeManager, WrappedTime};
 use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
-pub fn client_is_synced<P: Protocol>(connection: Res<ConnectionManager<P>>) -> bool {
-    connection.sync_manager.is_synced()
+pub fn client_is_synced<P: Protocol>(connection: Option<Res<ConnectionManager<P>>>) -> bool {
+    connection.map_or(false, |c| c.sync_manager.is_synced())
 }
 
 /// SystemSet that holds systems that update the client's tick/time to match the server's tick/time

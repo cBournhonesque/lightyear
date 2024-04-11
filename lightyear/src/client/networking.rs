@@ -37,7 +37,6 @@ impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
 
 impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
-        let config = app.world.resource::<ClientConfig>();
         app
             // STATE
             .init_state::<NetworkingState>()
@@ -74,24 +73,28 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 ),
             );
 
+        // STARTUP
+        // TODO: update all systems that need these to only run when needed
+        // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
+        // that depend on these resources do not panic
+        app.add_systems(Startup, rebuild_net_config::<P>);
+
         // CONNECTING
+        // Everytime we try to connect, we rebuild the net config because:
+        // - we do not call update() while the client is disconnected, so the internal connection's time is wrong
+        // - this allows us to take into account any changes to the client config (when building a
+        // new client connection and connection manager, which want to do because we need to reset
+        // the internal time, sync, priority, message numbers, etc.)
+        app.add_systems(
+            OnEnter(NetworkingState::Connecting),
+            (rebuild_net_config::<P>, connect).run_if(is_disconnected),
+        );
 
         // CONNECTED
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
 
         // DISCONNECTED
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
-
-        // Everytime we try to connect, we rebuild the net config because:
-        // - we do not call update() while the client is disconnected, so the internal connection's time is wrong
-        // - this allows us to take into account any changes to the client config
-        // note, we cannot rebuild the net config in OnEnter(NetworkingState::Connecting) because this would
-        // create a new netclient where the io is None!
-        app.add_systems(
-            OnEnter(NetworkingState::Connecting),
-            rebuild_net_config_and_connect.run_if(is_disconnected),
-            // rebuild_net_config.run_if(resource_changed::<ClientConfig>.and_then(is_disconnected)),
-        );
     }
 }
 
@@ -318,16 +321,16 @@ fn on_disconnect(
 ///
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
 /// since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_connected(netclient: Res<ClientConnection>) -> bool {
-    netclient.state() == NetworkingState::Connected
+pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
+    netclient.map_or(false, |c| c.state() == NetworkingState::Connected)
 }
 
 /// This run condition is provided to check if the client is disconnected.
 ///
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
 /// since the `StateTransition` schedule runs after `PreUpdate`
-pub(crate) fn is_disconnected(netclient: Res<ClientConnection>) -> bool {
-    netclient.state() == NetworkingState::Disconnected
+pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
+    netclient.map_or(true, |c| c.state() == NetworkingState::Disconnected)
 }
 
 /// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.
@@ -336,19 +339,35 @@ pub(crate) fn is_disconnected(netclient: Res<ClientConnection>) -> bool {
 /// This has several benefits:
 /// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
 /// - we can take into account any changes to the client config
-fn rebuild_net_config_and_connect(world: &mut World) {
-    let client_config = world.get_resource_ref::<ClientConfig>().unwrap();
-    let mut netclient = client_config.net.clone().build_client();
+fn rebuild_net_config<P: Protocol>(world: &mut World) {
+    let client_config = world.resource::<ClientConfig>().clone();
     if client_config.shared.mode == Mode::HostServer {
         assert!(
             matches!(client_config.net, NetConfig::Local { .. }),
             "When running in HostServer mode, the client connection needs to be of type Local"
         );
     }
+
+    // insert a new connection manager (to reset sync, priority, message numbers, etc.)
+    let connection_manager = ConnectionManager::<P>::new(
+        world.resource::<P>().channel_registry(),
+        client_config.packet.clone(),
+        client_config.sync.clone(),
+        client_config.ping.clone(),
+        client_config.prediction.input_delay_ticks,
+    );
+    world.insert_resource(connection_manager);
+
+    // insert the new client connection
+    let netclient = client_config.net.clone().build_client();
+    world.insert_resource(netclient);
+}
+
+/// Connect the client
+fn connect(mut netclient: ResMut<ClientConnection>) {
     let _ = netclient
         .connect()
         .inspect_err(|e| error!("Error connecting: {e:?}"));
-    world.insert_resource(netclient);
 }
 
 /// This system param is used to connect/disconnect the client.

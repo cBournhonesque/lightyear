@@ -8,7 +8,7 @@ use bevy::prelude::{Entity, Reflect};
 use bevy::utils::petgraph::data::ElementIterator;
 use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;

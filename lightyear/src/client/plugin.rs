@@ -71,16 +71,8 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
 
         app
             // RESOURCES //
-            // TODO: move these into the Networking/Replication plugins
-            .insert_resource(netclient)
             .insert_resource(config.client_config.clone())
-            .insert_resource(ConnectionManager::<P>::new(
-                config.protocol.channel_registry(),
-                config.client_config.packet,
-                config.client_config.sync,
-                config.client_config.ping,
-                config.client_config.prediction.input_delay_ticks,
-            ))
+            .insert_resource(config.protocol.clone())
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())

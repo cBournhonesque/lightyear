@@ -139,6 +139,9 @@ pub enum PredictionSet {
     // PostUpdate Sets
     /// Visually interpolate the predicted components to the corrected state
     VisualCorrection,
+
+    /// General set encompassing all other system sets
+    All,
 }
 
 /// Returns true if we are doing rollback
@@ -152,7 +155,6 @@ where
     P::Components: SyncMetadata<C>,
     P::Components: ExternalMapper<C>,
 {
-    // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         PreUpdate,
         (
@@ -236,23 +238,26 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
 
         // PreUpdate systems:
         // 1. Receive confirmed entities, add Confirmed and Predicted components
+        // 2. (in prediction_systems) add ComponentHistory
+        // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
+        // 4. Potentially do rollback
         app.configure_sets(
             PreUpdate,
             (
                 InternalMainSet::<ClientMarker>::Receive,
-                PredictionSet::SpawnPrediction,
-                PredictionSet::SpawnHistory,
-                PredictionSet::RestoreVisualCorrection,
-                PredictionSet::CheckRollback,
-                PredictionSet::PrepareRollback.run_if(is_in_rollback),
-                PredictionSet::Rollback.run_if(is_in_rollback),
+                (
+                    PredictionSet::SpawnPrediction,
+                    PredictionSet::SpawnHistory,
+                    PredictionSet::RestoreVisualCorrection,
+                    PredictionSet::CheckRollback,
+                    PredictionSet::PrepareRollback.run_if(is_in_rollback),
+                    PredictionSet::Rollback.run_if(is_in_rollback),
+                )
+                    .in_set(PredictionSet::All),
             )
                 .chain(),
-        );
-
-        // 2. (in prediction_systems) add ComponentHistory and a apply_deferred after
-        // 3. (in prediction_systems) Check if we should do rollback, clear histories and snap prediction's history to server-state
-        // 4. Potentially do rollback
+        )
+        .configure_sets(PreUpdate, PredictionSet::All.run_if(client_is_synced::<P>));
         app.add_systems(
             PreUpdate,
             (
@@ -287,7 +292,12 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 PredictionSet::UpdateHistory,
                 PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
             )
+                .in_set(PredictionSet::All)
                 .chain(),
+        )
+        .configure_sets(
+            FixedPostUpdate,
+            PredictionSet::All.run_if(client_is_synced::<P>),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -301,8 +311,11 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         // 1. Visually interpolate the prediction to the corrected state
         app.configure_sets(
             PostUpdate,
-            PredictionSet::VisualCorrection.before(TransformSystem::TransformPropagate),
-        );
+            PredictionSet::VisualCorrection
+                .in_set(PredictionSet::All)
+                .before(TransformSystem::TransformPropagate),
+        )
+        .configure_sets(PostUpdate, PredictionSet::All.run_if(client_is_synced::<P>));
 
         // PLUGINS
         app.add_plugins((
