@@ -17,7 +17,9 @@ use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Run condition to run systems only if the client is synced
 pub fn client_is_synced<P: Protocol>(connection: Option<Res<ConnectionManager<P>>>) -> bool {
-    connection.map_or(false, |c| c.sync_manager.is_synced())
+    let synced = connection.map_or(false, |c| c.sync_manager.is_synced());
+    info!("client_is_synced: {}", synced);
+    synced
 }
 
 /// SystemSet that holds systems that update the client's tick/time to match the server's tick/time
@@ -157,6 +159,7 @@ impl SyncManager {
 
         // check if we are ready to finalize the handshake
         if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
+            info!("is synced!");
             self.synced = true;
             self.interpolation_time = self.interpolation_objective(
                 interpolation_delay,
