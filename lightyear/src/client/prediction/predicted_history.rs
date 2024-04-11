@@ -5,7 +5,7 @@ use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
     With, Without,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::client::prediction::resource::PredictionManager;
@@ -150,7 +150,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                 // - simple/once: sync component
                 if let Some(confirmed_component) = confirmed_component {
                     if confirmed_component.is_added() {
-                        info!(?kind, "Component added on confirmed side");
+                        trace!(?kind, "Component added on confirmed side");
                         // safety: we know the entity exists
                         let mut predicted_entity_mut =
                             commands.get_entity(predicted_entity).unwrap();

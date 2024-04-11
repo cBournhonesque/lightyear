@@ -8,14 +8,14 @@ use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
 use crate::_reexport::{ClientMarker, FromType};
-use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{
     get_visually_corrected_state, restore_corrected_state,
 };
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back,
+    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
 };
 use crate::client::prediction::predicted_history::{
     add_prespawned_component_history, update_prediction_history,
@@ -24,9 +24,10 @@ use crate::client::prediction::prespawn::{
     PreSpawnedPlayerObjectPlugin, PreSpawnedPlayerObjectSet,
 };
 use crate::client::prediction::resource::PredictionManager;
+use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::ExternalMapper;
+use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::InternalMainSet;
@@ -263,6 +264,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
                     PredictionSet::Rollback.run_if(is_in_rollback),
                 )
+                    .chain()
                     .in_set(PredictionSet::All),
             )
                 .chain(),
