@@ -2,20 +2,27 @@
 
 ## Overview
 
-The Protocol module in this library is responsible for defining the communication protocol used to send messages between the client and server.
+The Protocol module in this library is responsible for defining the communication protocol used to send messages between
+the client and server.
+The Protocol must be shared between client and server, so that the messages can be serialized and deserialized
+correctly.
 
 ## Key Concepts
 
 ### Protocol Trait
 
-The `Protocol` trait is the main interface for defining a protocol. It has several associated types:
+A `Protocol` contains multiple sub-parts:
 
-- `Input`: Defines the user input type.
-- `Message`: Defines the message protocol.
-- `Components`: Defines the component protocol.
-- `ComponentKinds`: Defines the component protocol kind.
-
-It also provides methods for adding a channel and getting the channel registry.
+- `Input`: Defines the user inputs, which is an enum of all the inputs that the client can send to the server.
+- `LeafwingInput`: (only if the feature `leafwing` is enabled) Defines the leafwing `ActionState` that the client can
+  send to the server.
+- `Message`: Defines the message protocol, which is an enum of all the messages that can be exchanged between the client
+  and server. Each message must be `Serializable + Clone`.
+- `Components`: Defines the component protocol, which is an enum of all the components that can be replicated between
+  the client and server. Each component must be `Serializable + Clone + Component`.
+- `Channels`: the protocol should also contain a list of channels to be used to send messages. A `Channel` defines
+  guarantees
+  about how the packets will be sent over the network: reliably? in-order? etc.
 
 ### Protocolize Macro
 

@@ -69,7 +69,7 @@ pub struct ConnectionManager<P: Protocol> {
 }
 
 impl<P: Protocol> ConnectionManager<P> {
-    pub fn new(
+    pub(crate) fn new(
         channel_registry: &ChannelRegistry,
         packet_config: PacketConfig,
         sync_config: SyncConfig,

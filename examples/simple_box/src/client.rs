@@ -73,11 +73,9 @@ pub(crate) fn handle_connection(
 /// This system must be run in the
 pub(crate) fn buffer_input(
     tick_manager: Res<TickManager>,
-    connection: Res<ClientConnection>,
     mut input_manager: ResMut<InputManager<Inputs>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    let client_id = connection.id();
     let tick = tick_manager.tick();
     let mut input = Inputs::None;
     let mut direction = Direction {
