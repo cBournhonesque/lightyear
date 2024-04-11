@@ -166,10 +166,6 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let client_config = client::ClientConfig {
         shared: shared_config(Mode::Separate),
         net: net_config,
-        interpolation: InterpolationConfig {
-            delay: InterpolationDelay::default().with_send_interval_ratio(2.0),
-            ..default()
-        },
         ..default()
     };
     let plugin_config = client::PluginConfig::new(client_config, protocol());

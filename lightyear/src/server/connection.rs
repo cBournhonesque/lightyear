@@ -62,7 +62,7 @@ pub struct ConnectionManager<P: Protocol> {
 }
 
 impl<P: Protocol> ConnectionManager<P> {
-    pub fn new(
+    pub(crate) fn new(
         channel_registry: ChannelRegistry,
         packet_config: PacketConfig,
         ping_config: PingConfig,
@@ -259,7 +259,7 @@ impl<P: Protocol> ConnectionManager<P> {
             .try_for_each(move |c| c.buffer_replication_messages(tick, bevy_tick))
     }
 
-    pub fn receive(
+    pub(crate) fn receive(
         &mut self,
         world: &mut World,
         time_manager: &TimeManager,

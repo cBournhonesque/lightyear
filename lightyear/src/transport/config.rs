@@ -29,32 +29,43 @@ use crate::transport::{Transport, TransportBuilderEnum};
 /// remote.
 #[derive(Clone)]
 pub enum TransportConfig {
+    /// Use a [`UdpSocket`](std::net::UdpSocket)
     #[cfg(not(target_family = "wasm"))]
     UdpSocket(SocketAddr),
+    /// Use [`WebTransport`](https://wicg.github.io/web-transport/) as a transport layer
     #[cfg(feature = "webtransport")]
     WebTransportClient {
         client_addr: SocketAddr,
         server_addr: SocketAddr,
+        /// On wasm, we need to provide a hash of the certificate to the browser
         #[cfg(target_family = "wasm")]
         certificate_digest: String,
     },
+    /// Use [`WebTransport`](https://wicg.github.io/web-transport/) as a transport layer
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     WebTransportServer {
         server_addr: SocketAddr,
+        /// Certificate that will be used for authentication
         certificate: Certificate,
     },
+    /// Use [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) as a transport
     #[cfg(feature = "websocket")]
     WebSocketClient { server_addr: SocketAddr },
+    /// Use [`WebSocket`](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) as a transport
     #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
     WebSocketServer { server_addr: SocketAddr },
+    /// Use a crossbeam_channel as a transport. This is useful for testing.
+    /// This is server-only: each tuple corresponds to a different client.
     Channels {
         channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>,
     },
+    /// Use a crossbeam_channel as a transport. This is useful for testing.
+    /// This is mostly for clients.
     LocalChannel {
         recv: Receiver<Vec<u8>>,
         send: Sender<Vec<u8>>,
     },
-    /// Dummy transport if the connection handles its own io (for example steamworks)
+    /// Dummy transport if the connection handles its own io (for example steam sockets)
     Dummy,
 }
 
