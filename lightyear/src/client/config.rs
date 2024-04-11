@@ -1,5 +1,7 @@
 //! Defines client-specific configuration options
+use bevy::ecs::reflect::ReflectResource;
 use bevy::prelude::Resource;
+use bevy::reflect::Reflect;
 use governor::Quota;
 use nonzero_ext::nonzero;
 
@@ -12,7 +14,7 @@ use crate::connection::client::NetConfig;
 use crate::shared::config::{Mode, SharedConfig};
 use crate::shared::ping::manager::PingConfig;
 
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
 /// Config related to the netcode protocol (abstraction of a connection over raw UDP-like transport)
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
@@ -46,8 +48,10 @@ impl NetcodeConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct PacketConfig {
+    #[reflect(ignore)]
     /// Number of bytes per second that can be sent to the server
     pub send_bandwidth_cap: Quota,
     /// If false, there is no bandwidth cap and all messages are sent as soon as possible
@@ -93,7 +97,8 @@ impl PacketConfig {
 /// };
 /// let client = ClientPlugin::new(PluginConfig::new(config, io, MyProtocol::default()));
 /// ```
-#[derive(Resource, Clone, Default)]
+#[derive(Resource, Clone, Default, Reflect)]
+#[reflect(Resource, from_reflect = false)]
 pub struct ClientConfig {
     pub shared: SharedConfig,
     pub packet: PacketConfig,

@@ -9,6 +9,7 @@ use anyhow::Context;
 use std::fmt::Debug;
 
 use bevy::prelude::{App, Resource};
+use bevy::reflect::TypePath;
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
@@ -84,7 +85,7 @@ pub(crate) mod registry;
 ///
 /// [`Message`]: crate::prelude::Message
 /// [`Component`]: bevy::prelude::Component
-pub trait Protocol: Send + Sync + Clone + Debug + Resource + 'static {
+pub trait Protocol: Send + Sync + Clone + Debug + Resource + TypePath + 'static {
     type Input: crate::inputs::native::UserAction;
     #[cfg(feature = "leafwing")]
     type LeafwingInput1: crate::inputs::leafwing::LeafwingUserAction;
@@ -125,7 +126,7 @@ macro_rules! protocolize {
             use $shared_crate_name::prelude::*;
             use $shared_crate_name::_reexport::*;
 
-            #[derive(Debug, Clone, Resource, PartialEq)]
+            #[derive(Debug, Clone, Resource, PartialEq, TypePath)]
             pub struct $protocol {
                 channel_registry: ChannelRegistry,
             }

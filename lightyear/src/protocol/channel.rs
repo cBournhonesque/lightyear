@@ -7,6 +7,7 @@ use crate::channel::builder::ChannelContainer;
 use crate::channel::builder::{Channel, ChannelBuilder, ChannelSettings};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
+// TODO: derive Reflect once we reach bevy 0.14
 /// ChannelKind - internal wrapper around the type of the channel
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct ChannelKind(TypeId);

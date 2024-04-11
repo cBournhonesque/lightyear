@@ -12,6 +12,7 @@ use crate::client::interpolation::interpolate::{
 };
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
+use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
 use crate::prelude::{ExternalMapper, Mode};
 use crate::protocol::component::ComponentProtocol;
@@ -22,7 +23,7 @@ use super::interpolation_history::{
 };
 
 // TODO: maybe this is not an enum and user can specify multiple values, and we use the max delay between all of them?
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
 pub struct InterpolationDelay {
     /// The minimum delay that we will apply for interpolation
     /// This should be big enough so that the interpolated entity always has a server snapshot
@@ -64,7 +65,7 @@ impl InterpolationDelay {
 }
 
 /// Config to specify how the snapshot interpolation should behave
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
 pub struct InterpolationConfig {
     pub delay: InterpolationDelay,
     /// If true, disable the interpolation logic (but still keep the internal component history buffers)
@@ -198,6 +199,11 @@ where
 
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
+        // REFLECT
+        app.register_type::<InterpolationConfig>()
+            .register_type::<InterpolationDelay>()
+            .register_type::<Interpolated>();
+
         P::Components::add_prepare_interpolation_systems(app);
         if !self.config.custom_interpolation_logic {
             P::Components::add_interpolation_systems(app);

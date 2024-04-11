@@ -169,7 +169,7 @@ pub fn component_protocol_impl(
             use #shared_crate_name::prelude::*;
             use #shared_crate_name::prelude::client::*;
             use bevy::ecs::entity::{EntityHashSet, MapEntities, EntityMapper};
-            use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World};
+            use bevy::prelude::{App, Entity, IntoSystemConfigs, EntityWorldMut, World, Reflect};
             use bevy::utils::HashMap;
             use std::any::TypeId;
             use #shared_crate_name::shared::events::components::{ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent};
@@ -218,7 +218,7 @@ pub fn component_protocol_impl(
             #sync_component_impl
             #map_entities_method
 
-            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+            #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
             #[repr(C)]
             #enum_kind
 

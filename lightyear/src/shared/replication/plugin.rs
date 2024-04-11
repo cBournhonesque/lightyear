@@ -2,8 +2,15 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-use crate::_reexport::{ComponentProtocol, ReplicationSend};
-use crate::prelude::Protocol;
+use crate::_reexport::{ComponentProtocol, ReplicationSend, ShouldBeInterpolated};
+use crate::prelude::{
+    NetworkTarget, PrePredicted, Protocol, RemoteEntityMap, ReplicationGroup, ReplicationMode,
+    ShouldBePredicted,
+};
+use crate::shared::replication::components::{
+    PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
+};
+use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
 use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
@@ -30,6 +37,23 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
     fn build(&self, app: &mut App) {
         // TODO: have a better constant for clean_interval?
         let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
+
+        // REFLECTION
+
+        app.register_type::<Replicate<P>>()
+            .register_type::<P::ComponentKinds>()
+            .register_type::<PerComponentReplicationMetadata>()
+            .register_type::<ReplicationGroupIdBuilder>()
+            .register_type::<ReplicationGroup>()
+            .register_type::<ReplicationGroupId>()
+            .register_type::<ReplicationMode>()
+            .register_type::<NetworkTarget>()
+            .register_type::<ShouldBeInterpolated>()
+            .register_type::<PrePredicted>()
+            .register_type::<ShouldBePredicted>()
+            .register_type::<RemoteEntityMap>()
+            .register_type::<PredictedEntityMap>()
+            .register_type::<InterpolatedEntityMap>();
 
         // SYSTEM SETS //
         if self.enable_receive {

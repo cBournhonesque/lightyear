@@ -20,7 +20,7 @@ pub struct DespawnTracker;
 
 /// Component that indicates that an entity should be replicated. Added to the entity when it is spawned
 /// in the world that sends replication updates.
-#[derive(Component, Clone, PartialEq, Debug)]
+#[derive(Component, Clone, PartialEq, Debug, Reflect)]
 pub struct Replicate<P: Protocol> {
     /// Which clients should this entity be replicated to
     pub replication_target: NetworkTarget,
@@ -50,7 +50,7 @@ pub struct Replicate<P: Protocol> {
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct PerComponentReplicationMetadata {
     /// If true, do not replicate the component. (By default, all components of this entity that are present in the
     /// ComponentProtocol) will be replicated.
@@ -192,7 +192,7 @@ impl<P: Protocol> Replicate<P> {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
 pub enum ReplicationGroupIdBuilder {
     // the group id is the entity id
     #[default]
@@ -204,7 +204,7 @@ pub enum ReplicationGroupIdBuilder {
     Group(u64),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Reflect)]
 pub struct ReplicationGroup {
     id_builder: ReplicationGroupIdBuilder,
     /// the priority of the accumulation group
@@ -260,10 +260,10 @@ impl ReplicationGroup {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
     /// We will replicate this entity only to clients that are in the same room as the entity
     Room,
@@ -301,7 +301,7 @@ impl<P: Protocol> Default for Replicate<P> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]

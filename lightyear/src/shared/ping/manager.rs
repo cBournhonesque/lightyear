@@ -1,4 +1,5 @@
 //! Manages sending/receiving pings and computing network statistics
+use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
 use bevy::utils::Duration;
 use tracing::{error, trace};
@@ -11,7 +12,7 @@ use crate::utils::ready_buffer::ReadyBuffer;
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
 /// to compute network statistics (RTT, jitter)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct PingConfig {
     /// The duration to wait before sending a ping message to the remote host,
     /// in order to estimate RTT time

@@ -47,7 +47,7 @@ impl Plugin for TickManagerPlugin {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct TickConfig {
     pub tick_duration: Duration,
 }

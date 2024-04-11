@@ -1,3 +1,4 @@
+use bevy::prelude::Reflect;
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
 
@@ -119,8 +120,10 @@ impl Debug for TransportConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct IoConfig {
+    #[reflect(ignore)]
     pub transport: TransportConfig,
     pub conditioner: Option<LinkConditionerConfig>,
 }

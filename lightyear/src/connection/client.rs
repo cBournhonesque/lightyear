@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use bevy::ecs::system::SystemParam;
-use bevy::prelude::{NextState, ResMut, Resource};
+use bevy::prelude::{NextState, Reflect, ResMut, Resource};
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
@@ -59,16 +59,20 @@ pub struct ClientConnection {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone)]
+#[derive(Clone, Reflect)]
+#[reflect(from_reflect = false)]
 pub enum NetConfig {
     Netcode {
+        #[reflect(ignore)]
         auth: Authentication,
         config: NetcodeConfig,
+        #[reflect(ignore)]
         io: IoConfig,
     },
     // TODO: for steam, we can use a pass-through io that just computes stats?
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     Steam {
+        #[reflect(ignore)]
         config: SteamConfig,
         conditioner: Option<LinkConditionerConfig>,
     },
