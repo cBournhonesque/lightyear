@@ -229,6 +229,15 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             return;
         }
 
+        // REFLECTION
+        app.register_type::<Predicted>()
+            .register_type::<Confirmed>()
+            .register_type::<PreSpawnedPlayerObject>()
+            .register_type::<Rollback>()
+            .register_type::<RollbackState>()
+            .register_type::<PredictionDespawnMarker>()
+            .register_type::<PredictionConfig>();
+
         P::Components::add_prediction_systems(app);
 
         // RESOURCES
