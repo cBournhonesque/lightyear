@@ -4,6 +4,7 @@ use bevy::prelude::{
     apply_deferred, App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
     PostUpdate, PreUpdate, Res, SystemSet,
 };
+use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
 use crate::_reexport::{ClientMarker, FromType};
@@ -39,7 +40,7 @@ use super::rollback::{
 use super::spawn::spawn_predicted_entity;
 
 /// Configuration to specify how the prediction plugin should behave
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Reflect)]
 pub struct PredictionConfig {
     /// If true, we completely disable the prediction plugin
     pub disable: bool,
