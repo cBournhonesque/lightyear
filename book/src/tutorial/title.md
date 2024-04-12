@@ -95,15 +95,15 @@ Let's define our components protocol:
 
 ```rust
 /// A component that will identify which player the box belongs to
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
 
 /// A component that will store the position of the box. We could also directly use the `Transform` component.
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerPosition(Vec2);
 
 /// A component that will store the color of the box, so that each player can have a different color.
-#[derive(Component, Message, Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
 /// This attribute is what is needed to define a component protocol; you will also need to provide the name of the 
@@ -125,7 +125,7 @@ Let's define our message protocol:
 
 ```rust
 /// We don't really use messages in the example, but here is how you would define them.
-#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 /// Again, you need to use the macro `message_protocol` to define a message protocol.
