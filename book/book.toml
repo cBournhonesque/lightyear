@@ -11,5 +11,6 @@ title = "Lightyear cheatbook"
 command = "mdbook-mermaid"
 
 [output.html]
+site-url = "/book/"
 
 [output.linkcheck]
