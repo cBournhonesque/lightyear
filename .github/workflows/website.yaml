@@ -5,6 +5,7 @@ on:
       - "book/**"
       - "examples/**"
       - "lightyear/**"
+      - ".github/workflows/website.yaml"
     branches:
       - website
 
@@ -26,8 +27,8 @@ jobs:
           mkdir mdbook
           curl -sSL $url | tar -xz --directory=./mdbook
           echo `pwd`/mdbook >> $GITHUB_PATH
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+      #      - name: Install stable toolchain
+      #        uses: dtolnay/rust-toolchain@stable
       - name: Install mdbook-mermaid
         run: cargo install mdbook-mermaid
       - name: Install mdbook-linkcheck
@@ -37,33 +38,33 @@ jobs:
           cd book
           mdbook build
           cd ..
-      - name: Install trunk
-        run: |
-          cargo install --git https://github.com/trunk-rs/trunk trunk
-      - name: Build Examples
-        run: |
-          rustup target add wasm32-unknown-unknown
-          cd examples/bullet_prespawn
-          trunk build --release
-          cd ../..
-          cd examples/client_replication
-          trunk build --release
-          cd ../..
-          cd examples/interest_management
-          trunk build --release
-          cd ../..
-          cd examples/leafwing_inputs
-          trunk build --release
-          cd ../..
-          cd examples/priority
-          trunk build --release
-          cd ../..
-          cd examples/replication_groups
-          trunk build --release
-          cd ../..
-          cd examples/simple_box
-          trunk build --release
-          cd ../..
+      #      - name: Install trunk
+      #        run: |
+      #          cargo install --git https://github.com/trunk-rs/trunk trunk
+      #      - name: Build Examples
+      #        run: |
+      #          rustup target add wasm32-unknown-unknown
+      #          cd examples/bullet_prespawn
+      #          trunk build --release
+      #          cd ../..
+      #          cd examples/client_replication
+      #          trunk build --release
+      #          cd ../..
+      #          cd examples/interest_management
+      #          trunk build --release
+      #          cd ../..
+      #          cd examples/leafwing_inputs
+      #          trunk build --release
+      #          cd ../..
+      #          cd examples/priority
+      #          trunk build --release
+      #          cd ../..
+      #          cd examples/replication_groups
+      #          trunk build --release
+      #          cd ../..
+      #          cd examples/simple_box
+      #          trunk build --release
+      #          cd ../..
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Tar artifact
@@ -74,8 +75,8 @@ jobs:
           --exclude=.git \
           --exclude=.github \
           -cvf "$RUNNER_TEMP/artifact.tar" \
-          ./examples/**/dist \
-          -C book ./book/html
+          #          ./examples/**/dist \
+          -C book/book/html .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
