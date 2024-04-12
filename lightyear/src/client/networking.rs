@@ -142,6 +142,11 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 time_manager.as_ref(),
                                                                 tick_manager.as_ref(),
                                                             );
+                                                        } else if netclient.state() == NetworkingState::Connecting {
+                                                            // we failed to connect, set the state back to Disconnected
+                                                            if state.get() == &NetworkingState::Disconnected {
+                                                                next_state.set(NetworkingState::Disconnected);
+                                                            }
                                                         }
 
                                                         // RECV PACKETS: buffer packets into message managers
