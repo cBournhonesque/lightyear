@@ -78,7 +78,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
-        app.add_systems(PreStartup, rebuild_net_config::<P>);
+        app.world.run_system_once(rebuild_net_config::<P>);
 
         // CONNECTING
         // Everytime we try to connect, we rebuild the net config because:

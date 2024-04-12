@@ -52,8 +52,7 @@
 
  // Create an io
  let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
- let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).build();
- let _ = io.connect();
+ let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).connect().unwrap();
 
  // Create a server
  let protocol_id = 0x11223344;
@@ -93,8 +92,7 @@ use crate::lightyear::transport::io::Io;
 
 // Create an io
 let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
-let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).build();
-let _ = io.connect();
+let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(client_addr)).connect().unwrap();
 
 // Generate a connection token for the client
 let protocol_id = 0x11223344;
