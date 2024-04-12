@@ -72,7 +72,7 @@ pub(crate) fn handle_connections(
 As you can see above, starting replicating an entity is very easy: you just need to add the `Replicate` component to the entity
 and it will start getting replicated.
 
-(you can learn more in the [replicate](./concepts/replication/replicate.md) page)
+(you can learn more in the [replicate](../concepts/replication/replicate.md) page)
 
 
 If you remove the `Replicate` component from an entity, any updates to that entity won't be replicated anymore.

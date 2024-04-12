@@ -8,6 +8,8 @@
   - [Adding basic systems](./tutorial/basic_systems.md)
   - [Adding advances systems (prediction/interpolation)](./tutorial/advanced_systems.md)
 
+- [Examples](./examples/title.md)
+
  
 - [Concepts](./concepts/title.md)
   - [Transport](./concepts/transport/title.md)

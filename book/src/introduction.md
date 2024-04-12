@@ -18,5 +18,4 @@ This book serves several purposes:
 - explain some of the design decisions that were made
 
 This book does not aim to be a polished document, or a comprehensive reference for lightyear.
-It is more of a collection of notes and thoughts that I had while developing the crate. Plus I wanted to have some kind of "wiki"
-I could come back to later to remember why I did things a certain way.
+It is more of a collection of notes and thoughts that I had while developing the crate; a networking-related wiki that I could reference later.
