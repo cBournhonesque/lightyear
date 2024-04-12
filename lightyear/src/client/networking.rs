@@ -78,7 +78,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
-        app.add_systems(Startup, rebuild_net_config::<P>);
+        app.add_systems(PreStartup, rebuild_net_config::<P>);
 
         // CONNECTING
         // Everytime we try to connect, we rebuild the net config because:
@@ -296,6 +296,7 @@ fn on_connect(
 
     // in host-server mode, we also want to send a connect event to the server
     if config.shared.mode == Mode::HostServer {
+        info!("send connect event to server");
         server_connect_event_writer
             .as_mut()
             .unwrap()
@@ -371,6 +372,7 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
 
 /// Connect the client
 fn connect(mut netclient: ResMut<ClientConnection>) {
+    info!("calling connect on netclient");
     let _ = netclient
         .connect()
         .inspect_err(|e| error!("Error connecting: {e:?}"));
@@ -381,6 +383,7 @@ fn connect(mut netclient: ResMut<ClientConnection>) {
 pub struct ClientConnectionParam<'w, 's> {
     next_state: ResMut<'w, NextState<NetworkingState>>,
     connection: ResMut<'w, ClientConnection>,
+    config: Res<'w, ClientConfig>,
     _marker: std::marker::PhantomData<&'s ()>,
 }
 
@@ -388,7 +391,13 @@ impl<'w, 's> ClientConnectionParam<'w, 's> {
     /// Public system that should be used by the user to connect
     pub fn connect(&mut self) -> Result<()> {
         // self.connection.connect().context("Error connecting")?;
-        self.next_state.set(NetworkingState::Connecting);
+        let next_state = match self.config.shared.mode {
+            // in host server mode, there is no connecting phase, we directly become connected
+            // (because the networking systems don't run so we cannot go through the Connecting state)
+            Mode::HostServer => NetworkingState::Connected,
+            _ => NetworkingState::Connecting,
+        };
+        self.next_state.set(next_state);
         Ok(())
     }
 
