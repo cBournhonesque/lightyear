@@ -79,7 +79,6 @@ jobs:
           --exclude=.git \
           --exclude=.github \
           -cvf "$RUNNER_TEMP/artifact.tar" \
-          #          ./examples/**/dist \
           -C book/book/html .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
