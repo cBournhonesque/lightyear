@@ -51,7 +51,7 @@ pub struct ConnectionManager<P: Protocol> {
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
+    replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -219,7 +219,7 @@ impl<P: Protocol> ConnectionManager<P> {
             .try_for_each(|(_, c)| c.buffer_message(message.clone(), channel))
     }
 
-    /// Queues up a message to be sent to all clients
+    /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
         message: M,

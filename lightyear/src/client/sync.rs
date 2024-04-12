@@ -158,7 +158,6 @@ impl SyncManager {
 
         // check if we are ready to finalize the handshake
         if !self.synced && ping_manager.sync_stats.len() >= self.config.handshake_pings as usize {
-            info!("is synced!");
             self.synced = true;
             self.interpolation_time = self.interpolation_objective(
                 interpolation_delay,
@@ -166,8 +165,8 @@ impl SyncManager {
                 tick_manager,
             );
             debug!(
-                "interpolation_tick: {:?}",
-                self.interpolation_tick(tick_manager)
+                interpolation_tick = ?self.interpolation_tick(tick_manager),
+                "Client is synced!"
             );
             return self.finalize(time_manager, tick_manager, ping_manager);
         }

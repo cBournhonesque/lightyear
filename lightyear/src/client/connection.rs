@@ -52,8 +52,6 @@ use super::sync::SyncManager;
 ///    connection.send_message::<MyChannel, MyMessage>("Hello, server!");
 ///    // send a message to some other client with ClientId 2
 ///    connection.send_message_to_target::<MyChannel, MyMessage>("Hello, server!", NetworkTarget::Single(2));
-///    // send an input for the current tick (not necessary for leafwing_inputs)
-///    connection.add_input(MyInput::new(), tick_manager.tick());
 /// }
 /// ```
 #[derive(Resource)]
