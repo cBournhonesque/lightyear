@@ -15,6 +15,7 @@ use tracing::{info, trace};
 use crate::_reexport::ServerMarker;
 use crate::connection::id::ClientId;
 use crate::protocol::Protocol;
+use crate::server::networking::is_started;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 use crate::shared::time_manager::is_server_ready_to_send;
@@ -122,6 +123,7 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
                     InternalReplicationSet::<ServerMarker>::All,
                     RoomSystemSets::RoomBookkeeping,
                 )
+                    .run_if(is_started)
                     .chain(),
                 // the room systems can run every send_interval
                 (

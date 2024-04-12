@@ -57,6 +57,7 @@ impl<P: Protocol> Plugin for SharedPlugin<P> {
         ));
 
         // PLUGINS
+        // we always keep running the tick_manager and time_manager even the client or server are stopped
         app.add_plugins(TickManagerPlugin {
             config: self.config.tick.clone(),
         });

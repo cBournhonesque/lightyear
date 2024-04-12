@@ -1,13 +1,11 @@
 //! Handles client-generated inputs
-use bevy::prelude::{
-    App, EventReader, EventWriter, FixedPostUpdate, FixedPreUpdate, IntoSystemConfigs, Plugin, Res,
-    ResMut, SystemSet,
-};
+use bevy::prelude::*;
 
 use crate::prelude::{TickManager, UserAction};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
+use crate::server::networking::is_started;
 
 // - ClientInputs:
 // - inputs will be sent via a special message
@@ -51,8 +49,14 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // EVENTS
         app.add_event::<InputEvent<P::Input>>();
         // SETS
-        app.configure_sets(FixedPreUpdate, InputSystemSet::WriteInputEvents);
-        app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvents);
+        app.configure_sets(
+            FixedPreUpdate,
+            InputSystemSet::WriteInputEvents.run_if(is_started),
+        );
+        app.configure_sets(
+            FixedPostUpdate,
+            InputSystemSet::ClearInputEvents.run_if(is_started),
+        );
 
         // insert the input buffer resource
         app.add_systems(

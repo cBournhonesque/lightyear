@@ -148,6 +148,7 @@ pub mod prelude {
             ReplicationConfig, ServerFilter, ServerReplicationSet,
         };
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
+        pub use crate::server::{NetworkingState, ServerConnectionParam};
 
         pub use crate::connection::server::{
             NetConfig, NetServer, ServerConnection, ServerConnections,

@@ -38,7 +38,8 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             Update,
             (
-                receive_message1,
+                receive_client_connection,
+                receive_client_disconnection,
                 receive_entity_spawn,
                 receive_entity_despawn,
                 handle_predicted_spawn,
@@ -137,10 +138,25 @@ fn player_movement(
     }
 }
 
-/// System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<MessageEvent<Message1>>) {
+/// System handling receiving a ClientConnection message
+pub(crate) fn receive_client_connection(
+    mut reader: EventReader<MessageEvent<ClientConnect>>,
+    mut lobby_table: ResMut<ui::LobbyTable>,
+) {
     for event in reader.read() {
-        info!("Received message: {:?}", event.message());
+        let client_connection = event.message();
+        lobby_table.clients.insert(client_connection.id, false);
+    }
+}
+
+/// System handling receiving a ClientDisconnection message
+pub(crate) fn receive_client_disconnection(
+    mut reader: EventReader<MessageEvent<ClientDisconnect>>,
+    mut lobby_table: ResMut<ui::LobbyTable>,
+) {
+    for event in reader.read() {
+        let client_disconnection = event.message();
+        lobby_table.clients.remove(&client_disconnection.id);
     }
 }
 
@@ -238,7 +254,7 @@ mod ui {
                             ui.label("Server");
                         });
                         row.col(|ui| {
-                            ui.checkbox(&mut self.server, "");
+                            ui.toggle_value(&mut self.server, "");
                         });
                     });
                     for (client_id, is_host) in self.clients.iter_mut() {
@@ -247,7 +263,7 @@ mod ui {
                                 ui.label(format!("{client_id:?}"));
                             });
                             row.col(|ui| {
-                                ui.checkbox(is_host, "");
+                                ui.toggle_value(is_host, "");
                             });
                         });
                     }
@@ -256,6 +272,9 @@ mod ui {
             match state {
                 NetworkingState::Disconnected => {
                     if ui.button("Connect").clicked() {
+                        // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
+                        // - the new host must run in host-server
+                        // - all clients must adjust their net-config to connect to the host
                         let _ = connection
                             .connect()
                             .inspect_err(|e| error!("Failed to connect: {e:?}"));
@@ -265,6 +284,10 @@ mod ui {
                     let _ = ui.button("Connecting");
                 }
                 NetworkingState::Connected => {
+                    // TODO: should the client be able to connect to multiple servers?
+                    //  (for example so that it's connected to the lobby-server at the same time
+                    //  as the game-server)
+                    // TODO: disconnect from the current game, adjust the client-config, and join the dedicated server
                     if ui.button("Disconnect").clicked() {
                         let _ = connection
                             .disconnect()

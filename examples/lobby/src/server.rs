@@ -30,7 +30,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, (send_message, handle_connections));
+        app.add_systems(Update, (handle_connections, handle_disconnections));
     }
 }
 
@@ -39,8 +39,8 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    connections.start().expect("Failed to start server");
+pub(crate) fn init(mut commands: Commands, mut server: ServerConnectionParam) {
+    server.start().expect("Failed to start server");
     commands.spawn(
         TextBundle::from_section(
             "Server",
@@ -60,7 +60,7 @@ pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnect
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
-    mut disconnections: EventReader<DisconnectEvent>,
+    mut server: ResMut<ServerConnectionManager>,
     mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
@@ -75,8 +75,22 @@ pub(crate) fn handle_connections(
         let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
         // Add a mapping from client id to entity id
         global.client_id_to_entity_id.insert(client_id, entity.id());
+        // Send a message containing the client information to other clients
+        let _ = server.send_message_to_target::<Channel1, ClientConnect>(
+            ClientConnect { id: client_id },
+            NetworkTarget::All,
+        );
         info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
+}
+
+/// Server connection system, create a player upon connection
+pub(crate) fn handle_disconnections(
+    mut disconnections: EventReader<DisconnectEvent>,
+    mut server: ResMut<ServerConnectionManager>,
+    mut global: ResMut<Global>,
+    mut commands: Commands,
+) {
     for disconnection in disconnections.read() {
         let client_id = disconnection.context();
         // TODO: handle this automatically in lightyear
@@ -88,6 +102,11 @@ pub(crate) fn handle_connections(
                 entity.despawn();
             }
         }
+        // Send a message containing the client information to other clients
+        let _ = server.send_message_to_target::<Channel1, ClientDisconnect>(
+            ClientDisconnect { id: *client_id },
+            NetworkTarget::All,
+        );
     }
 }
 
@@ -113,22 +132,5 @@ pub(crate) fn movement(
                 }
             }
         }
-    }
-}
-
-/// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
-/// and cannot do input handling)
-pub(crate) fn send_message(
-    mut server: ResMut<ServerConnectionManager>,
-    input: Option<Res<ButtonInput<KeyCode>>>,
-) {
-    if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        server
-            .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
     }
 }

@@ -4,6 +4,7 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
+use std::net::SocketAddr;
 use std::ops::Mul;
 
 use bevy::ecs::entity::MapEntities;
@@ -90,11 +91,19 @@ pub struct Channel1;
 // Messages
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
+pub struct ClientConnect {
+    pub(crate) id: ClientId,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ClientDisconnect {
+    pub(crate) id: ClientId,
+}
 
 #[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
-    Message1(Message1),
+    ClientConnect(ClientConnect),
+    ClientDisconnect(ClientDisconnect),
 }
 
 // Inputs

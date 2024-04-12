@@ -78,7 +78,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
-        app.world.run_system_once(rebuild_net_config::<P>);
+        app.world.run_system_once(rebuild_client_connection::<P>);
 
         // CONNECTING
         // Everytime we try to connect, we rebuild the net config because:
@@ -88,7 +88,11 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         // the internal time, sync, priority, message numbers, etc.)
         app.add_systems(
             OnEnter(NetworkingState::Connecting),
-            (rebuild_net_config::<P>, connect).run_if(is_disconnected),
+            (rebuild_client_connection::<P>, connect).run_if(is_disconnected),
+        );
+        app.add_systems(
+            PreUpdate,
+            handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
         );
 
         // CONNECTED
@@ -142,13 +146,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 time_manager.as_ref(),
                                                                 tick_manager.as_ref(),
                                                             );
-                                                        } else if netclient.state() == NetworkingState::Connecting {
-                                                            info!("we are still connecting");
-                                                            // we failed to connect, set the state back to Disconnected
-                                                            if state.get() == &NetworkingState::Disconnected {
-                                                                info!("we failed to connect, set state to disconnected");
-                                                                next_state.set(NetworkingState::Disconnected);
-                                                            }
                                                         }
 
                                                         // RECV PACKETS: buffer packets into message managers
@@ -278,12 +275,27 @@ pub(crate) fn sync_update<P: Protocol>(
     }
 }
 
+/// Bevy [`State`] representing the networking state of the client.
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NetworkingState {
+    /// The client is disconnected from the server. The receive/send packets systems do not run.
     #[default]
     Disconnected,
+    /// The client is trying to connect to the server
     Connecting,
+    /// The client is connected to the server
     Connected,
+}
+
+/// If we are trying to connect but the client is disconnected; we failed to connect,
+/// change the state back to Disconnected.
+fn handle_connection_failure(
+    mut next_state: ResMut<NextState<NetworkingState>>,
+    netclient: Res<ClientConnection>,
+) {
+    if netclient.state() == NetworkingState::Disconnected {
+        next_state.set(NetworkingState::Disconnected);
+    }
 }
 
 /// System that runs when we enter the Connected state
@@ -349,7 +361,7 @@ pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool 
 /// This has several benefits:
 /// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
 /// - we can take into account any changes to the client config
-fn rebuild_net_config<P: Protocol>(world: &mut World) {
+fn rebuild_client_connection<P: Protocol>(world: &mut World) {
     let client_config = world.resource::<ClientConfig>().clone();
     if client_config.shared.mode == Mode::HostServer {
         assert!(
@@ -361,16 +373,16 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
     let connection_manager = ConnectionManager::<P>::new(
         world.resource::<P>().channel_registry(),
-        client_config.packet.clone(),
-        client_config.sync.clone(),
-        client_config.ping.clone(),
+        client_config.packet,
+        client_config.sync,
+        client_config.ping,
         client_config.prediction.input_delay_ticks,
     );
     world.insert_resource(connection_manager);
 
     // insert the new client connection
-    let netclient = client_config.net.clone().build_client();
-    world.insert_resource(netclient);
+    let client_connection = client_config.net.build_client();
+    world.insert_resource(client_connection);
 }
 
 /// Connect the client

@@ -1,14 +1,17 @@
 //! Defines the server bevy systems and run conditions
 use anyhow::Context;
-use bevy::ecs::system::SystemChangeTick;
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, ServerMarker};
+use crate::client::config::ClientConfig;
+use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{TickManager, TimeManager};
+use crate::prelude::{Mode, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
+use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::server::room::RoomManager;
@@ -17,6 +20,7 @@ use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::InternalMainSet;
 use crate::shared::time_manager::is_server_ready_to_send;
 
+/// Plugin handling the server networking systems: sending/receiving packets to clients
 pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
     config: Vec<NetConfig>,
     marker: std::marker::PhantomData<P>,
@@ -39,34 +43,34 @@ impl<P: Protocol> ServerNetworkingPlugin<P> {
 impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
         app
-            // RESOURCE
-            // start the netcode servers
-            // in practice this mostly just starts the io (spawns server io tasks, etc.)
-            .insert_resource(ServerConnections::new(self.config.clone()))
+            // STATE
+            .init_state::<NetworkingState>()
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ServerMarker>::Receive.run_if(is_server_listening),
+                InternalMainSet::<ServerMarker>::Receive.run_if(is_started),
             )
             .configure_sets(
                 PostUpdate,
                 (
                     // we don't send packets every frame, but on a timer instead
-                    InternalMainSet::<ServerMarker>::Send.run_if(is_server_ready_to_send),
+                    InternalMainSet::<ServerMarker>::Send.run_if(is_started),
                     InternalMainSet::<ServerMarker>::SendPackets
-                        .run_if(is_server_listening)
                         .in_set(InternalMainSet::<ServerMarker>::Send),
                 ),
             )
             // SYSTEMS //
             .add_systems(
                 PreUpdate,
-                (receive::<P>.in_set(InternalMainSet::<ServerMarker>::Receive),),
+                receive::<P>.in_set(InternalMainSet::<ServerMarker>::Receive),
             )
             .add_systems(
                 PostUpdate,
-                (send::<P>.in_set(InternalMainSet::<ServerMarker>::SendPackets),),
+                send::<P>.in_set(InternalMainSet::<ServerMarker>::SendPackets),
             );
+
+        // STARTUP
+        app.world.run_system_once(rebuild_server_connections::<P>);
     }
 }
 
@@ -257,7 +261,81 @@ pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<Connectio
     connection_manager.events.clear();
 }
 
-/// Run condition to check that the server is ready to listen to incoming connections
-pub(crate) fn is_server_listening(netservers: Res<ServerConnections>) -> bool {
-    netservers.is_listening()
+/// Run condition to check that the server is ready to send packets
+///
+/// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
+/// to avoid having a frame of delay since the `StateTransition` schedule runs after the `PreUpdate` schedule
+pub(crate) fn is_started(server: Option<Res<ServerConnections>>) -> bool {
+    server.map_or(false, |s| s.is_listening())
+}
+
+/// Run condition to check that the server is stopped.
+///
+/// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`
+/// to avoid having a frame of delay since the `StateTransition` schedule runs after the `PreUpdate` schedule
+pub(crate) fn is_stopped(server: Option<Res<ServerConnections>>) -> bool {
+    server.map_or(true, |s| !s.is_listening())
+}
+
+/// Bevy [`State`] representing the networking state of the server.
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NetworkingState {
+    /// The server is not listening. The server plugin is disabled.
+    #[default]
+    Stopped,
+    // NOTE: there is no need for a `Starting` state because currently the server
+    // `start` method is synchronous. Once it returns we know the server is started and ready.
+    /// The server is ready to accept incoming connections.
+    Started,
+}
+
+/// This runs only when we enter the [`Starting`](NetworkingState::Starting) state.
+///
+/// We rebuild the [`ServerConnections`] by using the latest [`ServerConfig`].
+/// This has several benefits:
+/// - the server connection's internal time is up-to-date (otherwise it might not be, since we don't run any server systems while the server is stopped)
+/// - we can take into account any changes to the server config
+fn rebuild_server_connections<P: Protocol>(world: &mut World) {
+    let server_config = world.resource::<ServerConfig>().clone();
+
+    // insert a new connection manager (to reset message numbers, ping manager, etc.)
+    let connection_manager = ConnectionManager::<P>::new(
+        world.resource::<P>().channel_registry().clone(),
+        server_config.packet,
+        server_config.ping,
+    );
+    world.insert_resource(connection_manager);
+
+    // rebuild the server connections and insert them
+    let server_connections = ServerConnections::new(server_config.net);
+    world.insert_resource(server_connections);
+}
+
+/// This system param is used to start/stop the server.
+#[derive(SystemParam)]
+pub struct ServerConnectionParam<'w, 's> {
+    next_state: ResMut<'w, NextState<NetworkingState>>,
+    connection: ResMut<'w, ServerConnections>,
+    config: Res<'w, ServerConfig>,
+    _marker: std::marker::PhantomData<&'s ()>,
+}
+
+impl<'w, 's> ServerConnectionParam<'w, 's> {
+    /// Public system that should be used by the user to start the server
+    pub fn start(&mut self) -> anyhow::Result<()> {
+        self.connection
+            .start()
+            .inspect_err(|e| error!("Error starting server: {e:?}"))?;
+        self.next_state.set(NetworkingState::Started);
+        Ok(())
+    }
+
+    /// Public system that should be used by the user to disconnect
+    pub fn disconnect(&mut self) -> anyhow::Result<()> {
+        self.connection
+            .stop()
+            .inspect_err(|e| error!("Error stopping server: {e:?}"))?;
+        self.next_state.set(NetworkingState::Stopped);
+        Ok(())
+    }
 }

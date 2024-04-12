@@ -23,3 +23,5 @@ pub(crate) mod prediction;
 
 mod networking;
 pub mod replication;
+
+pub use networking::{NetworkingState, ServerConnectionParam};
