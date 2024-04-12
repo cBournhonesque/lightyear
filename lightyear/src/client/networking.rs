@@ -143,8 +143,10 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 tick_manager.as_ref(),
                                                             );
                                                         } else if netclient.state() == NetworkingState::Connecting {
+                                                            info!("we are still connecting");
                                                             // we failed to connect, set the state back to Disconnected
                                                             if state.get() == &NetworkingState::Disconnected {
+                                                                info!("we failed to connect, set state to disconnected");
                                                                 next_state.set(NetworkingState::Disconnected);
                                                             }
                                                         }
@@ -332,6 +334,7 @@ pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
     netclient.map_or(false, |c| c.state() == NetworkingState::Connected)
 }
 
+// TODO: this means that we are failing to exit the disconnecting mode!
 /// This run condition is provided to check if the client is disconnected.
 ///
 /// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
