@@ -67,6 +67,10 @@ jobs:
       #          cd ../..
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - name: Show book content
+        shell: sh
+        run: |
+          ls -la book && ls -la book/book && ls -la book/book/html
       - name: Tar artifact
         shell: sh
         run: |
