@@ -4,7 +4,6 @@ use crate::_reexport::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::prediction::plugin::is_connected;
 use crate::client::prediction::prespawn::PreSpawnedPlayerObjectSet;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;

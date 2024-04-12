@@ -1,3 +1,4 @@
+use crate::client::networking::NetworkingState;
 use crate::connection::client::NetClient;
 use crate::packet::packet::Packet;
 use crate::prelude::{ClientId, Io};
@@ -31,8 +32,12 @@ impl NetClient for Client {
         Ok(())
     }
 
-    fn is_connected(&self) -> bool {
-        self.is_connected
+    fn state(&self) -> NetworkingState {
+        if self.is_connected {
+            NetworkingState::Connected
+        } else {
+            NetworkingState::Disconnected
+        }
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {

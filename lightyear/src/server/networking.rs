@@ -116,12 +116,24 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                             // RECV_PACKETS: buffer packets into message managers
                                             for (server_idx, netserver) in netservers.servers.iter_mut().enumerate() {
                                                 while let Some((packet, client_id)) = netserver.recv() {
+                                                    // Note: the client_id might not be present in the connection_manager if we receive
+                                                    // packets from a client
                                                     // TODO: use connection to apply on BOTH message manager and replication manager
-                                                    connection_manager
-                                                        .connection_mut(client_id)
-                                                        .expect("connection not found")
-                                                        .recv_packet(packet, tick_manager.as_ref())
-                                                        .expect("could not recv packet");
+                                                    if let Ok(connection) = connection_manager
+                                                        .connection_mut(client_id) {
+                                                        connection.recv_packet(packet, tick_manager.as_ref()).expect("could not receive packet");
+                                                    } else {
+                                                        // it's still possible to receive some packets from a client that just disconnected.
+                                                        // (multiple packets arrived at the same time from that client)
+                                                        if netserver.new_disconnections().contains(&client_id) {
+                                                            trace!("received packet from client that just got disconnected. Ignoring.");
+                                                            // we ignore packets from disconnected clients
+                                                            // this is not an error
+                                                            continue;
+                                                        } else {
+                                                            error!("Received packet from unknown client: {}", client_id);
+                                                        }
+                                                    }
                                                 }
                                             }
 

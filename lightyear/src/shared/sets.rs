@@ -23,7 +23,7 @@ pub(crate) enum InternalReplicationSet<M> {
     SendEntityUpdates,
     SendComponentUpdates,
 
-    // SystemSet that encompasses all replication systems
+    // SystemSet that encompasses all send replication systems
     All,
     _Marker(std::marker::PhantomData<M>),
 }

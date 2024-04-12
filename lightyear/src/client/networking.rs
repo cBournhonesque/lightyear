@@ -1,7 +1,8 @@
-//! Defines the client bevy systems and run conditions
+//! Defines the plugin related to the client networking (sending and receiving packets).
+use anyhow::{Context, Result};
 use std::ops::DerefMut;
 
-use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemState};
+use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
@@ -11,7 +12,7 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::sync::SyncSet;
-use crate::connection::client::{ClientConnection, NetClient};
+use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -36,32 +37,26 @@ impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
 
 impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     fn build(&self, app: &mut App) {
-        let config = app.world.resource::<ClientConfig>();
-        // in host server mode, we don't send/receive packets at all
-        if config.shared.mode == Mode::HostServer {
-            // we just update the connection/disconnection events
-            app.add_systems(
-                PreUpdate,
-                update_connect_events::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
-            );
-            return;
-        }
-
         app
+            // STATE
+            .init_state::<NetworkingState>()
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ClientMarker>::Receive.run_if(is_io_connected),
+                InternalMainSet::<ClientMarker>::Receive.run_if(
+                    not(SharedConfig::is_host_server_condition).and_then(not(is_disconnected)),
+                ),
             )
             .configure_sets(
                 PostUpdate,
                 // run sync before send because some send systems need to know if the client is synced
                 // we don't send packets every frame, but on a timer instead
                 (
-                    SyncSet,
-                    InternalMainSet::<ClientMarker>::Send.run_if(is_client_ready_to_send),
+                    SyncSet.run_if(in_state(NetworkingState::Connected)),
+                    InternalMainSet::<ClientMarker>::Send
+                        .run_if(is_client_ready_to_send.and_then(not(is_disconnected))),
                 )
-                    .run_if(is_io_connected)
+                    .run_if(not(SharedConfig::is_host_server_condition))
                     .chain(),
             )
             // SYSTEMS
@@ -71,52 +66,36 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             )
             .add_systems(
                 PostUpdate,
-                send::<P>.in_set(InternalMainSet::<ClientMarker>::SendPackets),
+                (
+                    send::<P>.in_set(InternalMainSet::<ClientMarker>::SendPackets),
+                    // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+                    sync_update::<P>.in_set(SyncSet),
+                ),
             );
 
-        // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
+        // STARTUP
+        // TODO: update all systems that need these to only run when needed, so that we don't have to create
+        //  a ConnectionManager or a NetConfig at startup
+        // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
+        // that depend on these resources do not panic
+        app.world.run_system_once(rebuild_net_config::<P>);
+
+        // CONNECTING
+        // Everytime we try to connect, we rebuild the net config because:
+        // - we do not call update() while the client is disconnected, so the internal connection's time is wrong
+        // - this allows us to take into account any changes to the client config (when building a
+        // new client connection and connection manager, which want to do because we need to reset
+        // the internal time, sync, priority, message numbers, etc.)
         app.add_systems(
-            PostUpdate,
-            sync_update::<P>.in_set(SyncSet).run_if(is_client_connected),
+            OnEnter(NetworkingState::Connecting),
+            (rebuild_net_config::<P>, connect).run_if(is_disconnected),
         );
-    }
-}
 
-pub(crate) fn is_io_connected(netcode: Res<ClientConnection>) -> bool {
-    netcode.io().map_or(false, |io| io.is_connected())
-}
+        // CONNECTED
+        app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
 
-/// In host server mode, we don't send/receive packets at all
-///
-/// Just update the Connect/Disconnect events for both client and server
-pub(crate) fn update_connect_events<P: Protocol>(
-    netcode: Res<ClientConnection>,
-    mut connection: ResMut<ConnectionManager<P>>,
-    // client connect events
-    mut connect_event_writer: EventWriter<ConnectEvent>,
-    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
-    // server connect events
-    mut server_connect_event_writer: EventWriter<crate::server::events::ConnectEvent>,
-    mut server_disconnect_event_writer: EventWriter<crate::server::events::DisconnectEvent>,
-) {
-    if netcode.is_connected() {
-        // push an event indicating that we just connected
-        if !connection.is_connected {
-            debug!("Client connected event");
-            connect_event_writer.send(ConnectEvent::new(netcode.id()));
-            server_connect_event_writer
-                .send(crate::server::events::ConnectEvent::new(netcode.id()));
-            connection.is_connected = true;
-        }
-    } else {
-        // push an event indicating that we just disconnected
-        if connection.is_connected {
-            debug!("Client disconnected event");
-            disconnect_event_writer.send(DisconnectEvent::new(()));
-            server_disconnect_event_writer
-                .send(crate::server::events::DisconnectEvent::new(netcode.id()));
-            connection.is_connected = false;
-        }
+        // DISCONNECTED
+        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
     }
 }
 
@@ -133,106 +112,99 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     world.resource_scope(
         |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
             world.resource_scope(
-                |world: &mut World, mut netcode: Mut<ClientConnection>| {
+                |world: &mut World, mut netclient: Mut<ClientConnection>| {
                         world.resource_scope(
                             |world: &mut World, mut time_manager: Mut<TimeManager>| {
                                 world.resource_scope(
                                     |world: &mut World, tick_manager: Mut<TickManager>| {
-                                        let delta = world.resource::<Time<Virtual>>().delta();
+                                        world.resource_scope(
+                                            |world: &mut World, state: Mut<State<NetworkingState>>| {
+                                                world.resource_scope(
+                                                    |world: &mut World, mut next_state: Mut<NextState<NetworkingState>>| {
+                                                        let delta = world.resource::<Time<Virtual>>().delta();
+                                                        // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
+                                                        time_manager.update(delta);
+                                                        trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
+                                                        let _ = netclient
+                                                            .try_update(delta.as_secs_f64())
+                                                            .map_err(|e| {
+                                                                error!("Error updating netcode: {}", e);
+                                                            });
 
-                                        // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
-                                        time_manager.update(delta);
-                                        trace!(time = ?time_manager.current_time(), tick = ?tick_manager.tick(), "receive");
-                                        let _ = netcode
-                                            .try_update(delta.as_secs_f64())
-                                            .map_err(|e| {
-                                                error!("Error updating netcode: {}", e);
+                                                        if netclient.state() == NetworkingState::Connected {
+                                                            // we just connected, do a state transition
+                                                            if state.get() != &NetworkingState::Connected {
+                                                                next_state.set(NetworkingState::Connected);
+                                                            }
+
+                                                            // update the connection (message manager, ping manager, etc.)
+                                                            connection.update(
+                                                                time_manager.as_ref(),
+                                                                tick_manager.as_ref(),
+                                                            );
+                                                        } else if netclient.state() == NetworkingState::Connecting {
+                                                            // we failed to connect, set the state back to Disconnected
+                                                            if state.get() == &NetworkingState::Disconnected {
+                                                                next_state.set(NetworkingState::Disconnected);
+                                                            }
+                                                        }
+
+                                                        // RECV PACKETS: buffer packets into message managers
+                                                        while let Some(packet) = netclient.recv() {
+                                                            connection
+                                                                .recv_packet(packet, tick_manager.as_ref())
+                                                                .unwrap();
+                                                        }
+                                                        // RECEIVE: receive packets from message managers
+                                                        let mut events = connection.receive(
+                                                            world,
+                                                            time_manager.as_ref(),
+                                                            tick_manager.as_ref(),
+                                                        );
+                                                        // TODO: run these in EventsPlugin!
+                                                        // HANDLE EVENTS
+                                                        if !events.is_empty() {
+                                                            // Message Events
+                                                            P::Message::push_message_events(world, &mut events);
+
+                                                            // SpawnEntity event
+                                                            if events.has_entity_spawn() {
+                                                                let mut entity_spawn_event_writer = world
+                                                                    .get_resource_mut::<Events<EntitySpawnEvent>>()
+                                                                    .unwrap();
+                                                                for (entity, _) in events.into_iter_entity_spawn() {
+                                                                    entity_spawn_event_writer
+                                                                        .send(EntitySpawnEvent::new(entity, ()));
+                                                                }
+                                                            }
+                                                            // DespawnEntity event
+                                                            if events.has_entity_despawn() {
+                                                                let mut entity_despawn_event_writer = world
+                                                                    .get_resource_mut::<Events<EntityDespawnEvent>>()
+                                                                    .unwrap();
+                                                                for (entity, _) in events.into_iter_entity_despawn()
+                                                                {
+                                                                    entity_despawn_event_writer
+                                                                        .send(EntityDespawnEvent::new(entity, ()));
+                                                                }
+                                                            }
+
+                                                            // Update component events (updates, inserts, removes)
+                                                            P::Components::push_component_events(
+                                                                world,
+                                                                &mut events,
+                                                            );
+                                                        }
+                                                    });
                                             });
-
-                                        // only start the connection (sending messages, sending pings, starting sync, etc.)
-                                        // once we are connected
-                                        if netcode.is_connected() {
-                                            // push an event indicating that we just connected
-                                            if !connection.is_connected {
-                                                let mut connect_event_writer =
-                                                    world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                                                debug!("Client connected event");
-                                                connect_event_writer.send(ConnectEvent::new(netcode.id()));
-                                                connection.is_connected = true;
-                                            }
-                                            // TODO: handle disconnection event
-                                            connection.update(
-                                                time_manager.as_ref(),
-                                                tick_manager.as_ref(),
-                                            );
-                                        } else {
-                                            // push an event indicating that we just disconnected
-                                            if connection.is_connected {
-                                                let mut disconnect_event_writer =
-                                                    world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                                                debug!("Client disconnected event");
-                                                disconnect_event_writer.send(DisconnectEvent::new(()));
-                                                connection.is_connected = false;
-                                            }
-                                        }
-
-                                        // RECV PACKETS: buffer packets into message managers
-                                        while let Some(packet) = netcode.recv() {
-                                            connection
-                                                .recv_packet(packet, tick_manager.as_ref())
-                                                .unwrap();
-                                        }
-
-                                        // RECEIVE: receive packets from message managers
-                                        let mut events = connection.receive(
-                                            world,
-                                            time_manager.as_ref(),
-                                            tick_manager.as_ref(),
-                                        );
-
-                                        // TODO: run these in EventsPlugin!
-                                        // HANDLE EVENTS
-                                        if !events.is_empty() {
-                                            // Message Events
-                                            P::Message::push_message_events(world, &mut events);
-
-                                            // SpawnEntity event
-                                            if events.has_entity_spawn() {
-                                                let mut entity_spawn_event_writer = world
-                                                    .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                                    .unwrap();
-                                                for (entity, _) in events.into_iter_entity_spawn() {
-                                                    entity_spawn_event_writer
-                                                        .send(EntitySpawnEvent::new(entity, ()));
-                                                }
-                                            }
-                                            // DespawnEntity event
-                                            if events.has_entity_despawn() {
-                                                let mut entity_despawn_event_writer = world
-                                                    .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                                    .unwrap();
-                                                for (entity, _) in events.into_iter_entity_despawn()
-                                                {
-                                                    entity_despawn_event_writer
-                                                        .send(EntityDespawnEvent::new(entity, ()));
-                                                }
-                                            }
-
-                                            // Update component events (updates, inserts, removes)
-                                            P::Components::push_component_events(
-                                                world,
-                                                &mut events,
-                                            );
-                                        }
+                                        });
                                     },
                                 )
                             }
                     );
                 }
             );
-            trace!("finished recv");
-        }
-    );
+    trace!("finished recv");
 }
 
 pub(crate) fn send<P: Protocol>(
@@ -304,7 +276,137 @@ pub(crate) fn sync_update<P: Protocol>(
     }
 }
 
-/// Run Condition that returns true if the client is connected
-pub fn is_client_connected(netclient: Res<ClientConnection>) -> bool {
-    netclient.is_connected()
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NetworkingState {
+    #[default]
+    Disconnected,
+    Connecting,
+    Connected,
+}
+
+/// System that runs when we enter the Connected state
+/// Updates the ConnectEvent events
+fn on_connect(
+    mut connect_event_writer: EventWriter<ConnectEvent>,
+    netcode: Res<ClientConnection>,
+    config: Res<ClientConfig>,
+    mut server_connect_event_writer: Option<ResMut<Events<crate::server::events::ConnectEvent>>>,
+) {
+    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+
+    // in host-server mode, we also want to send a connect event to the server
+    if config.shared.mode == Mode::HostServer {
+        info!("send connect event to server");
+        server_connect_event_writer
+            .as_mut()
+            .unwrap()
+            .send(crate::server::events::ConnectEvent::new(netcode.id()));
+    }
+}
+/// System that runs when we enter the Disconnected state
+/// Updates the DisconnectEvent events
+fn on_disconnect(
+    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
+    netcode: Res<ClientConnection>,
+    config: Res<ClientConfig>,
+    mut server_disconnect_event_writer: Option<
+        ResMut<Events<crate::server::events::DisconnectEvent>>,
+    >,
+) {
+    disconnect_event_writer.send(DisconnectEvent::new(()));
+
+    // in host-server mode, we also want to send a connect event to the server
+    if config.shared.mode == Mode::HostServer {
+        server_disconnect_event_writer
+            .as_mut()
+            .unwrap()
+            .send(crate::server::events::DisconnectEvent::new(netcode.id()));
+    }
+}
+
+/// This run condition is provided to check if the client is connected.
+///
+/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
+/// since the `StateTransition` schedule runs after `PreUpdate`
+pub(crate) fn is_connected(netclient: Option<Res<ClientConnection>>) -> bool {
+    netclient.map_or(false, |c| c.state() == NetworkingState::Connected)
+}
+
+/// This run condition is provided to check if the client is disconnected.
+///
+/// We check the status of the ClientConnection directly instead of using the `State<NetworkingState>` to avoid having a frame of delay
+/// since the `StateTransition` schedule runs after `PreUpdate`
+pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool {
+    netclient.map_or(true, |c| c.state() == NetworkingState::Disconnected)
+}
+
+/// This runs only when we enter the [`Connecting`](NetworkingState::Connecting) state.
+///
+/// We rebuild the [`ClientConnection`] by using the latest [`ClientConfig`].
+/// This has several benefits:
+/// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
+/// - we can take into account any changes to the client config
+fn rebuild_net_config<P: Protocol>(world: &mut World) {
+    let client_config = world.resource::<ClientConfig>().clone();
+    if client_config.shared.mode == Mode::HostServer {
+        assert!(
+            matches!(client_config.net, NetConfig::Local { .. }),
+            "When running in HostServer mode, the client connection needs to be of type Local"
+        );
+    }
+
+    // insert a new connection manager (to reset sync, priority, message numbers, etc.)
+    let connection_manager = ConnectionManager::<P>::new(
+        world.resource::<P>().channel_registry(),
+        client_config.packet.clone(),
+        client_config.sync.clone(),
+        client_config.ping.clone(),
+        client_config.prediction.input_delay_ticks,
+    );
+    world.insert_resource(connection_manager);
+
+    // insert the new client connection
+    let netclient = client_config.net.clone().build_client();
+    world.insert_resource(netclient);
+}
+
+/// Connect the client
+fn connect(mut netclient: ResMut<ClientConnection>) {
+    info!("calling connect on netclient");
+    let _ = netclient
+        .connect()
+        .inspect_err(|e| error!("Error connecting: {e:?}"));
+}
+
+/// This system param is used to connect/disconnect the client.
+#[derive(SystemParam)]
+pub struct ClientConnectionParam<'w, 's> {
+    next_state: ResMut<'w, NextState<NetworkingState>>,
+    connection: ResMut<'w, ClientConnection>,
+    config: Res<'w, ClientConfig>,
+    _marker: std::marker::PhantomData<&'s ()>,
+}
+
+impl<'w, 's> ClientConnectionParam<'w, 's> {
+    /// Public system that should be used by the user to connect
+    pub fn connect(&mut self) -> Result<()> {
+        // self.connection.connect().context("Error connecting")?;
+        let next_state = match self.config.shared.mode {
+            // in host server mode, there is no connecting phase, we directly become connected
+            // (because the networking systems don't run so we cannot go through the Connecting state)
+            Mode::HostServer => NetworkingState::Connected,
+            _ => NetworkingState::Connecting,
+        };
+        self.next_state.set(next_state);
+        Ok(())
+    }
+
+    /// Public system that should be used by the user to disconnect
+    pub fn disconnect(&mut self) -> Result<()> {
+        self.connection
+            .disconnect()
+            .context("Error disconnecting")?;
+        self.next_state.set(NetworkingState::Disconnected);
+        Ok(())
+    }
 }

@@ -11,8 +11,7 @@ use crate::client::input::InputPlugin;
 use crate::client::interpolation::plugin::InterpolationPlugin;
 use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
-use crate::client::replication::{ClientReplicationPlugin, ReplicationConfig};
-use crate::client::sync::SyncConfig;
+use crate::client::replication::ClientReplicationPlugin;
 use crate::connection::client::{ClientConnection, NetConfig};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -25,7 +24,7 @@ use crate::shared::plugin::SharedPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::PacketSender;
 
-use super::config::{ClientConfig, PacketConfig};
+use super::config::ClientConfig;
 
 pub struct PluginConfig<P: Protocol> {
     client_config: ClientConfig,
@@ -59,12 +58,6 @@ impl<P: Protocol> ClientPlugin<P> {
 //  before the plugin is ready
 impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
-        // REFLECTION
-        app.register_type::<ClientConfig>()
-            .register_type::<PacketConfig>()
-            .register_type::<SyncConfig>()
-            .register_type::<ReplicationConfig>();
-
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
         let netclient = config.client_config.net.clone().build_client();
 
@@ -78,21 +71,14 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
 
         app
             // RESOURCES //
-            // TODO: move these into the Networking/Replication plugins
-            .insert_resource(netclient)
             .insert_resource(config.client_config.clone())
-            .insert_resource(ConnectionManager::<P>::new(
-                config.protocol.channel_registry(),
-                config.client_config.packet,
-                config.client_config.sync,
-                config.client_config.ping,
-                config.client_config.prediction.input_delay_ticks,
-            ))
+            .insert_resource(config.protocol.clone())
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default());
 
+        // TODO: add a way to disable these at runtime
         if config.client_config.shared.mode == Mode::Separate {
             app
                 // PLUGINS

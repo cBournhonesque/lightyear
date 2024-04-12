@@ -2,10 +2,12 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use anyhow::Result;
-use bevy::prelude::{Reflect, Resource};
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{NextState, Reflect, ResMut, Resource};
 
 use crate::_reexport::ReadWordBuffer;
 use crate::client::config::NetcodeConfig;
+use crate::client::networking::NetworkingState;
 use crate::connection::id::ClientId;
 use crate::connection::netcode::ConnectToken;
 
@@ -25,8 +27,8 @@ pub trait NetClient: Send + Sync {
     /// Disconnect from the server
     fn disconnect(&mut self) -> Result<()>;
 
-    /// Returns true if the client is connected to the server
-    fn is_connected(&self) -> bool;
+    /// Returns the [`NetworkingState`] of the client
+    fn state(&self) -> NetworkingState;
 
     /// Update the connection state + internal bookkeeping (keep-alives, etc.)
     fn try_update(&mut self, delta_ms: f64) -> Result<()>;
@@ -98,8 +100,7 @@ impl NetConfig {
                 io: io_config,
             } => {
                 let token = auth
-                    .clone()
-                    .get_token(config.client_timeout_secs)
+                    .get_token(config.client_timeout_secs, config.token_expire_secs)
                     .expect("could not generate token");
                 let token_bytes = token.try_into_bytes().unwrap();
                 let netcode =
@@ -107,7 +108,7 @@ impl NetConfig {
                         .expect("could not create netcode client");
                 let client = super::netcode::Client {
                     client: netcode,
-                    io_config: Some(io_config),
+                    io_config,
                     io: None,
                 };
                 ClientConnection {
@@ -145,8 +146,8 @@ impl NetClient for ClientConnection {
         self.client.disconnect()
     }
 
-    fn is_connected(&self) -> bool {
-        self.client.is_connected()
+    fn state(&self) -> NetworkingState {
+        self.client.state()
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
@@ -180,7 +181,7 @@ impl NetClient for ClientConnection {
 
 #[derive(Resource, Default, Clone)]
 #[allow(clippy::large_enum_variant)]
-/// Struct used to authenticate with the server
+/// Struct used to authenticate with the server when using the netcode connection
 pub enum Authentication {
     /// Use a `ConnectToken` that was already received (usually from a secure-connection to a webserver)
     Token(ConnectToken),
@@ -197,7 +198,11 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    pub fn get_token(self, client_timeout_secs: i32) -> Option<ConnectToken> {
+    pub fn get_token(
+        self,
+        client_timeout_secs: i32,
+        token_expire_secs: i32,
+    ) -> Option<ConnectToken> {
         match self {
             Authentication::Token(token) => Some(token),
             Authentication::Manual {
@@ -207,6 +212,7 @@ impl Authentication {
                 protocol_id,
             } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
                 .timeout_seconds(client_timeout_secs)
+                .expire_seconds(token_expire_secs)
                 .generate()
                 .ok(),
             Authentication::RequestConnectToken => {
