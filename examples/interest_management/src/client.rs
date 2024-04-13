@@ -37,7 +37,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 // Startup system for the client
-pub(crate) fn init(mut client: ResMut<ClientConnection>) {
+pub(crate) fn init(mut client: ClientConnectionParam) {
     let _ = client.connect();
 }
 

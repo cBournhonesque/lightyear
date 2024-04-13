@@ -9,6 +9,7 @@ use tracing::{debug, error, trace};
 use crate::connection::id;
 use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
 use crate::connection::server::NetServer;
+use crate::prelude::IoConfig;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
 use crate::server::config::NetcodeConfig;
@@ -353,8 +354,7 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use lightyear::prelude::{Io, IoConfig, TransportConfig};
 /// let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(
 ///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
-/// )).build();
-/// io.connect();
+/// )).connect().unwrap();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -545,34 +545,6 @@ impl<Ctx> NetcodeServer<Ctx> {
         conn.sequence += 1;
         Ok(())
     }
-
-    // /// A client is requesting a connection to the server via a secure io. Provide them with a ConnectToken
-    // fn process_token_request(
-    //     &mut self,
-    //     from_addr: SocketAddr,
-    //     sender: &mut impl PacketSender,
-    // ) -> Result<()> {
-    //     info!("Received token request from {}", from_addr);
-    //     let client_id = self.conn_cache.new_id();
-    //     let token = self
-    //         .token(client_id, self.local_addr())
-    //         .expire_seconds(self.cfg.token_expire_secs) // defaults to 30 seconds, negative for no expiry
-    //         .timeout_seconds(self.cfg.client_timeout_secs) // defaults to 15 seconds, negative for no timeout
-    //         .generate()
-    //         .unwrap();
-    //     let token_bytes = token.try_into_bytes()?;
-    //
-    //     // TODO: this is complete garbage, fix this.
-    //
-    //     // we can't send packets bigger than the MTU, so we will send one packet with 1000 bytes
-    //     // and another packet with 1048 bytes
-    //     let packet_1 = &token_bytes[..1000];
-    //     let packet_2 = &token_bytes[1000..];
-    //     sender.send(&packet_1, &from_addr).map_err(Error::from)?;
-    //     sender.send(&packet_2, &from_addr).map_err(Error::from)?;
-    //     info!("Generated a ConnectToken.");
-    //     Ok(())
-    // }
 
     fn process_connection_request(
         &mut self,
@@ -858,8 +830,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).build();
-    /// # io.connect();
+    /// # let mut io = IoConfig::from_transport(TransportConfig::UdpSocket(addr)).connect().unwrap();
     /// #
     /// let start = Instant::now();
     /// loop {
@@ -1017,36 +988,43 @@ pub(crate) struct NetcodeServerContext {
 #[derive(Resource)]
 pub struct Server {
     server: NetcodeServer<NetcodeServerContext>,
-    io: Io,
+    io_config: IoConfig,
+    io: Option<Io>,
 }
 
 impl NetServer for Server {
     fn start(&mut self) -> anyhow::Result<()> {
-        self.io.connect()?;
+        let io_config = self.io_config.clone();
+        let io = io_config.connect().context("could not start io")?;
+        self.io = Some(io);
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
+        let io = self.io.as_mut().context("io is not initialized")?;
         let mut connected_clients = self
             .server
             .connected_client_ids()
             .map(id::ClientId::Netcode)
             .collect::<Vec<_>>();
-        self.server.disconnect_all(&mut self.io)?;
+        self.server.disconnect_all(io)?;
         self.server
             .cfg
             .context
             .disconnections
             .append(&mut connected_clients);
-        self.io.close()?;
+        // close and drop the io
+        io.close().context("Could not close the io")?;
+        std::mem::take(&mut self.io);
         Ok(())
     }
 
     fn disconnect(&mut self, client_id: id::ClientId) -> anyhow::Result<()> {
+        let io = self.io.as_mut().context("io is not initialized")?;
         match client_id {
             id::ClientId::Netcode(id) => {
                 self.server
-                    .disconnect(id, &mut self.io)
+                    .disconnect(id, io)
                     .context("Could not disconnect client")?;
                 self.server.cfg.context.disconnections.push(client_id);
                 Ok(())
@@ -1063,12 +1041,13 @@ impl NetServer for Server {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> anyhow::Result<()> {
+        let io = self.io.as_mut().context("io is not initialized")?;
         // reset the new connections/disconnections
         self.server.cfg.context.connections.clear();
         self.server.cfg.context.disconnections.clear();
 
         self.server
-            .try_update(delta_ms, &mut self.io)
+            .try_update(delta_ms, io)
             .context("could not update server")
     }
 
@@ -1079,11 +1058,12 @@ impl NetServer for Server {
     }
 
     fn send(&mut self, buf: &[u8], client_id: id::ClientId) -> anyhow::Result<()> {
+        let io = self.io.as_mut().context("io is not initialized")?;
         let id::ClientId::Netcode(client_id) = client_id else {
             return Err(anyhow!("the client id must be of type Netcode"));
         };
         self.server
-            .send(buf, client_id, &mut self.io)
+            .send(buf, client_id, io)
             .context("could not send packet")
     }
 
@@ -1095,13 +1075,13 @@ impl NetServer for Server {
         self.server.cfg.context.disconnections.clone()
     }
 
-    fn io(&self) -> &Io {
-        &self.io
+    fn io(&self) -> Option<&Io> {
+        self.io.as_ref()
     }
 }
 
 impl Server {
-    pub(crate) fn new(config: NetcodeConfig, io: Io) -> Self {
+    pub(crate) fn new(config: NetcodeConfig, io_config: IoConfig) -> Self {
         let private_key = config.private_key.unwrap_or(generate_key());
         // create context
         let context = NetcodeServerContext::default();
@@ -1114,9 +1094,14 @@ impl Server {
             });
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
+        cfg = cfg.client_timeout_secs(config.client_timeout_secs);
         let server = NetcodeServer::with_config(config.protocol_id, private_key, cfg)
             .expect("Could not create server netcode");
 
-        Self { server, io }
+        Self {
+            server,
+            io_config,
+            io: None,
+        }
     }
 }

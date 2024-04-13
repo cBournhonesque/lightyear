@@ -10,11 +10,12 @@ use crate::_reexport::{ClientMarker, ComponentProtocol};
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
-use crate::client::prediction::plugin::is_connected;
+use crate::client::networking::{is_connected, NetworkingState};
 use crate::client::prediction::pre_prediction::PrePredictionPlugin;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
+use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::{ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
@@ -50,13 +51,11 @@ impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PreUpdate,
-            PreSpawnedPlayerObjectSet::Spawn
-                .in_set(PredictionSet::SpawnPrediction)
-                .run_if(is_connected),
+            PreSpawnedPlayerObjectSet::Spawn.in_set(PredictionSet::SpawnPrediction),
         );
         app.configure_sets(
             PostUpdate,
-            PreSpawnedPlayerObjectSet::CleanUp.run_if(is_connected),
+            PreSpawnedPlayerObjectSet::CleanUp.in_set(PredictionSet::All),
         );
         app.configure_sets(
             FixedPostUpdate,
@@ -66,6 +65,7 @@ impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
             // NOTE: we need to call this before SpawnHistory otherwise the history would affect the hash.
             // TODO: find a way to exclude predicted history from the hash
             InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash
+                .in_set(PredictionSet::All)
                 .before(PredictionSet::SpawnHistory),
         );
 

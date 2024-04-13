@@ -84,7 +84,9 @@ pub(crate) fn handle_connections(
         //  - maybe have the client-id to entity-mapping in the global metadata?
         //  - despawn automatically those entities when the client disconnects
         if let Some(entity) = global.client_id_to_entity_id.remove(client_id) {
-            commands.entity(entity).despawn();
+            if let Some(mut entity) = commands.get_entity(entity) {
+                entity.despawn();
+            }
         }
     }
 }

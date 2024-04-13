@@ -13,8 +13,11 @@ use {
 use crate::prelude::Io;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
+use crate::transport::error::Result;
+use crate::transport::io::IoStats;
 use crate::transport::local::LocalChannelBuilder;
 use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
+use crate::transport::middleware::PacketReceiverWrapper;
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(feature = "websocket")]
@@ -23,7 +26,7 @@ use crate::transport::websocket::client::WebSocketClientSocketBuilder;
 use crate::transport::websocket::server::WebSocketServerSocketBuilder;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocketBuilder;
-use crate::transport::{Transport, TransportBuilderEnum};
+use crate::transport::{BoxedReceiver, Transport, TransportBuilder, TransportBuilderEnum};
 
 /// Use this to configure the [`Transport`] that will be used to establish a connection with the
 /// remote.
@@ -167,9 +170,22 @@ impl IoConfig {
         self
     }
 
-    pub fn build(self) -> Io {
-        let conditioner = self.conditioner.map(LinkConditioner::new);
-        let transport_builder = self.transport.build();
-        Io::new(transport_builder, conditioner)
+    pub fn connect(self) -> Result<Io> {
+        let transport = self.transport.build().connect()?;
+        let local_addr = transport.local_addr();
+        let (sender, receiver, close_fn) = transport.split();
+        let receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {
+            let conditioner = LinkConditioner::new(conditioner_config);
+            Box::new(conditioner.wrap(receiver))
+        } else {
+            Box::new(receiver)
+        };
+        Ok(Io {
+            local_addr,
+            sender,
+            receiver,
+            close_fn,
+            stats: IoStats::default(),
+        })
     }
 }

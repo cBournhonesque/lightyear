@@ -27,6 +27,9 @@ pub enum Mode {
     Separate,
     /// Run only the server, but can support a local player
     HostServer,
+    /// We will run both the client and server, but all server plugins are disabled.
+    /// This is useful so that we can switch at runtime between separate and host-server mode
+    ClientOnly,
 }
 
 impl SharedConfig {

@@ -1,4 +1,5 @@
 use crate::_reexport::{ReadBuffer, ReadWordBuffer};
+use crate::client::networking::NetworkingState;
 use crate::connection::client::NetClient;
 use crate::connection::id::ClientId;
 use crate::packet::packet::Packet;
@@ -102,11 +103,17 @@ impl NetClient for Client {
         Ok(())
     }
 
-    fn is_connected(&self) -> bool {
-        matches!(
-            self.connection_state(),
-            Ok(NetworkingConnectionState::Connected)
-        )
+    fn state(&self) -> NetworkingState {
+        match self
+            .connection_state()
+            .unwrap_or(NetworkingConnectionState::None)
+        {
+            NetworkingConnectionState::Connecting | NetworkingConnectionState::FindingRoute => {
+                NetworkingState::Connecting
+            }
+            NetworkingConnectionState::Connected => NetworkingState::Connected,
+            _ => NetworkingState::Disconnected,
+        }
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {

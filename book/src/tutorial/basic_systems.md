@@ -12,7 +12,7 @@ We do this in a system that runs in the `Startup` schedule.
 
 Client:
 ```rust,noplayground
-fn init(mut client: ResMut<ClientConnection>) {
+fn init(mut client: ClientConnectionParam) {
     client.connect().expect("Failed to connect to server");
 }
 app.add_systems(Startup, init);

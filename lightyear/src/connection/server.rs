@@ -40,7 +40,7 @@ pub trait NetServer: Send + Sync {
 
     fn new_disconnections(&self) -> Vec<ClientId>;
 
-    fn io(&self) -> &Io;
+    fn io(&self) -> Option<&Io>;
 }
 
 /// A wrapper around a `Box<dyn NetServer>`
@@ -76,7 +76,6 @@ impl NetConfig {
     pub fn build_server(self) -> ServerConnection {
         match self {
             NetConfig::Netcode { config, io } => {
-                let io = io.build();
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
                     server: Box::new(server),
@@ -137,7 +136,7 @@ impl NetServer for ServerConnection {
         self.server.new_disconnections()
     }
 
-    fn io(&self) -> &Io {
+    fn io(&self) -> Option<&Io> {
         self.server.io()
     }
 }

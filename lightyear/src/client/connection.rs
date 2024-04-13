@@ -52,8 +52,6 @@ use super::sync::SyncManager;
 ///    connection.send_message::<MyChannel, MyMessage>("Hello, server!");
 ///    // send a message to some other client with ClientId 2
 ///    connection.send_message_to_target::<MyChannel, MyMessage>("Hello, server!", NetworkTarget::Single(2));
-///    // send an input for the current tick (not necessary for leafwing_inputs)
-///    connection.add_input(MyInput::new(), tick_manager.tick());
 /// }
 /// ```
 #[derive(Resource)]
@@ -66,8 +64,6 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
-    // track if we are connected or not
-    pub(crate) is_connected: bool,
 }
 
 impl<P: Protocol> ConnectionManager<P> {
@@ -100,7 +96,6 @@ impl<P: Protocol> ConnectionManager<P> {
             ping_manager: PingManager::new(ping_config),
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
-            is_connected: false,
         }
     }
 
@@ -132,8 +127,7 @@ impl<P: Protocol> ConnectionManager<P> {
             .update(time_manager, &self.ping_manager, tick_manager);
         self.ping_manager.update(time_manager);
 
-        // we update the sync manager in POST_UPDATE
-        // self.sync_manager.update(time_manager);
+        // (we update the sync manager in POST_UPDATE)
     }
 
     /// Send a message to the server
