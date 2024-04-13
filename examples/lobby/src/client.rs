@@ -242,7 +242,6 @@ mod ui {
             state: &NetworkingState,
             connection: &mut ClientConnectionParam,
         ) {
-            info!("state: {:?}", self);
             let table = TableBuilder::new(ui)
                 .resizable(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))

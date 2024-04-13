@@ -1,5 +1,5 @@
 //! Defines the server bevy systems and run conditions
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
@@ -80,15 +80,9 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             );
 
         // STARTUP
+        // create the server connection resources to avoid some systems panicking
+        // TODO: remove this when possible?
         app.world.run_system_once(rebuild_server_connections::<P>);
-
-        // START
-        // we recreate the server connections every time we start the server
-        app.add_systems(
-            // TODO: problem because of the 1 frame delay to enter state?
-            OnEnter(NetworkingState::Started),
-            (rebuild_server_connections::<P>, start).chain(), // .run_if(is_disconnected),
-        );
     }
 }
 
@@ -329,39 +323,37 @@ fn rebuild_server_connections<P: Protocol>(world: &mut World) {
     world.insert_resource(server_connections);
 }
 
-/// Start the server
-fn start(mut netserver: ResMut<ServerConnections>) {
-    info!("calling start on netserver");
-    let _ = netserver
-        .start()
-        .inspect_err(|e| error!("Error starting server: {e:?}"));
+pub trait ServerConnectionExt {
+    /// Start the server
+    fn start_server<P: Protocol>(&mut self) -> anyhow::Result<()>;
+
+    /// Stop the server
+    fn stop_server<P: Protocol>(&mut self) -> anyhow::Result<()>;
 }
 
-/// This system param is used to start/stop the server.
-#[derive(SystemParam)]
-pub struct ServerConnectionParam<'w, 's> {
-    next_state: ResMut<'w, NextState<NetworkingState>>,
-    connection: ResMut<'w, ServerConnections>,
-    config: Res<'w, ServerConfig>,
-    _marker: std::marker::PhantomData<&'s ()>,
-}
-
-impl<'w, 's> ServerConnectionParam<'w, 's> {
-    /// Public system that should be used by the user to start the server
-    pub fn start(&mut self) -> anyhow::Result<()> {
-        self.connection
-            .start()
-            .inspect_err(|e| error!("Error starting server: {e:?}"))?;
-        self.next_state.set(NetworkingState::Started);
+impl ServerConnectionExt for World {
+    /// Start the server
+    /// - rebuild the server connections resource from the latest `ServerConfig`
+    /// - rebuild the server connection manager
+    /// - start listening on the server connections
+    /// - set the networking state to `Started` (is this needed? we can just use the run_condition `is_started`)
+    fn start_server<P: Protocol>(&mut self) -> anyhow::Result<()> {
+        if self.resource::<ServerConnections>().is_listening() {
+            return Err(anyhow!(
+                "The server is already started. The server can only be started when it is stopped."
+            ));
+        }
+        rebuild_server_connections::<P>(self);
+        self.resource_mut::<ServerConnections>().start()?;
+        self.resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Started);
         Ok(())
     }
 
-    /// Public system that should be used by the user to disconnect
-    pub fn disconnect(&mut self) -> anyhow::Result<()> {
-        self.connection
-            .stop()
-            .inspect_err(|e| error!("Error stopping server: {e:?}"))?;
-        self.next_state.set(NetworkingState::Stopped);
+    fn stop_server<P: Protocol>(&mut self) -> anyhow::Result<()> {
+        self.resource_mut::<ServerConnections>().stop()?;
+        self.resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Stopped);
         Ok(())
     }
 }

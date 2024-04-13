@@ -36,7 +36,8 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
-        app.add_systems(Startup, init);
+
+        app.add_systems(Startup, (start_server, init));
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
@@ -48,12 +49,12 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn init(
-    mut commands: Commands,
-    mut connections: ResMut<ServerConnections>,
-    global: Res<Global>,
-) {
-    connections.start().expect("Failed to start server");
+/// System to start the server at Startup
+fn start_server(world: &mut World) {
+    world.start_server().expect("Failed to start server");
+}
+
+fn init(mut commands: Commands, global: Res<Global>) {
     commands.spawn(
         TextBundle::from_section(
             "Server",

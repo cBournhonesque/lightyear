@@ -84,7 +84,7 @@ impl PredictionConfig {
     }
 
     /// [`Condition`] that returns `true` if the prediction plugin is disabled
-    pub(crate) fn is_disabled_condition(config: Option<ClientConfig>) -> bool {
+    pub(crate) fn is_disabled_condition(config: Option<Res<ClientConfig>>) -> bool {
         config.map_or(true, |config| config.prediction.disable)
     }
 }

@@ -27,7 +27,7 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(Global {
             client_id_to_entity_id: Default::default(),
         });
-        app.add_systems(Startup, init);
+        app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
         app.add_systems(Update, (handle_connections, handle_disconnections));
@@ -39,8 +39,15 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, Entity>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut server: ServerConnectionParam) {
-    server.start().expect("Failed to start server");
+/// System to start the server at Startup
+fn start_server(world: &mut World) {
+    world
+        .start_server::<MyProtocol>()
+        .expect("Failed to start server");
+}
+
+/// System adding some debug text at Startup
+fn init(mut commands: Commands) {
     commands.spawn(
         TextBundle::from_section(
             "Server",
