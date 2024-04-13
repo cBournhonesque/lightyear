@@ -1,9 +1,10 @@
+use crate::client::networking::{is_connected, is_disconnected};
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::diagnostic::Diagnostics;
-use bevy::prelude::{Real, Res, ResMut, Time};
+use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
 
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::Protocol;
+use crate::prelude::{Protocol, SharedConfig};
 use crate::transport::io::IoDiagnosticsPlugin;
 
 pub struct ClientDiagnosticsPlugin<P> {
@@ -30,6 +31,11 @@ fn io_diagnostics_system(
 impl<P: Protocol> Plugin for ClientDiagnosticsPlugin<P> {
     fn build(&self, app: &mut App) {
         app.add_plugins(IoDiagnosticsPlugin);
-        app.add_systems(PostUpdate, io_diagnostics_system);
+        app.add_systems(
+            PostUpdate,
+            io_diagnostics_system.run_if(not(
+                SharedConfig::is_host_server_condition.or_else(is_disconnected)
+            )),
+        );
     }
 }

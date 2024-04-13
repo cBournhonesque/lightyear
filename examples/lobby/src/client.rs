@@ -25,6 +25,14 @@ use crate::{shared, ClientTransports, SharedSettings};
 
 pub struct ExampleClientPlugin;
 
+/// State that tracks whether we are in the lobby or in the game
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AppState {
+    #[default]
+    Lobby,
+    Game,
+}
+
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ui::LobbyTable>();
@@ -212,11 +220,12 @@ mod ui {
     use crate::client::ui;
     use bevy::prelude::{Res, ResMut, Resource, State};
     use bevy::utils::HashMap;
+    use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
     use lightyear::prelude::client::{ClientConnectionParam, NetworkingState};
     use lightyear::prelude::ClientId;
-    use tracing::error;
+    use tracing::{error, info};
 
     #[derive(Resource, Default, Debug)]
     pub(crate) struct LobbyTable {
@@ -233,9 +242,9 @@ mod ui {
             state: &NetworkingState,
             connection: &mut ClientConnectionParam,
         ) {
+            info!("state: {:?}", self);
             let table = TableBuilder::new(ui)
-                .resizable(true)
-                .sense(egui::Sense::click())
+                .resizable(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .column(Column::auto())
                 .column(Column::auto());
@@ -254,7 +263,7 @@ mod ui {
                             ui.label("Server");
                         });
                         row.col(|ui| {
-                            ui.toggle_value(&mut self.server, "");
+                            ui.checkbox(&mut self.server, "");
                         });
                     });
                     for (client_id, is_host) in self.clients.iter_mut() {
@@ -263,12 +272,12 @@ mod ui {
                                 ui.label(format!("{client_id:?}"));
                             });
                             row.col(|ui| {
-                                ui.toggle_value(is_host, "");
+                                ui.checkbox(is_host, "");
                             });
                         });
                     }
                 });
-            ui.separator();
+            ui.add(Separator::default().horizontal());
             match state {
                 NetworkingState::Disconnected => {
                     if ui.button("Connect").clicked() {

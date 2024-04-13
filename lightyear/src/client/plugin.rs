@@ -59,15 +59,6 @@ impl<P: Protocol> ClientPlugin<P> {
 impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let netclient = config.client_config.net.clone().build_client();
-
-        // in this mode, the server acts as a client
-        if config.client_config.shared.mode == Mode::HostServer {
-            assert!(
-                matches!(config.client_config.net, NetConfig::Local { .. }),
-                "When running in HostServer mode, the client connection needs to be of type Local"
-            );
-        }
 
         app
             // RESOURCES //
@@ -76,18 +67,19 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default());
+            .add_plugins(InputPlugin::<P>::default())
+            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
+            .add_plugins(ClientReplicationPlugin::<P>::default())
+            .add_plugins(PredictionPlugin::<P>::default())
+            .add_plugins(InterpolationPlugin::<P>::new(
+                config.client_config.interpolation.clone(),
+            ));
 
-        // TODO: add a way to disable these at runtime
+        // TODO: how do we make sure that SharedPlugin is only added once if we want to switch between
+        //  HostServer and Separate mode?
         if config.client_config.shared.mode == Mode::Separate {
             app
                 // PLUGINS
-                .add_plugins(ClientDiagnosticsPlugin::<P>::default())
-                .add_plugins(ClientReplicationPlugin::<P>::default())
-                .add_plugins(PredictionPlugin::<P>::new(config.client_config.prediction))
-                .add_plugins(InterpolationPlugin::<P>::new(
-                    config.client_config.interpolation.clone(),
-                ))
                 .add_plugins(SharedPlugin::<P> {
                     config: config.client_config.shared.clone(),
                     ..default()

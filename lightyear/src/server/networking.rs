@@ -6,9 +6,10 @@ use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, ServerMarker};
 use crate::client::config::ClientConfig;
+use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{Mode, TickManager, TimeManager};
+use crate::prelude::{MainSet, Mode, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
@@ -22,13 +23,19 @@ use crate::shared::time_manager::is_server_ready_to_send;
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
 pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
-    config: Vec<NetConfig>,
     marker: std::marker::PhantomData<P>,
+}
+
+impl<P: Protocol> Default for ServerNetworkingPlugin<P> {
+    fn default() -> Self {
+        Self {
+            marker: std::marker::PhantomData,
+        }
+    }
 }
 impl<P: Protocol> ServerNetworkingPlugin<P> {
     pub(crate) fn new(config: Vec<NetConfig>) -> Self {
         Self {
-            config,
             marker: std::marker::PhantomData,
         }
     }
@@ -54,8 +61,11 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
                 PostUpdate,
                 (
                     // we don't send packets every frame, but on a timer instead
-                    InternalMainSet::<ServerMarker>::Send.run_if(is_started),
+                    InternalMainSet::<ServerMarker>::Send
+                        .in_set(MainSet::Send)
+                        .run_if(is_started),
                     InternalMainSet::<ServerMarker>::SendPackets
+                        .in_set(MainSet::SendPackets)
                         .in_set(InternalMainSet::<ServerMarker>::Send),
                 ),
             )
@@ -71,6 +81,14 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
 
         // STARTUP
         app.world.run_system_once(rebuild_server_connections::<P>);
+
+        // START
+        // we recreate the server connections every time we start the server
+        app.add_systems(
+            // TODO: problem because of the 1 frame delay to enter state?
+            OnEnter(NetworkingState::Started),
+            (rebuild_server_connections::<P>, start).chain(), // .run_if(is_disconnected),
+        );
     }
 }
 
@@ -309,6 +327,14 @@ fn rebuild_server_connections<P: Protocol>(world: &mut World) {
     // rebuild the server connections and insert them
     let server_connections = ServerConnections::new(server_config.net);
     world.insert_resource(server_connections);
+}
+
+/// Start the server
+fn start(mut netserver: ResMut<ServerConnections>) {
+    info!("calling start on netserver");
+    let _ = netserver
+        .start()
+        .inspect_err(|e| error!("Error starting server: {e:?}"));
 }
 
 /// This system param is used to start/stop the server.

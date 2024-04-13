@@ -56,7 +56,7 @@ impl<P: Protocol> Plugin for ServerPlugin<P> {
             .insert_resource(config.protocol.clone())
             // PLUGINS
             .add_plugins(ServerEventsPlugin::<P>::default())
-            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
+            .add_plugins(ServerNetworkingPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             .add_plugins(ServerReplicationPlugin::<P>::default())

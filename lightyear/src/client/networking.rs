@@ -13,7 +13,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
-use crate::prelude::{SharedConfig, TickManager, TimeManager};
+use crate::prelude::{MainSet, SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -43,21 +43,34 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ClientMarker>::Receive.run_if(
-                    not(SharedConfig::is_host_server_condition).and_then(not(is_disconnected)),
-                ),
+                InternalMainSet::<ClientMarker>::Receive
+                    .in_set(MainSet::Receive)
+                    .run_if(not(
+                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
+                    )),
             )
             .configure_sets(
                 PostUpdate,
                 // run sync before send because some send systems need to know if the client is synced
                 // we don't send packets every frame, but on a timer instead
                 (
-                    SyncSet.run_if(in_state(NetworkingState::Connected)),
+                    SyncSet,
                     InternalMainSet::<ClientMarker>::Send
-                        .run_if(is_client_ready_to_send.and_then(not(is_disconnected))),
+                        .in_set(MainSet::Send)
+                        .run_if(is_client_ready_to_send),
                 )
-                    .run_if(not(SharedConfig::is_host_server_condition))
+                    .run_if(not(
+                        SharedConfig::is_host_server_condition.or_else(is_disconnected)
+                    ))
                     .chain(),
+            )
+            .configure_sets(
+                PostUpdate,
+                // send packets is when we call the actual `send` system, it's inside
+                // the `Send` system-sets so that we can run it less frequently than every frame
+                InternalMainSet::<ClientMarker>::SendPackets
+                    .in_set(InternalMainSet::<ClientMarker>::Send)
+                    .in_set(MainSet::SendPackets),
             )
             // SYSTEMS
             .add_systems(
@@ -88,7 +101,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         // the internal time, sync, priority, message numbers, etc.)
         app.add_systems(
             OnEnter(NetworkingState::Connecting),
-            (rebuild_client_connection::<P>, connect).run_if(is_disconnected),
+            (rebuild_client_connection::<P>, connect).chain(), // .run_if(is_disconnected),
         );
         app.add_systems(
             PreUpdate,

@@ -20,6 +20,12 @@ pub struct SharedConfig {
     pub mode: Mode,
 }
 
+// TODO: maybe the modes should just be
+//  - server and client are running in separate apps: need to add SharedPlugin on client, etc.
+//  - server and client are running in same app: need to add SharedPlugin on client, need to only add LeafwingInputOnce
+//    - host-server mode activated <> we use LocalTransport on client, server runs some connections <> disable all prediction, etc. on client
+//    - host-server mode non-activate <> we use a non-Local transport on client, server has no connections <> still all run all prediction, networking on client; disable server entirely
+
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum Mode {
     #[default]
@@ -27,7 +33,7 @@ pub enum Mode {
     Separate,
     /// Run only the server, but can support a local player
     HostServer,
-    // /// We will run both the client and server, but all server plugins are disabled.
+    // /// We will run both the client and server plugins in the same app, but all server plugins are disabled.
     // /// This is useful so that we can switch at runtime between separate and host-server mode
     // ClientOnly,
 }

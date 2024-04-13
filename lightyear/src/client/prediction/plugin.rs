@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use bevy::prelude::{
-    apply_deferred, App, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Res, SystemSet,
+    apply_deferred, not, App, Condition, FixedPostUpdate, IntoSystemConfigs, IntoSystemSetConfigs,
+    Plugin, PostUpdate, PreUpdate, Res, SystemSet,
 };
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
@@ -27,7 +27,7 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject};
+use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, SharedConfig};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 use crate::shared::sets::InternalMainSet;
@@ -82,20 +82,21 @@ impl PredictionConfig {
         self.correction_ticks_factor = factor;
         self
     }
+
+    /// [`Condition`] that returns `true` if the prediction plugin is disabled
+    pub(crate) fn is_disabled_condition(config: Option<ClientConfig>) -> bool {
+        config.map_or(true, |config| config.prediction.disable)
+    }
 }
 
+/// Plugin that enables client-side prediction
 pub struct PredictionPlugin<P: Protocol> {
-    config: PredictionConfig,
-    // rollback_tick_stragegy:
-    // - either we consider that the server sent the entire world state at last_received_server_tick
-    // - or not, and we have to check the oldest tick across all components that don't match
     _marker: PhantomData<P>,
 }
 
 impl<P: Protocol> PredictionPlugin<P> {
-    pub(crate) fn new(config: PredictionConfig) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            config,
             _marker: PhantomData,
         }
     }
@@ -104,7 +105,6 @@ impl<P: Protocol> PredictionPlugin<P> {
 impl<P: Protocol> Default for PredictionPlugin<P> {
     fn default() -> Self {
         Self {
-            config: PredictionConfig::default(),
             _marker: PhantomData,
         }
     }
@@ -226,9 +226,14 @@ where
 
 impl<P: Protocol> Plugin for PredictionPlugin<P> {
     fn build(&self, app: &mut App) {
-        if self.config.disable {
-            return;
-        }
+        // we only run prediction:
+        // - if we're not in host-server mode
+        // - if the prediction plugin is not disabled
+        // - after the client is synced
+        let should_prediction_run =
+            not(SharedConfig::is_host_server_condition
+                .or_else(PredictionConfig::is_disabled_condition))
+            .and_then(client_is_synced::<P>);
 
         // REFLECTION
         app.register_type::<Predicted>()
@@ -269,7 +274,10 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
             )
                 .chain(),
         )
-        .configure_sets(PreUpdate, PredictionSet::All.run_if(client_is_synced::<P>));
+        .configure_sets(
+            PreUpdate,
+            PredictionSet::All.run_if(should_prediction_run.clone()),
+        );
         app.add_systems(
             PreUpdate,
             (
@@ -309,7 +317,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         )
         .configure_sets(
             FixedPostUpdate,
-            PredictionSet::All.run_if(client_is_synced::<P>),
+            PredictionSet::All.run_if(should_prediction_run.clone()),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -327,7 +335,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                 .in_set(PredictionSet::All)
                 .before(TransformSystem::TransformPropagate),
         )
-        .configure_sets(PostUpdate, PredictionSet::All.run_if(client_is_synced::<P>));
+        .configure_sets(PostUpdate, PredictionSet::All.run_if(should_prediction_run));
 
         // PLUGINS
         app.add_plugins((
