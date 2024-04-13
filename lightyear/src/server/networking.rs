@@ -63,7 +63,7 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
                     // we don't send packets every frame, but on a timer instead
                     InternalMainSet::<ServerMarker>::Send
                         .in_set(MainSet::Send)
-                        .run_if(is_started),
+                        .run_if(is_started.and_then(is_server_ready_to_send)),
                     InternalMainSet::<ServerMarker>::SendPackets
                         .in_set(MainSet::SendPackets)
                         .in_set(InternalMainSet::<ServerMarker>::Send),
