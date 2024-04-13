@@ -19,6 +19,7 @@ use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
+use crate::server::networking::is_started;
 use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::InternalMainSet;
@@ -78,9 +79,10 @@ where
                 InputSystemSet::AddBuffers,
                 InputSystemSet::ReceiveInputs,
             )
-                .chain(),
+                .chain()
+                .run_if(is_started),
         );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::Update.run_if(is_started));
         // SYSTEMS
         app.add_systems(
             PreUpdate,
