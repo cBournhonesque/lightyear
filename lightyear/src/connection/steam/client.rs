@@ -62,6 +62,7 @@ pub struct Client {
 impl Client {
     pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
         CLIENT.get_or_init(|| {
+            info!("Creating new steamworks api client.");
             let (client, single) = steamworks::Client::init_app(config.app_id).unwrap();
             (client, SingleClientThreadSafe(single))
         });
