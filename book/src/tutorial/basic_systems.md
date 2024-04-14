@@ -7,21 +7,23 @@ What we want to achieve is this:
 
 ## Initialization
 
+// TODO: update the links here
+
 First, we need to start the connection by calling `client.connect()` on the client (via the [ClientConnection](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientConnection.html) resource) and `server.start()` on the server (via the [ServerConnections](https://docs.rs/lightyear/latest/lightyear/prelude/server/struct.ServerConnections.html) resource).
 We do this in a system that runs in the `Startup` schedule.
 
 Client:
 ```rust,noplayground
-fn init(mut client: ClientConnectionParam) {
-    client.connect().expect("Failed to connect to server");
+fn init(world: &mut World) {
+    world.connect_client::<MyProtocol>().expect("Failed to connect to server");
 }
 app.add_systems(Startup, init);
 ```
 
 Server:
 ```rust,noplayground
-fn init(mut server: ResMut<ServerConnections>) {
-    server.start().expect("Failed to start server");
+fn init(world: &mut World) {
+    world.start_server::<MyProtocol>().expect("Failed to start server");
 }
 app.add_systems(Startup, init);
 ```

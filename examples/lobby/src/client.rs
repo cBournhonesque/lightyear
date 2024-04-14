@@ -218,12 +218,15 @@ fn on_disconnect(
 
 mod ui {
     use crate::client::ui;
-    use bevy::prelude::{Res, ResMut, Resource, State};
+    use crate::protocol::MyProtocol;
+    use bevy::ecs::system::SystemState;
+    use bevy::prelude::{Res, ResMut, Resource, State, World};
     use bevy::utils::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
-    use lightyear::prelude::client::{ClientConnectionParam, NetworkingState};
+    use lightyear::client::ClientConnectionExt;
+    use lightyear::prelude::client::NetworkingState;
     use lightyear::prelude::ClientId;
     use tracing::{error, info};
 
@@ -236,12 +239,7 @@ mod ui {
     }
 
     impl LobbyTable {
-        fn table_ui(
-            &mut self,
-            ui: &mut egui::Ui,
-            state: &NetworkingState,
-            connection: &mut ClientConnectionParam,
-        ) {
+        fn table_ui(&mut self, ui: &mut egui::Ui, world: &mut World) {
             let table = TableBuilder::new(ui)
                 .resizable(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -277,14 +275,14 @@ mod ui {
                     }
                 });
             ui.add(Separator::default().horizontal());
-            match state {
+            match world.resource::<State<NetworkingState>>().get() {
                 NetworkingState::Disconnected => {
                     if ui.button("Connect").clicked() {
                         // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                         // - the new host must run in host-server
                         // - all clients must adjust their net-config to connect to the host
-                        let _ = connection
-                            .connect()
+                        world
+                            .connect_client::<MyProtocol>()
                             .inspect_err(|e| error!("Failed to connect: {e:?}"));
                     }
                 }
@@ -297,8 +295,8 @@ mod ui {
                     //  as the game-server)
                     // TODO: disconnect from the current game, adjust the client-config, and join the dedicated server
                     if ui.button("Disconnect").clicked() {
-                        let _ = connection
-                            .disconnect()
+                        world
+                            .disconnect_client::<MyProtocol>()
                             .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
                     }
                 }
@@ -308,14 +306,14 @@ mod ui {
 
     /// Display a lobby ui that lets you choose the network topology before starting a game.
     /// Either the game will use a dedicated server as a host, or one of the players will run in host-server mode.
-    pub(crate) fn lobby_ui(
-        mut contexts: EguiContexts,
-        mut lobby_table: ResMut<LobbyTable>,
-        state: Res<State<NetworkingState>>,
-        mut connection: ClientConnectionParam,
-    ) {
-        egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-            lobby_table.table_ui(ui, state.get(), &mut connection);
+    pub(crate) fn lobby_ui(world: &mut World, mut contexts: &mut SystemState<EguiContexts>) {
+        let mut contexts = contexts.get_mut(world);
+        // world.resource_scope(|world: &mut World, mut contexts: EguiContexts| {
+        world.resource_scope(|world: &mut World, mut lobby_table: ResMut<LobbyTable>| {
+            egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
+                lobby_table.table_ui(ui, world);
+            });
         });
+        // });
     }
 }

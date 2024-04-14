@@ -95,6 +95,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         app.world.run_system_once(rebuild_client_connection::<P>);
 
         // CONNECTING
+        app.add_systems(OnEnter(NetworkingState::Connecting), connect::<P>);
         app.add_systems(
             PreUpdate,
             handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
@@ -391,60 +392,55 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
 }
 
 /// Connect the client
-fn connect(mut netclient: ResMut<ClientConnection>) {
-    info!("calling connect on netclient");
-    let _ = netclient
-        .connect()
-        .inspect_err(|e| error!("Error connecting: {e:?}"));
+/// - rebuild the client connection resource using the latest `ClientConfig`
+/// - rebuild the client connection manager
+/// - start the connection process
+/// - set the networking state to `Connecting`
+fn connect<P: Protocol>(world: &mut World) {
+    // TODO: should we prevent running Connect if we're already Connected?
+    // if world.resource::<ClientConnection>().state() == NetworkingState::Connected {
+    //     error!("The client is already started. The client can only start connecting when it is disconnected.");
+    // }
+
+    // Everytime we try to connect, we rebuild the net config because:
+    // - we do not call update() while the client is disconnected, so the internal connection's time is wrong
+    // - this allows us to take into account any changes to the client config (when building a
+    // new client connection and connection manager, which want to do because we need to reset
+    // the internal time, sync, priority, message numbers, etc.)
+    rebuild_client_connection::<P>(world);
+    world.resource_mut::<ClientConnection>().connect()?;
+    let config = world.resource::<ClientConfig>();
+
+    if config.shared.mode == Mode::HostServer {
+        // in host server mode, there is no connecting phase, we directly become connected
+        // (because the networking systems don't run so we cannot go through the Connecting state)
+        world
+            .resource_mut::<NextState<NetworkingState>>()
+            .set(NetworkingState::Connected);
+    }
 }
 
-pub trait ClientConnectionExt {
-    /// Start the client
-    fn connect_client<P: Protocol>(&mut self) -> Result<()>;
+/// Disconnect the client
+fn disconnect<P: Protocol>(world: &mut World) -> Result<()> {
+    world
+        .resource_mut::<ClientConnection>()
+        .disconnect()
+        .context("Error disconnecting client")?;
+    world
+        .resource_mut::<Events<DisconnectEvent>>()
+        .send(DisconnectEvent::new(()));
 
-    /// Stop the client
-    fn disconnect_client<P: Protocol>(&mut self) -> Result<()>;
-}
-
-impl ClientConnectionExt for World {
-    /// Start the client
-    /// - rebuild the client connection resource using the latest `ClientConfig`
-    /// - rebuild the client connection manager
-    /// - start the connection process
-    /// - set the networking state to `Connecting`
-    fn connect_client<P: Protocol>(&mut self) -> Result<()> {
-        if self.resource::<ClientConnection>().state() == NetworkingState::Connected {
-            return Err(anyhow!(
-                "The client is already started. The client can only start connecting when it is disconnected."
-            ));
-        }
-        // Everytime we try to connect, we rebuild the net config because:
-        // - we do not call update() while the client is disconnected, so the internal connection's time is wrong
-        // - this allows us to take into account any changes to the client config (when building a
-        // new client connection and connection manager, which want to do because we need to reset
-        // the internal time, sync, priority, message numbers, etc.)
-        rebuild_client_connection::<P>(self);
-        self.resource_mut::<ClientConnection>().connect()?;
-        let config = self.resource::<ClientConfig>();
-
-        // TODO: should this be a check on the ClientConnection instead? Like ClientConnection.is_local()
-        let next_state = match config.shared.mode {
-            // in host server mode, there is no connecting phase, we directly become connected
-            // (because the networking systems don't run so we cannot go through the Connecting state)
-            Mode::HostServer => NetworkingState::Connected,
-            _ => NetworkingState::Connecting,
-        };
-        self.resource_mut::<NextState<NetworkingState>>()
-            .set(next_state);
-        Ok(())
+    // in host-server mode, we also want to send a connect event to the server
+    let config = world.resource::<ClientConfig>();
+    if config.shared.mode == Mode::HostServer {
+        world.resource_mut
     }
-
-    fn disconnect_client<P: Protocol>(&mut self) -> Result<()> {
-        self.resource_mut::<ClientConnection>()
-            .disconnect()
-            .context("Error disconnecting client")?;
-        self.resource_mut::<NextState<NetworkingState>>()
-            .set(NetworkingState::Disconnected);
-        Ok(())
-    }
+    server_disconnect_event_writer
+        .as_mut()
+        .unwrap()
+        .send(crate::server::events::DisconnectEvent::new(netcode.id()));
+    world
+        .resource_mut::<NextState<NetworkingState>>()
+        .set(NetworkingState::Disconnected);
+    Ok(())
 }
