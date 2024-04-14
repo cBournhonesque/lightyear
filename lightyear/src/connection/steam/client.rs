@@ -86,7 +86,7 @@ impl NetClient for Client {
         self.connection = Some(
             self.client
                 .networking_sockets()
-                .connect_by_ip_address(self.config.server_addr, options)
+                .connect_by_ip_address(self.config.server_addr, vec![])
                 .context("failed to create connection")?,
         );
         info!(
