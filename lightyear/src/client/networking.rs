@@ -365,6 +365,9 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
     );
     world.insert_resource(connection_manager);
 
+    // drop the previous client connection
+    // (required for some clients, such as steam, where only one client can be active at the same time)
+    world.remove_resource::<ClientConnection>();
     // insert the new client connection
     let netclient = client_config.net.clone().build_client();
     world.insert_resource(netclient);
