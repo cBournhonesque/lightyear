@@ -99,7 +99,7 @@ impl NetServer for Server {
         self.listen_socket = Some(
             self.client
                 .networking_sockets()
-                .create_listen_socket_ip(server_addr, options)
+                .create_listen_socket_ip(server_addr, vec![])
                 .context("could not create server listen socket")?,
         );
         info!("Steam socket started on {:?}", server_addr);
