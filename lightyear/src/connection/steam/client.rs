@@ -48,12 +48,10 @@ impl Default for SteamConfig {
 //     single_client: SingleClientThreadSafe,
 // }
 
-static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClient)> = OnceLock::new();
+static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
+    OnceLock::new();
 
 pub struct Client {
-    // client: OnceCell<steamworks::Client<ClientManager>>,
-    // single_client: OnceCell<SingleClientThreadSafe>,
-    // client:
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
     packet_queue: VecDeque<Packet>,
@@ -65,15 +63,10 @@ impl Client {
     pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
         CLIENT.get_or_init(|| {
             let (client, single) = steamworks::Client::init_app(config.app_id).unwrap();
-            (client, single)
-            // (client, SingleClientThreadSafe(single))
+            (client, SingleClientThreadSafe(single))
         });
-        // let (client, single) = steamworks::Client::init_app(config.app_id)
-        //     .context("could not initialize steam client")?;
 
         Ok(Self {
-            // client,
-            // single_client: SingleClientThreadSafe(single),
             config,
             connection: None,
             packet_queue: VecDeque::new(),
@@ -103,7 +96,7 @@ impl Client {
     }
 
     fn single_client(&self) -> &SingleClient {
-        &CLIENT.get().unwrap().1
+        &CLIENT.get().unwrap().1 .0
     }
 }
 
