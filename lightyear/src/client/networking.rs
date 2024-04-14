@@ -368,6 +368,8 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
     // drop the previous client connection
     // (required for some clients, such as steam, where only one client can be active at the same time)
     world.remove_resource::<ClientConnection>();
+    // TODO: dropping the Steam Client and recreating it still doesn't work,
+    //  after the client gets recreated, new connection attempts get rejected with the error: RemoteBadCert
     // insert the new client connection
     let netclient = client_config.net.clone().build_client();
     world.insert_resource(netclient);

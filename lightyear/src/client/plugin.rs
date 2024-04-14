@@ -59,7 +59,6 @@ impl<P: Protocol> ClientPlugin<P> {
 impl<P: Protocol> Plugin for ClientPlugin<P> {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-        let netclient = config.client_config.net.clone().build_client();
 
         // in this mode, the server acts as a client
         if config.client_config.shared.mode == Mode::HostServer {
