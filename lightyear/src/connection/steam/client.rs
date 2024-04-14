@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use std::cell::OnceCell;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
@@ -43,8 +43,12 @@ impl Default for SteamConfig {
 // and call `init_app` again. However after doing this the client could not connect to the server;
 // the connection gets rejected with reason `RemoteBadCert`.
 // A workaround is to have a static instance of the steamworks clients which is initialized lazily once.
+// struct SteamClient {
+//     client: steamworks::Client<ClientManager>,
+//     single_client: SingleClientThreadSafe,
+// }
 
-static CLIENT: OnceCell<(steamworks::Client<ClientManager>, SingleClient)> = OnceCell::new();
+static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClient)> = OnceLock::new();
 
 pub struct Client {
     // client: OnceCell<steamworks::Client<ClientManager>>,
