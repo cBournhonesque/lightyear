@@ -254,12 +254,11 @@ fn button_system(
             match state.get() {
                 NetworkingState::Disconnected => {
                     text.sections[0].value = "Connect".to_string();
-                    *on_click =
-                        On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
-                            let _ = connection
-                                .connect()
-                                .inspect_err(|e| error!("Failed to connect: {e:?}"));
-                        });
+                    *on_click = On::<Pointer<Click>>::run(|world: &mut World| {
+                        let _ = world
+                            .connect_client::<MyProtocol>()
+                            .inspect_err(|e| error!("Failed to connect: {e:?}"));
+                    });
                 }
                 NetworkingState::Connecting => {
                     text.sections[0].value = "Connecting".to_string();
@@ -267,12 +266,11 @@ fn button_system(
                 }
                 NetworkingState::Connected => {
                     text.sections[0].value = "Disconnect".to_string();
-                    *on_click =
-                        On::<Pointer<Click>>::run(|mut connection: ClientConnectionParam| {
-                            let _ = connection
-                                .disconnect()
-                                .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
-                        });
+                    *on_click = On::<Pointer<Click>>::run(|world: &mut World| {
+                        let _ = world
+                            .disconnect_client::<MyProtocol>()
+                            .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
+                    });
                 }
             };
         }
