@@ -7,6 +7,7 @@ use crate::prelude::{Io, LinkConditionerConfig};
 use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
+use bevy::tasks::IoTaskPool;
 use std::cell::OnceCell;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -64,6 +65,11 @@ impl Client {
         CLIENT.get_or_init(|| {
             info!("Creating new steamworks api client.");
             let (client, single) = steamworks::Client::init_app(config.app_id).unwrap();
+            IoTaskPool::get()
+                .spawn(async move {
+                    single.run_callbacks().await;
+                })
+                .detach();
             (client, SingleClientThreadSafe(single))
         });
 
