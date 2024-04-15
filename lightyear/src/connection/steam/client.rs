@@ -106,7 +106,7 @@ impl NetClient for Client {
     fn connect(&mut self) -> Result<()> {
         let options = get_networking_options(&self.conditioner);
         self.connection = Some(
-            self.client()
+            Self::client()
                 .networking_sockets()
                 .connect_by_ip_address(self.config.server_addr, vec![])
                 .context("failed to create connection")?,
@@ -185,7 +185,7 @@ impl NetClient for Client {
     }
 
     fn id(&self) -> ClientId {
-        ClientId::Steam(self.client().user().steam_id().raw())
+        ClientId::Steam(Self::client().user().steam_id().raw())
     }
 
     fn local_addr(&self) -> SocketAddr {
