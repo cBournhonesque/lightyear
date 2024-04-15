@@ -27,5 +27,3 @@ pub mod input_leafwing;
 pub(crate) mod message;
 pub(crate) mod networking;
 pub mod replication;
-
-pub use networking::ClientConnectionExt;

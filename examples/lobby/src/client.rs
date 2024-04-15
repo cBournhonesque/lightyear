@@ -225,7 +225,6 @@ mod ui {
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
-    use lightyear::client::ClientConnectionExt;
     use lightyear::prelude::client::{NetConfig, NetworkingState};
     use lightyear::prelude::ClientId;
     use tracing::{error, info};
@@ -243,7 +242,7 @@ mod ui {
             &mut self,
             ui: &mut egui::Ui,
             state: &NetworkingState,
-            next_state: Mut<NextState<NetworkingState>>,
+            mut next_state: Mut<NextState<NetworkingState>>,
         ) {
             let table = TableBuilder::new(ui)
                 .resizable(false)
@@ -286,9 +285,7 @@ mod ui {
                         // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                         // - the new host must run in host-server
                         // - all clients must adjust their net-config to connect to the host
-                        world
-                            .connect_client::<MyProtocol>()
-                            .inspect_err(|e| error!("Failed to connect: {e:?}"));
+                        next_state.set(NetworkingState::Connecting);
                     }
                 }
                 NetworkingState::Connecting => {
@@ -300,9 +297,7 @@ mod ui {
                     //  as the game-server)
                     // TODO: disconnect from the current game, adjust the client-config, and join the dedicated server
                     if ui.button("Disconnect").clicked() {
-                        world
-                            .disconnect_client::<MyProtocol>()
-                            .inspect_err(|e| error!("Failed to disconnect: {e:?}"));
+                        next_state.set(NetworkingState::Disconnected);
                     }
                 }
             }
@@ -318,7 +313,7 @@ mod ui {
         mut next_state: ResMut<NextState<NetworkingState>>,
     ) {
         egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-            lobby_table.table_ui(ui, state.get(), next_state.as_deref_mut());
+            lobby_table.table_ui(ui, state.get(), next_state.reborrow());
         });
     }
 }

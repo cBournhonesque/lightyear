@@ -374,6 +374,8 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
     world.insert_resource(client_connection);
 }
 
+// TODO: the design where the user has to call world.connect_client() is better because the user can handle the Error however they want!
+
 /// Connect the client
 /// - rebuild the client connection resource using the latest `ClientConfig`
 /// - rebuild the client connection manager
@@ -391,7 +393,12 @@ fn connect<P: Protocol>(world: &mut World) {
     // new client connection and connection manager, which want to do because we need to reset
     // the internal time, sync, priority, message numbers, etc.)
     rebuild_client_connection::<P>(world);
-    world.resource_mut::<ClientConnection>().connect()?;
+    let _ = world
+        .resource_mut::<ClientConnection>()
+        .connect()
+        .inspect_err(|e| {
+            error!("Error connecting client: {}", e);
+        });
     let config = world.resource::<ClientConfig>();
 
     if config.shared.mode == Mode::HostServer {
@@ -409,8 +416,7 @@ fn disconnect<P: Protocol>(world: &mut World) {
         .resource_mut::<ClientConnection>()
         .disconnect()
         .inspect_err(|e| error!("Error disconnecting client: {}", e));
-    world.remove_resource::<ConnectionManager<P>>();
-    world.remove_resource::<ClientConnection>();
+
     world
         .resource_mut::<Events<DisconnectEvent>>()
         .send(DisconnectEvent::new(()));
@@ -423,4 +429,6 @@ fn disconnect<P: Protocol>(world: &mut World) {
             .resource_mut::<Events<crate::server::events::DisconnectEvent>>()
             .send(crate::server::events::DisconnectEvent::new(client_id));
     }
+    world.remove_resource::<ConnectionManager<P>>();
+    world.remove_resource::<ClientConnection>();
 }
