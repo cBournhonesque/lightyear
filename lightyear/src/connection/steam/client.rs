@@ -93,11 +93,11 @@ impl Client {
             .context("could not get connection state")
     }
 
-    fn client() -> steamworks::Client<ClientManager> {
-        CLIENT.get().unwrap()
+    fn client() -> &'static steamworks::Client<ClientManager> {
+        &CLIENT.get().unwrap().0
     }
 
-    fn single_client() -> &SingleClient {
+    fn single_client() -> &'static SingleClient {
         &CLIENT.get().unwrap().1 .0
     }
 }
