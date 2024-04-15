@@ -6,7 +6,7 @@ pub(crate) mod server;
 
 // NOTE: it looks like there's SingleClient can actually be called on multiple threads
 // - https://partner.steamgames.com/doc/api/steam_api#SteamAPI_RunCallbacks
-pub(crate) struct SingleClientThreadSafe(pub(crate) steamworks::SingleClient);
+pub(crate) struct SingleClientThreadSafe(steamworks::SingleClient);
 
 unsafe impl Sync for SingleClientThreadSafe {}
 unsafe impl Send for SingleClientThreadSafe {}

@@ -91,7 +91,10 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             OnEnter(NetworkingState::Connecting),
             (rebuild_net_config::<P>, connect).run_if(is_disconnected),
         );
-        app.add_systems(PreUpdate, handle_connection_failure.run_if(in_state(NetworkingState::Connecting)));
+        app.add_systems(
+            PreUpdate,
+            handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
+        );
 
         // CONNECTED
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
@@ -281,7 +284,10 @@ pub enum NetworkingState {
     Connected,
 }
 
-fn handle_connection_failure(mut next_state: ResMut<NextState<NetworkingState>>, netclient: Res<ClientConnection>) {
+fn handle_connection_failure(
+    mut next_state: ResMut<NextState<NetworkingState>>,
+    netclient: Res<ClientConnection>,
+) {
     if netclient.state() == NetworkingState::Disconnected {
         next_state.set(NetworkingState::Disconnected);
     }
@@ -368,11 +374,8 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
     );
     world.insert_resource(connection_manager);
 
-    // drop the previous client connection
-    // (required for some clients, such as steam, where only one client can be active at the same time)
+    // drop the previous client connection to make sure we release any resources before creating the new one
     world.remove_resource::<ClientConnection>();
-    // TODO: dropping the Steam Client and recreating it still doesn't work,
-    //  after the client gets recreated, new connection attempts get rejected with the error: RemoteBadCert
     // insert the new client connection
     let netclient = client_config.net.clone().build_client();
     world.insert_resource(netclient);

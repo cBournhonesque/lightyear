@@ -8,7 +8,6 @@ use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
 use bevy::tasks::IoTaskPool;
-use std::cell::OnceCell;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, OnceLock, RwLock};
