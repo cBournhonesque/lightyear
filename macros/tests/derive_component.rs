@@ -58,13 +58,8 @@ pub mod some_component {
         }
     }
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-    pub struct Message1(pub u32);
-
     #[message_protocol(protocol = "MyProtocol")]
-    pub enum MyMessageProtocol {
-        Message1(Message1),
-    }
+    pub enum MyMessageProtocol {}
 
     protocolize! {
         Self = MyProtocol,

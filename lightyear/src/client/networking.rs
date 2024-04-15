@@ -13,7 +13,6 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
-use crate::connection::steam::client::CLIENT;
 use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
