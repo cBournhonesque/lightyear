@@ -7,9 +7,10 @@ use crate::prelude::{Io, LinkConditionerConfig};
 use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::transport::LOCAL_SOCKET;
 use anyhow::{anyhow, Context, Result};
+use bevy::tasks::IoTaskPool;
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use steamworks::networking_sockets::{NetConnection, NetworkingSockets};
 use steamworks::networking_types::{
     NetConnectionEnd, NetConnectionInfo, NetworkingConfigEntry, NetworkingConfigValue,
@@ -37,9 +38,15 @@ impl Default for SteamConfig {
     }
 }
 
+// My initial plan was to have the `steamworks::Client` and `SingleClient` be fields of the [`Client`] struct.
+// Everytime we try to reconnect, we could just drop the previous Client (which shutdowns the steam API)
+// and call `init_app` again. However apparently the Shutdown api does nothing, the api only shuts down
+// when the program ends.
+// Instead, we will initialize lazy a static Client only once per program.
+pub static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
+    OnceLock::new();
+
 pub struct Client {
-    client: steamworks::Client<ClientManager>,
-    single_client: SingleClientThreadSafe,
     config: SteamConfig,
     connection: Option<NetConnection<ClientManager>>,
     packet_queue: VecDeque<Packet>,
@@ -49,12 +56,13 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: SteamConfig, conditioner: Option<LinkConditionerConfig>) -> Result<Self> {
-        let (client, single) = steamworks::Client::init_app(config.app_id)
-            .context("could not initialize steam client")?;
+        CLIENT.get_or_init(|| {
+            info!("Creating new steamworks api client.");
+            let (client, single) = steamworks::Client::init_app(config.app_id).unwrap();
+            (client, SingleClientThreadSafe(single))
+        });
 
         Ok(Self {
-            client,
-            single_client: SingleClientThreadSafe(single),
             config,
             connection: None,
             packet_queue: VecDeque::new(),
@@ -65,7 +73,7 @@ impl Client {
 
     fn connection_info(&self) -> Option<Result<NetConnectionInfo>> {
         self.connection.as_ref().map(|connection| {
-            self.client
+            Self::client()
                 .networking_sockets()
                 .get_connection_info(connection)
                 .map_err(|err| anyhow!("could not get connection info"))
@@ -78,15 +86,23 @@ impl Client {
             .map_or(Ok(NetworkingConnectionState::None), |info| info.state())
             .context("could not get connection state")
     }
+
+    fn client() -> &'static steamworks::Client<ClientManager> {
+        &CLIENT.get().unwrap().0
+    }
+
+    fn single_client() -> &'static SingleClient {
+        &CLIENT.get().unwrap().1 .0
+    }
 }
 
 impl NetClient for Client {
     fn connect(&mut self) -> Result<()> {
         let options = get_networking_options(&self.conditioner);
         self.connection = Some(
-            self.client
+            Self::client()
                 .networking_sockets()
-                .connect_by_ip_address(self.config.server_addr, options)
+                .connect_by_ip_address(self.config.server_addr, vec![])
                 .context("failed to create connection")?,
         );
         info!(
@@ -117,7 +133,7 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        self.single_client.0.run_callbacks();
+        Self::single_client().run_callbacks();
 
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
         // update connection state
@@ -163,7 +179,7 @@ impl NetClient for Client {
     }
 
     fn id(&self) -> ClientId {
-        ClientId::Steam(self.client.user().steam_id().raw())
+        ClientId::Steam(Self::client().user().steam_id().raw())
     }
 
     fn local_addr(&self) -> SocketAddr {

@@ -220,13 +220,13 @@ mod ui {
     use crate::client::ui;
     use crate::protocol::MyProtocol;
     use bevy::ecs::system::SystemState;
-    use bevy::prelude::{Res, ResMut, Resource, State, World};
+    use bevy::prelude::{Mut, NextState, Res, ResMut, Resource, State, World};
     use bevy::utils::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
     use lightyear::client::ClientConnectionExt;
-    use lightyear::prelude::client::NetworkingState;
+    use lightyear::prelude::client::{NetConfig, NetworkingState};
     use lightyear::prelude::ClientId;
     use tracing::{error, info};
 
@@ -239,7 +239,12 @@ mod ui {
     }
 
     impl LobbyTable {
-        fn table_ui(&mut self, ui: &mut egui::Ui, world: &mut World) {
+        fn table_ui(
+            &mut self,
+            ui: &mut egui::Ui,
+            state: &NetworkingState,
+            next_state: Mut<NextState<NetworkingState>>,
+        ) {
             let table = TableBuilder::new(ui)
                 .resizable(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -275,7 +280,7 @@ mod ui {
                     }
                 });
             ui.add(Separator::default().horizontal());
-            match world.resource::<State<NetworkingState>>().get() {
+            match state {
                 NetworkingState::Disconnected => {
                     if ui.button("Connect").clicked() {
                         // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
@@ -306,14 +311,14 @@ mod ui {
 
     /// Display a lobby ui that lets you choose the network topology before starting a game.
     /// Either the game will use a dedicated server as a host, or one of the players will run in host-server mode.
-    pub(crate) fn lobby_ui(world: &mut World, mut contexts: &mut SystemState<EguiContexts>) {
-        let mut contexts = contexts.get_mut(world);
-        // world.resource_scope(|world: &mut World, mut contexts: EguiContexts| {
-        world.resource_scope(|world: &mut World, mut lobby_table: ResMut<LobbyTable>| {
-            egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-                lobby_table.table_ui(ui, world);
-            });
+    pub(crate) fn lobby_ui(
+        mut contexts: EguiContexts,
+        mut lobby_table: ResMut<LobbyTable>,
+        state: Res<State<NetworkingState>>,
+        mut next_state: ResMut<NextState<NetworkingState>>,
+    ) {
+        egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
+            lobby_table.table_ui(ui, state.get(), next_state.as_deref_mut());
         });
-        // });
     }
 }

@@ -14,6 +14,7 @@ use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, E
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::ServerConnections;
+use crate::connection::steam::client::CLIENT;
 use crate::prelude::{MainSet, SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -105,7 +106,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
 
         // DISCONNECTED
-        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+        app.add_systems(OnEnter(NetworkingState::Disconnected), disconnect::<P>);
     }
 }
 
@@ -323,26 +324,6 @@ fn on_connect(
             .send(crate::server::events::ConnectEvent::new(netcode.id()));
     }
 }
-/// System that runs when we enter the Disconnected state
-/// Updates the DisconnectEvent events
-fn on_disconnect(
-    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
-    netcode: Res<ClientConnection>,
-    config: Res<ClientConfig>,
-    mut server_disconnect_event_writer: Option<
-        ResMut<Events<crate::server::events::DisconnectEvent>>,
-    >,
-) {
-    disconnect_event_writer.send(DisconnectEvent::new(()));
-
-    // in host-server mode, we also want to send a connect event to the server
-    if config.shared.mode == Mode::HostServer {
-        server_disconnect_event_writer
-            .as_mut()
-            .unwrap()
-            .send(crate::server::events::DisconnectEvent::new(netcode.id()));
-    }
-}
 
 /// This run condition is provided to check if the client is connected.
 ///
@@ -386,6 +367,8 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
     );
     world.insert_resource(connection_manager);
 
+    // drop the previous client connection to make sure we release any resources before creating the new one
+    world.remove_resource::<ClientConnection>();
     // insert the new client connection
     let client_connection = client_config.net.build_client();
     world.insert_resource(client_connection);
@@ -421,26 +404,23 @@ fn connect<P: Protocol>(world: &mut World) {
 }
 
 /// Disconnect the client
-fn disconnect<P: Protocol>(world: &mut World) -> Result<()> {
-    world
+fn disconnect<P: Protocol>(world: &mut World) {
+    let _ = world
         .resource_mut::<ClientConnection>()
         .disconnect()
-        .context("Error disconnecting client")?;
+        .inspect_err(|e| error!("Error disconnecting client: {}", e));
+    world.remove_resource::<ConnectionManager<P>>();
+    world.remove_resource::<ClientConnection>();
     world
         .resource_mut::<Events<DisconnectEvent>>()
         .send(DisconnectEvent::new(()));
 
     // in host-server mode, we also want to send a connect event to the server
     let config = world.resource::<ClientConfig>();
+    let client_id = world.resource::<ClientConnection>().id();
     if config.shared.mode == Mode::HostServer {
-        world.resource_mut
+        world
+            .resource_mut::<Events<crate::server::events::DisconnectEvent>>()
+            .send(crate::server::events::DisconnectEvent::new(client_id));
     }
-    server_disconnect_event_writer
-        .as_mut()
-        .unwrap()
-        .send(crate::server::events::DisconnectEvent::new(netcode.id()));
-    world
-        .resource_mut::<NextState<NetworkingState>>()
-        .set(NetworkingState::Disconnected);
-    Ok(())
 }
