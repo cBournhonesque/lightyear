@@ -79,7 +79,7 @@ impl Client {
 
     fn connection_info(&self) -> Option<Result<NetConnectionInfo>> {
         self.connection.as_ref().map(|connection| {
-            self.client()
+            Self::client()
                 .networking_sockets()
                 .get_connection_info(connection)
                 .map_err(|err| anyhow!("could not get connection info"))

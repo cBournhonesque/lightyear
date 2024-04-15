@@ -108,8 +108,9 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
 
 #[cfg(feature = "steam")]
 fn call_steam_callbacks() {
+    // use steamworks::SingleClient;
     if let Some((_, single)) = CLIENT.get() {
-        single.run_callbacks()
+        single.0.run_callbacks()
     }
 }
 
