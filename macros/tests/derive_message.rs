@@ -1,6 +1,6 @@
 pub mod some_message {
     use bevy::ecs::entity::MapEntities;
-    use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
+    use bevy::prelude::{Entity, EntityMapper, Reflect};
     use serde::{Deserialize, Serialize};
 
     use lightyear::prelude::*;
@@ -25,13 +25,8 @@ pub mod some_message {
         Message2(Message2),
     }
 
-    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-    pub struct Component1(pub u8);
-
     #[component_protocol(protocol = "MyProtocol")]
-    pub enum MyComponentProtocol {
-        Component1(Component1),
-    }
+    pub enum MyComponentProtocol {}
 
     protocolize! {
         Self = MyProtocol,

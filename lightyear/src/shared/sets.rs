@@ -10,6 +10,8 @@ pub struct ServerMarker;
 /// System sets related to Replication
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum InternalReplicationSet<M> {
+    /// System that copies the resource data from the entity to the resource in the receiving world
+    ReceiveResourceUpdates,
     /// Set the hash for each entity that is pre-spawned on the client
     /// (has a PreSpawnedPlayerObject component)
     SetPreSpawnedHash,
@@ -22,6 +24,7 @@ pub(crate) enum InternalReplicationSet<M> {
     /// These systems only run once every send_interval
     SendEntityUpdates,
     SendComponentUpdates,
+    SendResourceUpdates,
 
     // SystemSet that encompasses all send replication systems
     All,

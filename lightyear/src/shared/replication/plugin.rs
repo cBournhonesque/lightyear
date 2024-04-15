@@ -79,12 +79,14 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
                 (
                     (
                         InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
                         InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
                         // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         InternalMainSet::<R::SetMarker>::SendPackets,
