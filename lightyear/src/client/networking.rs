@@ -13,6 +13,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
+use crate::connection::steam::client::CLIENT;
 use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -90,6 +91,10 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             OnEnter(NetworkingState::Connecting),
             (rebuild_net_config::<P>, connect).run_if(is_disconnected),
         );
+        app.add_systems(
+            PreUpdate,
+            handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
+        );
 
         // CONNECTED
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
@@ -142,11 +147,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 time_manager.as_ref(),
                                                                 tick_manager.as_ref(),
                                                             );
-                                                        } else if netclient.state() == NetworkingState::Connecting {
-                                                            // we failed to connect, set the state back to Disconnected
-                                                            if state.get() == &NetworkingState::Disconnected {
-                                                                next_state.set(NetworkingState::Disconnected);
-                                                            }
                                                         }
 
                                                         // RECV PACKETS: buffer packets into message managers
@@ -284,6 +284,15 @@ pub enum NetworkingState {
     Connected,
 }
 
+fn handle_connection_failure(
+    mut next_state: ResMut<NextState<NetworkingState>>,
+    netclient: Res<ClientConnection>,
+) {
+    if netclient.state() == NetworkingState::Disconnected {
+        next_state.set(NetworkingState::Disconnected);
+    }
+}
+
 /// System that runs when we enter the Connected state
 /// Updates the ConnectEvent events
 fn on_connect(
@@ -365,6 +374,8 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
     );
     world.insert_resource(connection_manager);
 
+    // drop the previous client connection to make sure we release any resources before creating the new one
+    world.remove_resource::<ClientConnection>();
     // insert the new client connection
     let netclient = client_config.net.clone().build_client();
     world.insert_resource(netclient);
