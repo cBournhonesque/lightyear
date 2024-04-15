@@ -49,7 +49,7 @@ impl Default for SteamConfig {
 //     single_client: SingleClientThreadSafe,
 // }
 
-static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
+pub static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
     OnceLock::new();
 
 pub struct Client {
@@ -65,11 +65,6 @@ impl Client {
         CLIENT.get_or_init(|| {
             info!("Creating new steamworks api client.");
             let (client, single) = steamworks::Client::init_app(config.app_id).unwrap();
-            IoTaskPool::get()
-                .spawn(async move {
-                    single.run_callbacks().await;
-                })
-                .detach();
             (client, SingleClientThreadSafe(single))
         });
 
@@ -98,11 +93,11 @@ impl Client {
             .context("could not get connection state")
     }
 
-    fn client(&self) -> &steamworks::Client<ClientManager> {
-        &CLIENT.get().unwrap().0
+    fn client() -> steamworks::Client<ClientManager> {
+        CLIENT.get().unwrap()
     }
 
-    fn single_client(&self) -> &SingleClient {
+    fn single_client() -> &SingleClient {
         &CLIENT.get().unwrap().1 .0
     }
 }
@@ -144,7 +139,7 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        self.single_client().run_callbacks();
+        // self.single_client().run_callbacks();
 
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
         // update connection state

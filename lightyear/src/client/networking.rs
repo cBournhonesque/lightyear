@@ -13,6 +13,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
+use crate::connection::steam::client::CLIENT;
 use crate::prelude::{SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -73,6 +74,12 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 ),
             );
 
+        #[cfg(feature = "steam")]
+        app.add_systems(
+            PreUpdate,
+            call_steam_callbacks.before(InternalMainSet::<ClientMarker>::Receive),
+        );
+
         // STARTUP
         // TODO: update all systems that need these to only run when needed, so that we don't have to create
         //  a ConnectionManager or a NetConfig at startup
@@ -96,6 +103,13 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
 
         // DISCONNECTED
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+    }
+}
+
+#[cfg(feature = "steam")]
+fn call_steam_callbacks() {
+    if let Some((_, single)) = CLIENT.get() {
+        single.run_callbacks()
     }
 }
 
