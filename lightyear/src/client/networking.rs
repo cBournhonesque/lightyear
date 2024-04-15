@@ -74,12 +74,6 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
                 ),
             );
 
-        #[cfg(feature = "steam")]
-        app.add_systems(
-            PreUpdate,
-            call_steam_callbacks.before(InternalMainSet::<ClientMarker>::Receive),
-        );
-
         // STARTUP
         // TODO: update all systems that need these to only run when needed, so that we don't have to create
         //  a ConnectionManager or a NetConfig at startup
@@ -97,20 +91,13 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             OnEnter(NetworkingState::Connecting),
             (rebuild_net_config::<P>, connect).run_if(is_disconnected),
         );
+        app.add_systems(PreUpdate, handle_connection_failure.run_if(in_state(NetworkingState::Connecting)));
 
         // CONNECTED
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
 
         // DISCONNECTED
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
-    }
-}
-
-#[cfg(feature = "steam")]
-fn call_steam_callbacks() {
-    // use steamworks::SingleClient;
-    if let Some((_, single)) = CLIENT.get() {
-        single.0.run_callbacks()
     }
 }
 
@@ -157,11 +144,6 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 time_manager.as_ref(),
                                                                 tick_manager.as_ref(),
                                                             );
-                                                        } else if netclient.state() == NetworkingState::Connecting {
-                                                            // we failed to connect, set the state back to Disconnected
-                                                            if state.get() == &NetworkingState::Disconnected {
-                                                                next_state.set(NetworkingState::Disconnected);
-                                                            }
                                                         }
 
                                                         // RECV PACKETS: buffer packets into message managers
@@ -297,6 +279,12 @@ pub enum NetworkingState {
     Disconnected,
     Connecting,
     Connected,
+}
+
+fn handle_connection_failure(mut next_state: ResMut<NextState<NetworkingState>>, netclient: Res<ClientConnection>) {
+    if netclient.state() == NetworkingState::Disconnected {
+        next_state.set(NetworkingState::Disconnected);
+    }
 }
 
 /// System that runs when we enter the Connected state

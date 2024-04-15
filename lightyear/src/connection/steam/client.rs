@@ -41,14 +41,9 @@ impl Default for SteamConfig {
 
 // My initial plan was to have the `steamworks::Client` and `SingleClient` be fields of the [`Client`] struct.
 // Everytime we try to reconnect, we could just drop the previous Client (which shutdowns the steam API)
-// and call `init_app` again. However after doing this the client could not connect to the server;
-// the connection gets rejected with reason `RemoteBadCert`.
-// A workaround is to have a static instance of the steamworks clients which is initialized lazily once.
-// struct SteamClient {
-//     client: steamworks::Client<ClientManager>,
-//     single_client: SingleClientThreadSafe,
-// }
-
+// and call `init_app` again. However apparently the Shutdown api does nothing, the api only shuts down
+// when the program ends.
+// Instead, we will initialize lazy a static Client only once per program.
 pub static CLIENT: OnceLock<(steamworks::Client<ClientManager>, SingleClientThreadSafe)> =
     OnceLock::new();
 
@@ -139,7 +134,7 @@ impl NetClient for Client {
     }
 
     fn try_update(&mut self, delta_ms: f64) -> Result<()> {
-        // self.single_client().run_callbacks();
+        Self::single_client().run_callbacks();
 
         // TODO: should I maintain an internal state for the connection? or just rely on `connection_state()` ?
         // update connection state
