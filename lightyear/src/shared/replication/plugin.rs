@@ -12,7 +12,9 @@ use crate::shared::replication::components::{
 };
 use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
 use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
-use crate::shared::replication::resources::{ResourceReceivePlugin, ResourceSendPlugin};
+use crate::shared::replication::resources::{
+    receive::ResourceReceivePlugin, send::ResourceSendPlugin,
+};
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 

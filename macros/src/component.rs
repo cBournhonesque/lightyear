@@ -665,7 +665,9 @@ fn update_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
             Self::#ident(x) => {
                  if let Some(mut c) = entity.get_mut::<#component_type>() {
                     *c = x;
-                 }
+                 } else {
+                    entity.insert(x);
+                }
             }
         };
         // let is_wrapped = match component_type {
