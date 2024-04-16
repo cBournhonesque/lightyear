@@ -59,7 +59,7 @@ The way to do this is to add a `ShouldBePredicted { client_entity: Option<Entity
 you want to predict.
 On the server, to replicate back the entity to the client, you will need to manually add a `Replicate` component to the entity
 to specify to which clients you want to rebroadcast it.
-**Note that you must add the `Replicate` component in the `MainSet::AddReplicate` `SystemSet` for propre handling of 
+**Note that you must add the `Replicate` component in the `MainSet::AddReplicate` `SystemSet` for proper handling of 
 pre-spawned predicted entities!**
 
 When the server replicates back the entity, the client will check if the entity has a `ShouldBePredicted` component.
