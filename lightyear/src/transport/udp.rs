@@ -16,7 +16,7 @@ pub struct UdpSocketBuilder {
 }
 
 impl TransportBuilder for UdpSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         let udp_socket = std::net::UdpSocket::bind(self.local_addr)?;
         let local_addr = udp_socket.local_addr()?;
         let socket = Arc::new(Mutex::new(udp_socket));

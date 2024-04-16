@@ -170,8 +170,8 @@ impl IoConfig {
         self
     }
 
-    pub fn connect(self) -> Result<Io> {
-        let transport = self.transport.build().connect()?;
+    pub async fn connect(self) -> Result<Io> {
+        let transport = self.transport.build().connect().await?;
         let local_addr = transport.local_addr();
         let (sender, receiver, close_fn) = transport.split();
         let receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {

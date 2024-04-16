@@ -30,7 +30,7 @@ pub(crate) struct WebSocketServerSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketServerSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
         let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
 
@@ -44,9 +44,7 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
             serverbound_rx,
         };
 
-        let listener = futures_lite::future::block_on(Compat::new(async move {
-            TcpListener::bind(self.server_addr).await
-        }))?;
+        let listener = TcpListener::bind(self.server_addr).await?;
 
         IoTaskPool::get()
             .spawn(Compat::new(async move {

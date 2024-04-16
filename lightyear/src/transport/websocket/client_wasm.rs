@@ -28,7 +28,7 @@ pub(crate) struct WebSocketClientSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<Vec<u8>>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Vec<u8>>();
         let (close_tx, mut close_rx) = mpsc::channel(1);

@@ -30,7 +30,7 @@ pub(crate) struct WebTransportServerSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportServerSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         let (to_client_sender, to_client_receiver) =
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
@@ -40,11 +40,7 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
             .with_bind_address(self.server_addr)
             .with_certificate(self.certificate)
             .build();
-        // need to run this with Compat because it requires the tokio reactor
-        let endpoint = futures_lite::future::block_on(Compat::new(async {
-            let endpoint = wtransport::Endpoint::server(config)?;
-            Ok::<_, Error>(endpoint)
-        }))?;
+        let endpoint = wtransport::Endpoint::server(config)?;
 
         let sender = WebTransportServerSocketSender {
             server_addr: self.server_addr,

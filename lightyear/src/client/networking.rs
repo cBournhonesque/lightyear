@@ -1,10 +1,13 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use async_compat::Compat;
 use std::ops::DerefMut;
 
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
+use bevy::tasks::futures_lite::FutureExt;
+use bevy::tasks::{futures_lite, IoTaskPool, Task};
 use tracing::{error, trace};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
@@ -284,9 +287,29 @@ pub enum NetworkingState {
 }
 
 fn handle_connection_failure(
+    mut connecting_state: ResMut<ConnectingState>,
     mut next_state: ResMut<NextState<NetworkingState>>,
     netclient: Res<ClientConnection>,
 ) {
+    // First listen for the connection_task; which tracks the asynchronous process for starting the io
+    if let Some(mut connection_task) = connecting_state.io_connection_task.take() {
+        if let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut connection_task))
+        {
+            if let Err(e) = result {
+                error!("Error connecting: {}", e);
+                next_state.set(NetworkingState::Disconnected);
+                return;
+            } else {
+                // the io is connected, now check the state on the netclient directly
+            }
+        } else {
+            // future is not ready, put the task back
+            connecting_state.io_connection_task = Some(connection_task);
+        }
+    }
+
+    // At this point io is connected, check the state on the netclient directly
     if netclient.state() == NetworkingState::Disconnected {
         next_state.set(NetworkingState::Disconnected);
     }
@@ -381,11 +404,16 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
 }
 
 /// Connect the client
-fn connect(mut netclient: ResMut<ClientConnection>) {
+fn connect(mut netclient: ResMut<ClientConnection>, mut state: ResMut<ConnectingState>) {
     info!("calling connect on netclient");
-    let _ = netclient
-        .connect()
-        .inspect_err(|e| error!("Error connecting: {e:?}"));
+    let connection_task = IoTaskPool::get().spawn(Compat::new(async { netclient.connect().await }));
+    state.io_connection_task = Some(connection_task);
+}
+
+/// State that track
+#[derive(Resource)]
+struct ConnectingState {
+    io_connection_task: Option<Task<Result<(), anyhow::Error>>>,
 }
 
 /// This system param is used to connect/disconnect the client.

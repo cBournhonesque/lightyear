@@ -51,7 +51,7 @@ impl Channels {
 }
 
 impl TransportBuilder for Channels {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         Ok(TransportEnum::Channels(self))
     }
 }

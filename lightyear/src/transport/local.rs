@@ -18,7 +18,7 @@ pub(crate) struct LocalChannelBuilder {
 }
 
 impl TransportBuilder for LocalChannelBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         Ok(TransportEnum::LocalChannel(LocalChannel {
             sender: LocalChannelSender { send: self.send },
             receiver: LocalChannelReceiver {

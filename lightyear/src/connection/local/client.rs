@@ -22,7 +22,7 @@ impl Client {
 }
 
 impl NetClient for Client {
-    fn connect(&mut self) -> Result<()> {
+    async fn connect(&mut self) -> Result<()> {
         self.is_connected = true;
         Ok(())
     }

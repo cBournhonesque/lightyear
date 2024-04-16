@@ -24,28 +24,24 @@ pub(crate) struct WebTransportClientSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
         let (close_tx, mut close_rx) = mpsc::channel(1);
 
-        let connection = futures_lite::future::block_on(Compat::new(async move {
-            let config = ClientConfig::builder()
-                .with_bind_address(self.client_addr)
-                .with_no_cert_validation()
-                .build();
-            let server_url = format!("https://{}", self.server_addr);
-            info!(
-                "Connecting to server via webtransport at server url: {}",
-                &server_url
-            );
-            let endpoint = wtransport::Endpoint::client(config)?;
-            let connection = endpoint.connect(&server_url).await?;
-            info!("Connected.");
-            Ok::<wtransport::Connection, Error>(connection)
-        }))?;
-
+        let config = ClientConfig::builder()
+            .with_bind_address(self.client_addr)
+            .with_no_cert_validation()
+            .build();
+        let server_url = format!("https://{}", self.server_addr);
+        info!(
+            "Connecting to server via webtransport at server url: {}",
+            &server_url
+        );
+        let endpoint = wtransport::Endpoint::client(config)?;
+        let connection = endpoint.connect(&server_url).await?;
+        info!("Connected.");
         let connection = Arc::new(connection);
 
         // NOTE (IMPORTANT!):

@@ -76,7 +76,7 @@ pub(crate) trait TransportBuilder: Send + Sync {
     /// Attempt to:
     /// - connect to the remote (for clients)
     /// - listen to incoming connections (for server)
-    fn connect(self) -> Result<TransportEnum>;
+    async fn connect(self) -> Result<TransportEnum>;
 
     // TODO maybe add a `async fn ready() -> bool` function?
 }

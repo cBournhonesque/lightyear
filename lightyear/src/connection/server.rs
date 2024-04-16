@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::Resource;
 use bevy::utils::HashMap;
+use enum_dispatch::enum_dispatch;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -9,6 +10,7 @@ use crate::packet::packet::Packet;
 use crate::prelude::{Io, IoConfig, LinkConditionerConfig};
 use crate::server::config::NetcodeConfig;
 
+#[enum_dispatch]
 pub trait NetServer: Send + Sync {
     /// Start the server
     /// (i.e. start listening for client connections)
@@ -43,10 +45,17 @@ pub trait NetServer: Send + Sync {
     fn io(&self) -> Option<&Io>;
 }
 
+#[enum_dispatch(NetServer)]
+enum NetServerDispatch {
+    Netcode(super::netcode::Server),
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    Steam(super::steam::server::Server),
+}
+
 /// A wrapper around a `Box<dyn NetServer>`
 #[derive(Resource)]
 pub struct ServerConnection {
-    server: Box<dyn NetServer>,
+    server: NetServerDispatch,
 }
 
 /// Configuration for the server connection
@@ -78,7 +87,7 @@ impl NetConfig {
             NetConfig::Netcode { config, io } => {
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection {
-                    server: Box::new(server),
+                    server: NetServerDispatch::Netcode(server),
                 }
             }
             // TODO: might want to distinguish between steam with direct ip connections
@@ -92,7 +101,7 @@ impl NetConfig {
                 let server = super::steam::server::Server::new(config, conditioner)
                     .expect("could not create steam server");
                 ServerConnection {
-                    server: Box::new(server),
+                    server: NetServerDispatch::Steam(server),
                 }
             }
         }

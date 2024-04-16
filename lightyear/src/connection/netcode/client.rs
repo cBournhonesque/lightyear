@@ -2,8 +2,10 @@ use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::VecDeque, net::SocketAddr};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use async_compat::Compat;
 use bevy::prelude::Resource;
+use bevy::tasks::IoTaskPool;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::connection::client::NetClient;
@@ -651,9 +653,9 @@ pub struct Client<Ctx> {
 }
 
 impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
-    fn connect(&mut self) -> anyhow::Result<()> {
+    async fn connect(&mut self) -> anyhow::Result<()> {
         let io_config = self.io_config.clone();
-        let io = io_config.connect().context("could not connect io")?;
+        let io = io_config.connect().await.context("could not connect io")?;
         self.io = Some(io);
         self.client.connect();
         Ok(())

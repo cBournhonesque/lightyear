@@ -28,7 +28,7 @@ pub struct WebTransportClientSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         // TODO: This can exhaust all available memory unless there is some other way to limit the amount of in-flight data in place
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
@@ -66,27 +66,16 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         options.server_certificate_hashes(&hashes);
         let endpoint = xwt_web_sys::Endpoint { options };
 
-        let (send, recv) = tokio::sync::oneshot::channel();
-        let (send2, recv2) = tokio::sync::oneshot::channel();
-        let (send3, recv3) = tokio::sync::oneshot::channel();
-        IoTaskPool::get().spawn_local(async move {
-            info!("Starting webtransport io thread");
-
-            let connecting = endpoint
-                .connect(&server_url)
-                .await
-                .map_err(|e| std::io::Error::other(format!("failed to connect to server: {:?}", e)))
-                .expect("failed to connect to server");
-            let connection = connecting
-                .wait_connect()
-                .await
-                .map_err(|e| std::io::Error::other(format!("failed to connect to server: {:?}", e)))
-                .expect("failed to connect to server");
-            let connection = Rc::new(connection);
-            send.send(connection.clone()).unwrap();
-            send2.send(connection.clone()).unwrap();
-            send3.send(connection.clone()).unwrap();
-        });
+        info!("Starting webtransport io thread");
+        let connecting = endpoint
+            .connect(&server_url)
+            .await
+            .map_err(|e| std::io::Error::other(format!("failed to connect to server: {:?}", e)))?;
+        let connection = connecting
+            .wait_connect()
+            .await
+            .map_err(|e| std::io::Error::other(format!("failed to connect to server: {:?}", e)))?;
+        let connection = Rc::new(connection);
 
         // NOTE (IMPORTANT!):
         // - we spawn two different futures for receive and send datagrams
@@ -95,11 +84,11 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         //   to poll the existing one. This is FAULTY behaviour
         // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
         //   cancelled
+        let connection_recv = connection.clone();
         IoTaskPool::get()
             .spawn(async move {
-                let connection = recv.await.expect("could not get connection");
                 loop {
-                    match connection.receive_datagram().await {
+                    match connection_recv.receive_datagram().await {
                         Ok(data) => {
                             trace!("receive datagram from server: {:?}", &data);
                             from_server_sender.send(data).unwrap();
@@ -111,22 +100,24 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 }
             })
             .detach();
+        let connection_send = connection.clone();
         IoTaskPool::get()
             .spawn(async move {
-                let connection = recv2.await.expect("could not get connection");
                 loop {
                     if let Some(msg) = to_server_receiver.recv().await {
                         trace!("send datagram to server: {:?}", &msg);
-                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
-                            error!("send_datagram error: {:?}", e);
-                        });
+                        connection_send
+                            .send_datagram(msg)
+                            .await
+                            .unwrap_or_else(|e| {
+                                error!("send_datagram error: {:?}", e);
+                            });
                     }
                 }
             })
             .detach();
         IoTaskPool::get()
             .spawn(async move {
-                let connection = recv3.await.expect("could not get connection");
                 // Wait for a close signal from the close channel, or for the quic connection to be closed
                 close_rx.recv().await;
                 info!("WebTransport connection closed.");

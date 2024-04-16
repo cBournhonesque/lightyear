@@ -12,7 +12,7 @@ use super::error::Result;
 pub struct DummyIo;
 
 impl TransportBuilder for DummyIo {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         Ok(TransportEnum::Dummy(self))
     }
 }

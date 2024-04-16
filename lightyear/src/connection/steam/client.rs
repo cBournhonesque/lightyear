@@ -97,7 +97,7 @@ impl Client {
 }
 
 impl NetClient for Client {
-    fn connect(&mut self) -> Result<()> {
+    async fn connect(&mut self) -> Result<()> {
         let options = get_networking_options(&self.conditioner);
         self.connection = Some(
             Self::client()

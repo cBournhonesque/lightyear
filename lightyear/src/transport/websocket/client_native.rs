@@ -38,7 +38,7 @@ pub(crate) struct WebSocketClientSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    async fn connect(self) -> Result<TransportEnum> {
         let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
         let (close_tx, mut close_rx) = mpsc::channel(1);
@@ -50,17 +50,9 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
             clientbound_rx,
         };
 
-        // TODO: make connect async?
         // connect to the server
-        let (ws_stream, _) = IoTaskPool::get()
-            .scope(|scope| {
-                scope.spawn(Compat::new(async move {
-                    connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
-                        .await
-                }))
-            })
-            .pop()
-            .unwrap()?;
+        let (ws_stream, _) =
+            connect_async_with_config(format!("ws://{}/", self.server_addr), None, true).await?;
         info!("WebSocket handshake has been successfully completed");
         let (mut write, mut read) = ws_stream.split();
 

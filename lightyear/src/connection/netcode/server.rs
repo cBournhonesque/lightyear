@@ -3,7 +3,9 @@ use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context};
+use async_compat::Compat;
 use bevy::prelude::Resource;
+use bevy::tasks::futures_lite;
 use tracing::{debug, error, trace};
 
 use crate::connection::id;
@@ -995,7 +997,10 @@ pub struct Server {
 impl NetServer for Server {
     fn start(&mut self) -> anyhow::Result<()> {
         let io_config = self.io_config.clone();
-        let io = io_config.connect().context("could not start io")?;
+
+        let io =
+            futures_lite::future::block_on(Compat::new(async move { io_config.connect().await }))
+                .context("could not start io")?;
         self.io = Some(io);
         Ok(())
     }
