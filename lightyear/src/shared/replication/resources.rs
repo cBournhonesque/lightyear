@@ -206,10 +206,8 @@ pub(crate) mod receive {
                     } else {
                         commands.insert_resource(received_value.clone());
                     }
-                } else {
-                    if let Some(resource) = resource {
-                        commands.remove_resource::<R>();
-                    }
+                } else if let Some(resource) = resource {
+                    commands.remove_resource::<R>();
                 }
             }
         }
