@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use tracing::error;
 
-pub mod command {
+mod command {
     use super::*;
 
-    /// Extension trait to add the `replicate_resource` method to [`Commands`].
+    /// Extension trait to be able to replicate a resource to remote clients via [`Commands`].
     pub trait ReplicateResourceExt<P: Protocol> {
         /// Start replicating a resource to remote clients.
         ///
@@ -35,7 +35,7 @@ pub mod command {
         }
     }
 
-    pub struct StopReplicateCommand<R> {
+    struct StopReplicateCommand<R> {
         _marker: PhantomData<R>,
     }
 
@@ -50,6 +50,7 @@ pub mod command {
         }
     }
 
+    /// Extension trait to be able to stop replicating a resource to remote clients via [`Commands`].
     pub trait StopReplicateResourceExt {
         /// Stop replicating a resource to remote clients.
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
