@@ -25,6 +25,7 @@ pub mod entity_map;
 pub(crate) mod hierarchy;
 pub(crate) mod plugin;
 pub(crate) mod receive;
+pub(crate) mod resources;
 pub(crate) mod send;
 pub mod systems;
 
@@ -165,7 +166,7 @@ pub trait ReplicationSend<P: Protocol>: Resource {
         system_current_tick: BevyTick,
     ) -> Result<()>;
 
-    fn prepare_entity_update(
+    fn prepare_component_update(
         &mut self,
         entity: Entity,
         component: P::Components,

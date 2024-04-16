@@ -1,5 +1,5 @@
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect};
+use bevy::prelude::{default, Component, Entity, EntityMapper, Reflect, Resource};
 use cfg_if::cfg_if;
 use derive_more::{Add, Mul};
 use std::ops::Mul;
@@ -58,7 +58,12 @@ pub enum MyComponentsProtocol {
     Component3(Component3),
     #[protocol(sync(mode = "simple"), map_entities)]
     Component4(Component4),
+    Resource1(ReplicateResource<Resource1>),
 }
+
+// Resources
+#[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
+pub struct Resource1(pub f32);
 
 // Inputs
 

@@ -58,6 +58,12 @@ pub trait ComponentProtocol:
         app: &mut App,
     );
 
+    /// Add systems needed to replicate resources to remote
+    fn add_resource_send_systems<R: ReplicationSend<Self::Protocol>>(app: &mut App);
+
+    /// Add systems needed to receive resources from remote
+    fn add_resource_receive_systems<R: ReplicationSend<Self::Protocol>>(app: &mut App);
+
     /// Adds Component-related events to the app
     fn add_events<Ctx: EventContext>(app: &mut App);
 

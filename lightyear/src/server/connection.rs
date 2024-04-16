@@ -735,7 +735,7 @@ impl<P: Protocol> ReplicationSend<P> for ConnectionManager<P> {
         })
     }
 
-    fn prepare_entity_update(
+    fn prepare_component_update(
         &mut self,
         entity: Entity,
         component: P::Components,

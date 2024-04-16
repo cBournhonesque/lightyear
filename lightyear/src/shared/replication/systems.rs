@@ -226,7 +226,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 ///
 /// NOTE: cannot use ConnectEvents because they are reset every frame
 fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, Ref<C>, &Replicate<P>)>,
+    query: Query<(Entity, Ref<C>, Ref<Replicate<P>>)>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
@@ -256,7 +256,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                         .prepare_component_insert(
                                             entity,
                                             component.clone().into(),
-                                            replicate,
+                                            replicate.as_ref(),
                                             target,
                                             system_bevy_ticks.this_run(),
                                         )
@@ -273,7 +273,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                             .prepare_component_insert(
                                                 entity,
                                                 component.clone().into(),
-                                                replicate,
+                                                replicate.as_ref(),
                                                 target,
                                                 system_bevy_ticks.this_run(),
                                             )
@@ -288,10 +288,10 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                                         }
                                         let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
                                         let _ = sender
-                                            .prepare_entity_update(
+                                            .prepare_component_update(
                                                 entity,
                                                 component.clone().into(),
-                                                replicate,
+                                                replicate.as_ref(),
                                                 target,
                                                 component.last_changed(),
                                                 system_bevy_ticks.this_run(),
@@ -319,7 +319,7 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                         .prepare_component_insert(
                             entity,
                             component.clone().into(),
-                            replicate,
+                            replicate.as_ref(),
                             replicate.target::<C>(new_connected_target),
                             system_bevy_ticks.this_run(),
                         )
@@ -330,14 +330,20 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                     target.exclude(new_connected_clients.clone());
                 }
 
-                // send an component_insert for components that were newly added
-                if component.is_added() {
+                // send a component_insert for components that were newly added
+                // or if replicate was newly added.
+                // TODO: ideally what we should be checking is: is the component newly added
+                //  for the client we are sending to?
+                //  Otherwise another solution would be to also insert the component on ComponentUpdate if it's missing
+                //  Or should we just have ComponentInsert and ComponentUpdate be the same thing? Or we check
+                //  on the receiver's entity world mut to know if we emit a ComponentInsert or a ComponentUpdate?
+                if component.is_added() || replicate.is_added() {
                     trace!("component is added");
                     let _ = sender
                         .prepare_component_insert(
                             entity,
                             component.clone().into(),
-                            replicate,
+                            replicate.as_ref(),
                             replicate.target::<C>(target),
                             system_bevy_ticks.this_run(),
                         )
@@ -356,10 +362,10 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
                     // otherwise send an update for all components that changed since the
                     // last update we have ack-ed
                     let _ = sender
-                        .prepare_entity_update(
+                        .prepare_component_update(
                             entity,
                             component.clone().into(),
-                            replicate,
+                            replicate.as_ref(),
                             replicate.target::<C>(target),
                             component.last_changed(),
                             system_bevy_ticks.this_run(),
