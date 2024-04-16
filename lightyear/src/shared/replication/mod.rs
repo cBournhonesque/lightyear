@@ -25,7 +25,7 @@ pub mod entity_map;
 pub(crate) mod hierarchy;
 pub(crate) mod plugin;
 pub(crate) mod receive;
-mod resources;
+pub(crate) mod resources;
 pub(crate) mod send;
 pub mod systems;
 

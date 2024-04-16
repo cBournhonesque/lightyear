@@ -57,6 +57,9 @@ pub mod _reexport {
         push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
+    pub use crate::shared::replication::resources::{
+        add_resource_receive_systems, add_resource_send_systems,
+    };
     pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
     pub use crate::shared::sets::{ClientMarker, ServerMarker};
@@ -92,6 +95,7 @@ pub mod prelude {
     };
     pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::resources::ReplicateResource;
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
     pub use crate::shared::tick_manager::{Tick, TickConfig};

@@ -2,6 +2,7 @@ use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+use crate::client::networking::ClientConnectionParam;
 use crate::connection::client::{ClientConnection, NetClient};
 use bevy::ecs::system::SystemState;
 use bevy::prelude::{default, App, Mut, PluginGroup, Real, Time, World};
