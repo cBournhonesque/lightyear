@@ -9,11 +9,7 @@ use bevy::tasks::{IoTaskPool, TaskPool};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace};
-use web_sys::js_sys::{Array, Uint8Array};
-use web_sys::wasm_bindgen::JsValue;
-use web_sys::WebTransportHash;
 use xwt_core::prelude::*;
-use xwt_web_sys::{Connection, Endpoint};
 
 use crate::transport::error::{Error, Result};
 use crate::transport::{
@@ -41,30 +37,16 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             &server_url
         );
 
-        let mut options = web_sys::WebTransportOptions::new();
-        let hashes = Array::new();
-        let certificate_digests = [&self.certificate_digest]
-            .into_iter()
-            .map(|x| ring::test::from_hex(x).unwrap())
-            .collect::<Vec<_>>();
-        for hash in certificate_digests.into_iter() {
-            let digest = Uint8Array::from(hash.as_slice());
-            let mut jshash = WebTransportHash::new();
-            jshash.algorithm("sha-256").value(&digest);
-            hashes.push(&jshash);
-        }
-        // let hashes = [self.certificate_digest]
-        //     .into_iter()
-        //     .map(|x| {
-        //         let hash = ring::test::from_hex(&x).unwrap();
-        //         let digest = Uint8Array::from(hash.as_slice());
-        //         let mut jshash = WebTransportHash::new();
-        //         jshash.algorithm("sha-256").value(&digest);
-        //         jshash
-        //     })
-        //     .collect::<Array>();
-        options.server_certificate_hashes(&hashes);
-        let endpoint = xwt_web_sys::Endpoint { options };
+        let options = xwt_web_sys::WebTransportOptions {
+            server_certificate_hashes: vec![xwt_web_sys::CertificateHash {
+                algorithm: xwt_web_sys::HashAlgorithm::Sha256,
+                value: ring::test::from_hex(&self.certificate_digest).unwrap(),
+            }],
+            ..Default::default()
+        };
+        let endpoint = xwt_web_sys::Endpoint {
+            options: options.to_js(),
+        };
 
         let (send, recv) = tokio::sync::oneshot::channel();
         let (send2, recv2) = tokio::sync::oneshot::channel();
@@ -159,15 +141,6 @@ pub struct WebTransportClientSocket {
     sender: WebTransportClientPacketSender,
     receiver: WebTransportClientPacketReceiver,
     close_sender: mpsc::Sender<()>,
-}
-
-fn js_array(values: &[&str]) -> JsValue {
-    return JsValue::from(
-        values
-            .into_iter()
-            .map(|x| JsValue::from_str(x))
-            .collect::<Array>(),
-    );
 }
 
 impl Transport for WebTransportClientSocket {
