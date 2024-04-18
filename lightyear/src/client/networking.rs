@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use async_compat::Compat;
 use std::ops::DerefMut;
 
-use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
+use bevy::ecs::system::{Adapt, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::FutureExt;
@@ -81,7 +81,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
-        app.world.run_system_once(rebuild_net_config::<P>);
+        // app.world.run_system_once(rebuild_net_config::<P>);
 
         // CONNECTING
         // Everytime we try to connect, we rebuild the net config because:
@@ -91,11 +91,11 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         // the internal time, sync, priority, message numbers, etc.)
         app.add_systems(
             OnEnter(NetworkingState::Connecting),
-            (rebuild_net_config::<P>, connect).run_if(is_disconnected),
+            rebuild_net_config::<P>.run_if(is_disconnected),
         );
         app.add_systems(
             PreUpdate,
-            handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
+            handle_connection_task.run_if(in_state(NetworkingState::Connecting)),
         );
 
         // CONNECTED
@@ -286,33 +286,51 @@ pub enum NetworkingState {
     Connected,
 }
 
-fn handle_connection_failure(
-    mut connecting_state: ResMut<ConnectingState>,
-    mut next_state: ResMut<NextState<NetworkingState>>,
-    netclient: Res<ClientConnection>,
-) {
-    // First listen for the connection_task; which tracks the asynchronous process for starting the io
-    if let Some(mut connection_task) = connecting_state.io_connection_task.take() {
-        if let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut connection_task))
-        {
-            if let Err(e) = result {
-                error!("Error connecting: {}", e);
-                next_state.set(NetworkingState::Disconnected);
-                return;
-            } else {
-                // the io is connected, now check the state on the netclient directly
-            }
-        } else {
-            // future is not ready, put the task back
-            connecting_state.io_connection_task = Some(connection_task);
-        }
-    }
+// TODO: this is not ideal... it would be nice to always have a NetClient resource;
+//  which stays disconnected if connecting the io fails. Maybe we can temporarily add
+//  a disconnected net_client resource until the io is connected?
+/// Poll the async connecting task.
+/// If it is finished, we take the resulting netclient and insert it as a resource.
+/// If it isn't, we won't have a netclient resource.
+fn handle_connection_task(world: &mut World) {
+    world.resource_scope(
+        |world: &mut World, mut connecting_state: Mut<ConnectingState>| {
+            world.resource_scope(
+                |world: &mut World, mut next_state: Mut<NextState<NetworkingState>>| {
+                    // First listen for the connection_task; which tracks the asynchronous process for starting the io
+                    if let Some(connection_task) = connecting_state.io_connection_task.as_mut() {
+                        if let Some(result) = futures_lite::future::block_on(
+                            futures_lite::future::poll_once(connection_task),
+                        ) {
+                            match result {
+                                Ok(netclient) => {
+                                    // insert the connected netclient resource (with connected state)
+                                    world.insert_resource(netclient);
+                                    // the io is connected, now check the state on the netclient directly
+                                }
+                                Err(e) => {
+                                    error!("Error connecting: {}", e);
+                                    next_state.set(NetworkingState::Disconnected);
+                                    return;
+                                    // TODO: maybe also insert the netclient (built from netconfig) as a resource?
+                                }
+                            }
+                        }
+                    }
 
-    // At this point io is connected, check the state on the netclient directly
-    if netclient.state() == NetworkingState::Disconnected {
-        next_state.set(NetworkingState::Disconnected);
-    }
+                    // we reach this point when the io is connected, empty the task
+                    connecting_state.io_connection_task = None;
+
+                    // At this point io is connected, check the state on the netclient directly
+                    // if it's disconnected for some reason, abandon
+                    if world.resource::<ClientConnection>().state() == NetworkingState::Disconnected
+                    {
+                        next_state.set(NetworkingState::Disconnected);
+                    }
+                },
+            );
+        },
+    );
 }
 
 /// System that runs when we enter the Connected state
@@ -399,21 +417,26 @@ fn rebuild_net_config<P: Protocol>(world: &mut World) {
     // drop the previous client connection to make sure we release any resources before creating the new one
     world.remove_resource::<ClientConnection>();
     // insert the new client connection
-    let netclient = client_config.net.clone().build_client();
-    world.insert_resource(netclient);
+    let mut netclient = client_config.net.clone().build_client();
+    // create an async task to connect the netclient
+    let connection_task = IoTaskPool::get().spawn(Compat::new(async move {
+        {
+            netclient.connect().await?;
+            Ok(netclient)
+        }
+    }));
+    world.resource_mut::<ConnectingState>().io_connection_task = Some(connection_task);
+    // world.insert_resource(netclient);
 }
 
-/// Connect the client
-fn connect(mut netclient: ResMut<ClientConnection>, mut state: ResMut<ConnectingState>) {
-    info!("calling connect on netclient");
-    let connection_task = IoTaskPool::get().spawn(Compat::new(async { netclient.connect().await }));
-    state.io_connection_task = Some(connection_task);
+fn is_host_server(config: Res<ClientConfig>) -> bool {
+    config.shared.mode == Mode::HostServer
 }
 
 /// State that track
 #[derive(Resource)]
 struct ConnectingState {
-    io_connection_task: Option<Task<Result<(), anyhow::Error>>>,
+    io_connection_task: Option<Task<Result<ClientConnection, anyhow::Error>>>,
 }
 
 /// This system param is used to connect/disconnect the client.
