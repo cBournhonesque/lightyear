@@ -7,6 +7,7 @@ use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::info;
 
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET,
@@ -51,8 +52,8 @@ impl Channels {
 }
 
 impl TransportBuilder for Channels {
-    fn connect(self) -> Result<TransportEnum> {
-        Ok(TransportEnum::Channels(self))
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
+        Ok((TransportEnum::Channels(self), IoState::Connected))
     }
 }
 

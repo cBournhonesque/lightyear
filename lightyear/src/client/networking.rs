@@ -22,6 +22,7 @@ use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnE
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
+use crate::transport::io::IoState;
 
 pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
     marker: std::marker::PhantomData<P>,
@@ -285,9 +286,35 @@ pub enum NetworkingState {
 
 fn handle_connection_failure(
     mut next_state: ResMut<NextState<NetworkingState>>,
-    netclient: Res<ClientConnection>,
+    mut netclient: ResMut<ClientConnection>,
 ) {
+    // first check the status of the io
+    if netclient.io_mut().is_some_and(|io| match &mut io.state {
+        IoState::Connecting {
+            ref mut error_channel,
+        } => match error_channel.try_recv() {
+            Ok(Some(e)) => {
+                error!("Error starting the io: {}", e);
+                io.state = IoState::Disconnected;
+                true
+            }
+            Ok(None) => {
+                info!("Io is connected!");
+                io.state = IoState::Connected;
+                false
+            }
+            Err(_) => true,
+        },
+        _ => {
+            info!("Io state is not Connecting");
+            false
+        }
+    }) {
+        info!("Setting the next state to disconnected because of io");
+        next_state.set(NetworkingState::Disconnected);
+    }
     if netclient.state() == NetworkingState::Disconnected {
+        info!("Setting the next state to disconnected because of client connection error");
         next_state.set(NetworkingState::Disconnected);
     }
 }

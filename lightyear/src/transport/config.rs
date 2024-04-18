@@ -171,7 +171,7 @@ impl IoConfig {
     }
 
     pub fn connect(self) -> Result<Io> {
-        let transport = self.transport.build().connect()?;
+        let (transport, state) = self.transport.build().connect()?;
         let local_addr = transport.local_addr();
         let (sender, receiver, close_fn) = transport.split();
         let receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {
@@ -185,6 +185,7 @@ impl IoConfig {
             sender,
             receiver,
             close_fn,
+            state,
             stats: IoStats::default(),
         })
     }

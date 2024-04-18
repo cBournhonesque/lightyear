@@ -13,6 +13,7 @@ use wtransport::datagram::Datagram;
 use wtransport::ClientConfig;
 
 use crate::transport::error::{Error, Result};
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -24,13 +25,15 @@ pub(crate) struct WebTransportClientSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
         let (to_server_sender, mut to_server_receiver) = mpsc::unbounded_channel();
         let (from_server_sender, from_server_receiver) = mpsc::unbounded_channel();
         // channels used to cancel the task
         let (close_tx, mut close_rx) = mpsc::channel(1);
+        // channels used to check the status of the io task
+        let (status_tx, status_rx) = mpsc::channel(1);
 
-        let connection = futures_lite::future::block_on(Compat::new(async move {
+        IoTaskPool::get().spawn(Compat::new(async move {
             let config = ClientConfig::builder()
                 .with_bind_address(self.client_addr)
                 .with_no_cert_validation()
@@ -40,57 +43,69 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 "Connecting to server via webtransport at server url: {}",
                 &server_url
             );
-            let endpoint = wtransport::Endpoint::client(config)?;
-            let connection = endpoint.connect(&server_url).await?;
+            // TODO: how to get the errors from here? via a channel?
+
+            let endpoint = match wtransport::Endpoint::client(config) {
+                Ok(e) => {e}
+                Err(e) => {
+                    status_tx.send(Some(e.into())).await.unwrap();
+                    return
+                }
+            };
+            let connection = match endpoint.connect(&server_url).await {
+                Ok(c) => {c}
+                Err(e) => {
+                    status_tx.send(Some(e.into())).await.unwrap();
+                    return
+                }
+            };
+            status_tx.send(None).await.unwrap();
             info!("Connected.");
-            Ok::<wtransport::Connection, Error>(connection)
-        }))?;
 
-        let connection = Arc::new(connection);
+            let connection = Arc::new(connection);
 
-        // NOTE (IMPORTANT!):
-        // - we spawn two different futures for receive and send datagrams
-        // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
-        // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
-        //   to poll the existing one. This is FAULTY behaviour
-        // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
-        //   cancelled
-        let connection_recv = connection.clone();
-        let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
-            loop {
-                match connection_recv.receive_datagram().await {
-                    Ok(data) => {
-                        trace!("receive datagram from server: {:?}", &data);
-                        from_server_sender.send(data).unwrap();
+            // NOTE (IMPORTANT!):
+            // - we spawn two different futures for receive and send datagrams
+            // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
+            // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
+            //   to poll the existing one. This is FAULTY behaviour
+            // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
+            //   cancelled
+            let connection_recv = connection.clone();
+            let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
+                loop {
+                    match connection_recv.receive_datagram().await {
+                        Ok(data) => {
+                            trace!("receive datagram from server: {:?}", &data);
+                            from_server_sender.send(data).unwrap();
+                        }
+                        Err(e) => {
+                            error!("receive_datagram connection error: {:?}", e);
+                        }
                     }
-                    Err(e) => {
-                        error!("receive_datagram connection error: {:?}", e);
+                }
+            }));
+            let connection_send = connection.clone();
+            let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
+                loop {
+                    if let Some(msg) = to_server_receiver.recv().await {
+                        trace!("send datagram to server: {:?}", &msg);
+                        connection_send.send_datagram(msg).unwrap_or_else(|e| {
+                            error!("send_datagram error: {:?}", e);
+                        });
                     }
                 }
+            }));
+
+            // Wait for a close signal from the close channel, or for the quic connection to be closed
+            tokio::select! {
+                reason = connection.closed() => {info!("WebTransport connection closed. Reason: {reason:?}")},
+                _ = close_rx.recv() => {info!("WebTransport connection closed. Reason: client requested disconnection.");}
             }
-        }));
-        let connection_send = connection.clone();
-        let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
-            loop {
-                if let Some(msg) = to_server_receiver.recv().await {
-                    trace!("send datagram to server: {:?}", &msg);
-                    connection_send.send_datagram(msg).unwrap_or_else(|e| {
-                        error!("send_datagram error: {:?}", e);
-                    });
-                }
-            }
-        }));
-        IoTaskPool::get()
-            .spawn(async move {
-                // Wait for a close signal from the close channel, or for the quic connection to be closed
-                tokio::select! {
-                    reason = connection.closed() => {info!("WebTransport connection closed. Reason: {reason:?}")},
-                    _ = close_rx.recv() => {info!("WebTransport connection closed. Reason: client requested disconnection.");}
-                }
-                // close the other tasks
-                recv_handle.cancel().await;
-                send_handle.cancel().await;
-            })
+            // close the other tasks
+            recv_handle.cancel().await;
+            send_handle.cancel().await;
+            }))
             .detach();
 
         let sender = WebTransportClientPacketSender { to_server_sender };
@@ -99,12 +114,15 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             from_server_receiver,
             buffer: [0; MTU],
         };
-        Ok(TransportEnum::WebTransportClient(
-            WebTransportClientSocket {
+        Ok((
+            TransportEnum::WebTransportClient(WebTransportClientSocket {
                 local_addr: self.client_addr,
                 sender,
                 receiver,
                 close_sender: close_tx,
+            }),
+            IoState::Connecting {
+                error_channel: status_rx,
             },
         ))
     }
