@@ -36,7 +36,7 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
         let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = mpsc::channel(1);
+        let (status_tx, status_rx) = async_channel::bounded(1);
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,

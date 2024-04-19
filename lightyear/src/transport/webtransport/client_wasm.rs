@@ -32,7 +32,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         // channels used to cancel the task
         let (close_tx, mut close_rx) = mpsc::channel(1);
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = mpsc::channel(1);
+        let (status_tx, status_rx) = async_channel::bounded(1);
 
         let server_url = format!("https://{}", self.server_addr);
         info!(

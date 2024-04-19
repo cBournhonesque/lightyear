@@ -31,7 +31,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         // channels used to cancel the task
         let (close_tx, mut close_rx) = mpsc::channel(1);
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = mpsc::channel(1);
+        let (status_tx, status_rx) = async_channel::bounded(1);
 
         IoTaskPool::get().spawn(Compat::new(async move {
             let config = ClientConfig::builder()
@@ -43,71 +43,79 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
                 "Connecting to server via webtransport at server url: {}",
                 &server_url
             );
-            // TODO: how to get the errors from here? via a channel?
-
+            // TODO: we should listen to the close channel in parallel here
             let endpoint = match wtransport::Endpoint::client(config) {
                 Ok(e) => {e}
                 Err(e) => {
                     error!("Error creating webtransport endpoint: {:?}", e);
-                    status_tx.send(Some(e.into())).await.unwrap();
+                    let _ = status_tx.send(Some(e.into())).await;
                     return
                 }
             };
-            let connection = match endpoint.connect(&server_url).await {
-                Ok(c) => {c}
-                Err(e) => {
-                    error!("Error creating webtransport connection: {:?}", e);
-                    status_tx.send(Some(e.into())).await.unwrap();
-                    return
-                }
-            };
-            // signal that the io is connected
-            status_tx.send(None).await.unwrap();
-            info!("Connected.");
 
-            let connection = Arc::new(connection);
-
-            // NOTE (IMPORTANT!):
-            // - we spawn two different futures for receive and send datagrams
-            // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
-            // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
-            //   to poll the existing one. This is FAULTY behaviour
-            // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
-            //   cancelled
-            let connection_recv = connection.clone();
-            let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
-                loop {
-                    match connection_recv.receive_datagram().await {
-                        Ok(data) => {
-                            trace!("receive datagram from server: {:?}", &data);
-                            from_server_sender.send(data).unwrap();
-                        }
-                        Err(e) => {
-                            error!("receive_datagram connection error: {:?}", e);
-                        }
-                    }
-                }
-            }));
-            let connection_send = connection.clone();
-            let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
-                loop {
-                    if let Some(msg) = to_server_receiver.recv().await {
-                        trace!("send datagram to server: {:?}", &msg);
-                        connection_send.send_datagram(msg).unwrap_or_else(|e| {
-                            error!("send_datagram error: {:?}", e);
-                        });
-                    }
-                }
-            }));
-
-            // Wait for a close signal from the close channel, or for the quic connection to be closed
             tokio::select! {
-                reason = connection.closed() => {info!("WebTransport connection closed. Reason: {reason:?}")},
-                _ = close_rx.recv() => {info!("WebTransport connection closed. Reason: client requested disconnection.");}
+                _ = close_rx.recv() => {
+                    info!("WebTransport connection closed. Reason: client requested disconnection.");
+                    let _ = status_tx.send(Some(std::io::Error::other("received close signal").into())).await;
+                    return
+                }
+                connection = endpoint.connect(&server_url) => {
+                    let connection = match connection {
+                        Ok(c) => {c}
+                        Err(e) => {
+                            error!("Error creating webtransport connection: {:?}", e);
+                            let _ = status_tx.send(Some(std::io::Error::other(e).into())).await;
+                            return
+                        }
+                    };
+                    // signal that the io is connected
+                    status_tx.send(None).await.unwrap();
+                    info!("Connected.");
+
+                    let connection = Arc::new(connection);
+
+                    // NOTE (IMPORTANT!):
+                    // - we spawn two different futures for receive and send datagrams
+                    // - if we spawned only one future and used tokio::select!(), the branch that is not selected would be cancelled
+                    // - this means that we might recreate a new future in `connection.receive_datagram()` instead of just continuing
+                    //   to poll the existing one. This is FAULTY behaviour
+                    // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
+                    //   cancelled
+                    let connection_recv = connection.clone();
+                    let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
+                        loop {
+                            match connection_recv.receive_datagram().await {
+                                Ok(data) => {
+                                    trace!("receive datagram from server: {:?}", &data);
+                                    from_server_sender.send(data).unwrap();
+                                }
+                                Err(e) => {
+                                    error!("receive_datagram connection error: {:?}", e);
+                                }
+                            }
+                        }
+                    }));
+                    let connection_send = connection.clone();
+                    let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
+                        loop {
+                            if let Some(msg) = to_server_receiver.recv().await {
+                                trace!("send datagram to server: {:?}", &msg);
+                                connection_send.send_datagram(msg).unwrap_or_else(|e| {
+                                    error!("send_datagram error: {:?}", e);
+                                });
+                            }
+                        }
+                    }));
+                    // Wait for a close signal from the close channel, or for the quic connection to be closed
+                    tokio::select! {
+                        reason = connection.closed() => {info!("WebTransport connection closed. Reason: {reason:?}")},
+                        _ = close_rx.recv() => {info!("WebTransport connection closed. Reason: client requested disconnection.");}
+                    }
+                    // close the other tasks
+                    recv_handle.cancel().await;
+                    send_handle.cancel().await;
+                }
             }
-            // close the other tasks
-            recv_handle.cancel().await;
-            send_handle.cancel().await;
             }))
             .detach();
 

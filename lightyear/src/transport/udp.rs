@@ -112,13 +112,13 @@ mod tests {
     fn test_udp_socket() -> Result<(), anyhow::Error> {
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
-        let client_socket = UdpSocketBuilder { local_addr }
+        let (client_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let client_addr = client_socket.local_addr();
         let (mut client_sender, _, _) = client_socket.split();
 
-        let server_socket = UdpSocketBuilder { local_addr }
+        let (server_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let server_addr = server_socket.local_addr();
@@ -145,13 +145,13 @@ mod tests {
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let client_socket = UdpSocketBuilder { local_addr }
+        let (client_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let client_addr = client_socket.local_addr();
         let (mut client_sender, _, _) = client_socket.split();
 
-        let server_socket = UdpSocketBuilder { local_addr }
+        let (server_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let server_addr = server_socket.local_addr();

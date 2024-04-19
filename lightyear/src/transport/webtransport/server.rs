@@ -36,7 +36,7 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = mpsc::channel(1);
+        let (status_tx, status_rx) = async_channel::bounded(1);
         let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
 
         let sender = WebTransportServerSocketSender {
@@ -73,6 +73,7 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
                     // new client connecting
                     let incoming_session = endpoint.accept().await;
 
+                    // TODO: when a client disconnects (i.e. the connection is closed), close the task here as well
                     IoTaskPool::get()
                         .spawn(Compat::new(WebTransportServerSocket::handle_client(
                             incoming_session,

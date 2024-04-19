@@ -174,7 +174,7 @@ impl Plugin for IoDiagnosticsPlugin {
 /// Tracks the state of creating the Io
 pub(crate) enum IoState {
     Connecting {
-        error_channel: tokio::sync::mpsc::Receiver<Option<Error>>,
+        error_channel: async_channel::Receiver<Option<Error>>,
     },
     Connected,
     Disconnected,

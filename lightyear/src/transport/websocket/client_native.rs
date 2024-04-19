@@ -44,7 +44,7 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
         let (close_tx, mut close_rx) = mpsc::channel(1);
         // channels used to check the status of the io task
-        let (status_tx, status_rx) = mpsc::channel(1);
+        let (status_tx, status_rx) = async_channel::bounded(1);
 
         let sender = WebSocketClientSocketSender { serverbound_tx };
         let receiver = WebSocketClientSocketReceiver {

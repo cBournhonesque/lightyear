@@ -1,11 +1,11 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
 use anyhow::{Context, Result};
+use async_channel::TryRecvError;
 use std::ops::DerefMut;
 
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
-use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{error, trace};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
@@ -311,7 +311,7 @@ fn handle_connection_failure(
             }
             // we are still connecting the io, but the channel has been closed, this looks
             // like an error
-            Err(TryRecvError::Disconnected) => {
+            Err(TryRecvError::Closed) => {
                 error!("Io status channel has been closed when it shouldn't be");
                 true
             }
@@ -350,12 +350,15 @@ fn on_connect(
 /// Updates the DisconnectEvent events
 fn on_disconnect(
     mut disconnect_event_writer: EventWriter<DisconnectEvent>,
-    netcode: Res<ClientConnection>,
+    mut netcode: ResMut<ClientConnection>,
     config: Res<ClientConfig>,
     mut server_disconnect_event_writer: Option<
         ResMut<Events<crate::server::events::DisconnectEvent>>,
     >,
 ) {
+    // try to disconnect again to close io tasks (in case the disconnection is from the io)
+    let _ = netcode.disconnect();
+
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
     disconnect_event_writer.send(DisconnectEvent::new(()));

@@ -120,6 +120,7 @@ tokio = { version = "1.36", features = [
 ], default-features = false, optional = true }
 futures = "0.3.30"
 async-compat = "0.2.3"
+async-channel = "2.2.0"
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 # connection
