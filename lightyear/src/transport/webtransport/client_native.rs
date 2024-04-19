@@ -48,6 +48,7 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             let endpoint = match wtransport::Endpoint::client(config) {
                 Ok(e) => {e}
                 Err(e) => {
+                    error!("Error creating webtransport endpoint: {:?}", e);
                     status_tx.send(Some(e.into())).await.unwrap();
                     return
                 }
@@ -55,10 +56,12 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
             let connection = match endpoint.connect(&server_url).await {
                 Ok(c) => {c}
                 Err(e) => {
+                    error!("Error creating webtransport connection: {:?}", e);
                     status_tx.send(Some(e.into())).await.unwrap();
                     return
                 }
             };
+            // signal that the io is connected
             status_tx.send(None).await.unwrap();
             info!("Connected.");
 

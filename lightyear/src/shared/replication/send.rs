@@ -105,6 +105,7 @@ impl<P: Protocol> ReplicationSender<P> {
             }
         }
 
+        // TODO: don't accumulate priority if priority is not enabled
         // then accumulate the priority for all replication groups
         self.group_channels.values_mut().for_each(|channel| {
             channel.accumulated_priority = channel
@@ -353,7 +354,7 @@ impl<P: Protocol> ReplicationSender<P> {
         }
 
         if !messages.is_empty() {
-            warn!(?messages, "Sending replication messages");
+            debug!(?messages, "Sending replication messages");
         }
 
         // clear send buffers
