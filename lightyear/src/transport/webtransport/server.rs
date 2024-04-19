@@ -19,6 +19,7 @@ use wtransport::ServerConfig;
 use wtransport::{Connection, Endpoint};
 
 use crate::transport::error::{Error, Result};
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -30,21 +31,13 @@ pub(crate) struct WebTransportServerSocketBuilder {
 }
 
 impl TransportBuilder for WebTransportServerSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
         let (to_client_sender, to_client_receiver) =
             mpsc::unbounded_channel::<(Box<[u8]>, SocketAddr)>();
         let (from_client_sender, from_client_receiver) = mpsc::unbounded_channel();
+        // channels used to check the status of the io task
+        let (status_tx, status_rx) = async_channel::bounded(1);
         let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
-
-        let config = ServerConfig::builder()
-            .with_bind_address(self.server_addr)
-            .with_certificate(self.certificate)
-            .build();
-        // need to run this with Compat because it requires the tokio reactor
-        let endpoint = futures_lite::future::block_on(Compat::new(async {
-            let endpoint = wtransport::Endpoint::server(config)?;
-            Ok::<_, Error>(endpoint)
-        }))?;
 
         let sender = WebTransportServerSocketSender {
             server_addr: self.server_addr,
@@ -56,8 +49,21 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
             from_client_receiver,
         };
 
+        let config = ServerConfig::builder()
+            .with_bind_address(self.server_addr)
+            .with_certificate(self.certificate)
+            .build();
+        // need to run this with Compat because it requires the tokio reactor
         IoTaskPool::get()
             .spawn(Compat::new(async move {
+                let endpoint = match wtransport::Endpoint::server(config) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        status_tx.send(Some(e.into())).await.unwrap();
+                        return;
+                    }
+                };
+
                 info!("Starting server webtransport task");
                 loop {
                     // clone the channel for each client
@@ -67,6 +73,7 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
                     // new client connecting
                     let incoming_session = endpoint.accept().await;
 
+                    // TODO: when a client disconnects (i.e. the connection is closed), close the task here as well
                     IoTaskPool::get()
                         .spawn(Compat::new(WebTransportServerSocket::handle_client(
                             incoming_session,
@@ -78,11 +85,14 @@ impl TransportBuilder for WebTransportServerSocketBuilder {
             }))
             .detach();
 
-        Ok(TransportEnum::WebTransportServer(
-            WebTransportServerSocket {
+        Ok((
+            TransportEnum::WebTransportServer(WebTransportServerSocket {
                 local_addr: self.server_addr,
                 sender,
                 receiver,
+            }),
+            IoState::Connecting {
+                error_channel: status_rx,
             },
         ))
     }

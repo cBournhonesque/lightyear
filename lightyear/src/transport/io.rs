@@ -18,7 +18,7 @@ use crate::transport::middleware::conditioner::{
 use crate::transport::middleware::PacketReceiverWrapper;
 use crate::transport::{PacketReceiver, PacketSender, Transport};
 
-use super::error::Result;
+use super::error::{Error, Result};
 use super::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, TransportBuilder, TransportBuilderEnum, LOCAL_SOCKET,
 };
@@ -30,6 +30,7 @@ pub struct Io {
     pub(crate) sender: BoxedSender,
     pub(crate) receiver: BoxedReceiver,
     pub(crate) close_fn: Option<BoxedCloseFn>,
+    pub(crate) state: IoState,
     pub(crate) stats: IoStats,
 }
 
@@ -168,4 +169,13 @@ impl Plugin for IoDiagnosticsPlugin {
                 .with_max_history_length(IoDiagnosticsPlugin::DIAGNOSTIC_HISTORY_LEN),
         );
     }
+}
+
+/// Tracks the state of creating the Io
+pub(crate) enum IoState {
+    Connecting {
+        error_channel: async_channel::Receiver<Option<Error>>,
+    },
+    Connected,
+    Disconnected,
 }
