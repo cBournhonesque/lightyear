@@ -5,8 +5,13 @@ use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
 use crate::_reexport::{ComponentProtocol, ServerMarker};
+use crate::client::components::Confirmed;
+use crate::client::config::ClientConfig;
+use crate::client::interpolation::Interpolated;
+use crate::client::prediction::Predicted;
+use crate::connection::client::ClientConnection;
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{TickManager, TimeManager};
+use crate::prelude::{Mode, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
