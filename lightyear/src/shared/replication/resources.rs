@@ -230,11 +230,12 @@ pub(crate) mod receive {
 #[cfg(test)]
 mod tests {
     use super::{ReplicateResource, StopReplicateResourceExt};
+    use crate::prelude::client::NetworkingState;
     use crate::prelude::NetworkTarget;
     use crate::shared::replication::resources::ReplicateResourceExt;
     use crate::tests::protocol::{Component1, Replicate, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::{Commands, Entity, With};
+    use bevy::prelude::{Commands, Entity, OnEnter, With};
 
     #[test]
     fn test_resource_replication_manually() {
@@ -413,15 +414,12 @@ mod tests {
         // check that the resource was replicated
         assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 1.0);
 
-        // TODO: disconnect the client and run the OnDisconnect schedule?
-
-        // remove the entity driving the replication
-        let client_entity = stepper
+        // disconnect the client, which should despawn any replicated entities
+        stepper
             .client_app
             .world
-            .query_filtered::<Entity, With<ReplicateResource<Resource1>>>()
-            .single(&stepper.client_app.world);
-        stepper.client_app.world.entity_mut(client_entity).despawn();
+            .run_schedule(OnEnter(NetworkingState::Disconnected));
+
         stepper.frame_step();
 
         // check that the resource was removed on the client
