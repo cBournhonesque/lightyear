@@ -1,6 +1,6 @@
 pub mod some_component {
     use bevy::ecs::entity::MapEntities;
-    use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
+    use bevy::prelude::{Component, Entity, EntityMapper, Reflect, Resource};
     use derive_more::Add;
     use serde::{Deserialize, Serialize};
     use std::ops::Mul;
@@ -8,6 +8,9 @@ pub mod some_component {
     use lightyear::prelude::client::LerpFn;
     use lightyear::prelude::*;
     use lightyear_macros::{component_protocol, message_protocol};
+
+    #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
+    pub struct Resource1(pub f32);
 
     #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Add, Reflect)]
     pub struct Component1(pub f32);
@@ -48,6 +51,7 @@ pub mod some_component {
         Component4(Component4),
         #[protocol(sync(mode = "full", lerp = "MyCustomInterpolator"))]
         Component5(Component5),
+        Resource1(ReplicateResource<Resource1>),
     }
 
     // custom interpolation logic
@@ -58,13 +62,8 @@ pub mod some_component {
         }
     }
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-    pub struct Message1(pub u32);
-
     #[message_protocol(protocol = "MyProtocol")]
-    pub enum MyMessageProtocol {
-        Message1(Message1),
-    }
+    pub enum MyMessageProtocol {}
 
     protocolize! {
         Self = MyProtocol,

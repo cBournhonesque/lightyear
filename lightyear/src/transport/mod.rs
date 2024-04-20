@@ -8,6 +8,7 @@ use error::Result;
 
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
+use crate::transport::io::IoState;
 use crate::transport::local::{LocalChannel, LocalChannelBuilder};
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
@@ -76,7 +77,7 @@ pub(crate) trait TransportBuilder: Send + Sync {
     /// Attempt to:
     /// - connect to the remote (for clients)
     /// - listen to incoming connections (for server)
-    fn connect(self) -> Result<TransportEnum>;
+    fn connect(self) -> Result<(TransportEnum, IoState)>;
 
     // TODO maybe add a `async fn ready() -> bool` function?
 }

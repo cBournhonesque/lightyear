@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -16,7 +17,7 @@ pub struct UdpSocketBuilder {
 }
 
 impl TransportBuilder for UdpSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
         let udp_socket = std::net::UdpSocket::bind(self.local_addr)?;
         let local_addr = udp_socket.local_addr()?;
         let socket = Arc::new(Mutex::new(udp_socket));
@@ -26,11 +27,14 @@ impl TransportBuilder for UdpSocketBuilder {
             buffer: [0; MTU],
         };
         let receiver = sender.clone();
-        Ok(TransportEnum::UdpSocket(UdpSocket {
-            local_addr,
-            sender,
-            receiver,
-        }))
+        Ok((
+            TransportEnum::UdpSocket(UdpSocket {
+                local_addr,
+                sender,
+                receiver,
+            }),
+            IoState::Connected,
+        ))
     }
 }
 
@@ -108,13 +112,13 @@ mod tests {
     fn test_udp_socket() -> Result<(), anyhow::Error> {
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
-        let client_socket = UdpSocketBuilder { local_addr }
+        let (client_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let client_addr = client_socket.local_addr();
         let (mut client_sender, _, _) = client_socket.split();
 
-        let server_socket = UdpSocketBuilder { local_addr }
+        let (server_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let server_addr = server_socket.local_addr();
@@ -141,13 +145,13 @@ mod tests {
         // let the OS assign a port
         let local_addr = SocketAddr::from_str("127.0.0.1:0")?;
 
-        let client_socket = UdpSocketBuilder { local_addr }
+        let (client_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let client_addr = client_socket.local_addr();
         let (mut client_sender, _, _) = client_socket.split();
 
-        let server_socket = UdpSocketBuilder { local_addr }
+        let (server_socket, _) = UdpSocketBuilder { local_addr }
             .connect()
             .context("could not connect to socket")?;
         let server_addr = server_socket.local_addr();

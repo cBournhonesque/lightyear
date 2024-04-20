@@ -660,13 +660,14 @@ impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
     }
 
     fn disconnect(&mut self) -> anyhow::Result<()> {
-        let io = self.io.as_mut().context("io is not initialized")?;
-        self.client
-            .disconnect(io)
-            .context("Error when disconnecting from server")?;
-        // close and drop the io
-        io.close().context("Could not close the io")?;
-        std::mem::take(&mut self.io);
+        if let Some(io) = self.io.as_mut() {
+            self.client
+                .disconnect(io)
+                .context("Error when disconnecting from server")?;
+            // close and drop the io
+            io.close().context("Could not close the io")?;
+            std::mem::take(&mut self.io);
+        }
         Ok(())
     }
 

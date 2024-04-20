@@ -11,6 +11,7 @@ use futures_util::{
     stream::{SplitSink, TryStreamExt},
     SinkExt, StreamExt, TryFutureExt,
 };
+use tokio::sync::mpsc;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -20,6 +21,7 @@ use tracing::{info, trace};
 use tracing_log::log::error;
 
 use crate::transport::error::{Error, Result};
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, MTU,
@@ -30,9 +32,11 @@ pub(crate) struct WebSocketServerSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketServerSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
         let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
+        // channels used to check the status of the io task
+        let (status_tx, status_rx) = async_channel::bounded(1);
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,
@@ -44,12 +48,15 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
             serverbound_rx,
         };
 
-        let listener = futures_lite::future::block_on(Compat::new(async move {
-            TcpListener::bind(self.server_addr).await
-        }))?;
-
-        IoTaskPool::get()
+        let listener = IoTaskPool::get()
             .spawn(Compat::new(async move {
+                let listener = match TcpListener::bind(self.server_addr).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        status_tx.send(Some(e.into())).await.unwrap();
+                        return;
+                    }
+                };
                 info!("Starting server websocket task");
                 while let Ok((stream, addr)) = listener.accept().await {
                     let clientbound_tx_map = clientbound_tx_map.clone();
@@ -108,11 +115,16 @@ impl TransportBuilder for WebSocketServerSocketBuilder {
                 }
             }))
             .detach();
-        Ok(TransportEnum::WebSocketServer(WebSocketServerSocket {
-            local_addr: self.server_addr,
-            sender,
-            receiver,
-        }))
+        Ok((
+            TransportEnum::WebSocketServer(WebSocketServerSocket {
+                local_addr: self.server_addr,
+                sender,
+                receiver,
+            }),
+            IoState::Connecting {
+                error_channel: status_rx,
+            },
+        ))
     }
 }
 

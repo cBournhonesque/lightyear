@@ -120,6 +120,7 @@ tokio = { version = "1.36", features = [
 ], default-features = false, optional = true }
 futures = "0.3.30"
 async-compat = "0.2.3"
+async-channel = "2.2.0"
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 # connection
@@ -138,7 +139,7 @@ tokio-tungstenite = { version = "0.21.0", optional = true, features = [
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook = { version = "0.1.7" }
-ring = { version = "0.17.7", optional = true }
+ring = { version = "0.17.8", optional = true, default-features = false }
 web-sys = { version = "0.3", optional = true, features = [
   "WebTransport",
   "WebTransportHash",
@@ -160,7 +161,7 @@ getrandom = { version = "0.2.11", features = [
   "js", # feature 'js' is required for wasm
 ] }
 xwt-core = { version = "0.2", optional = true }
-xwt-web-sys = { version = "0.6", optional = true }
+xwt-web-sys = { version = "0.9", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
 
 

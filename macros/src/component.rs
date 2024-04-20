@@ -1,4 +1,4 @@
-use crate::shared::{get_fields, strip_attributes};
+use crate::shared::{get_fields, get_inner_generic, strip_attributes};
 use darling::ast::NestedMeta;
 use darling::util::{Flag, PathList};
 use darling::{Error, FromField, FromMeta, FromVariant};
@@ -143,6 +143,8 @@ pub fn component_protocol_impl(
     let sync_component_impl = sync_metadata_impl(&attr_fields, enum_name);
 
     // Methods
+    let add_resource_send_method = add_resource_send_method(&fields, protocol);
+    let add_resource_receive_method = add_resource_receive_method(&fields, protocol);
     let add_systems_method = add_per_component_replication_send_systems_method(&fields, protocol);
     let add_events_method = add_events_method(&fields);
     let push_component_events_method = push_component_events_method(&fields, protocol);
@@ -187,6 +189,8 @@ pub fn component_protocol_impl(
                 #type_ids_method
                 #insert_method
                 #update_method
+                #add_resource_send_method
+                #add_resource_receive_method
                 #add_systems_method
                 #add_events_method
                 #push_component_events_method
@@ -248,6 +252,50 @@ pub fn component_protocol_impl(
     };
 
     proc_macro::TokenStream::from(gen)
+}
+
+fn add_resource_send_method(fields: &Vec<Field>, protocol_name: &Ident) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let ty = &field.ty;
+        if !quote!(#ty).to_string().starts_with("ReplicateResource") {
+            continue;
+        }
+        let resource = get_inner_generic(ty)
+            .expect("ReplicateResource must have a generic type: ReplicateResource<R>");
+        body = quote! {
+            #body
+            add_resource_send_systems::<#protocol_name, R, #resource>(app);
+        };
+    }
+    quote! {
+        fn add_resource_send_systems<R: ReplicationSend<#protocol_name>>(app: &mut App)
+        {
+            #body
+        }
+    }
+}
+
+fn add_resource_receive_method(fields: &Vec<Field>, protocol_name: &Ident) -> TokenStream {
+    let mut body = quote! {};
+    for field in fields {
+        let ty = &field.ty;
+        if !quote!(#ty).to_string().starts_with("ReplicateResource") {
+            continue;
+        }
+        let resource = get_inner_generic(ty)
+            .expect("ReplicateResource must have a generic type: ReplicateResource<R>");
+        body = quote! {
+            #body
+            add_resource_receive_systems::<#protocol_name, R, #resource>(app);
+        };
+    }
+    quote! {
+        fn add_resource_receive_systems<R: ReplicationSend<#protocol_name>>(app: &mut App)
+        {
+            #body
+        }
+    }
 }
 
 fn add_per_component_replication_send_systems_method(
@@ -617,7 +665,9 @@ fn update_method(input: &ItemEnum, fields: &Vec<Field>) -> TokenStream {
             Self::#ident(x) => {
                  if let Some(mut c) = entity.get_mut::<#component_type>() {
                     *c = x;
-                 }
+                 } else {
+                    entity.insert(x);
+                }
             }
         };
         // let is_wrapped = match component_type {

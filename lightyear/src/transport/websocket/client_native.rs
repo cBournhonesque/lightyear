@@ -28,6 +28,7 @@ use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
 use crate::transport::error::{Error, Result};
+use crate::transport::io::IoState;
 use crate::transport::{
     BoxedCloseFn, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
     TransportBuilder, TransportEnum, LOCAL_SOCKET, MTU,
@@ -38,10 +39,12 @@ pub(crate) struct WebSocketClientSocketBuilder {
 }
 
 impl TransportBuilder for WebSocketClientSocketBuilder {
-    fn connect(self) -> Result<TransportEnum> {
+    fn connect(self) -> Result<(TransportEnum, IoState)> {
         let (serverbound_tx, mut serverbound_rx) = unbounded_channel::<Message>();
         let (clientbound_tx, clientbound_rx) = unbounded_channel::<Message>();
         let (close_tx, mut close_rx) = mpsc::channel(1);
+        // channels used to check the status of the io task
+        let (status_tx, status_rx) = async_channel::bounded(1);
 
         let sender = WebSocketClientSocketSender { serverbound_tx };
         let receiver = WebSocketClientSocketReceiver {
@@ -50,60 +53,67 @@ impl TransportBuilder for WebSocketClientSocketBuilder {
             clientbound_rx,
         };
 
-        // TODO: make connect async?
-        // connect to the server
-        let (ws_stream, _) = IoTaskPool::get()
-            .scope(|scope| {
-                scope.spawn(Compat::new(async move {
-                    connect_async_with_config(format!("ws://{}/", self.server_addr), None, true)
-                        .await
-                }))
-            })
-            .pop()
-            .unwrap()?;
-        info!("WebSocket handshake has been successfully completed");
-        let (mut write, mut read) = ws_stream.split();
-
-        let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
-            while let Some(msg) = read.next().await {
-                let msg = msg
-                    .map_err(|e| {
-                        error!("Error while receiving websocket msg: {}", e);
-                    })
-                    .unwrap();
-
-                clientbound_tx
-                    .send(msg)
-                    .expect("Unable to propagate the read websocket message to the receiver");
-            }
-            // when we reach this point, the stream is closed
-        }));
-        let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
-            while let Some(msg) = serverbound_rx.recv().await {
-                write
-                    .send(msg)
-                    .await
-                    .map_err(|e| {
-                        error!("Encountered error while sending websocket msg: {}", e);
-                    })
-                    .unwrap();
-            }
-        }));
-        // wait for a signal that the io should be closed
         IoTaskPool::get()
-            .spawn(async move {
+            .spawn(Compat::new(async move {
+                let ws_stream = match connect_async_with_config(
+                    format!("ws://{}/", self.server_addr),
+                    None,
+                    true,
+                )
+                .await
+                {
+                    Ok((ws_stream, _)) => ws_stream,
+                    Err(e) => {
+                        status_tx.send(Some(e.into())).await.unwrap();
+                        return;
+                    }
+                };
+                info!("WebSocket handshake has been successfully completed");
+                let (mut write, mut read) = ws_stream.split();
+
+                let send_handle = IoTaskPool::get().spawn(Compat::new(async move {
+                    while let Some(msg) = read.next().await {
+                        let msg = msg
+                            .map_err(|e| {
+                                error!("Error while receiving websocket msg: {}", e);
+                            })
+                            .unwrap();
+
+                        clientbound_tx.send(msg).expect(
+                            "Unable to propagate the read websocket message to the receiver",
+                        );
+                    }
+                    // when we reach this point, the stream is closed
+                }));
+                let recv_handle = IoTaskPool::get().spawn(Compat::new(async move {
+                    while let Some(msg) = serverbound_rx.recv().await {
+                        write
+                            .send(msg)
+                            .await
+                            .map_err(|e| {
+                                error!("Encountered error while sending websocket msg: {}", e);
+                            })
+                            .unwrap();
+                    }
+                }));
+                // wait for a signal that the io should be closed
                 close_rx.recv().await;
                 info!("Close websocket connection");
                 send_handle.cancel().await;
                 recv_handle.cancel().await;
-            })
+            }))
             .detach();
-        Ok(TransportEnum::WebSocketClient(WebSocketClientSocket {
-            local_addr: self.server_addr,
-            sender,
-            receiver,
-            close_sender: close_tx,
-        }))
+        Ok((
+            TransportEnum::WebSocketClient(WebSocketClientSocket {
+                local_addr: self.server_addr,
+                sender,
+                receiver,
+                close_sender: close_tx,
+            }),
+            IoState::Connecting {
+                error_channel: status_rx,
+            },
+        ))
     }
 }
 

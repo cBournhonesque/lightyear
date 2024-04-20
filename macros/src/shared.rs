@@ -58,3 +58,23 @@ pub(crate) fn strip_attributes(input: &ItemEnum, attributes_to_remove: &[&str]) 
     }
     input
 }
+
+/// For a type like `XXX<T>`, get the inner type `T`
+pub(crate) fn get_inner_generic(ty: &syn::Type) -> Option<&syn::Type> {
+    if let syn::Type::Path(syn::TypePath { path, .. }) = ty {
+        if path.segments.len() == 1 {
+            if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                args,
+                ..
+            }) = &path.segments.first().unwrap().arguments
+            {
+                if args.len() == 1 {
+                    if let syn::GenericArgument::Type(ty) = args.first().unwrap() {
+                        return Some(ty);
+                    }
+                }
+            }
+        }
+    }
+    None
+}

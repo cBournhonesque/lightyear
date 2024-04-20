@@ -12,6 +12,9 @@ use crate::shared::replication::components::{
 };
 use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
 use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
+use crate::shared::replication::resources::{
+    receive::ResourceReceivePlugin, send::ResourceSendPlugin,
+};
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 
@@ -59,6 +62,7 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
         if self.enable_receive {
             // PLUGINS
             app.add_plugins(HierarchyReceivePlugin::<P, R>::default());
+            app.add_plugins(ResourceReceivePlugin::<P, R>::default());
         }
         if self.enable_send {
             app.configure_sets(
@@ -75,12 +79,14 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
                 (
                     (
                         InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::All),
                     (
                         InternalReplicationSet::<R::SetMarker>::SendEntityUpdates,
+                        InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
                         // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                     )
@@ -98,6 +104,7 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
             app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
             // PLUGINS
             app.add_plugins(HierarchySendPlugin::<P, R>::default());
+            app.add_plugins(ResourceSendPlugin::<P, R>::default());
         }
     }
 }
