@@ -220,7 +220,12 @@ impl<P: Protocol> ReplicationReceiver<P> {
                             continue;
                         }
                         // TODO: optimization: spawn the bundle of insert components
-                        let local_entity = world.spawn_empty();
+                        // we spawn every replicated entity with the `Confirmed` component
+                        let local_entity = world.spawn(Confirmed {
+                            predicted: None,
+                            interpolated: None,
+                            tick,
+                        });
                         self.remote_entity_map.insert(*entity, local_entity.id());
                         trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 

@@ -9,9 +9,12 @@ use bevy::prelude::*;
 use tracing::{error, trace};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
+use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::interpolation::Interpolated;
+use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::prelude::{SharedConfig, TickManager, TimeManager};
@@ -355,7 +358,14 @@ fn on_disconnect(
     mut server_disconnect_event_writer: Option<
         ResMut<Events<crate::server::events::DisconnectEvent>>,
     >,
+    mut commands: Commands,
+    received_entities: Query<Entity, Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>>,
 ) {
+    // despawn any entities that were spawned from replication
+    received_entities
+        .iter()
+        .for_each(|e| commands.entity(e).despawn_recursive());
+
     // try to disconnect again to close io tasks (in case the disconnection is from the io)
     let _ = netcode.disconnect();
 
