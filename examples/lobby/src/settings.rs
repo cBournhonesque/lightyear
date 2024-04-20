@@ -71,6 +71,12 @@ impl Conditioner {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LobbyServerSettings {
+    /// Which transport to use
+    pub(crate) transport: Vec<ServerTransports>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ServerSettings {
     /// If true, disable any rendering-related plugins
     pub(crate) headless: bool,
@@ -121,6 +127,7 @@ pub struct SharedSettings {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     pub server: ServerSettings,
+    pub lobby_server: LobbyServerSettings,
     pub client: ClientSettings,
     pub shared: SharedSettings,
 }
@@ -219,6 +226,74 @@ pub fn get_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
                     .conditioner
                     .as_ref()
                     .map_or(None, |c| Some(c.build())),
+            },
+        })
+        .collect()
+}
+
+/// Parse the settings into a list of `NetConfig` that are used to configure how the lightyear lobby server
+/// listens for incoming client connections
+#[cfg(not(target_family = "wasm"))]
+pub fn get_lobby_server_net_configs(settings: &Settings) -> Vec<server::NetConfig> {
+    settings
+        .lobby_server
+        .transport
+        .iter()
+        .map(|t| match t {
+            ServerTransports::Udp { local_port } => build_server_netcode_config(
+                None,
+                &settings.shared,
+                TransportConfig::UdpSocket(SocketAddr::new(
+                    Ipv4Addr::UNSPECIFIED.into(),
+                    *local_port,
+                )),
+            ),
+            ServerTransports::WebTransport { local_port } => {
+                // this is async because we need to load the certificate from io
+                // we need async_compat because wtransport expects a tokio reactor
+                let certificate = IoTaskPool::get()
+                    .scope(|s| {
+                        s.spawn(Compat::new(async {
+                            Certificate::load("../certificates/cert.pem", "../certificates/key.pem")
+                                .await
+                                .unwrap()
+                        }));
+                    })
+                    .pop()
+                    .unwrap();
+                let digest = &certificate.hashes()[0].to_string().replace(":", "");
+                println!("Generated self-signed certificate with digest: {}", digest);
+                build_server_netcode_config(
+                    None,
+                    &settings.shared,
+                    TransportConfig::WebTransportServer {
+                        server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
+                        certificate,
+                    },
+                )
+            }
+            ServerTransports::WebSocket { local_port } => crate::build_server_netcode_config(
+                None,
+                &settings.shared,
+                TransportConfig::WebSocketServer {
+                    server_addr: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), *local_port),
+                },
+            ),
+            ServerTransports::Steam {
+                app_id,
+                server_ip,
+                game_port,
+                query_port,
+            } => server::NetConfig::Steam {
+                config: server::SteamConfig {
+                    app_id: *app_id,
+                    server_ip: *server_ip,
+                    game_port: *game_port,
+                    query_port: *query_port,
+                    max_clients: 16,
+                    version: "1.0".to_string(),
+                },
+                conditioner: None,
             },
         })
         .collect()

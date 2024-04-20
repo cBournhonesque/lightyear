@@ -35,7 +35,8 @@ pub enum AppState {
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ui::LobbyTable>();
+        app.init_resource::<ui::LobbyUi>();
+        app.init_resource::<Lobby>();
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
@@ -46,10 +47,6 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             Update,
             (
-                receive_client_connection,
-                receive_client_disconnection,
-                receive_entity_spawn,
-                receive_entity_despawn,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 ui::lobby_ui,
@@ -68,11 +65,9 @@ pub struct ClientIdText;
 pub(crate) fn handle_connection(
     mut commands: Commands,
     mut connection_event: EventReader<ConnectEvent>,
-    mut lobby_table: ResMut<ui::LobbyTable>,
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        lobby_table.clients.insert(client_id, false);
         commands.spawn((
             TextBundle::from_section(
                 format!("Client {}", client_id),
@@ -146,42 +141,6 @@ fn player_movement(
     }
 }
 
-/// System handling receiving a ClientConnection message
-pub(crate) fn receive_client_connection(
-    mut reader: EventReader<MessageEvent<ClientConnect>>,
-    mut lobby_table: ResMut<ui::LobbyTable>,
-) {
-    for event in reader.read() {
-        let client_connection = event.message();
-        lobby_table.clients.insert(client_connection.id, false);
-    }
-}
-
-/// System handling receiving a ClientDisconnection message
-pub(crate) fn receive_client_disconnection(
-    mut reader: EventReader<MessageEvent<ClientDisconnect>>,
-    mut lobby_table: ResMut<ui::LobbyTable>,
-) {
-    for event in reader.read() {
-        let client_disconnection = event.message();
-        lobby_table.clients.remove(&client_disconnection.id);
-    }
-}
-
-/// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity spawn: {:?}", event.entity());
-    }
-}
-
-/// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity despawn: {:?}", event.entity());
-    }
-}
-
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
@@ -218,7 +177,7 @@ fn on_disconnect(
 
 mod ui {
     use crate::client::ui;
-    use crate::protocol::MyProtocol;
+    use crate::protocol::{Lobby, MyProtocol};
     use bevy::ecs::system::SystemState;
     use bevy::prelude::{Mut, NextState, Res, ResMut, Resource, State, World};
     use bevy::utils::HashMap;
@@ -230,17 +189,16 @@ mod ui {
     use tracing::{error, info};
 
     #[derive(Resource, Default, Debug)]
-    pub(crate) struct LobbyTable {
-        /// map from the client_id to a boolean indicating if the client is the host
-        pub(crate) clients: HashMap<ClientId, bool>,
-        /// true if we will use the server as host
-        pub server: bool,
+    pub(crate) struct LobbyUi {
+        server_host: bool,
+        clients: HashMap<ClientId, bool>,
     }
 
-    impl LobbyTable {
+    impl LobbyUi {
         fn table_ui(
             &mut self,
             ui: &mut egui::Ui,
+            lobby: &Lobby,
             state: &NetworkingState,
             mut next_state: Mut<NextState<NetworkingState>>,
         ) {
@@ -264,24 +222,26 @@ mod ui {
                             ui.label("Server");
                         });
                         row.col(|ui| {
-                            ui.checkbox(&mut self.server, "");
+                            ui.checkbox(&mut self.server_host, "");
                         });
                     });
-                    for (client_id, is_host) in self.clients.iter_mut() {
+                    for client_id in lobby.players.iter() {
+                        self.clients.entry(*client_id).or_insert(false);
                         body.row(30.0, |mut row| {
                             row.col(|ui| {
                                 ui.label(format!("{client_id:?}"));
                             });
                             row.col(|ui| {
-                                ui.checkbox(is_host, "");
+                                ui.checkbox(self.clients.get_mut(client_id).unwrap(), "");
                             });
                         });
                     }
                 });
             ui.add(Separator::default().horizontal());
+
             match state {
                 NetworkingState::Disconnected => {
-                    if ui.button("Connect").clicked() {
+                    if ui.button("Join lobby").clicked() {
                         // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
                         // - the new host must run in host-server
                         // - all clients must adjust their net-config to connect to the host
@@ -289,15 +249,20 @@ mod ui {
                     }
                 }
                 NetworkingState::Connecting => {
-                    let _ = ui.button("Connecting");
+                    let _ = ui.button("Joining lobby");
                 }
                 NetworkingState::Connected => {
                     // TODO: should the client be able to connect to multiple servers?
                     //  (for example so that it's connected to the lobby-server at the same time
                     //  as the game-server)
                     // TODO: disconnect from the current game, adjust the client-config, and join the dedicated server
-                    if ui.button("Disconnect").clicked() {
+                    if ui.button("Exit lobby").clicked() {
                         next_state.set(NetworkingState::Disconnected);
+                    }
+                    if ui.button("Start game").clicked() {
+                        // remove the lobby ui
+                        // send a message to server/client to start the game and act as server
+                        // update the client config to connect to the game server
                     }
                 }
             }
@@ -308,12 +273,13 @@ mod ui {
     /// Either the game will use a dedicated server as a host, or one of the players will run in host-server mode.
     pub(crate) fn lobby_ui(
         mut contexts: EguiContexts,
-        mut lobby_table: ResMut<LobbyTable>,
+        mut lobby_table: ResMut<LobbyUi>,
+        lobby: Res<Lobby>,
         state: Res<State<NetworkingState>>,
         mut next_state: ResMut<NextState<NetworkingState>>,
     ) {
         egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-            lobby_table.table_ui(ui, state.get(), next_state.reborrow());
+            lobby_table.table_ui(ui, lobby.as_ref(), state.get(), next_state.reborrow());
         });
     }
 }

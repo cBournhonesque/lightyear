@@ -8,10 +8,10 @@ use std::net::SocketAddr;
 use std::ops::Mul;
 
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::Parent;
 use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
+use bevy::prelude::{Parent, Resource};
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +38,15 @@ impl PlayerBundle {
             color: PlayerColor(color),
         }
     }
+}
+
+// Resources
+
+#[derive(Resource, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Lobby {
+    pub players: Vec<ClientId>,
+    /// Which client is selected to be the host for the next game (if None, the server will be the host)
+    pub host: Option<ClientId>,
 }
 
 // Components
@@ -81,6 +90,7 @@ pub enum Components {
     PlayerPosition(PlayerPosition),
     #[protocol(sync(mode = "once"))]
     PlayerColor(PlayerColor),
+    Lobby(ReplicateResource<Lobby>),
 }
 
 // Channels

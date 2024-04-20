@@ -27,6 +27,7 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(Global {
             client_id_to_entity_id: Default::default(),
         });
+        app.insert_resource(Lobby::default());
         app.add_systems(Startup, (init, start_server));
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
@@ -73,6 +74,7 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = *connection.context();
+
         // server and client are running in the same app, no need to replicate to the local client
         let replicate = Replicate {
             prediction_target: NetworkTarget::Single(client_id),

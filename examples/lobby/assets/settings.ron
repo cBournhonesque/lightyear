@@ -24,6 +24,13 @@ Settings(
         //     app_id: 480,
         // )
     ),
+    lobby_server: LobbyServerSettings(
+        transport: [
+            Udp(
+                local_port: 5001
+            ),
+        ],
+    ),
     server: ServerSettings(
         headless: true,
         inspector: false,
