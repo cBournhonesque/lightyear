@@ -198,7 +198,7 @@ mod ui {
         fn table_ui(
             &mut self,
             ui: &mut egui::Ui,
-            lobby: &Lobby,
+            lobby: Option<Res<Lobby>>,
             state: &NetworkingState,
             mut next_state: Mut<NextState<NetworkingState>>,
         ) {
@@ -225,16 +225,18 @@ mod ui {
                             ui.checkbox(&mut self.server_host, "");
                         });
                     });
-                    for client_id in lobby.players.iter() {
-                        self.clients.entry(*client_id).or_insert(false);
-                        body.row(30.0, |mut row| {
-                            row.col(|ui| {
-                                ui.label(format!("{client_id:?}"));
+                    if let Some(lobby) = lobby {
+                        for client_id in lobby.players.iter() {
+                            self.clients.entry(*client_id).or_insert(false);
+                            body.row(30.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.label(format!("{client_id:?}"));
+                                });
+                                row.col(|ui| {
+                                    ui.checkbox(self.clients.get_mut(client_id).unwrap(), "");
+                                });
                             });
-                            row.col(|ui| {
-                                ui.checkbox(self.clients.get_mut(client_id).unwrap(), "");
-                            });
-                        });
+                        }
                     }
                 });
             ui.add(Separator::default().horizontal());
@@ -274,12 +276,12 @@ mod ui {
     pub(crate) fn lobby_ui(
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyUi>,
-        lobby: Res<Lobby>,
+        lobby: Option<Res<Lobby>>,
         state: Res<State<NetworkingState>>,
         mut next_state: ResMut<NextState<NetworkingState>>,
     ) {
         egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-            lobby_table.table_ui(ui, lobby.as_ref(), state.get(), next_state.reborrow());
+            lobby_table.table_ui(ui, lobby, state.get(), next_state.reborrow());
         });
     }
 }

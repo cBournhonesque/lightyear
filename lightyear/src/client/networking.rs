@@ -111,7 +111,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         app.add_systems(OnEnter(NetworkingState::Connected), on_connect);
 
         // DISCONNECTED
-        app.add_systems(OnEnter(NetworkingState::Disconnected), disconnect::<P>);
+        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
     }
 }
 
@@ -362,6 +362,7 @@ fn on_connect(
             .send(crate::server::events::ConnectEvent::new(netcode.id()));
     }
 }
+
 /// System that runs when we enter the Disconnected state
 /// Updates the DisconnectEvent events
 fn on_disconnect(
@@ -374,6 +375,7 @@ fn on_disconnect(
     mut commands: Commands,
     received_entities: Query<Entity, Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>>,
 ) {
+    info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
     received_entities
         .iter()
@@ -393,6 +395,8 @@ fn on_disconnect(
             .unwrap()
             .send(crate::server::events::DisconnectEvent::new(netcode.id()));
     }
+
+    // TODO: remove ClientConnection and ConnectionManager resources?
 }
 
 /// This run condition is provided to check if the client is connected.
@@ -486,27 +490,4 @@ fn connect<P: Protocol>(world: &mut World) {
             .resource_mut::<NextState<NetworkingState>>()
             .set(NetworkingState::Connected);
     }
-}
-
-/// Disconnect the client
-fn disconnect<P: Protocol>(world: &mut World) {
-    let _ = world
-        .resource_mut::<ClientConnection>()
-        .disconnect()
-        .inspect_err(|e| error!("Error disconnecting client: {}", e));
-
-    world
-        .resource_mut::<Events<DisconnectEvent>>()
-        .send(DisconnectEvent::new(()));
-
-    // in host-server mode, we also want to send a connect event to the server
-    let config = world.resource::<ClientConfig>();
-    let client_id = world.resource::<ClientConnection>().id();
-    if config.shared.mode == Mode::HostServer {
-        world
-            .resource_mut::<Events<crate::server::events::DisconnectEvent>>()
-            .send(crate::server::events::DisconnectEvent::new(client_id));
-    }
-    world.remove_resource::<ConnectionManager<P>>();
-    world.remove_resource::<ClientConnection>();
 }
