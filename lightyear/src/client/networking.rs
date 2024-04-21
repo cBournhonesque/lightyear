@@ -9,9 +9,12 @@ use bevy::prelude::*;
 use tracing::{error, trace};
 
 use crate::_reexport::{ClientMarker, ReplicationSend};
+use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};
+use crate::client::interpolation::Interpolated;
+use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::ServerConnections;
@@ -357,6 +360,38 @@ fn on_connect(
             .as_mut()
             .unwrap()
             .send(crate::server::events::ConnectEvent::new(netcode.id()));
+    }
+}
+/// System that runs when we enter the Disconnected state
+/// Updates the DisconnectEvent events
+fn on_disconnect(
+    mut disconnect_event_writer: EventWriter<DisconnectEvent>,
+    mut netcode: ResMut<ClientConnection>,
+    config: Res<ClientConfig>,
+    mut server_disconnect_event_writer: Option<
+        ResMut<Events<crate::server::events::DisconnectEvent>>,
+    >,
+    mut commands: Commands,
+    received_entities: Query<Entity, Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>>,
+) {
+    // despawn any entities that were spawned from replication
+    received_entities
+        .iter()
+        .for_each(|e| commands.entity(e).despawn_recursive());
+
+    // try to disconnect again to close io tasks (in case the disconnection is from the io)
+    let _ = netcode.disconnect();
+
+    // no need to update the io state, because we will recreate a new `ClientConnection`
+    // for the next connection attempt
+    disconnect_event_writer.send(DisconnectEvent::new(()));
+
+    // in host-server mode, we also want to send a connect event to the server
+    if config.shared.mode == Mode::HostServer {
+        server_disconnect_event_writer
+            .as_mut()
+            .unwrap()
+            .send(crate::server::events::DisconnectEvent::new(netcode.id()));
     }
 }
 

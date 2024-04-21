@@ -154,6 +154,7 @@ pub(crate) mod send {
 
 pub(crate) mod receive {
     use super::*;
+    use bevy::prelude::RemovedComponents;
     pub(crate) struct ResourceReceivePlugin<P, R> {
         _marker: PhantomData<(P, R)>,
     }
@@ -182,7 +183,7 @@ pub(crate) mod receive {
     ) {
         app.add_systems(
             PreUpdate,
-            copy_receive_resource::<R>
+            (copy_receive_resource::<R>, handle_despawned_entity::<R>)
                 .in_set(InternalReplicationSet::<S::SetMarker>::ReceiveResourceUpdates),
         );
     }
@@ -213,16 +214,28 @@ pub(crate) mod receive {
             }
         }
     }
+
+    /// If the entity that was driving the replication of the resource is despawned (usually when the
+    /// client disconnects from the server), despawn the resource
+    fn handle_despawned_entity<R: Resource + Clone>(
+        mut commands: Commands,
+        mut despawned: RemovedComponents<ReplicateResource<R>>,
+    ) {
+        for despawned_entity in despawned.read() {
+            commands.remove_resource::<R>();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ReplicateResource, StopReplicateResourceExt};
+    use crate::prelude::client::NetworkingState;
     use crate::prelude::NetworkTarget;
     use crate::shared::replication::resources::ReplicateResourceExt;
     use crate::tests::protocol::{Component1, Replicate, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
-    use bevy::prelude::Commands;
+    use bevy::prelude::{Commands, Entity, OnEnter, With};
 
     #[test]
     fn test_resource_replication_manually() {
@@ -378,5 +391,42 @@ mod tests {
 
         // check that the resource was not deleted on the client, but also not updated
         assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 1.0);
+    }
+
+    #[test]
+    fn test_client_disconnect() {
+        let mut stepper = BevyStepper::default();
+
+        // start replicating a resource via commands (even if the resource doesn't exist yet)
+        let start_replicate_system =
+            stepper
+                .server_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.replicate_resource::<Resource1>(Replicate::default());
+                });
+
+        stepper.server_app.world.insert_resource(Resource1(1.0));
+        let _ = stepper.server_app.world.run_system(start_replicate_system);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the resource was replicated
+        assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 1.0);
+
+        // disconnect the client, which should despawn any replicated entities
+        stepper
+            .client_app
+            .world
+            .run_schedule(OnEnter(NetworkingState::Disconnected));
+
+        stepper.frame_step();
+
+        // check that the resource was removed on the client
+        assert!(stepper
+            .client_app
+            .world
+            .get_resource::<Resource1>()
+            .is_none());
     }
 }
