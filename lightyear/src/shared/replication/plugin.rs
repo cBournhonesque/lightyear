@@ -42,7 +42,6 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
         let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
 
         // REFLECTION
-
         app.register_type::<Replicate<P>>()
             .register_type::<P::ComponentKinds>()
             .register_type::<PerComponentReplicationMetadata>()
@@ -106,10 +105,13 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
             // SYSTEMS
             add_replication_send_systems::<P, R>(app);
             P::Components::add_per_component_replication_send_systems::<R>(app);
-            app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
             // PLUGINS
             app.add_plugins(HierarchySendPlugin::<P, R>::default());
             app.add_plugins(ResourceSendPlugin::<P, R>::default());
         }
+
+        // TODO: split receive cleanup from send cleanup
+        // cleanup is for both receive and send
+        app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
     }
 }
