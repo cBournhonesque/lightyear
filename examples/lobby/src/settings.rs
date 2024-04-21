@@ -3,6 +3,7 @@ use bevy::utils::Duration;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use async_compat::Compat;
+use bevy::prelude::Resource;
 use bevy::tasks::IoTaskPool;
 use serde::{Deserialize, Serialize};
 
@@ -108,6 +109,9 @@ pub struct ClientSettings {
     /// The port of the server
     pub(crate) server_port: u16,
 
+    /// The port of the lobby server
+    pub(crate) lobby_server_port: u16,
+
     /// Which transport to use
     pub(crate) transport: ClientTransports,
 
@@ -124,7 +128,7 @@ pub struct SharedSettings {
     pub(crate) private_key: [u8; 32],
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Resource, Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     pub server: ServerSettings,
     pub lobby_server: LobbyServerSettings,

@@ -168,6 +168,9 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
+    if settings.client.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
 
     let client_config = client::ClientConfig {
         shared: shared_config(Mode::Separate),
@@ -177,12 +180,10 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
     let plugin_config = client::PluginConfig::new(client_config, protocol());
     app.add_plugins((
         client::ClientPlugin::new(plugin_config),
-        ExampleClientPlugin,
+        ExampleClientPlugin { settings },
         SharedPlugin,
     ));
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
+
     app
 }
 
@@ -258,6 +259,9 @@ fn combined_app(
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
         update_subscriber: Some(add_log_layer),
     }));
+    if settings.client.inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
 
     // server plugin
     let mut net_configs = get_server_net_configs(&settings);
@@ -288,12 +292,9 @@ fn combined_app(
     let plugin_config = client::PluginConfig::new(client_config, protocol());
     app.add_plugins((
         client::ClientPlugin::new(plugin_config),
-        ExampleClientPlugin,
+        ExampleClientPlugin { settings },
     ));
     // shared plugin
     app.add_plugins(SharedPlugin);
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
     app
 }

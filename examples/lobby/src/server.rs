@@ -68,7 +68,7 @@ fn init(mut commands: Commands) {
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
-    mut server: ResMut<ServerConnectionManager>,
+    server: ResMut<ServerConnectionManager>,
     mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
@@ -84,11 +84,6 @@ pub(crate) fn handle_connections(
         let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
         // Add a mapping from client id to entity id
         global.client_id_to_entity_id.insert(client_id, entity.id());
-        // Send a message containing the client information to other clients
-        let _ = server.send_message_to_target::<Channel1, ClientConnect>(
-            ClientConnect { id: client_id },
-            NetworkTarget::All,
-        );
         info!("Create entity {:?} for client {:?}", entity.id(), client_id);
     }
 }
@@ -96,7 +91,7 @@ pub(crate) fn handle_connections(
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_disconnections(
     mut disconnections: EventReader<DisconnectEvent>,
-    mut server: ResMut<ServerConnectionManager>,
+    server: ResMut<ServerConnectionManager>,
     mut global: ResMut<Global>,
     mut commands: Commands,
 ) {
@@ -111,11 +106,6 @@ pub(crate) fn handle_disconnections(
                 entity.despawn();
             }
         }
-        // Send a message containing the client information to other clients
-        let _ = server.send_message_to_target::<Channel1, ClientDisconnect>(
-            ClientDisconnect { id: *client_id },
-            NetworkTarget::All,
-        );
     }
 }
 

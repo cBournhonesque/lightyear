@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::utils::Duration;
 use bevy_egui::EguiPlugin;
-use bevy_mod_picking::DefaultPickingPlugins;
 
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -32,8 +31,9 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<RenderPlugin>() {
-            app.add_plugins(EguiPlugin);
-            app.add_plugins(DefaultPickingPlugins);
+            if !app.is_plugin_added::<EguiPlugin>() {
+                app.add_plugins(EguiPlugin);
+            }
             app.add_systems(Startup, init);
             app.add_systems(Update, draw_boxes);
         }

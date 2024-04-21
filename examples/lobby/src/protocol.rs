@@ -101,19 +101,13 @@ pub struct Channel1;
 // Messages
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ClientConnect {
-    pub(crate) id: ClientId,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ClientDisconnect {
-    pub(crate) id: ClientId,
+pub struct StartGame {
+    pub(crate) host: Option<ClientId>,
 }
 
 #[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
-    ClientConnect(ClientConnect),
-    ClientDisconnect(ClientDisconnect),
+    StartGame(StartGame),
 }
 
 // Inputs
