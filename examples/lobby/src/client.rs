@@ -7,6 +7,7 @@
 use crate::protocol::*;
 use crate::settings::Settings;
 use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts};
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use std::net::SocketAddr;
@@ -26,7 +27,7 @@ pub enum AppState {
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.settings.clone());
-        app.init_resource::<ui::LobbyUi>();
+        app.init_resource::<lobby::LobbyTable>();
         app.init_resource::<Lobby>();
         app.init_state::<AppState>();
         app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
@@ -46,30 +47,44 @@ impl Plugin for ExampleClientPlugin {
             (
                 game::handle_predicted_spawn,
                 game::handle_interpolated_spawn,
+                game::exit_game_button,
             )
                 .run_if(in_state(AppState::Game)),
         );
-        app.add_systems(Update, ui::lobby_ui.run_if(in_state(AppState::Lobby)));
+        app.add_systems(
+            Update,
+            (lobby::lobby_ui, lobby::receive_start_game_message).run_if(in_state(AppState::Lobby)),
+        );
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
     }
 }
 
+/// Marker component for the debug text displaying the `ClientId`
+#[derive(Component)]
+struct ClientIdText;
+
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
-pub(crate) fn handle_connection(
+fn handle_connection(
     mut commands: Commands,
     mut connection_event: EventReader<ConnectEvent>,
+    debug_text: Query<(), With<ClientIdText>>,
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        commands.spawn(TextBundle::from_section(
-            format!("Client {}", client_id),
-            TextStyle {
-                font_size: 30.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        ));
+        if debug_text.is_empty() {
+            commands.spawn((
+                TextBundle::from_section(
+                    format!("Client {}", client_id),
+                    TextStyle {
+                        font_size: 30.0,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                ),
+                ClientIdText,
+            ));
+        }
     }
 }
 
@@ -184,11 +199,25 @@ mod game {
             color.0.set_s(0.1);
         }
     }
+
+    /// Button shown during the game; when clicked, the client exits the game and rejoins the lobby ui
+    pub(crate) fn exit_game_button(
+        mut contexts: EguiContexts,
+        mut next_app_state: ResMut<NextState<AppState>>,
+        mut next_state: ResMut<NextState<NetworkingState>>,
+    ) {
+        egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
+            if ui.button("Exit game").clicked() {
+                next_app_state.set(AppState::Lobby);
+                next_state.set(NetworkingState::Disconnected);
+            }
+        });
+    }
 }
 
-mod ui {
+mod lobby {
     use super::*;
-    use crate::client::{ui, AppState};
+    use crate::client::{lobby, AppState};
     use bevy::utils::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
@@ -197,11 +226,11 @@ mod ui {
     use tracing::{error, info};
 
     #[derive(Resource, Default, Debug)]
-    pub(crate) struct LobbyUi {
+    pub(crate) struct LobbyTable {
         clients: HashMap<ClientId, bool>,
     }
 
-    impl LobbyUi {
+    impl LobbyTable {
         /// Find who will be the host of the game. If no client is host; the server will be the host.
         pub(crate) fn get_host(&self) -> Option<ClientId> {
             self.clients
@@ -214,7 +243,7 @@ mod ui {
     /// Either the game will use a dedicated server as a host, or one of the players will run in host-server mode.
     pub(crate) fn lobby_ui(
         mut contexts: EguiContexts,
-        mut lobby_table: ResMut<LobbyUi>,
+        mut lobby_table: ResMut<LobbyTable>,
         mut connection_manager: ResMut<ClientConnectionManager>,
         settings: Res<Settings>,
         mut config: ResMut<ClientConfig>,
@@ -310,9 +339,51 @@ mod ui {
                             StartGame { host },
                             NetworkTarget::All,
                         );
+                        // start the connection process
+                        next_state.set(NetworkingState::Connecting);
                     }
                 }
             }
         });
+    }
+
+    /// Listen for the StartGame message (which means that a client clicked on the 'start game' button)
+    /// - update the client config to connect to the game host (either the server or one of the other clients)
+    /// - connect by setting the NetworkingState to Connecting
+    /// - set the AppState to Game
+    pub(crate) fn receive_start_game_message(
+        mut events: EventReader<MessageEvent<StartGame>>,
+        lobby_table: Res<LobbyTable>,
+        mut next_app_state: ResMut<NextState<AppState>>,
+        mut next_state: ResMut<NextState<NetworkingState>>,
+        mut config: ResMut<ClientConfig>,
+        settings: Res<Settings>,
+    ) {
+        for event in events.read() {
+            // TODO: maybe we can get the host from the lobby table itself?
+            // let host = event.message().host;
+            // // find the host of the game
+            // let host = lobby_table.get_host();
+            // update the client config to connect to the game server
+            match &mut config.net {
+                NetConfig::Netcode { auth, .. } => match auth {
+                    Authentication::Manual { server_addr, .. } => {
+                        *server_addr = SocketAddr::new(
+                            settings.client.server_addr.into(),
+                            settings.client.server_port,
+                        );
+                    }
+                    _ => {}
+                },
+                _ => {
+                    error!("Unsupported net config");
+                }
+            }
+            // set the state to Game
+            next_app_state.set(AppState::Game);
+
+            // start the connection process
+            next_state.set(NetworkingState::Connecting);
+        }
     }
 }
