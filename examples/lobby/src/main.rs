@@ -107,7 +107,7 @@ fn run(settings: Settings, cli: Cli) {
             let client_net_config = NetConfig::Local {
                 id: client_id.unwrap_or(settings.client.client_id),
             };
-            let mut app = combined_app(settings, vec![], client_net_config);
+            let mut app = combined_app(settings, client_net_config);
             app.run();
         }
         #[cfg(not(target_family = "wasm"))]
@@ -248,11 +248,7 @@ fn lobby_server_app(settings: Settings) -> App {
 
 /// An app that contains both the client and server plugins
 #[cfg(not(target_family = "wasm"))]
-fn combined_app(
-    settings: Settings,
-    extra_transport_configs: Vec<TransportConfig>,
-    client_net_config: client::NetConfig,
-) -> App {
+fn combined_app(settings: Settings, client_net_config: client::NetConfig) -> App {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.build().set(LogPlugin {
         level: Level::INFO,
@@ -264,14 +260,9 @@ fn combined_app(
     }
 
     // server plugin
-    let mut net_configs = get_server_net_configs(&settings);
-    let extra_net_configs = extra_transport_configs.into_iter().map(|c| {
-        build_server_netcode_config(settings.server.conditioner.as_ref(), &settings.shared, c)
-    });
-    net_configs.extend(extra_net_configs);
     let server_config = server::ServerConfig {
         shared: shared_config(Mode::HostServer),
-        net: net_configs,
+        net: vec![],
         ..default()
     };
     app.add_plugins((

@@ -24,7 +24,7 @@ pub struct SharedConfig {
 //  - server and client are running in separate apps: need to add SharedPlugin on client, etc.
 //  - server and client are running in same app: need to add SharedPlugin on client, need to only add LeafwingInputOnce
 //    - host-server mode activated <> we use LocalTransport on client, server runs some connections <> disable all prediction, etc. on client
-//    - host-server mode non-activate <> we use a non-Local transport on client, server has no connections <> still all run all prediction, networking on client; disable server entirely
+//    - host-server mode non-activate <> we use a non-Local transport on client, server has no connections <> still run all prediction, networking on client; disable server entirely
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum Mode {
