@@ -161,7 +161,7 @@ getrandom = { version = "0.2.11", features = [
   "js", # feature 'js' is required for wasm
 ] }
 xwt-core = { version = "0.2", optional = true }
-xwt-web-sys = { version = "0.9", optional = true }
+xwt-web-sys = { version = "0.10", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
 
 
