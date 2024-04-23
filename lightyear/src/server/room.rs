@@ -158,7 +158,7 @@ impl RoomManager {
     }
 
     /// Remove the entity from all the rooms it was in
-    pub(crate) fn entity_despawn(&mut self, entity: Entity) {
+    fn entity_despawn(&mut self, entity: Entity) {
         if let Some(rooms) = self.data.entity_to_rooms.remove(&entity) {
             for room_id in rooms {
                 RoomMut::new(self, room_id).remove_entity(entity);

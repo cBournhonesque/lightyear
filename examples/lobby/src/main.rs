@@ -35,7 +35,6 @@ use crate::settings::*;
 use crate::shared::{shared_config, SharedPlugin};
 
 mod client;
-mod lobby_server;
 mod protocol;
 mod server;
 mod settings;
@@ -57,7 +56,6 @@ enum Cli {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
-    LobbyServer,
     #[cfg(not(target_family = "wasm"))]
     /// Dedicated server
     Server,
@@ -95,12 +93,6 @@ fn main() {
 /// can be sent between client and server.
 fn run(settings: Settings, cli: Cli) {
     match cli {
-        // Server that will just listen for clients joining the lobby
-        #[cfg(not(target_family = "wasm"))]
-        Cli::LobbyServer => {
-            let mut app = lobby_server_app(settings);
-            app.run();
-        }
         // ListenServer using a single app
         #[cfg(not(target_family = "wasm"))]
         Cli::HostServer { client_id } => {
@@ -219,30 +211,6 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
     if settings.server.inspector {
         app.add_plugins(WorldInspectorPlugin::new());
     }
-    app
-}
-
-/// Build the lobby server app
-#[cfg(not(target_family = "wasm"))]
-fn lobby_server_app(settings: Settings) -> App {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins);
-    app.add_plugins(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
-    });
-    let net_configs = get_lobby_server_net_configs(&settings);
-    let server_config = server::ServerConfig {
-        shared: shared_config(Mode::Separate),
-        net: net_configs,
-        ..default()
-    };
-    app.add_plugins((
-        lobby_server::LobbyServerPlugin,
-        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
-        SharedPlugin,
-    ));
     app
 }
 

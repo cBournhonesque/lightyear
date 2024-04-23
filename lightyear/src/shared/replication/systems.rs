@@ -94,6 +94,7 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     // Despawn entities when the entity got despawned on local world
     for entity in despawn_removed.read() {
         trace!("despawn tracker removed!");
+        // TODO: we still don't want to replicate the despawn if the entity was not in the same room as the client!
         // only replicate the despawn if the entity still had a Replicate component
         if let Some(replicate) = sender.get_mut_replicate_component_cache().remove(&entity) {
             // TODO: DO NOT SEND ENTITY DESPAWN TO THE CLIENT WHO JUST DISCONNECTED!

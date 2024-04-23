@@ -266,6 +266,7 @@ pub struct ReplicationGroupId(pub u64);
 #[derive(Clone, Copy, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
     /// We will replicate this entity only to clients that are in the same room as the entity
+    /// (the client still needs to be included in the [`NetworkTarget`], the room is simply an additional constraint)
     Room,
     /// We will replicate this entity to clients using only the [`NetworkTarget`], without caring about rooms
     #[default]

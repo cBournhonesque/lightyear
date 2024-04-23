@@ -12,6 +12,7 @@ use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
 use bevy::prelude::{Parent, Resource};
+use bevy::utils::HashMap;
 use derive_more::{Add, Mul};
 use serde::{Deserialize, Serialize};
 
@@ -43,10 +44,52 @@ impl PlayerBundle {
 // Resources
 
 #[derive(Resource, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Lobbies {
+    pub lobbies: Vec<Lobby>,
+}
+
+impl Lobbies {
+    /// Return true if there is an empty lobby available for players to join
+    pub(crate) fn has_empty_lobby(&self) -> bool {
+        if self.lobbies.is_empty() {
+            return false;
+        }
+        self.lobbies.iter().any(|lobby| lobby.players.is_empty())
+    }
+
+    /// Remove a client from a lobby
+    pub(crate) fn remove_client(&mut self, client_id: ClientId) {
+        let mut removed_lobby = None;
+        for (lobby_id, lobby) in self.lobbies.iter_mut().enumerate() {
+            if let Some(index) = lobby.players.iter().position(|id| *id == client_id) {
+                lobby.players.remove(index);
+                if lobby.players.is_empty() {
+                    removed_lobby = Some(lobby_id);
+                }
+            }
+            // if lobby.players.remove(&client_id).is_some() {
+            //     if lobby.players.is_empty() {
+            //         removed_lobby = Some(lobby_id);
+            //     }
+            // }
+        }
+        if let Some(lobby_id) = removed_lobby {
+            self.lobbies.remove(lobby_id);
+            // always make sure that there is an empty lobby for players to join
+            if !self.has_empty_lobby() {
+                self.lobbies.push(Lobby::default());
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Lobby {
     pub players: Vec<ClientId>,
     /// Which client is selected to be the host for the next game (if None, the server will be the host)
     pub host: Option<ClientId>,
+    /// If true, the lobby is in game. If not, it is still in lobby mode
+    pub in_game: bool,
 }
 
 // Components
@@ -90,7 +133,7 @@ pub enum Components {
     PlayerPosition(PlayerPosition),
     #[protocol(sync(mode = "once"))]
     PlayerColor(PlayerColor),
-    Lobby(ReplicateResource<Lobby>),
+    Lobby(ReplicateResource<Lobbies>),
 }
 
 // Channels
@@ -102,12 +145,25 @@ pub struct Channel1;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct StartGame {
+    pub(crate) lobby_id: usize,
     pub(crate) host: Option<ClientId>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ExitLobby {
+    pub(crate) lobby_id: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct JoinLobby {
+    pub(crate) lobby_id: usize,
 }
 
 #[message_protocol(protocol = "MyProtocol")]
 pub enum Messages {
     StartGame(StartGame),
+    ExitLobby(ExitLobby),
+    JoinLobby(JoinLobby),
 }
 
 // Inputs

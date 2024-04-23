@@ -97,6 +97,7 @@ where
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
 
+        // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
         if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
             // we don't want to add this plugin in HostServer mode because it's already added on the client side
             // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)

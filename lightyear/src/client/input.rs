@@ -144,47 +144,45 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
                 .chain(),
         );
         app.configure_sets(FixedPostUpdate, InputSystemSet::ClearInputEvent);
-        // SYSTEMS
-        app.add_systems(
-            FixedPostUpdate,
-            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
-        );
-
-        if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
-            app.add_systems(
-                FixedPreUpdate,
-                send_input_directly_to_client_events::<P::Input>
-                    .in_set(InputSystemSet::WriteInputEvent),
-            );
-            return;
-        }
-
-        // SETS
         app.configure_sets(
             PostUpdate,
             (
+                SyncSet,
                 // handle tick events from sync before sending the message
-                InputSystemSet::ReceiveTickEvents.after(SyncSet).run_if(
-                    // there are no tick events in unified mode
-                    client_is_synced::<P>,
+                InputSystemSet::ReceiveTickEvents.run_if(
+                    // there are no tick events in host-server mode
+                    client_is_synced::<P>.and_then(not(SharedConfig::is_host_server_condition)),
                 ),
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage
                     .in_set(InternalMainSet::<ClientMarker>::Send)
                     .run_if(
-                        // no need to send input messages via io if we are in unified mode
-                        client_is_synced::<P>,
+                        // no need to send input messages via io if we are in host-server mode
+                        client_is_synced::<P>.and_then(not(SharedConfig::is_host_server_condition)),
                     ),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
         );
         // SYSTEMS
+
+        // Host server mode only!
         app.add_systems(
             FixedPreUpdate,
-            write_input_event::<P::Input>.in_set(InputSystemSet::WriteInputEvent),
+            send_input_directly_to_client_events::<P::Input>
+                .in_set(InputSystemSet::WriteInputEvent)
+                .run_if(SharedConfig::is_host_server_condition),
         );
-
+        app.add_systems(
+            FixedPreUpdate,
+            write_input_event::<P::Input>
+                .in_set(InputSystemSet::WriteInputEvent)
+                .run_if(not(SharedConfig::is_host_server_condition)),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
+        );
         app.add_systems(
             PostUpdate,
             (

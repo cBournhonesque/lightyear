@@ -54,7 +54,7 @@ use crate::inputs::leafwing::input_buffer::{
     ActionDiff, ActionDiffBuffer, ActionDiffEvent, InputBuffer, InputMessage, InputTarget,
 };
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{Mode, TickManager};
+use crate::prelude::{Mode, SharedConfig, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
@@ -183,11 +183,8 @@ where
         app.init_resource::<ToggleActions<A>>();
 
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
-        // is spawned in the world with InputBuffer
-        if app.world.resource::<ClientConfig>().shared.mode == Mode::HostServer {
-            // TODO: maybe add toggle actions?
-            return;
-        }
+        // is spawned with `InputBuffer` and the client is in the same timeline as the server
+        let should_run = run_if_enabled::<A>.and_then(not(SharedConfig::is_host_server_condition));
 
         // app.init_resource::<ActionState<A>>();
         app.init_resource::<InputBuffer<A>>();
@@ -196,18 +193,22 @@ where
         app.init_resource::<Events<ActionDiffEvent<A>>>();
         // SETS
         // app.configure_sets(PreUpdate, InputManagerSystem::Tick.run_if(should_tick::<A>));
-        app.configure_sets(FixedPreUpdate, InputSystemSet::BufferClientInputs);
+        app.configure_sets(
+            FixedPreUpdate,
+            InputSystemSet::BufferClientInputs.run_if(should_run.clone()),
+        );
         app.configure_sets(
             PostUpdate,
             // we send inputs only every send_interval
             (
                 SyncSet,
                 // handle tick events from sync before sending the message
-                InputSystemSet::ReceiveTickEvents.run_if(client_is_synced::<P>),
+                InputSystemSet::ReceiveTickEvents
+                    .run_if(should_run.clone().and_then(client_is_synced::<P>)),
                 InputSystemSet::SendInputMessage
-                    .run_if(client_is_synced::<P>)
+                    .run_if(should_run.clone().and_then(client_is_synced::<P>))
                     .in_set(InternalMainSet::<ClientMarker>::Send),
-                InputSystemSet::CleanUp.run_if(client_is_synced::<P>),
+                InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced::<P>)),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),
@@ -218,12 +219,14 @@ where
             PreUpdate,
             (
                 generate_action_diffs::<A>
-                    .run_if(run_if_enabled::<A>)
+                    .run_if(should_run.clone())
                     .after(InputManagerSystem::ReleaseOnDisable)
                     .after(InputManagerSystem::Update)
                     .after(InputManagerSystem::ManualControl)
                     .after(InputManagerSystem::Tick),
-                add_action_state_buffer::<A>.after(PredictionSet::SpawnPrediction),
+                add_action_state_buffer::<A>
+                    .run_if(should_run.clone())
+                    .after(PredictionSet::SpawnPrediction),
             ),
         );
         // NOTE: we do not tick the ActionState during FixedUpdate
@@ -255,8 +258,8 @@ where
             // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
             get_delayed_action_state::<A>.run_if(
                 is_input_delay
+                    .and_then(should_run.clone()),
                     .and_then(not(is_in_rollback))
-                    .and_then(run_if_enabled::<A>),
             ),
         );
 
@@ -269,12 +272,9 @@ where
         //   For stuff that only affects the user, such as camera movement, there's no need to replicate the input?
         // - one thing to understand is that if we have F1 TA ( frame 1 starts, and then we run one FixedUpdate schedule)
         //   we want to add the input value computed during F1 to the buffer for tick TA, because the tick will use this value
-
         app.add_systems(
             PostUpdate,
-            (prepare_input_message::<P, A>
-                .in_set(InputSystemSet::SendInputMessage)
-                .run_if(run_if_enabled::<A>),),
+            prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
         );
 
         // NOTE: we run the buffer_action_state system in the Update for several reasons:
@@ -289,13 +289,9 @@ where
         app.add_systems(
             PostUpdate,
             (
-                receive_tick_events::<A>
-                    .in_set(InputSystemSet::ReceiveTickEvents)
-                    .run_if(run_if_enabled::<A>),
-                clean_buffers::<P, A>
-                    .in_set(InputSystemSet::CleanUp)
-                    .run_if(run_if_enabled::<A>),
-                add_action_state_buffer_added_input_map::<A>,
+                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
+                clean_buffers::<P, A>.in_set(InputSystemSet::CleanUp),
+                add_action_state_buffer_added_input_map::<A>.run_if(should_run.clone()),
                 toggle_actions::<A>,
             ),
         );
