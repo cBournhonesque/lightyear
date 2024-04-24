@@ -52,15 +52,10 @@ impl Plugin for ExampleClientPlugin {
             (
                 game::handle_predicted_spawn,
                 game::handle_interpolated_spawn,
-                game::exit_game_button,
             )
                 .run_if(in_state(AppState::Game)),
         );
-        app.add_systems(
-            Update,
-            (lobby::lobby_ui, lobby::receive_start_game_message)
-                .run_if(not(in_state(AppState::Game))),
-        );
+        app.add_systems(Update, (lobby::lobby_ui, lobby::receive_start_game_message));
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
     }
 }
@@ -207,19 +202,19 @@ mod game {
         }
     }
 
-    /// Button shown during the game; when clicked, the client exits the game and rejoins the lobby ui
-    pub(crate) fn exit_game_button(
-        mut contexts: EguiContexts,
-        mut next_app_state: ResMut<NextState<AppState>>,
-        mut next_state: ResMut<NextState<NetworkingState>>,
-    ) {
-        egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-            if ui.button("Exit game").clicked() {
-                next_app_state.set(AppState::Lobby { joined_lobby: None });
-                next_state.set(NetworkingState::Disconnected);
-            }
-        });
-    }
+    // /// Button shown during the game; when clicked, the client exits the game and rejoins the lobby ui
+    // pub(crate) fn exit_game_button(
+    //     mut contexts: EguiContexts,
+    //     mut next_app_state: ResMut<NextState<AppState>>,
+    //     mut next_state: ResMut<NextState<NetworkingState>>,
+    // ) {
+    //     egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
+    //         if ui.button("Exit game").clicked() {
+    //             next_app_state.set(AppState::Lobby { joined_lobby: None });
+    //             next_state.set(NetworkingState::Disconnected);
+    //         }
+    //     });
+    // }
 }
 
 mod lobby {
@@ -316,7 +311,7 @@ mod lobby {
                                                     if ui.button("Join Game").clicked() {
                                                         // find the host of the game
                                                         let host = lobby_table.get_host();
-                                                        // send a message to server/client to start the game and act as server
+                                                        // send a message to join the game
                                                         let _ = connection_manager
                                                             .send_message::<Channel1, _>(
                                                                 StartGame { lobby_id, host },
@@ -427,7 +422,6 @@ mod lobby {
                             if ui.button("Exit game").clicked() {
                                 next_app_state.set(AppState::Lobby { joined_lobby: None });
                                 next_state.set(NetworkingState::Disconnected);
-                                // TODO: update the client config to connect to the lobby server
                             }
                         }
                     }

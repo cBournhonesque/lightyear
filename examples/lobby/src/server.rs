@@ -245,6 +245,14 @@ mod lobby {
                     let entity = spawn_player_entity(&mut commands, global.reborrow(), *client_id);
                     room_manager.add_entity(entity, room_id);
                     room_manager.add_client(*client_id, room_id);
+                    // send the StartGame message to the client who is trying to join the game
+                    let _ = connection_manager.send_message::<Channel1, _>(
+                        *client_id,
+                        StartGame {
+                            lobby_id,
+                            host: lobby.host,
+                        },
+                    );
                 } else {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
