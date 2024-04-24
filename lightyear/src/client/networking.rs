@@ -351,6 +351,10 @@ fn on_connect(
     config: Res<ClientConfig>,
     mut server_connect_event_writer: Option<ResMut<Events<crate::server::events::ConnectEvent>>>,
 ) {
+    info!(
+        "Running OnConnect schedule with client id: {:?}",
+        netcode.id()
+    );
     connect_event_writer.send(ConnectEvent::new(netcode.id()));
 
     // in host-server mode, we also want to send a connect event to the server
@@ -432,12 +436,12 @@ pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool 
 /// - we can take into account any changes to the client config
 fn rebuild_client_connection<P: Protocol>(world: &mut World) {
     let client_config = world.resource::<ClientConfig>().clone();
-    if client_config.shared.mode == Mode::HostServer {
-        assert!(
-            matches!(client_config.net, NetConfig::Local { .. }),
-            "When running in HostServer mode, the client connection needs to be of type Local"
-        );
-    }
+    // if client_config.shared.mode == Mode::HostServer {
+    //     assert!(
+    //         matches!(client_config.net, NetConfig::Local { .. }),
+    //         "When running in HostServer mode, the client connection needs to be of type Local"
+    //     );
+    // }
 
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
     let connection_manager = ConnectionManager::<P>::new(

@@ -32,7 +32,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             Startup,
             // start the dedicated server immediately (but not host servers)
-            start_dedicated_server.run_if(not(SharedConfig::is_host_server_condition)),
+            start_dedicated_server.run_if(SharedConfig::is_mode_separate),
         );
         app.add_systems(
             FixedUpdate,
@@ -48,10 +48,7 @@ impl Plugin for ExampleServerPlugin {
                 // in HostServer mode, we will spawn a player when a client connects
                 game::handle_connections
             )
-                .run_if(
-                    SharedConfig::is_host_server_condition
-                        .and_then(in_state(NetworkingState::Started)),
-                ),
+                .run_if(SharedConfig::is_host_server_condition),
         );
         app.add_systems(
             Update,
@@ -61,7 +58,7 @@ impl Plugin for ExampleServerPlugin {
                 lobby::handle_lobby_exit,
                 lobby::handle_start_game,
             )
-                .run_if(not(SharedConfig::is_host_server_condition)),
+                .run_if(SharedConfig::is_mode_separate),
         );
     }
 }
@@ -72,13 +69,12 @@ pub(crate) struct Global {
 }
 
 /// System to start the dedicated server at Startup
-fn start_dedicated_server(world: &mut World) {
-    world.run_system_once(|mut commands: Commands| {
-        commands.replicate_resource::<Lobbies>(Replicate::default());
-    });
-    world
-        .start_server::<MyProtocol>()
-        .expect("Failed to start server");
+fn start_dedicated_server(
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<NetworkingState>>,
+) {
+    commands.replicate_resource::<Lobbies>(Replicate::default());
+    next_state.set(NetworkingState::Started);
 }
 
 /// Spawn an entity for a given client
@@ -86,11 +82,16 @@ fn spawn_player_entity(
     commands: &mut Commands,
     mut global: Mut<Global>,
     client_id: ClientId,
+    dedicated_server: bool,
 ) -> Entity {
     let replicate = Replicate {
         prediction_target: NetworkTarget::Single(client_id),
         interpolation_target: NetworkTarget::AllExceptSingle(client_id),
-        replication_mode: ReplicationMode::Room,
+        replication_mode: if dedicated_server {
+            ReplicationMode::Room
+        } else {
+            ReplicationMode::NetworkTarget
+        },
         ..default()
     };
     let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
@@ -114,7 +115,7 @@ mod game {
     ) {
         for connection in connections.read() {
             let client_id = *connection.context();
-            spawn_player_entity(&mut commands, global.reborrow(), client_id);
+            spawn_player_entity(&mut commands, global.reborrow(), client_id, false);
         }
     }
 
@@ -133,6 +134,7 @@ mod game {
                     entity.despawn();
                 }
             }
+            // NOTE: we cannot join a game hosted by a player, since we remove the players from that lobby!
             if let Some(lobbies) = lobbies.as_mut() {
                 lobbies.remove_client(*client_id);
             }
@@ -188,7 +190,8 @@ mod lobby {
             room_manager.add_client(client_id, RoomId(lobby_id as u16));
             if lobby.in_game {
                 // if the game has already started, we need to spawn the player entity
-                let entity = spawn_player_entity(&mut commands, global.reborrow(), client_id);
+                let entity =
+                    spawn_player_entity(&mut commands, global.reborrow(), client_id, false);
                 room_manager.add_entity(entity, RoomId(lobby_id as u16));
             }
         }
@@ -237,37 +240,41 @@ mod lobby {
                 }
             }
 
-            if host.is_none() {
-                let room_id = RoomId(lobby_id as u16);
-                // the client was not part of the lobby, they are joining in the middle of the game
-                if !lobby.players.contains(client_id) {
-                    lobby.players.push(*client_id);
-                    let entity = spawn_player_entity(&mut commands, global.reborrow(), *client_id);
+            let room_id = RoomId(lobby_id as u16);
+            // the client was not part of the lobby, they are joining in the middle of the game
+            if !lobby.players.contains(client_id) {
+                lobby.players.push(*client_id);
+                if host.is_none() {
+                    let entity =
+                        spawn_player_entity(&mut commands, global.reborrow(), *client_id, false);
                     room_manager.add_entity(entity, room_id);
                     room_manager.add_client(*client_id, room_id);
-                    // send the StartGame message to the client who is trying to join the game
-                    let _ = connection_manager.send_message::<Channel1, _>(
-                        *client_id,
-                        StartGame {
-                            lobby_id,
-                            host: lobby.host,
-                        },
-                    );
-                } else {
+                }
+                // send the StartGame message to the client who is trying to join the game
+                let _ = connection_manager.send_message::<Channel1, _>(
+                    *client_id,
+                    StartGame {
+                        lobby_id,
+                        host: lobby.host,
+                    },
+                );
+            } else {
+                if host.is_none() {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
-                        let entity = spawn_player_entity(&mut commands, global.reborrow(), *player);
+                        let entity =
+                            spawn_player_entity(&mut commands, global.reborrow(), *player, false);
                         room_manager.add_entity(entity, room_id);
                     }
-                    // redirect the StartGame message to all other clients in the lobby
-                    let _ = connection_manager.send_message_to_target::<Channel1, _>(
-                        StartGame {
-                            lobby_id,
-                            host: lobby.host,
-                        },
-                        NetworkTarget::Only(lobby.players.clone()),
-                    );
                 }
+                // redirect the StartGame message to all other clients in the lobby
+                let _ = connection_manager.send_message_to_target::<Channel1, _>(
+                    StartGame {
+                        lobby_id,
+                        host: lobby.host,
+                    },
+                    NetworkTarget::Only(lobby.players.clone()),
+                );
             }
         }
     }

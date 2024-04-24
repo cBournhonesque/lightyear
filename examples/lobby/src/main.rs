@@ -42,24 +42,11 @@ mod shared;
 
 #[derive(Parser, PartialEq, Debug)]
 enum Cli {
-    /// We have the client and the server running inside the same app.
-    /// The server will also act as a client.
-    #[cfg(not(target_family = "wasm"))]
-    HostServer {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
-    #[cfg(not(target_family = "wasm"))]
-    /// We will create two apps: a client app and a server app.
-    /// Data gets passed between the two via channels.
-    ListenServer {
-        #[arg(short, long, default_value = None)]
-        client_id: Option<u64>,
-    },
     #[cfg(not(target_family = "wasm"))]
     /// Dedicated server
     Server,
-    /// The program will act as a client
+    /// The program will act as a client. We will also launch the ServerPlugin in the same app
+    /// so that a client can also act as host.
     Client {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
@@ -91,48 +78,8 @@ fn main() {
 /// They can be created by providing a [`client::ClientConfig`] or [`server::ServerConfig`] struct, along with a
 /// shared [`Protocol`](lightyear::prelude::Protocol) which defines the messages (Messages, Components, Inputs) that
 /// can be sent between client and server.
-fn run(settings: Settings, cli: Cli) {
+fn run(mut settings: Settings, cli: Cli) {
     match cli {
-        // ListenServer using a single app
-        #[cfg(not(target_family = "wasm"))]
-        Cli::HostServer { client_id } => {
-            let client_net_config = NetConfig::Local {
-                id: client_id.unwrap_or(settings.client.client_id),
-            };
-            let mut app = combined_app(settings, client_net_config);
-            app.run();
-        }
-        #[cfg(not(target_family = "wasm"))]
-        Cli::ListenServer { client_id } => {
-            // create client app
-            let (from_server_send, from_server_recv) = crossbeam_channel::unbounded();
-            let (to_server_send, to_server_recv) = crossbeam_channel::unbounded();
-            // we will communicate between the client and server apps via channels
-            let transport_config = TransportConfig::LocalChannel {
-                recv: from_server_recv,
-                send: to_server_send,
-            };
-            let net_config = build_client_netcode_config(
-                client_id.unwrap_or(settings.client.client_id),
-                // when communicating via channels, we need to use the address `LOCAL_SOCKET` for the server
-                LOCAL_SOCKET,
-                settings.client.conditioner.as_ref(),
-                &settings.shared,
-                transport_config,
-            );
-            let mut client_app = client_app(settings.clone(), net_config);
-
-            // create server app
-            let extra_transport_configs = vec![TransportConfig::Channels {
-                // even if we communicate via channels, we need to provide a socket address for the client
-                channels: vec![(LOCAL_SOCKET, to_server_recv, from_server_send)],
-            }];
-            let mut server_app = server_app(settings, extra_transport_configs);
-
-            // run both the client and server apps
-            std::thread::spawn(move || server_app.run());
-            client_app.run();
-        }
         #[cfg(not(target_family = "wasm"))]
         Cli::Server => {
             let mut app = server_app(settings, vec![]);
@@ -144,39 +91,14 @@ fn run(settings: Settings, cli: Cli) {
                 settings.client.server_port,
             );
             // use the cli-provided client id if it exists, otherwise use the settings client id
-            let client_id = client_id.unwrap_or(settings.client.client_id);
-            let net_config = get_client_net_config(&settings, client_id);
-            let mut app = client_app(settings, net_config);
+            if let Some(client_id) = client_id {
+                settings.client.client_id = client_id;
+            }
+            let net_config = get_client_net_config(&settings);
+            let mut app = combined_app(settings, net_config);
             app.run();
         }
     }
-}
-
-/// Build the client app
-fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins.build().set(LogPlugin {
-        level: Level::INFO,
-        filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
-        update_subscriber: Some(add_log_layer),
-    }));
-    if settings.client.inspector {
-        app.add_plugins(WorldInspectorPlugin::new());
-    }
-
-    let client_config = client::ClientConfig {
-        shared: shared_config(Mode::Separate),
-        net: net_config,
-        ..default()
-    };
-    let plugin_config = client::PluginConfig::new(client_config, protocol());
-    app.add_plugins((
-        client::ClientPlugin::new(plugin_config),
-        ExampleClientPlugin { settings },
-        SharedPlugin,
-    ));
-
-    app
 }
 
 /// Build the server app
@@ -228,9 +150,10 @@ fn combined_app(settings: Settings, client_net_config: client::NetConfig) -> App
     }
 
     // server plugin
+    let net_configs = get_host_server_net_configs(&settings);
     let server_config = server::ServerConfig {
         shared: shared_config(Mode::HostServer),
-        net: vec![],
+        net: net_configs,
         ..default()
     };
     app.add_plugins((

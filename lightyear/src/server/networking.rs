@@ -83,6 +83,12 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
         // create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
         app.world.run_system_once(rebuild_server_connections::<P>);
+
+        // ON_START
+        app.add_systems(OnEnter(NetworkingState::Started), on_start::<P>);
+
+        // ON_STOP
+        app.add_systems(OnEnter(NetworkingState::Stopped), on_stop);
     }
 }
 
@@ -323,37 +329,25 @@ fn rebuild_server_connections<P: Protocol>(world: &mut World) {
     world.insert_resource(server_connections);
 }
 
-pub trait ServerConnectionExt {
-    /// Start the server
-    fn start_server<P: Protocol>(&mut self) -> anyhow::Result<()>;
-
-    /// Stop the server
-    fn stop_server<P: Protocol>(&mut self) -> anyhow::Result<()>;
+/// System that runs when we enter the Started state
+/// - rebuild the server connections resource from the latest `ServerConfig`
+/// - rebuild the server connection manager
+/// - start listening on the server connections
+fn on_start<P: Protocol>(world: &mut World) {
+    if world.resource::<ServerConnections>().is_listening() {
+        error!("The server is already started. The server can only be started when it is stopped.");
+        return;
+    }
+    rebuild_server_connections::<P>(world);
+    let _ = world
+        .resource_mut::<ServerConnections>()
+        .start()
+        .inspect_err(|e| error!("Error starting server connections: {:?}", e));
 }
 
-impl ServerConnectionExt for World {
-    /// Start the server
-    /// - rebuild the server connections resource from the latest `ServerConfig`
-    /// - rebuild the server connection manager
-    /// - start listening on the server connections
-    /// - set the networking state to `Started` (is this needed? we can just use the run_condition `is_started`)
-    fn start_server<P: Protocol>(&mut self) -> anyhow::Result<()> {
-        if self.resource::<ServerConnections>().is_listening() {
-            return Err(anyhow!(
-                "The server is already started. The server can only be started when it is stopped."
-            ));
-        }
-        rebuild_server_connections::<P>(self);
-        self.resource_mut::<ServerConnections>().start()?;
-        self.resource_mut::<NextState<NetworkingState>>()
-            .set(NetworkingState::Started);
-        Ok(())
-    }
-
-    fn stop_server<P: Protocol>(&mut self) -> anyhow::Result<()> {
-        self.resource_mut::<ServerConnections>().stop()?;
-        self.resource_mut::<NextState<NetworkingState>>()
-            .set(NetworkingState::Stopped);
-        Ok(())
-    }
+/// System that runs when we enter the Stopped state
+fn on_stop(mut server_connections: ResMut<ServerConnections>) {
+    let _ = server_connections
+        .stop()
+        .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
 }

@@ -5,7 +5,7 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
 use crate::protocol::*;
-use crate::settings::Settings;
+use crate::settings::{build_client_netcode_config, get_client_net_config, Settings};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 pub use lightyear::prelude::client::*;
@@ -96,26 +96,18 @@ fn on_disconnect(
     entities: Query<Entity, (Without<Window>, Without<Camera2d>)>,
     mut config: ResMut<ClientConfig>,
     settings: Res<Settings>,
+    mut next_server_state: ResMut<NextState<server::NetworkingState>>,
+    connection: Res<ClientConnection>,
 ) {
     for entity in entities.iter() {
         commands.entity(entity).despawn_recursive();
     }
 
+    // stop the server if it was started (if the player was host)
+    next_server_state.set(server::NetworkingState::Stopped);
+
     // update the client config to connect to the lobby server
-    match &mut config.net {
-        NetConfig::Netcode { auth, .. } => match auth {
-            Authentication::Manual { server_addr, .. } => {
-                *server_addr = SocketAddr::new(
-                    settings.client.server_addr.into(),
-                    settings.client.server_port.into(),
-                );
-            }
-            _ => {}
-        },
-        _ => {
-            error!("Unsupported net config");
-        }
-    }
+    config.net = get_client_net_config(settings.as_ref());
 }
 
 mod game {
@@ -224,6 +216,7 @@ mod lobby {
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
+    use lightyear::server::config::ServerConfig;
     use std::net::SocketAddr;
     use tracing::{error, info};
 
@@ -405,7 +398,7 @@ mod lobby {
                                 if ui.button("Start game").clicked() {
                                     // find the host of the game
                                     let host = lobby_table.get_host();
-                                    // send a message to server/client to start the game and act as server
+                                    // send a message to server/client to start the game and possibly act as server
                                     let _ =
                                         connection_manager.send_message::<Channel1, _>(StartGame {
                                             lobby_id: *lobby_id,
@@ -440,7 +433,9 @@ mod lobby {
         mut next_app_state: ResMut<NextState<AppState>>,
         mut next_state: ResMut<NextState<NetworkingState>>,
         mut config: ResMut<ClientConfig>,
+        mut next_server_state: ResMut<NextState<server::NetworkingState>>,
         settings: Res<Settings>,
+        connection: Res<ClientConnection>,
     ) {
         for event in events.read() {
             let host = event.message().host;
@@ -449,20 +444,27 @@ mod lobby {
             next_app_state.set(AppState::Game);
             // the host of the game is another player
             if let Some(host) = host {
-                info!("Host of the game: {host:?}");
-                // update the client config to connect to the game host
-                match &mut config.net {
-                    NetConfig::Netcode { auth, .. } => match auth {
-                        Authentication::Manual { server_addr, .. } => {
-                            *server_addr = SocketAddr::new(
-                                settings.client.server_addr.into(),
-                                settings.client.server_port,
-                            );
+                if host == connection.id() {
+                    info!("We are the host of the game!");
+                    // set the client connection to be local
+                    config.net = NetConfig::Local { id: host.to_bits() };
+                    // start the server
+                    next_server_state.set(server::NetworkingState::Started);
+                } else {
+                    // update the client config to connect to the game host
+                    match &mut config.net {
+                        NetConfig::Netcode { auth, .. } => match auth {
+                            Authentication::Manual { server_addr, .. } => {
+                                *server_addr = SocketAddr::new(
+                                    settings.client.server_addr.into(),
+                                    settings.client.host_server_port,
+                                );
+                            }
+                            _ => {}
+                        },
+                        _ => {
+                            error!("Unsupported net config");
                         }
-                        _ => {}
-                    },
-                    _ => {
-                        error!("Unsupported net config");
                     }
                 }
                 // start the connection process

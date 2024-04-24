@@ -61,6 +61,10 @@ impl SharedConfig {
                 && server.map_or(false, |server| server.is_listening())
         })
     }
+
+    pub fn is_mode_separate(config: Option<Res<ServerConfig>>) -> bool {
+        config.map_or(true, |config| config.shared.mode == Mode::Separate)
+    }
 }
 
 impl Default for SharedConfig {
