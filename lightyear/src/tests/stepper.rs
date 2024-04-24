@@ -21,6 +21,8 @@ use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig};
 use crate::prelude::*;
 use crate::tests::protocol::*;
 
+pub const TEST_CLIENT_ID: u64 = 111;
+
 /// Helpers to setup a bevy app where I can just step the world easily
 pub trait Step {
     /// Advance both apps by one frame duration
@@ -102,7 +104,6 @@ impl BevyStepper {
         // Shared config
         let protocol_id = 0;
         let private_key = generate_key();
-        let client_id = 111;
 
         // Setup server
         let mut server_app = App::new();
@@ -131,7 +132,7 @@ impl BevyStepper {
                 server_addr: addr,
                 protocol_id,
                 private_key,
-                client_id,
+                client_id: TEST_CLIENT_ID,
             },
             config: Default::default(),
             io: client_io,

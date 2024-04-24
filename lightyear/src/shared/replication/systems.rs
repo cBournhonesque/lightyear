@@ -47,7 +47,7 @@ fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
     query: Query<(Entity, &Replicate<P>), (Added<Replicate<P>>, Without<DespawnTracker>)>,
 ) {
     for (entity, replicate) in query.iter() {
-        debug!("ADDING DESPAWN TRACKER");
+        debug!("Adding Despawn tracker component");
         commands.entity(entity).insert(DespawnTracker);
         sender
             .get_mut_replicate_component_cache()
@@ -98,16 +98,26 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
         // only replicate the despawn if the entity still had a Replicate component
         if let Some(replicate) = sender.get_mut_replicate_component_cache().remove(&entity) {
             // TODO: DO NOT SEND ENTITY DESPAWN TO THE CLIENT WHO JUST DISCONNECTED!
+            let mut network_target = replicate.replication_target.clone();
+            if replicate.replication_mode == ReplicationMode::Room {
+                // if the mode was room, only replicate the despawn to clients that were in the same room
+                network_target.intersection(NetworkTarget::Only(
+                    replicate
+                        .replication_clients_cache
+                        .keys()
+                        .copied()
+                        .collect(),
+                ));
+            }
             trace!("send entity despawn");
             let _ = sender
                 .prepare_entity_despawn(
                     entity,
                     &replicate,
-                    replicate.replication_target.clone(),
+                    network_target,
                     system_bevy_ticks.this_run(),
                 )
                 // TODO: bubble up errors to user via ConnectionEvents
-                //  use thiserror so that user can distinguish between error types
                 .map_err(|e| {
                     error!("error sending entity despawn: {:?}", e);
                 });
@@ -502,4 +512,60 @@ pub(crate) fn cleanup<P: Protocol, R: ReplicationSend<P>>(
 ) {
     let tick = tick_manager.tick();
     sender.cleanup(tick);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::server::{RoomId, RoomManager};
+    use crate::prelude::{ClientId, ReplicationMode};
+    use crate::tests::protocol::*;
+    use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
+    use bevy::prelude::{default, Entity, With};
+
+    /// Check that when replicated entities in other rooms than the current client are despawned,
+    /// the despawn is not sent to the client
+    #[test]
+    fn test_other_rooms_despawn() {
+        let mut stepper = BevyStepper::default();
+
+        let server_entity = stepper
+            .server_app
+            .world
+            .spawn((
+                Replicate {
+                    replication_mode: ReplicationMode::Room,
+                    ..default()
+                },
+                Component1(0.0),
+            ))
+            .id();
+        let mut room_manager = stepper.server_app.world.resource_mut::<RoomManager>();
+        room_manager.add_client(ClientId::Netcode(TEST_CLIENT_ID), RoomId(0));
+        room_manager.add_entity(server_entity, RoomId(0));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the entity was replicated
+        let client_entity = stepper
+            .client_app
+            .world
+            .query_filtered::<Entity, With<Component1>>()
+            .single(&stepper.client_app.world);
+
+        // update the room of the server entity to be in a different room
+        stepper
+            .server_app
+            .world
+            .resource_mut::<RoomManager>()
+            .add_entity(server_entity, RoomId(1));
+        stepper.frame_step();
+
+        // despawn the entity
+        stepper.server_app.world.entity_mut(server_entity).despawn();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // the despawn shouldn't be replicated to the client, since it's in a different room
+        assert!(stepper.client_app.world.get_entity(client_entity).is_some());
+    }
 }
