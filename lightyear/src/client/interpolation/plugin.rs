@@ -14,7 +14,7 @@ use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
-use crate::prelude::{ExternalMapper, Mode};
+use crate::prelude::{ExternalMapper, Mode, SharedConfig};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::Protocol;
 
@@ -202,11 +202,17 @@ where
 
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
+        let should_run_interpolation =
+            not(SharedConfig::is_host_server_condition).and_then(client_is_synced::<P>);
+
         // REFLECT
         app.register_type::<InterpolationConfig>()
             .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
 
+        // TODO: separate prediction and interpolation attributes
+        // TODO: make the custom interpolation logic per-component?
+        //  i.e. we enable the custom interpolation only for some components, but not for all
         P::Components::add_prepare_interpolation_systems(app);
         if !self.config.custom_interpolation_logic {
             P::Components::add_interpolation_systems(app);
@@ -227,7 +233,10 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
                 .in_set(InterpolationSet::All)
                 .chain(),
         );
-        app.configure_sets(Update, InterpolationSet::All.run_if(client_is_synced::<P>));
+        app.configure_sets(
+            Update,
+            InterpolationSet::All.run_if(should_run_interpolation),
+        );
         // SYSTEMS
         app.add_systems(
             Update,

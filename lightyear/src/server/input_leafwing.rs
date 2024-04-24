@@ -19,6 +19,7 @@ use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputMessageEvent;
+use crate::server::networking::is_started;
 use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::InternalMainSet;
@@ -78,9 +79,10 @@ where
                 InputSystemSet::AddBuffers,
                 InputSystemSet::ReceiveInputs,
             )
-                .chain(),
+                .chain()
+                .run_if(is_started),
         );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::Update);
+        app.configure_sets(FixedPreUpdate, InputSystemSet::Update.run_if(is_started));
         // SYSTEMS
         app.add_systems(
             PreUpdate,
@@ -95,6 +97,7 @@ where
             update_action_state::<A>.in_set(InputSystemSet::Update),
         );
 
+        // TODO: register this in Plugin::finish by checking if the client plugin is already registered?
         if app.world.resource::<ServerConfig>().shared.mode != Mode::HostServer {
             // we don't want to add this plugin in HostServer mode because it's already added on the client side
             // Otherwise, we need to add the leafwing server plugin because it ticks Action-States (so just-pressed become pressed)
@@ -315,13 +318,6 @@ mod tests {
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
-        stepper
-            .client_app
-            .world
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .release(KeyCode::KeyA);
-        stepper.frame_step();
-
         // we should have sent an InputMessage from client to server
         assert_eq!(
             stepper
@@ -335,6 +331,12 @@ mod tests {
                 action: LeafwingInput1::Jump
             }]
         );
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
+        stepper.frame_step();
         assert_eq!(
             stepper
                 .server_app
@@ -347,7 +349,5 @@ mod tests {
                 action: LeafwingInput1::Jump
             }]
         );
-        stepper.frame_step();
-        stepper.frame_step();
     }
 }
