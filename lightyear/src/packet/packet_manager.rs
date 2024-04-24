@@ -762,6 +762,23 @@ mod tests {
     }
 
     #[test]
+    fn test_write_fragmented_packetsk() {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new();
+        let channel_kind1 = ChannelKind::of::<Channel1>();
+        let channel_id1 = channel_registry.get_net_from_kind(&channel_kind1).unwrap();
+
+        for i in MTU_PAYLOAD_BYTES..(100 * MTU_PAYLOAD_BYTES) {
+            let big_bytes = Bytes::from(vec![1u8; i]);
+            let fragmenter = FragmentSender::new();
+            let fragments = fragmenter.build_fragments(MessageId(0), None, big_bytes.clone(), 1.0);
+            let mut data = BTreeMap::new();
+            data.insert(*channel_id1, (VecDeque::new(), fragments.into()));
+            let mut packets = manager.build_packets(data);
+        }
+    }
+
+    #[test]
     fn test_cannot_write_channel() -> anyhow::Result<()> {
         let channel_registry = get_channel_registry();
         let mut manager = PacketBuilder::new();
