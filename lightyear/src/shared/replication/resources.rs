@@ -18,6 +18,24 @@ use tracing::error;
 mod command {
     use super::*;
 
+    pub struct StartReplicateCommand<R, P: Protocol> {
+        replicate: Replicate<P>,
+        _marker: PhantomData<(R, P)>,
+    }
+
+    impl<R: Resource + Clone, P: Protocol> Command for StartReplicateCommand<R, P> {
+        fn apply(self, world: &mut World) {
+            if let Ok(entity) = world
+                .query_filtered::<Entity, With<ReplicateResource<R>>>()
+                .get_single(world)
+            {
+                world.entity_mut(entity).insert(self.replicate);
+            } else {
+                world.spawn((ReplicateResource::<R>::default(), self.replicate));
+            }
+        }
+    }
+
     /// Extension trait to be able to replicate a resource to remote clients via [`Commands`].
     pub trait ReplicateResourceExt<P: Protocol> {
         /// Start replicating a resource to remote clients.
@@ -31,40 +49,44 @@ mod command {
 
     impl<P: Protocol> ReplicateResourceExt<P> for Commands<'_, '_> {
         fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate<P>) {
-            self.spawn((ReplicateResource::<R>::default(), replicate));
+            self.add(StartReplicateCommand::<R, P> {
+                replicate,
+                _marker: PhantomData,
+            });
         }
     }
 
-    struct StopReplicateCommand<R> {
-        _marker: PhantomData<R>,
+    pub struct StopReplicateCommand<R, P> {
+        _marker: PhantomData<(R, P)>,
     }
 
-    impl<R: Resource + Clone> Command for StopReplicateCommand<R> {
+    impl<R, P> Default for StopReplicateCommand<R, P> {
+        fn default() -> Self {
+            Self {
+                _marker: PhantomData,
+            }
+        }
+    }
+
+    impl<R: Resource + Clone, P: Protocol> Command for StopReplicateCommand<R, P> {
         fn apply(self, world: &mut World) {
             if let Ok(entity) = world
                 .query_filtered::<Entity, With<ReplicateResource<R>>>()
                 .get_single(world)
             {
-                world.despawn(entity);
+                // we do not despawn the entity, because that would delete the resource
+                world.entity_mut(entity).remove::<Replicate<P>>();
             }
         }
     }
 
     /// Extension trait to be able to stop replicating a resource to remote clients via [`Commands`].
-    pub trait StopReplicateResourceExt {
+    pub trait StopReplicateResourceExt<P: Protocol> {
         /// Stop replicating a resource to remote clients.
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
     }
-
-    impl StopReplicateResourceExt for Commands<'_, '_> {
-        fn stop_replicate_resource<R: Resource + Clone>(&mut self) {
-            self.add(StopReplicateCommand::<R> {
-                _marker: PhantomData,
-            });
-        }
-    }
 }
-pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
+pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};
 
 /// This component can be added to an entity to start replicating a [`Resource`] to remote clients.
 ///
@@ -92,7 +114,7 @@ pub(crate) mod send {
     impl<P, R> Default for ResourceSendPlugin<P, R> {
         fn default() -> Self {
             Self {
-                _marker: std::marker::PhantomData,
+                _marker: PhantomData,
             }
         }
     }
@@ -233,7 +255,7 @@ mod tests {
     use crate::prelude::client::NetworkingState;
     use crate::prelude::NetworkTarget;
     use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::protocol::{Component1, Replicate, Resource1};
+    use crate::tests::protocol::{Component1, MyProtocol, Replicate, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::prelude::{Commands, Entity, OnEnter, With};
 
@@ -428,5 +450,91 @@ mod tests {
             .world
             .get_resource::<Resource1>()
             .is_none());
+    }
+
+    /// Check that:
+    /// - we can stop replicating a resource without despawning the entity/resource
+    /// - when the replication is stopped, we can despawn the resource on the sender, and the receiver still has the resource
+    /// - we can call `start_replicate_resource` even if the replicating entity already exists
+    #[test]
+    fn test_stop_replication_without_despawn() {
+        let mut stepper = BevyStepper::default();
+
+        // start replicating a resource via commands (even if the resource doesn't exist yet)
+        let start_replicate_system =
+            stepper
+                .server_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.replicate_resource::<Resource1>(Replicate::default());
+                });
+        let stop_replicate_system =
+            stepper
+                .server_app
+                .world
+                .register_system(|mut commands: Commands| {
+                    commands.stop_replicate_resource::<Resource1>();
+                });
+        let _ = stepper.server_app.world.run_system(start_replicate_system);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the component was replicated correctly
+        let replicated_component = stepper
+            .client_app
+            .world
+            .query::<&ReplicateResource<Resource1>>()
+            .get_single(&stepper.client_app.world)
+            .unwrap();
+
+        // add the resource
+        stepper.server_app.world.insert_resource(Resource1(1.0));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let replicated_resource = stepper
+            .client_app
+            .world
+            .query::<&ReplicateResource<Resource1>>()
+            .get_single(&stepper.client_app.world)
+            .unwrap();
+
+        // check that the resource was replicated
+        assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 1.0);
+
+        // stop replicating the resource
+        let _ = stepper.server_app.world.run_system(stop_replicate_system);
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // update the resource
+        stepper.server_app.world.resource_mut::<Resource1>().0 = 2.0;
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the resource was not deleted on the client, but also not updated
+        assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 1.0);
+
+        // re-start replicating the resource
+        let _ = stepper.server_app.world.run_system(start_replicate_system);
+        stepper.frame_step();
+        // update the resource
+        stepper.server_app.world.resource_mut::<Resource1>().0 = 3.0;
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the resource was replicated
+        assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 3.0);
+
+        // stop replicating the resource
+        let _ = stepper.server_app.world.run_system(stop_replicate_system);
+        stepper.frame_step();
+        // remove the resource
+        stepper.server_app.world.remove_resource::<Resource1>();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the deletion hasn't been replicated
+        assert_eq!(stepper.client_app.world.resource::<Resource1>().0, 3.0);
     }
 }

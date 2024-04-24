@@ -7,9 +7,10 @@ use crate::client::interpolation::Interpolated;
 use crate::client::prediction::Predicted;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{Mode, PrePredicted, Protocol};
+use crate::prelude::{Mode, PrePredicted, Protocol, SharedConfig};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
+use crate::server::networking::is_started;
 use crate::server::prediction::compute_hash;
 use crate::shared::replication::components::Replicate;
 use crate::shared::replication::plugin::ReplicationPlugin;
@@ -65,31 +66,29 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
             .configure_sets(
                 PreUpdate,
                 ServerReplicationSet::ClientReplication
+                    .run_if(is_started)
                     .after(InternalMainSet::<ServerMarker>::Receive),
             )
             .configure_sets(
                 PostUpdate,
-                ((
-                    // on server: we need to set the hash value before replicating the component
-                    InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
-                        .before(InternalReplicationSet::<ServerMarker>::SendComponentUpdates),
-                )
-                    .in_set(InternalReplicationSet::<ServerMarker>::All),),
+                // on server: we need to set the hash value before replicating the component
+                InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
+                    .before(InternalReplicationSet::<ServerMarker>::SendComponentUpdates)
+                    .in_set(InternalReplicationSet::<ServerMarker>::All),
             )
             // SYSTEMS
             .add_systems(
                 PostUpdate,
-                (compute_hash::<P>
-                    .in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),),
+                compute_hash::<P>.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
             );
 
-        if app.world.resource::<ServerConfig>().shared.mode == Mode::HostServer {
-            app.add_systems(
-                PostUpdate,
-                add_prediction_interpolation_components::<P>
-                    .after(InternalMainSet::<ServerMarker>::Send),
-            );
-        }
+        // HOST-SERVER
+        app.add_systems(
+            PostUpdate,
+            add_prediction_interpolation_components::<P>
+                .after(InternalMainSet::<ServerMarker>::Send)
+                .run_if(SharedConfig::is_host_server_condition),
+        );
     }
 }
 

@@ -6,7 +6,7 @@ use bevy::utils::Duration;
 use crate::client::connection::ConnectionManager;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::Protocol;
+use crate::prelude::{Protocol, SharedConfig};
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::sets::InternalReplicationSet;
 
@@ -63,7 +63,9 @@ impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
                 //  and the message might be ignored by the server
                 //  But then pre-predicted entities that are spawned right away will not be replicated?
                 // NOTE: we always need to add this condition if we don't enable replication, because
-                InternalReplicationSet::<ClientMarker>::All.run_if(client_is_synced::<P>),
+                InternalReplicationSet::<ClientMarker>::All.run_if(
+                    client_is_synced::<P>.and_then(not(SharedConfig::is_host_server_condition)),
+                ),
             );
     }
 }

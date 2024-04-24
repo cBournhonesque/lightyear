@@ -2,10 +2,11 @@ use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::client::networking::ClientConnectionParam;
 use crate::connection::client::{ClientConnection, NetClient};
-use bevy::ecs::system::SystemState;
-use bevy::prelude::{default, App, Mut, NextState, PluginGroup, Real, State, Time, World};
+use bevy::ecs::system::{RunSystemOnce, SystemState};
+use bevy::prelude::{
+    default, App, Commands, Mut, NextState, PluginGroup, Real, State, Time, World,
+};
 use bevy::time::TimeUpdateStrategy;
 use bevy::{DefaultPlugins, MinimalPlugins};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -13,10 +14,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use crate::connection::netcode::generate_key;
 use crate::connection::server::{NetServer, ServerConnection, ServerConnections};
 use crate::prelude::client::{
-    Authentication, ClientConfig, InputConfig, InterpolationConfig, NetworkingState,
-    PredictionConfig, SyncConfig,
+    Authentication, ClientCommands, ClientConfig, InputConfig, InterpolationConfig,
+    NetworkingState, PredictionConfig, SyncConfig,
 };
-use crate::prelude::server::{NetcodeConfig, ServerConfig};
+use crate::prelude::server::{NetcodeConfig, ServerCommands, ServerConfig};
 use crate::prelude::*;
 use crate::tests::protocol::*;
 
@@ -188,13 +189,10 @@ impl BevyStepper {
     pub(crate) fn init(&mut self) {
         self.server_app
             .world
-            .resource_mut::<ServerConnections>()
-            .start()
-            .expect("could not start server");
+            .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_app
             .world
-            .resource_mut::<NextState<NetworkingState>>()
-            .set(NetworkingState::Connecting);
+            .run_system_once(|mut commands: Commands| commands.connect_client());
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {

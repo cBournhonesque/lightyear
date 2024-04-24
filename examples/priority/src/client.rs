@@ -35,9 +35,9 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Startup system for the client
-pub(crate) fn init(mut client: ClientConnectionParam) {
-    let _ = client.connect();
+// Startup system for the client
+pub(crate) fn init(mut commands: Commands) {
+    commands.connect_client();
 }
 
 /// Listen for events to know when the client is connected, and spawn a text entity
