@@ -101,52 +101,61 @@ impl TransportBuilder for WebTransportClientSocketBuilder {
         //   to poll the existing one. This is FAULTY behaviour
         // - if you want to use tokio::Select, you have to first pin the Future, and then select on &mut Future. Only the reference gets
         //   cancelled
-        IoTaskPool::get()
-            .spawn(async move {
-                let Ok(connection) = recv.await else {
-                    return;
-                };
-                loop {
-                    match connection.receive_datagram().await {
-                        Ok(data) => {
-                            trace!("receive datagram from server: {:?}", &data);
-                            from_server_sender.send(data).unwrap();
-                        }
-                        Err(e) => {
-                            error!("receive_datagram connection error: {:?}", e);
+        IoTaskPool::get().spawn(async move {
+            let Ok(connection) = recv.await else {
+                return;
+            };
+            loop {
+                tokio::select! {
+                    _ = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => return,
+                    to_send = connection.receive_datagram() => {
+                        match to_send {
+                           Ok(data) => {
+                               trace!("receive datagram from server: {:?}", &data);
+                               from_server_sender.send(data).unwrap();
+                           }
+                           Err(e) => {
+                               error!("receive_datagram connection error: {:?}", e);
+                           }
                         }
                     }
                 }
-            })
-            .detach();
-        IoTaskPool::get()
-            .spawn(async move {
-                let Ok(connection) = recv2.await else {
-                    return;
-                };
-                loop {
-                    if let Some(msg) = to_server_receiver.recv().await {
-                        trace!("send datagram to server: {:?}", &msg);
-                        connection.send_datagram(msg).await.unwrap_or_else(|e| {
-                            error!("send_datagram error: {:?}", e);
-                        });
+            }
+        });
+        IoTaskPool::get().spawn(async move {
+            let Ok(connection) = recv2.await else {
+                return;
+            };
+            loop {
+                tokio::select! {
+                    _ = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => return,
+                    recv = to_server_receiver.recv() => {
+                        if let Some(msg) = recv {
+                            trace!("send datagram to server: {:?}", &msg);
+                            connection.send_datagram(msg).await.unwrap_or_else(|e| {
+                                error!("send_datagram error: {:?}", e);
+                            });
+                        }
                     }
                 }
-            })
-            .detach();
+            }
+        });
         IoTaskPool::get()
             .spawn(async move {
                 let Ok(connection) = recv3.await else {
                     return;
                 };
                 // Wait for a close signal from the close channel, or for the quic connection to be closed
-                close_rx.recv().await;
-                info!("WebTransport connection closed.");
-                // close the connection
-                connection.transport.close();
-                // TODO: how do we close the other tasks?
-            })
-            .detach();
+                tokio::select! {
+                    reason = wasm_bindgen_futures::JsFuture::from(connection.transport.closed()) => {
+                        info!("WebTransport connection closed. Reason: {reason:?}")
+                    },
+                    _ = close_rx.recv() => {
+                        connection.transport.close();
+                        info!("WebTransport connection closed. Reason: client requested disconnection.");
+                    }
+                }
+            });
 
         let sender = WebTransportClientPacketSender { to_server_sender };
         let receiver = WebTransportClientPacketReceiver {

@@ -29,6 +29,7 @@ webtransport = [
   "dep:web-sys",
   "dep:tokio",
   "dep:ring",
+  "dep:wasm-bindgen-futures",
 ]
 leafwing = ["dep:leafwing-input-manager", "lightyear_macros/leafwing"]
 xpbd_2d = ["dep:bevy_xpbd_2d"]
@@ -117,6 +118,7 @@ futures-util = { version = "0.3.30", optional = true }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.36", features = [
   "sync",
+  "macros",
 ], default-features = false, optional = true }
 futures = "0.3.30"
 async-compat = "0.2.3"
@@ -163,6 +165,7 @@ getrandom = { version = "0.2.11", features = [
 xwt-core = { version = "0.4", optional = true }
 xwt-web-sys = { version = "0.11", optional = true }
 wasm-bindgen = { version = "0.2.90", optional = true }
+wasm-bindgen-futures = { version = "0.4.42", optional = true }
 
 
 [dev-dependencies]
