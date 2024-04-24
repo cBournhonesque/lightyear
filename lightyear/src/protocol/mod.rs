@@ -191,6 +191,12 @@ macro_rules! protocolize {
                     protocol
                 }
             }
+
+            impl StopReplicateResourceExt<$protocol> for Commands<'_, '_> {
+                fn stop_replicate_resource<R: Resource + Clone>(&mut self) {
+                    self.add(StopReplicateCommand::<R, $protocol>::default());
+                }
+            }
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
@@ -324,6 +330,11 @@ macro_rules! protocolize {
                         priority: 1.0,
                     });
                     protocol
+                }
+            }
+            impl StopReplicateResourceExt<$protocol> for Commands<'_, '_> {
+                fn stop_replicate_resource<R: Resource + Clone>(&mut self) {
+                    self.add(StopReplicateCommand::<R, $protocol>::default())
                 }
             }
         }

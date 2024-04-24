@@ -59,10 +59,6 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
 
         // SYSTEM SETS //
         if self.enable_receive {
-            app.configure_sets(
-                PreUpdate,
-                InternalMainSet::<R::SetMarker>::Receive.in_set(MainSet::Receive),
-            );
             // PLUGINS
             app.add_plugins(HierarchyReceivePlugin::<P, R>::default());
             app.add_plugins(ResourceReceivePlugin::<P, R>::default());
@@ -92,7 +88,6 @@ impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
                         InternalReplicationSet::<R::SetMarker>::SendResourceUpdates,
                         InternalReplicationSet::<R::SetMarker>::SendComponentUpdates,
                         // NOTE: SendDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
-                        InternalMainSet::<R::SetMarker>::SendPackets,
                     )
                         .in_set(InternalMainSet::<R::SetMarker>::Send),
                     (

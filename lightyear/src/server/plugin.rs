@@ -22,7 +22,7 @@ pub struct PluginConfig<P: Protocol> {
     protocol: P,
 }
 
-// TODO: put all this in ClientConfig?
+// TODO: put all this in ServerConfig?
 impl<P: Protocol> PluginConfig<P> {
     pub fn new(server_config: ServerConfig, protocol: P) -> Self {
         PluginConfig {
@@ -53,14 +53,10 @@ impl<P: Protocol> Plugin for ServerPlugin<P> {
         app
             // RESOURCES //
             .insert_resource(config.server_config.clone())
-            .insert_resource(ConnectionManager::<P>::new(
-                config.protocol.channel_registry().clone(),
-                config.server_config.packet,
-                config.server_config.ping,
-            ))
+            .insert_resource(config.protocol.clone())
             // PLUGINS
             .add_plugins(ServerEventsPlugin::<P>::default())
-            .add_plugins(ServerNetworkingPlugin::<P>::new(config.server_config.net))
+            .add_plugins(ServerNetworkingPlugin::<P>::default())
             .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             .add_plugins(ServerReplicationPlugin::<P>::default())

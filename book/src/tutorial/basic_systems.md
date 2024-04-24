@@ -7,21 +7,23 @@ What we want to achieve is this:
 
 ## Initialization
 
-First, we need to start the connection by calling `client.connect()` on the client (via the [ClientConnection](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientConnection.html) resource) and `server.start()` on the server (via the [ServerConnections](https://docs.rs/lightyear/latest/lightyear/prelude/server/struct.ServerConnections.html) resource).
-We do this in a system that runs in the `Startup` schedule.
+Lightyear uses bevy [States](https://docs.rs/bevy/latest/bevy/ecs/schedule/trait.States.html) to manage the connection state.
+The states indicate the current state of the connection.
+The client states are `Disconnected`, `Connecting`, `Connected`; and the server states are `Started`, `Stopped`.
 
-Client:
+The connection is started/stopped using the `ClientCommands` and `ServerCommands` commands.
+Server:
 ```rust,noplayground
-fn init(mut client: ClientConnectionParam) {
-    client.connect().expect("Failed to connect to server");
+fn init(mut commands: Commands) {
+    commands.start_server();
 }
 app.add_systems(Startup, init);
 ```
 
-Server:
+Client:
 ```rust,noplayground
-fn init(mut server: ResMut<ServerConnections>) {
-    server.start().expect("Failed to start server");
+fn init(mut commands: Commands) {
+    commands.connect_client();
 }
 app.add_systems(Startup, init);
 ```
