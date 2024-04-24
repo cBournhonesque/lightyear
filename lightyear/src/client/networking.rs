@@ -158,6 +158,12 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                                 tick_manager.as_ref(),
                                                             );
                                                         }
+                                                        if netclient.state() == NetworkingState::Disconnected {
+                                                            // we just disconnected, do a state transition
+                                                            if state.get() != &NetworkingState::Disconnected {
+                                                                next_state.set(NetworkingState::Disconnected);
+                                                            }
+                                                        }
 
                                                         // RECV PACKETS: buffer packets into message managers
                                                         while let Some(packet) = netclient.recv() {
