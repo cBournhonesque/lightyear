@@ -1,6 +1,6 @@
 Settings(
     client: ClientSettings(
-        inspector: true,
+        inspector: false,
         client_id: 0,
         client_port: 0, // the OS will assign a random open port
         server_addr: "127.0.0.1",

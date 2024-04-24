@@ -50,8 +50,8 @@ impl Plugin for ExampleServerPlugin {
 }
 
 /// System to start the server at Startup
-fn start_server(world: &mut World) {
-    world.start_server().expect("Failed to start server");
+fn start_server(mut commands: Commands) {
+    commands.start_server();
 }
 
 fn init(mut commands: Commands, global: Res<Global>) {

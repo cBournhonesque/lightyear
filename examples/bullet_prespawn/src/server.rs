@@ -36,8 +36,8 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    connections.start().expect("Failed to start server");
+pub(crate) fn init(mut commands: Commands) {
+    commands.start_server();
     commands.spawn(
         TextBundle::from_section(
             "Server",

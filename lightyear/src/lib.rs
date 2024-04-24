@@ -96,7 +96,7 @@ pub mod prelude {
     pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;
     pub use crate::shared::replication::resources::{
-        ReplicateResource, ReplicateResourceExt, StopReplicateResourceExt,
+        ReplicateResource, ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt,
     };
     pub use crate::shared::sets::{FixedUpdateSet, MainSet};
     pub use crate::shared::tick_manager::TickManager;
@@ -127,7 +127,7 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
-        pub use crate::client::networking::NetworkingState;
+        pub use crate::client::networking::{ClientCommands, NetworkingState};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
@@ -149,12 +149,12 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
+        pub use crate::server::networking::{NetworkingState, ServerCommands};
         pub use crate::server::plugin::{PluginConfig, ServerPlugin};
         pub use crate::server::replication::{
             ReplicationConfig, ServerFilter, ServerReplicationSet,
         };
         pub use crate::server::room::{RoomId, RoomManager, RoomMut, RoomRef};
-        pub use crate::server::NetworkingState;
 
         pub use crate::connection::server::{
             NetConfig, NetServer, ServerConnection, ServerConnections,

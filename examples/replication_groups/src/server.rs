@@ -31,8 +31,9 @@ pub(crate) struct Global {
     pub client_id_to_entity_id: HashMap<ClientId, (Entity, Entity)>,
 }
 
-pub(crate) fn init(mut commands: Commands, mut connections: ResMut<ServerConnections>) {
-    connections.start().expect("Failed to start server");
+/// Start the server
+pub(crate) fn init(mut commands: Commands) {
+    commands.start_server();
     commands.spawn(
         TextBundle::from_section(
             "Server",

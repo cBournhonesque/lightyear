@@ -175,6 +175,7 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 
                 let new_connected_clients = sender.new_connected_clients().clone();
                 if !new_connected_clients.is_empty() {
+                    trace!("Replicate to newly connected clients");
                     // replicate to the newly connected clients that match our target
                     let mut new_connected_target = target.clone();
                     new_connected_target

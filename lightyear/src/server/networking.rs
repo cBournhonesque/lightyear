@@ -307,7 +307,7 @@ pub enum NetworkingState {
     Started,
 }
 
-/// This runs only when we enter the [`Starting`](NetworkingState::Starting) state.
+/// This runs only when we restart the server.
 ///
 /// We rebuild the [`ServerConnections`] by using the latest [`ServerConfig`].
 /// This has several benefits:
@@ -350,4 +350,20 @@ fn on_stop(mut server_connections: ResMut<ServerConnections>) {
     let _ = server_connections
         .stop()
         .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
+}
+
+pub trait ServerCommands {
+    fn start_server(&mut self);
+
+    fn stop_server(&mut self);
+}
+
+impl ServerCommands for Commands<'_, '_> {
+    fn start_server(&mut self) {
+        self.insert_resource(NextState::<NetworkingState>(Some(NetworkingState::Started)));
+    }
+
+    fn stop_server(&mut self) {
+        self.insert_resource(NextState::<NetworkingState>(Some(NetworkingState::Stopped)));
+    }
 }

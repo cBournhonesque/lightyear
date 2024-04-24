@@ -18,7 +18,6 @@ pub fn shared_config(mode: Mode) -> SharedConfig {
     SharedConfig {
         client_send_interval: Duration::default(),
         server_send_interval: Duration::from_millis(40),
-        // server_send_interval: Duration::from_millis(100),
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / 64.0),
         },
@@ -68,7 +67,10 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 
 /// System that draws the boxes of the player positions.
 /// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
+pub(crate) fn draw_boxes(
+    mut gizmos: Gizmos,
+    players: Query<(&PlayerPosition, &PlayerColor), Or<(With<Predicted>, With<Interpolated>)>>,
+) {
     for (position, color) in &players {
         gizmos.rect(
             Vec3::new(position.x, position.y, 0.0),

@@ -254,11 +254,9 @@ fn button_system(
             match state.get() {
                 NetworkingState::Disconnected => {
                     text.sections[0].value = "Connect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(
-                        |mut next_state: ResMut<NextState<NetworkingState>>| {
-                            next_state.set(NetworkingState::Connecting);
-                        },
-                    );
+                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
+                        commands.connect_client();
+                    });
                 }
                 NetworkingState::Connecting => {
                     text.sections[0].value = "Connecting".to_string();
@@ -266,11 +264,9 @@ fn button_system(
                 }
                 NetworkingState::Connected => {
                     text.sections[0].value = "Disconnect".to_string();
-                    *on_click = On::<Pointer<Click>>::run(
-                        |mut next_state: ResMut<NextState<NetworkingState>>| {
-                            next_state.set(NetworkingState::Disconnected);
-                        },
-                    );
+                    *on_click = On::<Pointer<Click>>::run(|mut commands: Commands| {
+                        commands.disconnect_client();
+                    });
                 }
             };
         }

@@ -318,13 +318,6 @@ mod tests {
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
-        stepper
-            .client_app
-            .world
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .release(KeyCode::KeyA);
-        stepper.frame_step();
-
         // we should have sent an InputMessage from client to server
         assert_eq!(
             stepper
@@ -338,6 +331,12 @@ mod tests {
                 action: LeafwingInput1::Jump
             }]
         );
+        stepper
+            .client_app
+            .world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyA);
+        stepper.frame_step();
         assert_eq!(
             stepper
                 .server_app
@@ -350,7 +349,5 @@ mod tests {
                 action: LeafwingInput1::Jump
             }]
         );
-        stepper.frame_step();
-        stepper.frame_step();
     }
 }

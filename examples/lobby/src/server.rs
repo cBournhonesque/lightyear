@@ -69,12 +69,9 @@ pub(crate) struct Global {
 }
 
 /// System to start the dedicated server at Startup
-fn start_dedicated_server(
-    mut commands: Commands,
-    mut next_state: ResMut<NextState<NetworkingState>>,
-) {
+fn start_dedicated_server(mut commands: Commands) {
     commands.replicate_resource::<Lobbies>(Replicate::default());
-    next_state.set(NetworkingState::Started);
+    commands.start_server();
 }
 
 /// Spawn an entity for a given client
@@ -134,7 +131,8 @@ mod game {
                     entity.despawn();
                 }
             }
-            // NOTE: we cannot join a game hosted by a player, since we remove the players from that lobby!
+            // NOTE: games hosted by players will disappear from the lobby list since the host
+            //  is not connected anymore
             if let Some(lobbies) = lobbies.as_mut() {
                 lobbies.remove_client(*client_id);
             }
@@ -190,8 +188,7 @@ mod lobby {
             room_manager.add_client(client_id, RoomId(lobby_id as u16));
             if lobby.in_game {
                 // if the game has already started, we need to spawn the player entity
-                let entity =
-                    spawn_player_entity(&mut commands, global.reborrow(), client_id, false);
+                let entity = spawn_player_entity(&mut commands, global.reborrow(), client_id, true);
                 room_manager.add_entity(entity, RoomId(lobby_id as u16));
             }
         }
@@ -246,7 +243,7 @@ mod lobby {
                 lobby.players.push(*client_id);
                 if host.is_none() {
                     let entity =
-                        spawn_player_entity(&mut commands, global.reborrow(), *client_id, false);
+                        spawn_player_entity(&mut commands, global.reborrow(), *client_id, true);
                     room_manager.add_entity(entity, room_id);
                     room_manager.add_client(*client_id, room_id);
                 }
@@ -263,7 +260,7 @@ mod lobby {
                     // one of the players asked for the game to start
                     for player in &lobby.players {
                         let entity =
-                            spawn_player_entity(&mut commands, global.reborrow(), *player, false);
+                            spawn_player_entity(&mut commands, global.reborrow(), *player, true);
                         room_manager.add_entity(entity, room_id);
                     }
                 }

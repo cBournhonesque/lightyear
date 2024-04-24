@@ -258,8 +258,8 @@ where
             // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
             get_delayed_action_state::<A>.run_if(
                 is_input_delay
-                    .and_then(should_run.clone()),
-                    .and_then(not(is_in_rollback))
+                    .and_then(should_run.clone())
+                    .and_then(not(is_in_rollback)),
             ),
         );
 

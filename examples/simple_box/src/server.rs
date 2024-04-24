@@ -40,10 +40,8 @@ pub(crate) struct Global {
 }
 
 /// Start the server
-fn start_server(world: &mut World) {
-    world
-        .start_server::<MyProtocol>()
-        .expect("Failed to start server");
+fn start_server(mut commands: Commands) {
+    commands.start_server();
 }
 
 /// Add some debugging text to the screen

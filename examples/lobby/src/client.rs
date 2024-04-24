@@ -9,6 +9,7 @@ use crate::settings::{build_client_netcode_config, get_client_net_config, Settin
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 pub use lightyear::prelude::client::*;
+use lightyear::prelude::server::ServerCommands;
 use lightyear::prelude::*;
 use std::net::SocketAddr;
 
@@ -69,23 +70,24 @@ struct ClientIdText;
 fn handle_connection(
     mut commands: Commands,
     mut connection_event: EventReader<ConnectEvent>,
-    debug_text: Query<(), With<ClientIdText>>,
+    debug_text: Query<Entity, With<ClientIdText>>,
 ) {
     for event in connection_event.read() {
         let client_id = event.client_id();
-        if debug_text.is_empty() {
-            commands.spawn((
-                TextBundle::from_section(
-                    format!("Client {}", client_id),
-                    TextStyle {
-                        font_size: 30.0,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                ),
-                ClientIdText,
-            ));
+        if let Ok(entity) = debug_text.get_single() {
+            commands.entity(entity).despawn_recursive();
         }
+        commands.spawn((
+            TextBundle::from_section(
+                format!("Client {}", client_id),
+                TextStyle {
+                    font_size: 30.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ),
+            ClientIdText,
+        ));
     }
 }
 
@@ -96,7 +98,6 @@ fn on_disconnect(
     entities: Query<Entity, (Without<Window>, Without<Camera2d>)>,
     mut config: ResMut<ClientConfig>,
     settings: Res<Settings>,
-    mut next_server_state: ResMut<NextState<server::NetworkingState>>,
     connection: Res<ClientConnection>,
 ) {
     for entity in entities.iter() {
@@ -104,7 +105,7 @@ fn on_disconnect(
     }
 
     // stop the server if it was started (if the player was host)
-    next_server_state.set(server::NetworkingState::Stopped);
+    commands.stop_server();
 
     // update the client config to connect to the lobby server
     config.net = get_client_net_config(settings.as_ref());
@@ -158,13 +159,9 @@ mod game {
     /// This works because we only predict the user's controlled entity.
     /// If we were predicting more entities, we would have to only apply movement to the player owned one.
     pub(crate) fn player_movement(
-        // TODO: maybe make prediction mode a separate component!!!
         mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
         mut input_reader: EventReader<InputEvent<Inputs>>,
     ) {
-        if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
-            return;
-        }
         for input in input_reader.read() {
             if let Some(input) = input.input() {
                 for position in position_query.iter_mut() {
@@ -193,20 +190,6 @@ mod game {
             color.0.set_s(0.1);
         }
     }
-
-    // /// Button shown during the game; when clicked, the client exits the game and rejoins the lobby ui
-    // pub(crate) fn exit_game_button(
-    //     mut contexts: EguiContexts,
-    //     mut next_app_state: ResMut<NextState<AppState>>,
-    //     mut next_state: ResMut<NextState<NetworkingState>>,
-    // ) {
-    //     egui::Window::new("Lobby").show(contexts.ctx_mut(), |ui| {
-    //         if ui.button("Exit game").clicked() {
-    //             next_app_state.set(AppState::Lobby { joined_lobby: None });
-    //             next_state.set(NetworkingState::Disconnected);
-    //         }
-    //     });
-    // }
 }
 
 mod lobby {
@@ -237,6 +220,7 @@ mod lobby {
     /// Display a lobby ui that lets you choose the network topology before starting a game.
     /// Either the game will use a dedicated server as a host, or one of the players will run in host-server mode.
     pub(crate) fn lobby_ui(
+        mut commands: Commands,
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyTable>,
         mut connection_manager: ResMut<ClientConnectionManager>,
@@ -244,7 +228,6 @@ mod lobby {
         config: ResMut<ClientConfig>,
         lobbies: Option<Res<Lobbies>>,
         state: Res<State<NetworkingState>>,
-        mut next_state: ResMut<NextState<NetworkingState>>,
         app_state: Res<State<AppState>>,
         mut next_app_state: ResMut<NextState<AppState>>,
     ) {
@@ -254,173 +237,178 @@ mod lobby {
             }
             AppState::Game => "Game".to_string(),
         };
-        egui::Window::new(window_name).show(contexts.ctx_mut(), |ui| {
-            match app_state.get() {
-                AppState::Lobby { joined_lobby } => {
-                    if joined_lobby.is_none() {
-                        let table = TableBuilder::new(ui)
-                            .resizable(false)
-                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .column(Column::auto())
-                            .column(Column::auto())
-                            .column(Column::auto())
-                            .column(Column::auto());
-                        table
-                            .header(20.0, |mut header| {
-                                header.col(|ui| {
-                                    ui.strong("Lobby ID");
-                                });
-                                header.col(|ui| {
-                                    ui.strong("Number of players");
-                                });
-                                header.col(|ui| {
-                                    ui.strong("In Game?");
-                                });
-                                header.col(|ui| {
-                                    ui.strong("");
-                                });
-                            })
-                            .body(|mut body| {
-                                body.row(30.0, |mut row| {
-                                    row.col(|ui| {
-                                        ui.label("Server");
+        egui::Window::new(window_name)
+            .anchor(egui::Align2::LEFT_TOP, [30.0, 30.0])
+            .show(contexts.ctx_mut(), |ui| {
+                match app_state.get() {
+                    AppState::Lobby { joined_lobby } => {
+                        if joined_lobby.is_none() {
+                            let table = TableBuilder::new(ui)
+                                .resizable(false)
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .column(Column::auto())
+                                .column(Column::auto())
+                                .column(Column::auto())
+                                .column(Column::auto());
+                            table
+                                .header(20.0, |mut header| {
+                                    header.col(|ui| {
+                                        ui.strong("Lobby ID");
                                     });
-                                    row.col(|ui| {});
+                                    header.col(|ui| {
+                                        ui.strong("Number of players");
+                                    });
+                                    header.col(|ui| {
+                                        ui.strong("In Game?");
+                                    });
+                                    header.col(|ui| {
+                                        ui.strong("");
+                                    });
+                                })
+                                .body(|mut body| {
+                                    body.row(30.0, |mut row| {
+                                        row.col(|ui| {
+                                            ui.label("Server");
+                                        });
+                                        row.col(|ui| {});
+                                    });
+                                    if let Some(lobbies) = lobbies {
+                                        for (lobby_id, lobby) in lobbies.lobbies.iter().enumerate()
+                                        {
+                                            body.row(30.0, |mut row| {
+                                                row.col(|ui| {
+                                                    ui.label(format!("Lobby {lobby_id:?}"));
+                                                });
+                                                row.col(|ui| {
+                                                    ui.label(format!("{}", lobby.players.len()));
+                                                });
+                                                row.col(|ui| {
+                                                    ui.checkbox(&mut { lobby.in_game }, "");
+                                                });
+                                                row.col(|ui| {
+                                                    if lobby.in_game {
+                                                        if ui.button("Join Game").clicked() {
+                                                            // find the host of the game
+                                                            let host = lobby_table.get_host();
+                                                            // send a message to join the game
+                                                            let _ = connection_manager
+                                                                .send_message::<Channel1, _>(
+                                                                    StartGame { lobby_id, host },
+                                                                );
+                                                        }
+                                                    } else {
+                                                        if ui.button("Join Lobby").clicked() {
+                                                            connection_manager
+                                                                .send_message::<Channel1, _>(
+                                                                    JoinLobby { lobby_id },
+                                                                )
+                                                                .unwrap();
+                                                            next_app_state.set(AppState::Lobby {
+                                                                joined_lobby: Some(lobby_id),
+                                                            });
+                                                        }
+                                                    }
+                                                });
+                                            });
+                                        }
+                                    }
                                 });
-                                if let Some(lobbies) = lobbies {
-                                    for (lobby_id, lobby) in lobbies.lobbies.iter().enumerate() {
+                        } else {
+                            let joined_lobby = joined_lobby.unwrap();
+                            let lobby =
+                                lobbies.as_ref().unwrap().lobbies.get(joined_lobby).unwrap();
+                            let table = TableBuilder::new(ui)
+                                .resizable(false)
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .column(Column::auto())
+                                .column(Column::auto());
+                            table
+                                .header(20.0, |mut header| {
+                                    header.col(|ui| {
+                                        ui.strong("Client ID");
+                                    });
+                                    header.col(|ui| {
+                                        ui.strong("Host");
+                                    });
+                                })
+                                .body(|mut body| {
+                                    body.row(30.0, |mut row| {
+                                        row.col(|ui| {
+                                            ui.label("Server");
+                                        });
+                                        row.col(|ui| {});
+                                    });
+                                    for client_id in &lobby.players {
+                                        lobby_table.clients.entry(*client_id).or_insert(false);
                                         body.row(30.0, |mut row| {
                                             row.col(|ui| {
-                                                ui.label(format!("Lobby {lobby_id:?}"));
+                                                ui.label(format!("{client_id:?}"));
                                             });
                                             row.col(|ui| {
-                                                ui.label(format!("{}", lobby.players.len()));
-                                            });
-                                            row.col(|ui| {
-                                                ui.checkbox(&mut { lobby.in_game }, "");
-                                            });
-                                            row.col(|ui| {
-                                                if lobby.in_game {
-                                                    if ui.button("Join Game").clicked() {
-                                                        // find the host of the game
-                                                        let host = lobby_table.get_host();
-                                                        // send a message to join the game
-                                                        let _ = connection_manager
-                                                            .send_message::<Channel1, _>(
-                                                                StartGame { lobby_id, host },
-                                                            );
-                                                    }
-                                                } else {
-                                                    if ui.button("Join Lobby").clicked() {
-                                                        connection_manager
-                                                            .send_message::<Channel1, _>(
-                                                                JoinLobby { lobby_id },
-                                                            )
-                                                            .unwrap();
-                                                        next_app_state.set(AppState::Lobby {
-                                                            joined_lobby: Some(lobby_id),
-                                                        });
-                                                    }
-                                                }
+                                                ui.checkbox(
+                                                    lobby_table.clients.get_mut(client_id).unwrap(),
+                                                    "",
+                                                );
                                             });
                                         });
                                     }
-                                }
-                            });
-                    } else {
-                        let joined_lobby = joined_lobby.unwrap();
-                        let lobby = lobbies.as_ref().unwrap().lobbies.get(joined_lobby).unwrap();
-                        let table = TableBuilder::new(ui)
-                            .resizable(false)
-                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .column(Column::auto())
-                            .column(Column::auto());
-                        table
-                            .header(20.0, |mut header| {
-                                header.col(|ui| {
-                                    ui.strong("Client ID");
                                 });
-                                header.col(|ui| {
-                                    ui.strong("Host");
-                                });
-                            })
-                            .body(|mut body| {
-                                body.row(30.0, |mut row| {
-                                    row.col(|ui| {
-                                        ui.label("Server");
-                                    });
-                                    row.col(|ui| {});
-                                });
-                                for client_id in &lobby.players {
-                                    lobby_table.clients.entry(*client_id).or_insert(false);
-                                    body.row(30.0, |mut row| {
-                                        row.col(|ui| {
-                                            ui.label(format!("{client_id:?}"));
-                                        });
-                                        row.col(|ui| {
-                                            ui.checkbox(
-                                                lobby_table.clients.get_mut(client_id).unwrap(),
-                                                "",
-                                            );
-                                        });
-                                    });
-                                }
-                            });
+                        }
+                        ui.add(Separator::default().horizontal());
                     }
-                    ui.add(Separator::default().horizontal());
-                }
-                AppState::Game => {}
-            };
-            match state.get() {
-                NetworkingState::Disconnected => {
-                    if ui.button("Join lobby list").clicked() {
-                        // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
-                        // - the new host must run in host-server
-                        // - all clients must adjust their net-config to connect to the host
-                        next_state.set(NetworkingState::Connecting);
+                    AppState::Game => {}
+                };
+                match state.get() {
+                    NetworkingState::Disconnected => {
+                        if ui.button("Join lobby list").clicked() {
+                            // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
+                            // - the new host must run in host-server
+                            // - all clients must adjust their net-config to connect to the host
+                            commands.connect_client();
+                        }
                     }
-                }
-                NetworkingState::Connecting => {
-                    let _ = ui.button("Connecting");
-                }
-                NetworkingState::Connected => {
-                    match app_state.get() {
-                        AppState::Lobby { joined_lobby } => {
-                            if let Some(lobby_id) = joined_lobby {
-                                if ui.button("Exit lobby").clicked() {
-                                    connection_manager
-                                        .send_message::<Channel1, _>(ExitLobby {
-                                            lobby_id: *lobby_id,
-                                        })
-                                        .unwrap();
+                    NetworkingState::Connecting => {
+                        let _ = ui.button("Connecting");
+                    }
+                    NetworkingState::Connected => {
+                        match app_state.get() {
+                            AppState::Lobby { joined_lobby } => {
+                                if let Some(lobby_id) = joined_lobby {
+                                    if ui.button("Exit lobby").clicked() {
+                                        connection_manager
+                                            .send_message::<Channel1, _>(ExitLobby {
+                                                lobby_id: *lobby_id,
+                                            })
+                                            .unwrap();
+                                        next_app_state.set(AppState::Lobby { joined_lobby: None });
+                                    }
+                                    if ui.button("Start game").clicked() {
+                                        // find the host of the game
+                                        let host = lobby_table.get_host();
+                                        // send a message to server/client to start the game and possibly act as server
+                                        let _ = connection_manager.send_message::<Channel1, _>(
+                                            StartGame {
+                                                lobby_id: *lobby_id,
+                                                host,
+                                            },
+                                        );
+                                    }
+                                } else {
+                                    if ui.button("Exit lobby list").clicked() {
+                                        commands.disconnect_client();
+                                    }
+                                }
+                            }
+                            AppState::Game => {
+                                if ui.button("Exit game").clicked() {
                                     next_app_state.set(AppState::Lobby { joined_lobby: None });
+                                    commands.disconnect_client();
                                 }
-                                if ui.button("Start game").clicked() {
-                                    // find the host of the game
-                                    let host = lobby_table.get_host();
-                                    // send a message to server/client to start the game and possibly act as server
-                                    let _ =
-                                        connection_manager.send_message::<Channel1, _>(StartGame {
-                                            lobby_id: *lobby_id,
-                                            host,
-                                        });
-                                }
-                            } else {
-                                if ui.button("Exit lobby list").clicked() {
-                                    next_state.set(NetworkingState::Disconnected);
-                                }
-                            }
-                        }
-                        AppState::Game => {
-                            if ui.button("Exit game").clicked() {
-                                next_app_state.set(AppState::Lobby { joined_lobby: None });
-                                next_state.set(NetworkingState::Disconnected);
                             }
                         }
                     }
                 }
-            }
-        });
+            });
     }
 
     /// Listen for the StartGame message, and start the game if it was (which means that a client clicked on the 'start game' button)
@@ -428,12 +416,11 @@ mod lobby {
     /// - connect by setting the NetworkingState to Connecting
     /// - set the AppState to Game
     pub(crate) fn receive_start_game_message(
+        mut commands: Commands,
         mut events: EventReader<MessageEvent<StartGame>>,
         lobby_table: Res<LobbyTable>,
         mut next_app_state: ResMut<NextState<AppState>>,
-        mut next_state: ResMut<NextState<NetworkingState>>,
         mut config: ResMut<ClientConfig>,
-        mut next_server_state: ResMut<NextState<server::NetworkingState>>,
         settings: Res<Settings>,
         connection: Res<ClientConnection>,
     ) {
@@ -449,7 +436,7 @@ mod lobby {
                     // set the client connection to be local
                     config.net = NetConfig::Local { id: host.to_bits() };
                     // start the server
-                    next_server_state.set(server::NetworkingState::Started);
+                    commands.start_server();
                 } else {
                     // update the client config to connect to the game host
                     match &mut config.net {
@@ -468,7 +455,7 @@ mod lobby {
                     }
                 }
                 // start the connection process
-                next_state.set(NetworkingState::Connecting);
+                commands.connect_client();
             }
         }
     }

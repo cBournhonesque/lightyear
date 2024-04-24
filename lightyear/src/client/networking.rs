@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use async_channel::TryRecvError;
 use std::ops::DerefMut;
 
-use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
+use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
@@ -18,7 +18,6 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::ServerConnections;
-use crate::connection::steam::client::CLIENT;
 use crate::prelude::{MainSet, SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
@@ -215,7 +214,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                     );
                 }
             );
-    trace!("finished recv");
+    trace!("client finished recv");
 }
 
 pub(crate) fn send<P: Protocol>(
@@ -487,11 +486,44 @@ fn connect<P: Protocol>(world: &mut World) {
         });
     let config = world.resource::<ClientConfig>();
 
-    if config.shared.mode == Mode::HostServer {
+    if world.resource::<ClientConnection>().state() == NetworkingState::Connected
+        && config.shared.mode == Mode::HostServer
+    {
+        // TODO: also check if the connection is of type local?
         // in host server mode, there is no connecting phase, we directly become connected
         // (because the networking systems don't run so we cannot go through the Connecting state)
         world
             .resource_mut::<NextState<NetworkingState>>()
             .set(NetworkingState::Connected);
+    }
+}
+
+// pub struct ConnectClient;
+//
+// impl Command for ConnectClient {
+//     fn apply(self, world: &mut World) {
+//         world
+//             .resource_mut::<NextState<NetworkingState>>()
+//             .set(NetworkingState::Connecting);
+//     }
+// }
+
+pub trait ClientCommands {
+    fn connect_client(&mut self);
+
+    fn disconnect_client(&mut self);
+}
+
+impl ClientCommands for Commands<'_, '_> {
+    fn connect_client(&mut self) {
+        self.insert_resource(NextState::<NetworkingState>(Some(
+            NetworkingState::Connecting,
+        )));
+    }
+
+    fn disconnect_client(&mut self) {
+        self.insert_resource(NextState::<NetworkingState>(Some(
+            NetworkingState::Disconnected,
+        )));
     }
 }
