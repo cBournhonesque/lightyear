@@ -20,8 +20,6 @@ use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
-use crate::serialize::wordbuffer::writer::WriteWordBuffer;
-use crate::serialize::writer::WriteBuffer;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -44,7 +42,6 @@ pub struct MessageManager {
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
-    writer: WriteWordBuffer,
     // read_buffer: WordBuffer,
     reader_pool: BufferPool,
 }
@@ -57,7 +54,6 @@ impl MessageManager {
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
-            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
             reader_pool: BufferPool::new(1),
             // read_buffer: WordBuffer::with_capacity(MTU_PAYLOAD_BYTES),
@@ -87,9 +83,9 @@ impl MessageManager {
 
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
-    pub fn buffer_send<M: BitSerializable>(
+    pub fn buffer_send(
         &mut self,
-        message: M,
+        message: Vec<u8>,
         channel_kind: ChannelKind,
     ) -> anyhow::Result<Option<MessageId>> {
         self.buffer_send_with_priority(message, channel_kind, DEFAULT_MESSAGE_PRIORITY)
@@ -107,9 +103,9 @@ impl MessageManager {
     //  was buffered, the user can just include the tick in the message itself.
     /// Buffer a message to be sent on this connection
     /// Returns the message id associated with the message, if there is one
-    pub fn buffer_send_with_priority<M: BitSerializable>(
+    pub fn buffer_send_with_priority(
         &mut self,
-        message: M,
+        message: Vec<u8>,
         channel_kind: ChannelKind,
         priority: f32,
     ) -> anyhow::Result<Option<MessageId>> {
@@ -117,10 +113,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
-        self.writer.start_write();
-        message.encode(&mut self.writer)?;
-        let message_bytes: Vec<u8> = self.writer.finish_write().into();
-        Ok(channel.sender.buffer_send(message_bytes.into(), priority))
+        Ok(channel.sender.buffer_send(message, priority))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -283,7 +276,7 @@ impl MessageManager {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages<M: BitSerializable>(&mut self) -> HashMap<ChannelKind, Vec<(Tick, M)>> {
+    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, SingleData)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];

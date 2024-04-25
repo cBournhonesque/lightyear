@@ -1,8 +1,14 @@
+use anyhow::Context;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
+use std::{any, mem};
 
-use bevy::prelude::{App, World};
+use crate::_reexport::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+use bevy::prelude::{App, EntityMapper, World};
+use bevy::utils::HashMap;
+use bitcode::encoding::Fixed;
+use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -25,6 +31,91 @@ pub enum InputMessageKind {
     Native,
     /// This is not an input message, but a regular [`Message`]
     None,
+}
+
+#[derive(Clone)]
+pub struct ErasedMessageFns {
+    type_id: TypeId,
+    type_name: &'static str,
+
+    // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
+    pub serialize: unsafe fn(),
+    pub deserialize: unsafe fn(),
+    // pub map_entities: Option<unsafe fn()>,
+    pub is_input: bool,
+}
+
+pub struct MessageFns<M> {
+    pub serialize: fn(&M, writer: &mut WriteWordBuffer) -> anyhow::Result<()>,
+    pub deserialize: fn(reader: &mut ReadWordBuffer) -> anyhow::Result<M>,
+    // TODO: how to handle map entities, since map_entities takes a generic arg?
+    // pub map_entities: Option<fn<M: EntityMapper>(&mut self, entity_mapper: &mut M);>,
+    pub is_input: bool,
+}
+
+impl ErasedMessageFns {
+    unsafe fn typed<M: Message>(&self) -> MessageFns<M> {
+        debug_assert_eq!(
+            self.type_id,
+            TypeId::of::<M>(),
+            "The erased message fns were created for type {}, but we are trying to convert to type {}",
+            self.type_name,
+            std::any::type_name::<M>(),
+        );
+
+        MessageFns {
+            serialize: unsafe { mem::transmute(self.serialize) },
+            deserialize: unsafe { mem::transmute(self.deserialize) },
+            is_input: self.is_input,
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct MessageRegistry {
+    // TODO: maybe instead of MessageFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?
+    //  but how do we deal with implementing behaviour for types that don't have those traits?
+    kind_map: HashMap<MessageKind, ErasedMessageFns>,
+}
+
+impl MessageRegistry {
+    fn add_message<M: Message>(&mut self) {
+        self.kind_map.insert(
+            MessageKind::of::<M>(),
+            ErasedMessageFns {
+                type_id: TypeId::of::<M>(),
+                type_name: std::any::type_name::<M>(),
+                serialize: unsafe { std::mem::transmute(<M as BitSerializable>::encode) },
+                deserialize: unsafe { std::mem::transmute(<M as BitSerializable>::decode) },
+                // map_entities: None,
+                is_input: false,
+            },
+        );
+    }
+
+    pub(crate) fn serialize<M: Message>(
+        &self,
+        message: &M,
+        writer: &mut WriteWordBuffer,
+    ) -> anyhow::Result<()> {
+        let erased_fns = self
+            .kind_map
+            .get(&MessageKind::of::<M>())
+            .context("the message is not part of the protocol")?;
+        let fns = unsafe { erased_fns.typed::<M>() };
+        writer.encode(&MessageKind::of::<M>(), Fixed)?;
+        (fns.serialize)(message, writer)
+    }
+
+    pub(crate) fn deserialize<M: Message>(&self, reader: &mut ReadWordBuffer) -> anyhow::Result<M> {
+        let kind = reader.decode::<MessageKind>(Fixed)?;
+        let erased_fns = self
+            .kind_map
+            .get(&kind)
+            .context("the message is not part of the protocol")?;
+        let fns = unsafe { erased_fns.typed::<M>() };
+        (fns.deserialize)(reader)
+    }
 }
 
 /// A [`MessageProtocol`] is basically an enum that contains all the [`Message`] that can be sent
@@ -64,7 +155,7 @@ pub trait MessageProtocol:
 }
 
 /// [`MessageKind`] is an internal wrapper around the type of the message
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Encode, Decode)]
 pub struct MessageKind(TypeId);
 
 impl MessageKind {

@@ -1,12 +1,17 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use anyhow::Context;
+use bevy::prelude::{App, EventWriter, PreUpdate, ResMut, Resource};
+use bevy::utils::HashMap;
+use bytes::Bytes;
 use tracing::{info_span, trace};
 
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 
-use crate::_reexport::{BitSerializable, MessageProtocol, ReadBuffer, WriteBuffer};
-use crate::prelude::{ChannelKind, NetworkTarget};
+use crate::_reexport::{BitSerializable, MessageKind, MessageProtocol, ReadBuffer, WriteBuffer};
+use crate::client::events::MessageEvent;
+use crate::packet::message::SingleData;
+use crate::prelude::{ChannelKind, Message, NetworkTarget};
 use crate::protocol::Protocol;
 use crate::shared::ping::message::SyncMessage;
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
@@ -29,6 +34,37 @@ pub enum ClientMessage<P: Protocol> {
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
     Sync(SyncMessage),
+}
+
+trait AppMessageExt {
+    fn add_message<M>(&mut self);
+}
+
+/// Read the message received from the server and emit the MessageEvent event
+fn read_message<M: Message>(
+    mut messages: ResMut<ReceivedMessages>,
+    mut event: EventWriter<MessageEvent<M>>,
+) {
+    let kind = MessageKind::of::<M>();
+    if let Some(message_list) = messages.messages.remove(&kind) {
+        for message in message_list {
+            // TODO: decode using the function pointer?
+            let message = M::decode(&mut message.as_ref()).expect("could not decode message");
+            event.send(MessageEvent::new(message, ()));
+        }
+    }
+}
+
+#[derive(Resource)]
+struct ReceivedMessages {
+    messages: HashMap<MessageKind, Vec<Bytes>>,
+}
+
+impl AppMessageExt for App {
+    fn add_message<M>(&mut self) {
+        self.add_event::<MessageEvent<M>>();
+        self.add_systems(PreUpdate, read_message::<M>);
+    }
 }
 
 impl<P: Protocol> BitSerializable for ClientMessage<P> {

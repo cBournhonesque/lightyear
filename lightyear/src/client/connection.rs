@@ -5,10 +5,14 @@ use bevy::ecs::entity::{EntityHashMap, MapEntities};
 use bevy::prelude::{Entity, Local, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
+use bitcode::encoding::Fixed;
 use serde::Serialize;
 use tracing::{debug, info, trace, trace_span, warn};
 
-use crate::_reexport::{ClientMarker, EntityUpdatesChannel, PingChannel, ReplicationSend};
+use crate::_reexport::{
+    ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel, ReplicationSend, WriteBuffer,
+    WriteWordBuffer,
+};
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
 use crate::client::message::ClientMessage;
@@ -16,11 +20,13 @@ use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;
 use crate::packet::packet::Packet;
-use crate::packet::packet_manager::Payload;
+use crate::packet::packet_manager::{Payload, PACKET_BUFFER_CAPACITY};
 use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::Protocol;
+use crate::protocol::message::MessageRegistry;
+use crate::protocol::{BitSerializable, Protocol};
 use crate::serialize::reader::ReadBuffer;
+use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::server::message::ServerMessage;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::ping::manager::{PingConfig, PingManager};
@@ -56,6 +62,7 @@ use super::sync::SyncManager;
 /// ```
 #[derive(Resource)]
 pub struct ConnectionManager<P: Protocol> {
+    pub(crate) message_registry: MessageRegistry,
     pub(crate) message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender<P>,
     pub(crate) replication_receiver: ReplicationReceiver<P>,
@@ -63,11 +70,15 @@ pub struct ConnectionManager<P: Protocol> {
 
     pub(crate) ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
+
+    writer: WriteWordBuffer,
+    reader_pool: BufferPool,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
 impl<P: Protocol> ConnectionManager<P> {
     pub(crate) fn new(
+        message_registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
         packet_config: PacketConfig,
         sync_config: SyncConfig,
@@ -90,12 +101,16 @@ impl<P: Protocol> ConnectionManager<P> {
             ReplicationSender::new(update_acks_tracker, replication_update_send_receiver);
         let replication_receiver = ReplicationReceiver::new();
         Self {
+            message_registry: message_registry.clone(),
             message_manager,
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
             events: ConnectionEvents::default(),
+            writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
+            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
+            reader_pool: BufferPool::new(1),
         }
     }
 
@@ -130,6 +145,18 @@ impl<P: Protocol> ConnectionManager<P> {
         // (we update the sync manager in POST_UPDATE)
     }
 
+    // TODO: can remove the Message bound? Or at least the BitSerialized bound?
+    //  since we rely on the serialize fn pointer
+    pub fn send_new_message<C: Channel, M: Message>(&mut self, message: &M) -> Result<()> {
+        // serialize early! then the message manager just focuses on raw bytes + reliability
+        // however we then call serialize many times for small messages, we use bitcode's compressability
+        self.message_registry
+            .serialize(&message, &mut self.writer)?;
+        let message_bytes = self.writer.finish_write().to_vec();
+        let channel = ChannelKind::of::<C>();
+        self.buffer_message(message_bytes, channel, NetworkTarget::None)
+    }
+
     /// Send a message to the server
     pub fn send_message<C: Channel, M: Message>(&mut self, message: M) -> Result<()>
     where
@@ -154,7 +181,7 @@ impl<P: Protocol> ConnectionManager<P> {
         self.buffer_message(message.into(), channel, target)
     }
 
-    pub(crate) fn buffer_message(
+    pub(crate) fn buffer_new_message(
         &mut self,
         message: P::Message,
         channel: ChannelKind,
@@ -168,8 +195,26 @@ impl<P: Protocol> ConnectionManager<P> {
             .name(&channel)
             .unwrap_or("unknown")
             .to_string();
-        let message = ClientMessage::<P>::Message(message, target);
-        message.emit_send_logs(&channel_name);
+        self.message_manager.buffer_send(message, channel)?;
+        Ok(())
+    }
+
+    pub(crate) fn buffer_message(
+        &mut self,
+        message: Vec<u8>,
+        channel: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        // TODO: i know channel names never change so i should be able to get them as static
+        // TODO: just have a channel registry enum as well?
+        let channel_name = self
+            .message_manager
+            .channel_registry
+            .name(&channel)
+            .unwrap_or("unknown")
+            .to_string();
+        // let message = ClientMessage::<P>::Message(message, target);
+        // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message, channel)?;
         Ok(())
     }
@@ -271,7 +316,7 @@ impl<P: Protocol> ConnectionManager<P> {
         tick_manager: &TickManager,
     ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
-        for (channel_kind, messages) in self.message_manager.read_messages::<ServerMessage<P>>() {
+        for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
                 .message_manager
                 .channel_registry
@@ -281,19 +326,36 @@ impl<P: Protocol> ConnectionManager<P> {
 
             if !messages.is_empty() {
                 trace!(?channel_name, "Received messages");
-                for (tick, message) in messages.into_iter() {
+                for (tick, single_data) in messages.into_iter() {
+                    // TODO: in this case, it looks like we might not need the pool?
+                    //  we can just have a single buffer, and keep re-using that buffer
+                    trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
+                    let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
+                    // TODO: maybe just decode a single bit to know if it's message vs replication?
+                    let message = ServerMessage::decode(&mut reader)
+                        .expect("Could not decode server message");
+
                     // other message-handling logic
                     match message {
                         ServerMessage::Message(mut message) => {
-                            // map any entities inside the message
-                            message.map_entities(&mut self.replication_receiver.remote_entity_map);
-                            // buffer the message
-                            self.events.push_message(channel_kind, message);
+                            // TODO:
+                            //  - read the message kind from the bytes
+                            let kind = reader
+                                .decode::<MessageKind>(Fixed)
+                                .expect("could not decode MessageKind");
+                            //  - send the remaining message bytes to a typed system via a channel (maybe directly the MessageEvent channel?)
+
+                            //  - in the typed system, do what we do here (map entities + push to events)
+
+                            // // map any entities inside the message
+                            // message.map_entities(&mut self.replication_receiver.remote_entity_map);
+                            // // buffer the message
+                            // self.events.push_message(channel_kind, message);
                         }
-                        ServerMessage::Replication(replication) => {
-                            // buffer the replication message
-                            self.replication_receiver.recv_message(replication, tick);
-                        }
+                        // ServerMessage::Replication(replication) => {
+                        //     // buffer the replication message
+                        //     self.replication_receiver.recv_message(replication, tick);
+                        // }
                         ServerMessage::Sync(ref sync) => {
                             match sync {
                                 SyncMessage::Ping(ping) => {
@@ -322,6 +384,9 @@ impl<P: Protocol> ConnectionManager<P> {
                             }
                         }
                     }
+
+                    // return the buffer to the pool
+                    self.reader_pool.attach(reader);
                 }
             }
         }

@@ -146,6 +146,10 @@ macro_rules! protocolize {
                     self
                 }
 
+                fn message_registry(&self) -> &MessageRegistry {
+                    &self.message_registry
+                }
+
                 fn channel_registry(&self) -> &ChannelRegistry {
                     &self.channel_registry
                 }
@@ -155,6 +159,7 @@ macro_rules! protocolize {
                 fn default() -> Self {
                     let mut protocol = Self {
                         channel_registry: ChannelRegistry::default(),
+                        message_registry: MessageRegistry::default(),
                     };
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
                         mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
