@@ -9,19 +9,20 @@ use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 
 use crate::_reexport::{
-    BitSerializable, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
-    WriteWordBuffer,
+    BitSerializable, ClientMarker, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer,
+    ServerMarker, WriteBuffer, WriteWordBuffer,
 };
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
 use crate::client::networking::is_connected;
 use crate::packet::message::SingleData;
-use crate::prelude::{ChannelKind, MainSet, Message, NetworkTarget};
+use crate::prelude::{ChannelDirection, ChannelKind, MainSet, Message, NetworkTarget};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
+use crate::shared::sets::InternalMainSet;
 
 // ClientMessages can include some extra Metadata
 #[derive(Encode, Decode, Clone, Debug)]
@@ -37,11 +38,6 @@ pub enum ClientMessage {
     // the sync messages can be added to packets that have other messages
     Ping(Ping),
     Pong(Pong),
-}
-
-/// Add a message to the list of messages that can be sent
-pub trait AppMessageExt {
-    fn add_message<M: Message>(&mut self);
 }
 
 /// Read the message received from the server and emit the MessageEvent event
@@ -74,26 +70,15 @@ fn read_message<M: Message>(
     }
 }
 
-#[derive(Resource)]
-pub(crate) struct ClientReceivedMessages {
-    pub(crate) messages: HashMap<MessageKind, Vec<Bytes>>,
-}
-
-impl AppMessageExt for App {
-    fn add_message<M: Message>(&mut self) {
-        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
-            protocol.add_message::<M>();
-        } else {
-            todo!("create a protocol");
-        }
-        self.add_event::<MessageEvent<M>>();
-        self.add_systems(
-            PreUpdate,
-            read_message::<M>
-                .after(MainSet::Receive)
-                .run_if(is_connected),
-        );
-    }
+/// Register a message that can be sent from server to client
+pub(crate) fn add_server_to_client_message<M: Message>(app: &mut App) {
+    app.add_event::<MessageEvent<M>>();
+    app.add_systems(
+        PreUpdate,
+        read_message::<M>
+            .after(InternalMainSet::<ClientMarker>::Receive)
+            .run_if(is_connected),
+    );
 }
 
 impl BitSerializable for ClientMessage {

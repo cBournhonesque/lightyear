@@ -86,7 +86,7 @@ pub mod prelude {
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
-    pub use crate::protocol::message::MessageRegistry;
+    pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::{Mode, SharedConfig};
@@ -113,6 +113,7 @@ pub mod prelude {
             ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
         };
         pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
+        pub use crate::client::connection::ConnectionManager;
         pub use crate::client::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
@@ -129,7 +130,6 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
-        pub use crate::client::message::AppMessageExt;
         pub use crate::client::networking::{ClientCommands, NetworkingState};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;
@@ -148,6 +148,7 @@ pub mod prelude {
     }
     pub mod server {
         pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
+        pub use crate::server::connection::ConnectionManager;
         pub use crate::server::events::{
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,

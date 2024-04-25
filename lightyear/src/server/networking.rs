@@ -55,7 +55,9 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ServerMarker>::Receive.run_if(is_started),
+                InternalMainSet::<ServerMarker>::Receive
+                    .in_set(MainSet::Receive)
+                    .run_if(is_started),
             )
             .configure_sets(
                 PostUpdate,

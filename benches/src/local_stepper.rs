@@ -45,7 +45,7 @@ struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MessageRegistry>();
-        app.add_message::<Message2>();
+        app.add_message::<Message2>(ChannelDirection::Bidirectional);
         app.world.resource_mut::<MyProtocol>().message_registry =
             app.world.resource::<MessageRegistry>().clone();
     }

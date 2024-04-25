@@ -1,24 +1,27 @@
 use anyhow::Context;
 use bevy::app::{App, PreUpdate};
-use bevy::prelude::{EventWriter, ResMut, Resource};
+use bevy::prelude::{EventWriter, IntoSystemConfigs, ResMut, Resource};
 use bevy::utils::HashMap;
 use bytes::Bytes;
-use tracing::{info_span, trace};
+use tracing::{error, info_span, trace};
 
 use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
 
 use crate::_reexport::{
-    BitSerializable, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
-    WriteWordBuffer,
+    BitSerializable, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer, ServerMarker,
+    WriteBuffer, WriteWordBuffer,
 };
-use crate::client::events::MessageEvent;
 use crate::packet::message::SingleData;
-use crate::prelude::{Message, Protocol};
+use crate::prelude::{MainSet, Message, Protocol};
 use crate::protocol::message::MessageRegistry;
+use crate::protocol::registry::NetId;
 use crate::server::connection::ConnectionManager;
+use crate::server::events::MessageEvent;
+use crate::server::networking::is_started;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
+use crate::shared::sets::InternalMainSet;
 
 #[derive(Encode, Decode, Clone, Debug)]
 pub enum ServerMessage {
@@ -36,39 +39,47 @@ pub enum ServerMessage {
     Pong(Pong),
 }
 
-/// Add a message to the list of messages that can be sent
-trait AppMessageExt {
-    fn add_message<M: Message>(&mut self);
-}
-
 /// Read the message received from the server and emit the MessageEvent event
 fn read_message<M: Message>(
     mut connection: ResMut<ConnectionManager>,
     mut event: EventWriter<MessageEvent<M>>,
 ) {
-    todo!()
-    // let kind = MessageKind::of::<M>();
-    // if let Some(message_list) = connection.messages.remove(&kind) {
-    //     for message in message_list {
-    //         // TODO: decode using the function pointer instead of the type?
-    //         let message = M::decode(&mut message.as_ref()).expect("could not decode message");
-    //         // TODO: if necessary, map entities
-    //         //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
-    //         event.send(MessageEvent::new(message, ()));
-    //     }
-    // }
+    let kind = MessageKind::of::<M>();
+    let Some(net) = connection.message_registry.kind_map.net_id(&kind).copied() else {
+        error!(
+            "Could not find the network id for the message kind: {:?}",
+            kind
+        );
+        return;
+    };
+    for (client_id, connection) in connection.connections.iter_mut() {
+        if let Some(message_list) = connection.received_messages.remove(&net) {
+            for message in message_list {
+                // TODO: reuse buffer
+                let mut reader = ReadWordBuffer::start_read(&message);
+                // we have to re-decode the net id
+                reader
+                    .decode::<NetId>(Fixed)
+                    .expect("could not decode net id");
+                // TODO: decode using the function pointer instead of the type?
+                let message = M::decode(&mut reader).expect("could not decode message");
+                // TODO: if necessary, map entities
+                //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
+                event.send(MessageEvent::new(message, *client_id));
+            }
+        }
+    }
 }
 
-impl AppMessageExt for App {
-    fn add_message<M: Message>(&mut self) {
-        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
-            protocol.add_message::<M>();
-        } else {
-            todo!("create a protocol");
-        }
-        self.add_event::<MessageEvent<M>>();
-        self.add_systems(PreUpdate, read_message::<M>);
-    }
+/// Register a message that can be sent from server to client
+pub(crate) fn add_client_to_server_message<M: Message>(app: &mut App) {
+    app.add_event::<MessageEvent<M>>();
+    app.add_systems(
+        PreUpdate,
+        read_message::<M>
+            .after(InternalMainSet::<ServerMarker>::Receive)
+            .run_if(is_started),
+    );
 }
 
 impl BitSerializable for ServerMessage {

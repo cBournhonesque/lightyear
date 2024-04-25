@@ -51,7 +51,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 #[derive(Resource)]
 pub struct ConnectionManager {
     pub(crate) connections: HashMap<ClientId, Connection>,
-    message_registry: MessageRegistry,
+    pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
     // pub(crate) events: ServerEvents<P>,
 

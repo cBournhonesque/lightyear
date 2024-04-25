@@ -1,21 +1,28 @@
 use anyhow::Context;
+use bevy::app::PreUpdate;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
 
 use crate::_reexport::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
-use bevy::prelude::{App, EntityMapper, Resource, TypePath, World};
+use crate::client::message::add_server_to_client_message;
+use crate::prelude::{client, server};
+use bevy::prelude::{
+    App, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
+};
 use bevy::utils::HashMap;
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tracing::error;
 
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
-use crate::prelude::ChannelKind;
+use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::server::message::add_client_to_server_message;
 #[cfg(feature = "leafwing")]
 use crate::shared::events::components::InputMessageEvent;
 use crate::shared::events::connection::IterMessageEvent;
@@ -84,6 +91,33 @@ pub struct MessageRegistry {
 
 fn default_serialize<M: Message>(message: &M, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
     message.encode(writer)
+}
+
+/// Add a message to the list of messages that can be sent
+pub trait AppMessageExt {
+    fn add_message<M: Message>(&mut self, direction: ChannelDirection);
+}
+
+impl AppMessageExt for App {
+    fn add_message<M: Message>(&mut self, direction: ChannelDirection) {
+        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
+            protocol.add_message::<M>();
+        } else {
+            todo!("create a protocol");
+        }
+        match direction {
+            ChannelDirection::ClientToServer => {
+                add_client_to_server_message::<M>(self);
+            }
+            ChannelDirection::ServerToClient => {
+                add_server_to_client_message::<M>(self);
+            }
+            ChannelDirection::Bidirectional => {
+                add_client_to_server_message::<M>(self);
+                add_server_to_client_message::<M>(self);
+            }
+        }
+    }
 }
 
 // #[derive(Encode, Decode, Clone)]

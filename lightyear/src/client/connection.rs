@@ -8,7 +8,7 @@ use bevy::utils::{Duration, HashMap};
 use bitcode::encoding::Fixed;
 use bytes::Bytes;
 use serde::Serialize;
-use tracing::{debug, info, trace, trace_span, warn};
+use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::_reexport::{
     ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel, ReplicationSend, WriteBuffer,
@@ -16,7 +16,7 @@ use crate::_reexport::{
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
-use crate::client::message::{ClientMessage, ClientReceivedMessages};
+use crate::client::message::ClientMessage;
 use crate::client::sync::SyncConfig;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::packet::message_manager::MessageManager;

@@ -12,7 +12,6 @@ use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
 use lightyear::prelude::{client, server};
 use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
-use lightyear::server::connection::ConnectionManager;
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 
@@ -24,7 +23,7 @@ fn main() {
 // static ALLOC: AllocProfiler = AllocProfiler::system();
 
 const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
-const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
+// const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 
 /// Replicating N entity spawn from server to channel, with a local io
 #[divan::bench(
@@ -34,7 +33,7 @@ const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 fn send_message(bencher: Bencher, n: usize) {
     // tracing_subscriber::FmtSubscriber::builder()
     //     .with_span_events(FmtSpan::ENTER)
-    //     .with_max_level(tracing::Level::DEBUG)
+    //     .with_max_level(tracing::Level::INFO)
     //     .init();
 
     bencher
@@ -75,11 +74,10 @@ fn send_message(bencher: Bencher, n: usize) {
             let _ = stepper
                 .server_app
                 .world
-                .resource_mut::<ConnectionManager>()
+                .resource_mut::<server::ConnectionManager>()
                 .send_message::<Channel1, _>(client_id, Message2(1))
                 .inspect_err(|e| error!("error: {e:?}"));
             stepper.frame_step();
-
             let client_id = ClientId::Netcode(0);
             assert_eq!(
                 stepper
@@ -93,6 +91,28 @@ fn send_message(bencher: Bencher, n: usize) {
                     .collect::<Vec<_>>(),
                 vec![Message2(1)]
             );
+
+            let _ = stepper
+                .client_apps
+                .get_mut(&client_id)
+                .unwrap()
+                .world
+                .resource_mut::<client::ConnectionManager>()
+                .send_message::<Channel1, _>(Message2(3))
+                .inspect_err(|e| error!("error: {e:?}"));
+            stepper.frame_step();
+            stepper.frame_step();
+            assert_eq!(
+                stepper
+                    .server_app
+                    .world
+                    .resource_mut::<Events<server::MessageEvent<Message2>>>()
+                    .drain()
+                    .map(|e| e.message().clone())
+                    .collect::<Vec<_>>(),
+                vec![Message2(3)]
+            );
+
             // assert_eq!(stepper.client_app.world.entities().len(), n as u32);
             // dbg!(stepper.client().io().stats());
         });
@@ -156,7 +176,7 @@ fn send_message(bencher: Bencher, n: usize) {
 //         });
 // }
 
-const FIXED_NUM_ENTITIES: usize = 10;
+// const FIXED_NUM_ENTITIES: usize = 10;
 
 // /// Replicating entity spawns from server to N clients, with a socket io
 // #[divan::bench(
