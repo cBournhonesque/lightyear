@@ -51,7 +51,7 @@ pub enum RollbackState {
 pub(crate) fn check_rollback<C: SyncComponent, P: Protocol>(
     // TODO: have a way to only get the updates of entities that are predicted?
     tick_manager: Res<TickManager>,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
 
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed

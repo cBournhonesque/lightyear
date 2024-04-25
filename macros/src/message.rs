@@ -371,7 +371,7 @@ fn map_entities_impl(input: &ItemEnum, fields: &Vec<AttrField>) -> TokenStream {
 
 fn encode_method() -> TokenStream {
     quote! {
-        fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+        fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
             writer.serialize(&self)
         }
     }
@@ -379,7 +379,7 @@ fn encode_method() -> TokenStream {
 
 fn decode_method() -> TokenStream {
     quote! {
-        fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+        fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
             where Self: Sized{
             reader.deserialize::<Self>()
         }

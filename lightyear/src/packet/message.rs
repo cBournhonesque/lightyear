@@ -4,6 +4,7 @@ use bytes::Bytes;
 
 use bitcode::encoding::{Fixed, Gamma};
 
+use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::reader::ReadBuffer;
@@ -104,7 +105,7 @@ impl SingleData {
         }
     }
 
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.id, Fixed)?;
         writer.encode(&self.tick, Fixed)?;
@@ -120,7 +121,7 @@ impl SingleData {
     }
 
     // TODO: are we doing an extra copy here?
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self> {
+    pub(crate) fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self> {
         let id = reader.decode::<Option<MessageId>>(Fixed)?;
         let tick = reader.decode::<Option<Tick>>(Fixed)?;
 
@@ -177,7 +178,7 @@ pub struct FragmentData {
 }
 
 impl FragmentData {
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
         let num_bits_before = writer.num_bits_written();
         writer.encode(&self.message_id, Fixed)?;
         writer.encode(&self.tick, Fixed)?;
@@ -198,7 +199,7 @@ impl FragmentData {
         Ok(num_bits_written)
     }
 
-    pub(crate) fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    pub(crate) fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -250,7 +251,7 @@ impl MessageContainer {
 
     /// Serialize the message into a bytes buffer
     /// Returns the number of bits written
-    pub(crate) fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<usize> {
+    pub(crate) fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<usize> {
         match &self {
             MessageContainer::Single(data) => data.encode(writer),
             MessageContainer::Fragment(data) => data.encode(writer),

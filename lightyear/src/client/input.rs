@@ -276,7 +276,7 @@ fn receive_tick_events<A: UserAction>(
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<P: Protocol>(
-    connection: Option<ResMut<ConnectionManager<P>>>,
+    connection: Option<ResMut<ConnectionManager>>,
     mut input_manager: ResMut<InputManager<P::Input>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,

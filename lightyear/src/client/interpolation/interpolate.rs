@@ -55,7 +55,7 @@ impl<C: Component> InterpolateStatus<C> {
 /// Invariant: start_tick <= current_interpolate_tick + overstep < end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent, P: Protocol>(
     config: Res<ClientConfig>,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     mut query: Query<(
         Entity,

@@ -1,9 +1,12 @@
 //! Module to handle the various possible ClientIds
 use bevy::reflect::Reflect;
+use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Encode, Decode,
+)]
 pub enum ClientId {
     /// A client id that is unique between netcode connections
     Netcode(u64),

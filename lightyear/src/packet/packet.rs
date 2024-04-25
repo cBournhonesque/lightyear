@@ -1,5 +1,7 @@
+use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
+use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
@@ -102,7 +104,7 @@ impl SinglePacket {
 impl BitSerializable for SinglePacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
         self.data
             .iter()
             .enumerate()
@@ -128,7 +130,7 @@ impl BitSerializable for SinglePacket {
             })
     }
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -193,7 +195,7 @@ impl FragmentedPacket {
 impl BitSerializable for FragmentedPacket {
     /// An expectation of the encoding is that we always have at least one channel that we can encode per packet.
     /// However, some channels might not have any messages (for example if we start writing the channel at the very end of the packet)
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
         writer.encode(&self.channel_id, Gamma)?;
         self.fragment.encode(writer)?;
         // continuation bit: is there single packet data?
@@ -201,7 +203,7 @@ impl BitSerializable for FragmentedPacket {
         self.packet.encode(writer)
     }
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -283,7 +285,7 @@ impl Packet {
     }
 
     /// Encode a packet into the write buffer
-    pub fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    pub fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
         // use encode to force Fixed encoding
         // should still use gamma for packet type
         // TODO: add test
@@ -295,7 +297,7 @@ impl Packet {
     }
 
     /// Decode a packet from the read buffer. The read buffer will only contain the bytes for a single packet
-    pub fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Packet> {
+    pub fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Packet> {
         let header = reader.decode::<PacketHeader>(Fixed)?;
         let packet_type = header.get_packet_type();
         match packet_type {

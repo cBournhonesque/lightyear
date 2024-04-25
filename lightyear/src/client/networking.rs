@@ -125,7 +125,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     //  FIXED-UPDATE.expend() updates the clock zR the fixed update interval
     //  THE NETWORK TICK INTERVAL COULD BE IN BETWEEN FIXED UPDATE INTERVALS
     world.resource_scope(
-        |world: &mut World, mut connection: Mut<ConnectionManager<P>>| {
+        |world: &mut World, mut connection: Mut<ConnectionManager>| {
             world.resource_scope(
                 |world: &mut World, mut netclient: Mut<ClientConnection>| {
                         world.resource_scope(
@@ -177,40 +177,40 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
                                                             time_manager.as_ref(),
                                                             tick_manager.as_ref(),
                                                         );
-                                                        // TODO: run these in EventsPlugin!
-                                                        // HANDLE EVENTS
-                                                        if !events.is_empty() {
-                                                            // Message Events
-                                                            P::Message::push_message_events(world, &mut events);
-
-                                                            // SpawnEntity event
-                                                            if events.has_entity_spawn() {
-                                                                let mut entity_spawn_event_writer = world
-                                                                    .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                                                    .unwrap();
-                                                                for (entity, _) in events.into_iter_entity_spawn() {
-                                                                    entity_spawn_event_writer
-                                                                        .send(EntitySpawnEvent::new(entity, ()));
-                                                                }
-                                                            }
-                                                            // DespawnEntity event
-                                                            if events.has_entity_despawn() {
-                                                                let mut entity_despawn_event_writer = world
-                                                                    .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                                                    .unwrap();
-                                                                for (entity, _) in events.into_iter_entity_despawn()
-                                                                {
-                                                                    entity_despawn_event_writer
-                                                                        .send(EntityDespawnEvent::new(entity, ()));
-                                                                }
-                                                            }
-
-                                                            // Update component events (updates, inserts, removes)
-                                                            P::Components::push_component_events(
-                                                                world,
-                                                                &mut events,
-                                                            );
-                                                        }
+                                                        // // TODO: run these in EventsPlugin!
+                                                        // // HANDLE EVENTS
+                                                        // if !events.is_empty() {
+                                                        //     // Message Events
+                                                        //     P::Message::push_message_events(world, &mut events);
+                                                        //
+                                                        //     // SpawnEntity event
+                                                        //     if events.has_entity_spawn() {
+                                                        //         let mut entity_spawn_event_writer = world
+                                                        //             .get_resource_mut::<Events<EntitySpawnEvent>>()
+                                                        //             .unwrap();
+                                                        //         for (entity, _) in events.into_iter_entity_spawn() {
+                                                        //             entity_spawn_event_writer
+                                                        //                 .send(EntitySpawnEvent::new(entity, ()));
+                                                        //         }
+                                                        //     }
+                                                        //     // DespawnEntity event
+                                                        //     if events.has_entity_despawn() {
+                                                        //         let mut entity_despawn_event_writer = world
+                                                        //             .get_resource_mut::<Events<EntityDespawnEvent>>()
+                                                        //             .unwrap();
+                                                        //         for (entity, _) in events.into_iter_entity_despawn()
+                                                        //         {
+                                                        //             entity_despawn_event_writer
+                                                        //                 .send(EntityDespawnEvent::new(entity, ()));
+                                                        //         }
+                                                        //     }
+                                                        //
+                                                        //     // Update component events (updates, inserts, removes)
+                                                        //     P::Components::push_component_events(
+                                                        //         world,
+                                                        //         &mut events,
+                                                        //     );
+                                                        // }
                                                     });
                                             });
                                         });
@@ -228,15 +228,15 @@ pub(crate) fn send<P: Protocol>(
     system_change_tick: SystemChangeTick,
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
-    mut connection: ResMut<ConnectionManager<P>>,
+    mut connection: ResMut<ConnectionManager>,
 ) {
     trace!("Send packets to server");
-    // finalize any packets that are needed for replication
-    connection
-        .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
-        .unwrap_or_else(|e| {
-            error!("Error preparing replicate send: {}", e);
-        });
+    // // finalize any packets that are needed for replication
+    // connection
+    //     .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
+    //     .unwrap_or_else(|e| {
+    //         error!("Error preparing replicate send: {}", e);
+    //     });
     // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())
@@ -260,7 +260,7 @@ pub(crate) fn send<P: Protocol>(
 pub(crate) fn sync_update<P: Protocol>(
     config: Res<ClientConfig>,
     netclient: Res<ClientConnection>,
-    connection: ResMut<ConnectionManager<P>>,
+    connection: ResMut<ConnectionManager>,
     mut time_manager: ResMut<TimeManager>,
     mut tick_manager: ResMut<TickManager>,
     mut virtual_time: ResMut<Time<Virtual>>,
@@ -449,7 +449,8 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
     // }
 
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
-    let connection_manager = ConnectionManager::<P>::new(
+    let connection_manager = ConnectionManager::new(
+        world.resource::<P>().message_registry(),
         world.resource::<P>().channel_registry(),
         client_config.packet,
         client_config.sync,

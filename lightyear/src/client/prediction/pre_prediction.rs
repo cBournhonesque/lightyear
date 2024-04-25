@@ -10,7 +10,7 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::{ClientConnection, PredictionSet};
-use crate::prelude::{NetworkTarget, Protocol, ShouldBePredicted};
+use crate::prelude::{NetworkTarget, Protocol, ShouldBePredicted, Tick};
 use crate::shared::replication::components::{PrePredicted, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 use bevy::prelude::*;
@@ -80,7 +80,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
     // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
     //  instead panic if we find an entity that is both predicted and interpolated?)
     pub(crate) fn spawn_pre_predicted_entity(
-        connection: Res<ConnectionManager<P>>,
+        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
         mut commands: Commands,
         // get the list of entities who get PrePredicted replicated from server
@@ -123,10 +123,11 @@ impl<P: Protocol> PrePredictionPlugin<P> {
                 //  and they are applied simultaneously
                 // get the confirmed tick for the entity
                 // if we don't have it, something has gone very wrong
-                let confirmed_tick = connection
-                    .replication_receiver
-                    .get_confirmed_tick(confirmed_entity)
-                    .unwrap();
+                // let confirmed_tick = connection
+                //     .replication_receiver
+                //     .get_confirmed_tick(confirmed_entity)
+                //     .unwrap();
+                let confirmed_tick = Tick(0);
                 commands
                     .entity(confirmed_entity)
                     .remove::<(ShouldBePredicted, PrePredicted)>()

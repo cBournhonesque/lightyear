@@ -8,6 +8,7 @@
 use anyhow::Context;
 use std::fmt::Debug;
 
+use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
 use bevy::prelude::{App, Resource};
 use bevy::reflect::TypePath;
 use bitcode::encoding::Fixed;
@@ -18,7 +19,7 @@ use serde::Serialize;
 use crate::channel::builder::{Channel, ChannelSettings};
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentProtocol, ComponentProtocolKind};
-use crate::protocol::message::MessageProtocol;
+use crate::protocol::message::{MessageProtocol, MessageRegistry};
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::writer::WriteBuffer;
 use crate::shared::replication::ReplicationSend;
@@ -97,6 +98,8 @@ pub trait Protocol: Send + Sync + Clone + Debug + Resource + TypePath + 'static 
     type ComponentKinds: ComponentProtocolKind<Protocol = Self>;
 
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> &mut Self;
+
+    fn message_registry(&self) -> &MessageRegistry;
     fn channel_registry(&self) -> &ChannelRegistry;
 }
 
@@ -130,7 +133,8 @@ macro_rules! protocolize {
 
             #[derive(Debug, Clone, Resource, PartialEq, TypePath)]
             pub struct $protocol {
-                channel_registry: ChannelRegistry,
+                pub message_registry: MessageRegistry,
+                pub channel_registry: ChannelRegistry,
             }
 
             impl Protocol for $protocol {
@@ -278,7 +282,8 @@ macro_rules! protocolize {
 
             #[derive(Debug, Clone, Resource, PartialEq, TypePath)]
             pub struct $protocol {
-                channel_registry: ChannelRegistry,
+                pub message_registry: MessageRegistry,
+                pub channel_registry: ChannelRegistry,
             }
 
             impl Protocol for $protocol {
@@ -291,6 +296,9 @@ macro_rules! protocolize {
                     self.channel_registry.add::<C>(settings);
                     self
                 }
+                fn message_registry(&self) -> &MessageRegistry {
+                    &self.message_registry
+                }
 
                 fn channel_registry(&self) -> &ChannelRegistry {
                     &self.channel_registry
@@ -300,6 +308,7 @@ macro_rules! protocolize {
             impl Default for $protocol {
                 fn default() -> Self {
                     let mut protocol = Self {
+                        message_registry: MessageRegistry::default(),
                         channel_registry: ChannelRegistry::default(),
                     };
                     protocol.add_channel::<EntityActionsChannel>(ChannelSettings {
@@ -345,8 +354,8 @@ macro_rules! protocolize {
         }
         pub use [<$protocol:lower _module>]::$protocol;
         pub type Replicate = $shared_crate_name::shared::replication::components::Replicate<$protocol>;
-        pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager<$protocol>;
-        pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager<$protocol>;
+        pub type ClientConnectionManager = $shared_crate_name::client::connection::ConnectionManager;
+        pub type ServerConnectionManager = $shared_crate_name::server::connection::ConnectionManager;
         }
     };
     (
@@ -373,9 +382,9 @@ macro_rules! protocolize {
 
 /// Something that can be serialized bit by bit
 pub trait BitSerializable: Clone {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()>;
+    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized;
 }
@@ -385,11 +394,11 @@ impl<T> BitSerializable for T
 where
     T: Serialize + DeserializeOwned + Clone,
 {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
         writer.serialize(self)
     }
 
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -401,11 +410,11 @@ where
 // where
 //     T: Encode + Decode + Clone,
 // {
-//     fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+//     fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
 //         self.encode(Fixed, writer).context("could not encode")
 //     }
 //
-//     fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+//     fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
 //     where
 //         Self: Sized,
 //     {

@@ -5,6 +5,7 @@ It is designed for server-authoritative multiplayer games; and aims to be both f
 
 You can find more information in the [book](https://cbournhonesque.github.io/lightyear/book/) or check out the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples)!
 */
+#![allow(unused_mut)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
@@ -85,6 +86,7 @@ pub mod prelude {
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+    pub use crate::protocol::message::MessageRegistry;
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::{Mode, SharedConfig};
@@ -127,6 +129,7 @@ pub mod prelude {
         pub use crate::client::interpolation::{
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
+        pub use crate::client::message::AppMessageExt;
         pub use crate::client::networking::{ClientCommands, NetworkingState};
         pub use crate::client::plugin::{ClientPlugin, PluginConfig};
         pub use crate::client::prediction::correction::Correction;

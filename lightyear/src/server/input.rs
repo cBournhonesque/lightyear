@@ -75,13 +75,13 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
 // Do it in this system because we want an input for every tick
 fn write_input_event<P: Protocol>(
     tick_manager: Res<TickManager>,
-    mut connection_manager: ResMut<ConnectionManager<P>>,
+    mut connection_manager: ResMut<ConnectionManager>,
     mut input_events: EventWriter<InputEvent<P::Input>>,
 ) {
     let tick = tick_manager.tick();
-    for (input, client_id) in connection_manager.pop_inputs(tick) {
-        input_events.send(InputEvent::new(input, client_id));
-    }
+    // for (input, client_id) in connection_manager.pop_inputs(tick) {
+    //     input_events.send(InputEvent::new(input, client_id));
+    // }
 }
 
 /// System that clears the input events.

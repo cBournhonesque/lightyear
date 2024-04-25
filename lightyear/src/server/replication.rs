@@ -57,11 +57,11 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
 
         app
             // PLUGIN
-            .add_plugins(ReplicationPlugin::<P, ConnectionManager<P>>::new(
-                config.shared.tick.tick_duration,
-                config.replication.enable_send,
-                config.replication.enable_receive,
-            ))
+            // .add_plugins(ReplicationPlugin::<P, ConnectionManager>::new(
+            //     config.shared.tick.tick_duration,
+            //     config.replication.enable_send,
+            //     config.replication.enable_receive,
+            // ))
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,

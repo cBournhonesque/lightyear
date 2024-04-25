@@ -82,7 +82,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
     mut manager: ResMut<InterpolationManager>,
     tick_manager: Res<TickManager>,
     mut commands: Commands,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     interpolated_entities: Query<Entity, (Without<ConfirmedHistory<C>>, With<Interpolated>)>,
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) where

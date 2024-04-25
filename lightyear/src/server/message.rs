@@ -1,40 +1,85 @@
 use anyhow::Context;
+use bevy::app::{App, PreUpdate};
+use bevy::prelude::{EventWriter, ResMut, Resource};
+use bevy::utils::HashMap;
+use bytes::Bytes;
 use tracing::{info_span, trace};
 
 use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
 
-use crate::_reexport::{BitSerializable, MessageProtocol, ReadBuffer, WriteBuffer};
+use crate::_reexport::{
+    BitSerializable, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer, WriteBuffer,
+    WriteWordBuffer,
+};
+use crate::client::events::MessageEvent;
 use crate::packet::message::SingleData;
-use crate::prelude::Protocol;
-use crate::shared::ping::message::SyncMessage;
+use crate::prelude::{Message, Protocol};
+use crate::protocol::message::MessageRegistry;
+use crate::server::connection::ConnectionManager;
+use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 
 #[derive(Encode, Decode, Clone, Debug)]
 pub enum ServerMessage {
     #[bitcode_hint(frequency = 2)]
     // #[bitcode(with_serde)]
-    Message(SingleData),
+    Message(Vec<u8>),
     // #[bitcode_hint(frequency = 3)]
     // #[bitcode(with_serde)]
     // Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
     #[bitcode_hint(frequency = 1)]
-    Sync(SyncMessage),
+    Ping(Ping),
+    #[bitcode_hint(frequency = 1)]
+    Pong(Pong),
+}
+
+/// Add a message to the list of messages that can be sent
+trait AppMessageExt {
+    fn add_message<M: Message>(&mut self);
+}
+
+/// Read the message received from the server and emit the MessageEvent event
+fn read_message<M: Message>(
+    mut connection: ResMut<ConnectionManager>,
+    mut event: EventWriter<MessageEvent<M>>,
+) {
+    todo!()
+    // let kind = MessageKind::of::<M>();
+    // if let Some(message_list) = connection.messages.remove(&kind) {
+    //     for message in message_list {
+    //         // TODO: decode using the function pointer instead of the type?
+    //         let message = M::decode(&mut message.as_ref()).expect("could not decode message");
+    //         // TODO: if necessary, map entities
+    //         //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
+    //         event.send(MessageEvent::new(message, ()));
+    //     }
+    // }
+}
+
+impl AppMessageExt for App {
+    fn add_message<M: Message>(&mut self) {
+        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
+            protocol.add_message::<M>();
+        } else {
+            todo!("create a protocol");
+        }
+        self.add_event::<MessageEvent<M>>();
+        self.add_systems(PreUpdate, read_message::<M>);
+    }
 }
 
 impl BitSerializable for ServerMessage {
-    fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+    fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
         writer.encode(self, Fixed).context("could not encode")
-        // writer.serialize(self)
     }
-    fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+    fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
         reader.decode::<Self>(Fixed).context("could not decode")
-        // reader.deserialize::<Self>()
     }
 }
 

@@ -42,8 +42,6 @@ pub struct MessageManager {
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     packet_to_message_ack_map: HashMap<PacketId, HashMap<ChannelKind, Vec<MessageAck>>>,
-    // read_buffer: WordBuffer,
-    reader_pool: BufferPool,
 }
 
 impl MessageManager {
@@ -54,9 +52,6 @@ impl MessageManager {
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
             packet_to_message_ack_map: HashMap::new(),
-            // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
-            reader_pool: BufferPool::new(1),
-            // read_buffer: WordBuffer::with_capacity(MTU_PAYLOAD_BYTES),
         }
     }
 
@@ -113,7 +108,7 @@ impl MessageManager {
             .channels
             .get_mut(&channel_kind)
             .context("Channel not found")?;
-        Ok(channel.sender.buffer_send(message, priority))
+        Ok(channel.sender.buffer_send(message.into(), priority))
     }
 
     /// Prepare buckets from the internal send buffers, and return the bytes to send
@@ -282,17 +277,9 @@ impl MessageManager {
             let mut messages = vec![];
             while let Some(single_data) = channel.receiver.read_message() {
                 trace!(?channel_kind, "reading message: {:?}", single_data);
-                // TODO: in this case, it looks like we might not need the pool?
-                //  we can just have a single buffer, and keep re-using that buffer
-                trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-                let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
-                let message = M::decode(&mut reader).expect("Could not decode message");
-                // return the buffer to the pool
-                self.reader_pool.attach(reader);
-
                 // SAFETY: when we receive the message, we set the tick of the message to the header tick
                 // so every message has a tick
-                messages.push((single_data.tick.unwrap(), message));
+                messages.push((single_data.tick.unwrap(), single_data));
             }
             if !messages.is_empty() {
                 map.insert(*channel_kind, messages);

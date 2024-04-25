@@ -6,7 +6,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::connection::client::ClientConnection;
-use crate::prelude::{Protocol, ShouldBePredicted};
+use crate::prelude::{Protocol, ShouldBePredicted, Tick};
 use crate::shared::replication::components::PrePredicted;
 use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, With, Without};
 use tracing::{debug, error, info, trace, warn};
@@ -16,7 +16,7 @@ use tracing::{debug, error, info, trace, warn};
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity<P: Protocol>(
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,
     // get the list of entities who get ShouldBePredicted replicated from server
@@ -61,10 +61,13 @@ pub(crate) fn spawn_predicted_entity<P: Protocol>(
                 //  and they are applied simultaneously
                 // get the confirmed tick for the entity
                 // if we don't have it, something has gone very wrong
-                let confirmed_tick = connection
-                    .replication_receiver
-                    .get_confirmed_tick(confirmed_entity)
-                    .unwrap();
+
+                // TODO
+                // let confirmed_tick = connection
+                //     .replication_receiver
+                //     .get_confirmed_tick(confirmed_entity)
+                //     .unwrap();
+                let confirmed_tick = Tick(0);
                 confirmed_entity_mut.insert(Confirmed {
                     predicted: Some(predicted_entity),
                     interpolated: None,

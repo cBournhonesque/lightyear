@@ -57,9 +57,9 @@ impl<P: Protocol> Plugin for ServerPlugin<P> {
             // PLUGINS
             .add_plugins(ServerEventsPlugin::<P>::default())
             .add_plugins(ServerNetworkingPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
+            // .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
-            .add_plugins(ServerReplicationPlugin::<P>::default())
+            // .add_plugins(ServerReplicationPlugin::<P>::default())
             .add_plugins(SharedPlugin::<P> {
                 // TODO: move shared config out of server_config?
                 config: config.server_config.shared.clone(),

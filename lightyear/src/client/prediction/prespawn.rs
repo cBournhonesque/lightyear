@@ -17,7 +17,7 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ShouldBePredicted, TickManager};
+use crate::prelude::{ShouldBePredicted, Tick, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
@@ -225,7 +225,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
     /// Try to match which client entity it is and take authority over it.
     pub(crate) fn spawn_pre_spawned_player_object(
         mut commands: Commands,
-        connection: Res<ConnectionManager<P>>,
+        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
         mut events: EventReader<ComponentInsertEvent<PreSpawnedPlayerObject>>,
         query: Query<&PreSpawnedPlayerObject>,
@@ -282,10 +282,11 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
             // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            let confirmed_tick = connection
-                .replication_receiver
-                .get_confirmed_tick(confirmed_entity)
-                .unwrap();
+            // let confirmed_tick = connection
+            //     .replication_receiver
+            //     .get_confirmed_tick(confirmed_entity)
+            //     .unwrap();
+            let confirmed_tick = Tick(0);
             commands
                 .entity(confirmed_entity)
                 .insert(Confirmed {
@@ -313,7 +314,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
         tick_manager: Res<TickManager>,
-        connection: Res<ConnectionManager<P>>,
+        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
     ) {
         let tick = tick_manager.tick();

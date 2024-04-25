@@ -4,13 +4,13 @@ use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
-use crate::prelude::Protocol;
+use crate::prelude::{Protocol, Tick};
 use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
 use tracing::trace;
 
 pub fn spawn_interpolated_entity<P: Protocol>(
     config: Res<ClientConfig>,
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     mut manager: ResMut<InterpolationManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
@@ -32,10 +32,11 @@ pub fn spawn_interpolated_entity<P: Protocol>(
         } else {
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            let confirmed_tick = connection
-                .replication_receiver
-                .get_confirmed_tick(confirmed_entity)
-                .unwrap();
+            // let confirmed_tick = connection
+            //     .replication_receiver
+            //     .get_confirmed_tick(confirmed_entity)
+            //     .unwrap();
+            let confirmed_tick = Tick(0);
             confirmed_entity_mut.insert(Confirmed {
                 interpolated: Some(interpolated),
                 predicted: None,

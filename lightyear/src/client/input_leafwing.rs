@@ -557,7 +557,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
 
 /// System that removes old entries from the ActionDiffBuffer and the InputBuffer
 fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
-    connection: Res<ConnectionManager<P>>,
+    connection: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
     mut action_diff_buffer_query: Query<(Entity, &mut ActionDiffBuffer<A>), With<InputMap<A>>>,
@@ -588,7 +588,7 @@ fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 /// Also clear the ActionDiffBuffers and InputBuffers
 fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
-    mut connection: ResMut<ConnectionManager<P>>,
+    mut connection: ResMut<ConnectionManager>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<Res<ActionDiffBuffer<A>>>,

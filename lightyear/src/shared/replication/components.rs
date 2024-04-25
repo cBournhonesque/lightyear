@@ -3,6 +3,7 @@ use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
 use bevy::utils::{HashMap, HashSet};
+use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -302,7 +303,7 @@ impl<P: Protocol> Default for Replicate<P> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect, Encode, Decode)]
 /// NetworkTarget indicated which clients should receive some message
 pub enum NetworkTarget {
     #[default]

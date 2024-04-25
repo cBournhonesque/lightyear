@@ -195,7 +195,7 @@ mod wrapped_time {
     use bitcode::read::Read;
     use bitcode::write::Write;
 
-    use crate::_reexport::{ReadBuffer, WriteBuffer};
+    use crate::_reexport::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
     use crate::protocol::BitSerializable;
 
     use super::*;
@@ -209,13 +209,13 @@ mod wrapped_time {
     }
 
     impl BitSerializable for WrappedTime {
-        fn encode(&self, writer: &mut impl WriteBuffer) -> anyhow::Result<()> {
+        fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
             writer
                 .encode(self, Fixed)
                 .context("error encoding WrappedTime")
         }
 
-        fn decode(reader: &mut impl ReadBuffer) -> anyhow::Result<Self>
+        fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
         where
             Self: Sized,
         {

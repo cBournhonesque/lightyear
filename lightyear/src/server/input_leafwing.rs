@@ -130,7 +130,7 @@ fn add_action_diff_buffer<A: LeafwingUserAction>(
 /// Read the input messages from the server events to update the ActionDiffBuffers
 fn receive_input_message<P: Protocol, A: LeafwingUserAction>(
     // mut global: Option<ResMut<ActionDiffBuffer<A>>>,
-    mut connection_manager: ResMut<ConnectionManager<P>>,
+    mut connection_manager: ResMut<ConnectionManager>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<&mut ActionDiffBuffer<A>>,
 ) where

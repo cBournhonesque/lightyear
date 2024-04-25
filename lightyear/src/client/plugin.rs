@@ -67,9 +67,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(InputPlugin::<P>::default())
+            // .add_plugins(InputPlugin::<P>::default())
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
-            .add_plugins(ClientReplicationPlugin::<P>::default())
+            // .add_plugins(ClientReplicationPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::default())
             .add_plugins(InterpolationPlugin::<P>::new(
                 config.client_config.interpolation.clone(),

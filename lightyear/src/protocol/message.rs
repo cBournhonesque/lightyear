@@ -2,10 +2,9 @@ use anyhow::Context;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
-use std::{any, mem};
 
 use crate::_reexport::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
-use bevy::prelude::{App, EntityMapper, World};
+use bevy::prelude::{App, EntityMapper, Resource, TypePath, World};
 use bevy::utils::HashMap;
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
@@ -14,7 +13,8 @@ use serde::Serialize;
 
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
-use crate::protocol::registry::TypeKind;
+use crate::prelude::ChannelKind;
+use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 #[cfg(feature = "leafwing")]
 use crate::shared::events::components::InputMessageEvent;
@@ -33,7 +33,7 @@ pub enum InputMessageKind {
     None,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ErasedMessageFns {
     type_id: TypeId,
     type_name: &'static str,
@@ -45,9 +45,12 @@ pub struct ErasedMessageFns {
     pub is_input: bool,
 }
 
+type SerializeFn<M> = fn(&M, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
+type DeserializeFn<M> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<M>;
+
 pub struct MessageFns<M> {
-    pub serialize: fn(&M, writer: &mut WriteWordBuffer) -> anyhow::Result<()>,
-    pub deserialize: fn(reader: &mut ReadWordBuffer) -> anyhow::Result<M>,
+    pub serialize: SerializeFn<M>,
+    pub deserialize: DeserializeFn<M>,
     // TODO: how to handle map entities, since map_entities takes a generic arg?
     // pub map_entities: Option<fn<M: EntityMapper>(&mut self, entity_mapper: &mut M);>,
     pub is_input: bool,
@@ -64,29 +67,60 @@ impl ErasedMessageFns {
         );
 
         MessageFns {
-            serialize: unsafe { mem::transmute(self.serialize) },
-            deserialize: unsafe { mem::transmute(self.deserialize) },
+            serialize: unsafe { std::mem::transmute(self.serialize) },
+            deserialize: unsafe { std::mem::transmute(self.deserialize) },
             is_input: self.is_input,
         }
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct MessageRegistry {
     // TODO: maybe instead of MessageFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?
     //  but how do we deal with implementing behaviour for types that don't have those traits?
-    kind_map: HashMap<MessageKind, ErasedMessageFns>,
+    fns_map: HashMap<MessageKind, ErasedMessageFns>,
+    pub(crate) kind_map: TypeMapper<MessageKind>,
 }
 
+fn default_serialize<M: Message>(message: &M, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+    message.encode(writer)
+}
+
+// #[derive(Encode, Decode, Clone)]
+// pub struct WithNetId<'a, M: Message> {
+//     pub net_id: NetId,
+//     #[bitcode(with_serde)]
+//     pub data: &'a M,
+// }
+//
+// impl<M: Message> BitSerializable for WithNetId<'_, M> {
+//     fn encode(&self, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
+//         self.net_id.encode(writer, Fixed)?;
+//         self.data.encode(writer)
+//     }
+//
+//     fn decode(reader: &mut ReadWordBuffer) -> anyhow::Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         let net_id = reader.decode::<NetId>(Fixed)?;
+//         let data = M::decode(reader)?;
+//         Ok(Self { net_id, data })
+//     }
+// }
+
 impl MessageRegistry {
-    fn add_message<M: Message>(&mut self) {
-        self.kind_map.insert(
-            MessageKind::of::<M>(),
+    pub(crate) fn add_message<M: Message>(&mut self) {
+        let message_kind = self.kind_map.add::<M>();
+        let serialize: SerializeFn<M> = <M as BitSerializable>::encode;
+        let deserialize: DeserializeFn<M> = <M as BitSerializable>::decode;
+        self.fns_map.insert(
+            message_kind,
             ErasedMessageFns {
                 type_id: TypeId::of::<M>(),
                 type_name: std::any::type_name::<M>(),
-                serialize: unsafe { std::mem::transmute(<M as BitSerializable>::encode) },
-                deserialize: unsafe { std::mem::transmute(<M as BitSerializable>::decode) },
+                serialize: unsafe { std::mem::transmute(serialize) },
+                deserialize: unsafe { std::mem::transmute(deserialize) },
                 // map_entities: None,
                 is_input: false,
             },
@@ -98,20 +132,23 @@ impl MessageRegistry {
         message: &M,
         writer: &mut WriteWordBuffer,
     ) -> anyhow::Result<()> {
+        let kind = MessageKind::of::<M>();
         let erased_fns = self
-            .kind_map
-            .get(&MessageKind::of::<M>())
+            .fns_map
+            .get(&kind)
             .context("the message is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<M>() };
-        writer.encode(&MessageKind::of::<M>(), Fixed)?;
+        let net_id = self.kind_map.net_id(&kind).unwrap();
+        writer.encode(net_id, Fixed)?;
         (fns.serialize)(message, writer)
     }
 
     pub(crate) fn deserialize<M: Message>(&self, reader: &mut ReadWordBuffer) -> anyhow::Result<M> {
-        let kind = reader.decode::<MessageKind>(Fixed)?;
+        let net_id = reader.decode::<NetId>(Fixed)?;
+        let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
         let erased_fns = self
-            .kind_map
-            .get(&kind)
+            .fns_map
+            .get(kind)
             .context("the message is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<M>() };
         (fns.deserialize)(reader)
@@ -155,7 +192,7 @@ pub trait MessageProtocol:
 }
 
 /// [`MessageKind`] is an internal wrapper around the type of the message
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct MessageKind(TypeId);
 
 impl MessageKind {

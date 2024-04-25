@@ -7,10 +7,10 @@ use std::ops::Mul;
 use lightyear::prelude::*;
 
 // Messages
-#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message1(pub String);
 
-#[derive(Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message2(pub u32);
 
 #[message_protocol(protocol = "MyProtocol")]
@@ -20,7 +20,7 @@ pub enum MyMessageProtocol {
 }
 
 // Components
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component1(pub f32);
 
 impl Mul<f32> for &Component1 {
@@ -31,19 +31,19 @@ impl Mul<f32> for &Component1 {
     }
 }
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component2(pub f32);
 
-#[derive(Component, Message, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Add, Mul)]
 pub struct Component3(pub f32);
 
 #[component_protocol(protocol = "MyProtocol")]
 pub enum MyComponentsProtocol {
-    #[sync(full)]
+    #[protocol(sync(mode = "full"))]
     Component1(Component1),
-    #[sync(simple)]
+    #[protocol(sync(mode = "simple"))]
     Component2(Component2),
-    #[sync(once)]
+    #[protocol(sync(mode = "once"))]
     Component3(Component3),
 }
 

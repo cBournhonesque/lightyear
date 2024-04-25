@@ -44,11 +44,11 @@ impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
         let config = app.world.resource::<ClientConfig>();
         app
             // PLUGIN
-            .add_plugins(ReplicationPlugin::<P, ConnectionManager<P>>::new(
-                config.shared.tick.tick_duration,
-                config.replication.enable_send,
-                config.replication.enable_receive,
-            ))
+            // .add_plugins(ReplicationPlugin::<P, ConnectionManager>::new(
+            //     config.shared.tick.tick_duration,
+            //     config.replication.enable_send,
+            //     config.replication.enable_receive,
+            // ))
             // TODO: currently we only support pre-spawned entities spawned during the FixedUpdate schedule
             // // SYSTEM SETS
             // .configure_sets(
