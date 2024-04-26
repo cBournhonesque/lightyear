@@ -8,7 +8,7 @@ use crate::prelude::{Protocol, Tick};
 use bevy::prelude::{Added, Commands, Entity, Query, Res, ResMut};
 use tracing::trace;
 
-pub fn spawn_interpolated_entity<P: Protocol>(
+pub fn spawn_interpolated_entity(
     config: Res<ClientConfig>,
     connection: Res<ConnectionManager>,
     mut manager: ResMut<InterpolationManager>,

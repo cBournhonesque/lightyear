@@ -39,10 +39,10 @@ pub(crate) type PacketLinkConditioner = LinkConditioner<(SocketAddr, Box<[u8]>)>
 pub(crate) struct LinkConditioner<P: Eq> {
     config: LinkConditionerConfig,
     pub time_queue: ReadyBuffer<Instant, P>,
-    last_packet: Option<P>,
+    last_packet: Option,
 }
 
-impl<P: Eq> LinkConditioner<P> {
+impl<P: Eq> LinkConditioner {
     pub fn new(config: LinkConditionerConfig) -> Self {
         LinkConditioner {
             config,
@@ -71,7 +71,7 @@ impl<P: Eq> LinkConditioner<P> {
     }
 
     /// Check if a packet is ready to be returned
-    fn pop_packet(&mut self) -> Option<P> {
+    fn pop_packet(&mut self) -> Option {
         self.time_queue
             .pop_item(&Instant::now())
             .map(|(_, packet)| packet)
@@ -91,7 +91,7 @@ impl<T: PacketReceiver> PacketReceiverWrapper<T> for LinkConditioner<(SocketAddr
 /// by adding latency, jitter and packet loss to incoming packets.
 pub struct ConditionedPacketReceiver<T: PacketReceiver, P: Eq> {
     packet_receiver: T,
-    conditioner: LinkConditioner<P>,
+    conditioner: LinkConditioner,
 }
 
 impl<T: PacketReceiver> PacketReceiver for ConditionedPacketReceiver<T, (SocketAddr, Box<[u8]>)> {

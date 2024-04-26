@@ -60,15 +60,19 @@ fn read_message<M: Message>(
             // TODO: reuse buffer
             let mut reader = ReadWordBuffer::start_read(&message);
             // we have to re-decode the net id
-            reader
-                .decode::<NetId>(Fixed)
-                .expect("could not decode net id");
-            // TODO: decode using the function pointer instead of the type?
-            let mut message = M::decode(&mut reader).expect("could not decode message");
-            message_registry.map_entities(
-                &mut message,
+            let message = message_registry.deserialize::<M>(
+                &mut reader,
                 &mut connection.replication_receiver.remote_entity_map,
             );
+            // reader
+            //     .decode::<NetId>(Fixed)
+            //     .expect("could not decode net id");
+            // // TODO: decode using the function pointer instead of the type?
+            // let mut message = M::decode(&mut reader).expect("could not decode message");
+            // message_registry.map_entities(
+            //     &mut message,
+            //     &mut connection.replication_receiver.remote_entity_map,
+            // );
             event.send(MessageEvent::new(message, ()));
         }
     }
@@ -98,7 +102,7 @@ impl BitSerializable for ClientMessage {
 }
 
 //
-// impl<P: Protocol> ClientMessage<P> {
+// impl ClientMessage {
 //     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
 //         match self {
 //             ClientMessage::Message(message, _) => {

@@ -16,11 +16,11 @@ use crate::shared::sets::InternalReplicationSet;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, warn};
 
-pub(crate) struct PrePredictionPlugin<P> {
-    marker: std::marker::PhantomData<P>,
+pub(crate) struct PrePredictionPlugin {
+    marker: std::marker::PhantomData,
 }
 
-impl<P> Default for PrePredictionPlugin<P> {
+impl Default for PrePredictionPlugin {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -40,7 +40,7 @@ pub enum PrePredictionSet {
     Clean,
 }
 
-impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
+impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PreUpdate,
@@ -74,7 +74,7 @@ impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
     }
 }
 
-impl<P: Protocol> PrePredictionPlugin<P> {
+impl PrePredictionPlugin {
     /// For `PrePredicted` entities, find the corresponding `Confirmed` entity. and add the `Confirmed` component to it.
     /// Also update the `Predicted` component on the pre-predicted entity.
     // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we

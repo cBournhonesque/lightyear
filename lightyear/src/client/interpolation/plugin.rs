@@ -93,14 +93,14 @@ impl InterpolationConfig {
     }
 }
 
-pub struct InterpolationPlugin<P: Protocol> {
+pub struct InterpolationPlugin {
     config: InterpolationConfig,
 
     // minimum_snapshots
-    _marker: PhantomData<P>,
+    _marker: PhantomData,
 }
 
-impl<P: Protocol> InterpolationPlugin<P> {
+impl InterpolationPlugin {
     pub(crate) fn new(config: InterpolationConfig) -> Self {
         Self {
             config,
@@ -109,7 +109,7 @@ impl<P: Protocol> InterpolationPlugin<P> {
     }
 }
 
-impl<P: Protocol> Default for InterpolationPlugin<P> {
+impl Default for InterpolationPlugin {
     fn default() -> Self {
         Self {
             config: InterpolationConfig::default(),
@@ -200,7 +200,7 @@ where
     );
 }
 
-impl<P: Protocol> Plugin for InterpolationPlugin<P> {
+impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         let should_run_interpolation =
             not(SharedConfig::is_host_server_condition).and_then(client_is_synced);
@@ -241,7 +241,7 @@ impl<P: Protocol> Plugin for InterpolationPlugin<P> {
         app.add_systems(
             Update,
             (
-                spawn_interpolated_entity::<P>.in_set(InterpolationSet::SpawnInterpolation),
+                spawn_interpolated_entity::.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
             ),
         );

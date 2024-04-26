@@ -2,6 +2,7 @@
 use std::collections::BTreeMap;
 use std::iter::Extend;
 
+use crate::_reexport::{ReadBuffer, ReadWordBuffer};
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
@@ -12,8 +13,8 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::Tick;
-use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
+use crate::protocol::component::{ComponentProtocol, ComponentRegistry};
 use crate::protocol::Protocol;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::ReplicationGroupId;
@@ -28,6 +29,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 pub(crate) struct ReplicationReceiver {
+    reader: ReadWordBuffer,
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
 
@@ -42,6 +44,7 @@ pub(crate) struct ReplicationReceiver {
 impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
+            reader: ReadWordBuffer::start_read(&[]),
             // RECEIVE
             remote_entity_map: RemoteEntityMap::default(),
             remote_entity_to_group: Default::default(),
@@ -182,11 +185,12 @@ impl ReplicationReceiver {
     /// we can access the tick via the replication manager
     pub(crate) fn apply_world(
         &mut self,
+        // TODO: should we use Commands to avoid the need to block the world?
         world: &mut World,
         tick: Tick,
         replication: ReplicationMessageData,
         group_id: ReplicationGroupId,
-        events: &mut ConnectionEvents<P>,
+        events: &mut ConnectionEvents,
     ) {
         let _span = trace_span!("Apply received replication message to world").entered();
         match replication {
@@ -220,7 +224,7 @@ impl ReplicationReceiver {
                         trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
-                        // events.push_spawn(local_entity.id());
+                        events.push_spawn(local_entity.id());
                     }
                 }
 
@@ -259,22 +263,27 @@ impl ReplicationReceiver {
                     //  - send the raw data to a separate typed system
                     //  -  or just insert it here via function pointers
                     // inserts
-                    let kinds = actions
-                        .insert
-                        .iter()
-                        .map(|c| c.into())
-                        .collect::<HashSet<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received InsertComponent");
+
+                    // TODO: remove updates that are duplicate for the same component
+                    // let kinds = actions
+                    //     .insert
+                    //     .iter()
+                    //     .map(|c| c.into())
+                    //     .collect::<HashSet<P::ComponentKinds>>();
+                    debug!(remote_entity = ?entity, "Received InsertComponent");
                     for mut component in actions.insert {
-                        // map any entities inside the component
-                        component.map_entities(&mut self.remote_entity_map);
-                        // TODO: figure out what to do with tick here
-                        events.push_insert_component(
-                            local_entity_mut.id(),
-                            (&component).into(),
-                            Tick(0),
-                        );
-                        component.insert(&mut local_entity_mut);
+                        // TODO: re-use buffers via pool?
+                        self.reader.reset_read(component.as_slice());
+                        let _ = world
+                            .resource::<ComponentRegistry>()
+                            .raw_write(
+                                &mut self.reader,
+                                &mut local_entity_mut,
+                                &mut self.remote_entity_map,
+                            )
+                            .inspect_err(|e| {
+                                error!("could not write the component to the entity: {:?}", e)
+                            });
 
                         // TODO: special-case for pre-spawned entities: we receive them from a client, but then we
                         //  we should immediately take ownership of it, so we won't receive a despawn for it
@@ -290,27 +299,31 @@ impl ReplicationReceiver {
                     trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
                         events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
-                        kind.remove(&mut local_entity_mut);
+                        world
+                            .resource::<ComponentRegistry>()
+                            .raw_remove(&mut local_entity_mut);
                     }
 
-                    // (no need to run apply_deferred after applying actions, that is only for Commands)
-
                     // updates
-                    let kinds = actions
-                        .updates
-                        .iter()
-                        .map(|c| c.into())
-                        .collect::<Vec<P::ComponentKinds>>();
-                    debug!(remote_entity = ?entity, ?kinds, "Received UpdateComponent");
+                    // let kinds = actions
+                    //     .updates
+                    //     .iter()
+                    //     .map(|c| c.into())
+                    //     .collect::<Vec<P::ComponentKinds>>();
+                    debug!(remote_entity = ?entity, "Received UpdateComponent");
                     for mut component in actions.updates {
-                        // map any entities inside the component
-                        component.map_entities(&mut self.remote_entity_map);
-                        events.push_update_component(
-                            local_entity_mut.id(),
-                            (&component).into(),
-                            Tick(0),
-                        );
-                        component.update(&mut local_entity_mut);
+                        // TODO: re-use buffers via pool?
+                        self.reader.reset_read(component.as_slice());
+                        let _ = world
+                            .resource::<ComponentRegistry>()
+                            .raw_write(
+                                &mut self.reader,
+                                &mut local_entity_mut,
+                                &mut self.remote_entity_map,
+                            )
+                            .inspect_err(|e| {
+                                error!("could not write the component to the entity: {:?}", e)
+                            });
                     }
                 }
             }
@@ -493,7 +506,7 @@ mod tests {
     #[allow(clippy::get_first)]
     #[test]
     fn test_recv_replication_messages() {
-        let mut manager = ReplicationReceiver::<MyProtocol>::new();
+        let mut manager = ReplicationReceiver::new();
 
         let group_id = ReplicationGroupId(0);
         // recv an actions message that is too old: should be ignored

@@ -26,11 +26,11 @@ use crate::shared::sets::InternalMainSet;
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 /// Plugin that handles generating bevy [`Events`] related to networking and replication
-pub struct ServerEventsPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
+pub struct ServerEventsPlugin {
+    marker: std::marker::PhantomData,
 }
 
-impl<P: Protocol> Default for ServerEventsPlugin<P> {
+impl Default for ServerEventsPlugin {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -38,25 +38,25 @@ impl<P: Protocol> Default for ServerEventsPlugin<P> {
     }
 }
 
-impl<P: Protocol> Plugin for ServerEventsPlugin<P> {
+impl Plugin for ServerEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // PLUGIN
             .add_plugins(EventsPlugin::<P, ClientId>::default())
             // SYSTEM_SET
-            .add_systems(PostUpdate, clear_events::<P>.run_if(is_started));
+            .add_systems(PostUpdate, clear_events::.run_if(is_started));
     }
 }
 
 #[derive(Debug)]
-pub struct ServerEvents<P: Protocol> {
+pub struct ServerEvents {
     pub connections: Vec<ClientId>,
     pub disconnections: Vec<ClientId>,
-    pub events: HashMap<ClientId, ConnectionEvents<P>>,
+    pub events: HashMap<ClientId, ConnectionEvents>,
     pub empty: bool,
 }
 
-impl<P: Protocol> ServerEvents<P> {
+impl ServerEvents {
     pub(crate) fn new() -> Self {
         Self {
             connections: Vec::new(),
@@ -128,7 +128,7 @@ impl<P: Protocol> ServerEvents<P> {
         self.empty = false;
     }
 
-    pub(crate) fn push_events(&mut self, client_id: ClientId, events: ConnectionEvents<P>) {
+    pub(crate) fn push_events(&mut self, client_id: ClientId, events: ConnectionEvents) {
         if !events.is_empty() {
             self.events.insert(client_id, events);
             self.empty = false;
@@ -137,7 +137,7 @@ impl<P: Protocol> ServerEvents<P> {
 }
 
 #[cfg(feature = "leafwing")]
-impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
+impl IterInputMessageEvent<P, ClientId> for ServerEvents {
     fn into_iter_input_messages<A: LeafwingUserAction>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (InputMessage<A>, ClientId)> + '_>
@@ -162,7 +162,7 @@ impl<P: Protocol> IterInputMessageEvent<P, ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterMessageEvent<P, ClientId> for ServerEvents<P> {
+impl IterMessageEvent<P, ClientId> for ServerEvents {
     fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, ClientId)> + '_>
     where
         P::Message: TryInto<M, Error = ()>,
@@ -181,7 +181,7 @@ impl<P: Protocol> IterMessageEvent<P, ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
+impl IterEntitySpawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_spawn().map(|(entity, _)| entity);
@@ -197,7 +197,7 @@ impl<P: Protocol> IterEntitySpawnEvent<ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterEntityDespawnEvent<ClientId> for ServerEvents<P> {
+impl IterEntityDespawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_despawn().map(|(entity, _)| entity);
@@ -213,7 +213,7 @@ impl<P: Protocol> IterEntityDespawnEvent<ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterComponentUpdateEvent<P, ClientId> for ServerEvents<P> {
+impl IterComponentUpdateEvent<P, ClientId> for ServerEvents {
     fn iter_component_update<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
@@ -239,7 +239,7 @@ impl<P: Protocol> IterComponentUpdateEvent<P, ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterComponentRemoveEvent<P, ClientId> for ServerEvents<P> {
+impl IterComponentRemoveEvent<P, ClientId> for ServerEvents {
     fn iter_component_remove<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
@@ -265,7 +265,7 @@ impl<P: Protocol> IterComponentRemoveEvent<P, ClientId> for ServerEvents<P> {
     }
 }
 
-impl<P: Protocol> IterComponentInsertEvent<P, ClientId> for ServerEvents<P> {
+impl IterComponentInsertEvent<P, ClientId> for ServerEvents {
     fn iter_component_insert<C: Component>(
         &mut self,
     ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>

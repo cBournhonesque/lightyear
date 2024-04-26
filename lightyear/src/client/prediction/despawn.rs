@@ -20,9 +20,9 @@ use crate::shared::tick_manager::Tick;
 /// This command must be used to despawn the predicted or confirmed entity.
 /// - If the entity is predicted, it can still be re-created if we realize during a rollback that it should not have been despawned.
 /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
-pub struct PredictionDespawnCommand<P: Protocol> {
+pub struct PredictionDespawnCommand {
     entity: Entity,
-    _marker: PhantomData<P>,
+    _marker: PhantomData,
 }
 
 #[derive(Component, PartialEq, Debug, Reflect)]
@@ -32,7 +32,7 @@ pub(crate) struct PredictionDespawnMarker {
     pub(crate) death_tick: Tick,
 }
 
-impl<P: Protocol> Command for PredictionDespawnCommand<P> {
+impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
         let tick_manager = world.get_resource::<TickManager>().unwrap();
         let current_tick = tick_manager.tick();
@@ -78,14 +78,14 @@ impl<P: Protocol> Command for PredictionDespawnCommand<P> {
 }
 
 pub trait PredictionDespawnCommandsExt {
-    fn prediction_despawn<P: Protocol>(&mut self);
+    fn prediction_despawn(&mut self);
 }
 impl PredictionDespawnCommandsExt for EntityCommands<'_> {
-    fn prediction_despawn<P: Protocol>(&mut self) {
+    fn prediction_despawn(&mut self) {
         let entity = self.id();
         self.commands().add(PredictionDespawnCommand {
             entity,
-            _marker: PhantomData::<P>,
+            _marker: PhantomData::,
         })
     }
 }

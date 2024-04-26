@@ -20,11 +20,11 @@ use bevy::app::{App, Plugin, PostUpdate};
 use bevy::prelude::{Event, Events};
 
 /// Plugin that handles generating bevy [`Events`] related to networking and replication
-pub struct ClientEventsPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
+pub struct ClientEventsPlugin {
+    marker: std::marker::PhantomData,
 }
 
-impl<P: Protocol> Default for ClientEventsPlugin<P> {
+impl Default for ClientEventsPlugin {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -32,7 +32,7 @@ impl<P: Protocol> Default for ClientEventsPlugin<P> {
     }
 }
 
-impl<P: Protocol> Plugin for ClientEventsPlugin<P> {
+impl Plugin for ClientEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // EVENTS

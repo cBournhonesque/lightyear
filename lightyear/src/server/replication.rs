@@ -33,11 +33,11 @@ impl Default for ReplicationConfig {
     }
 }
 
-pub struct ServerReplicationPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
+pub struct ServerReplicationPlugin {
+    marker: std::marker::PhantomData,
 }
 
-impl<P: Protocol> Default for ServerReplicationPlugin<P> {
+impl Default for ServerReplicationPlugin {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -51,7 +51,7 @@ pub enum ServerReplicationSet {
     ClientReplication,
 }
 
-impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
+impl Plugin for ServerReplicationPlugin {
     fn build(&self, app: &mut App) {
         let config = app.world.resource::<ServerConfig>();
 
@@ -79,13 +79,13 @@ impl<P: Protocol> Plugin for ServerReplicationPlugin<P> {
             // SYSTEMS
             .add_systems(
                 PostUpdate,
-                compute_hash::<P>.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
+                compute_hash::.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
             );
 
         // HOST-SERVER
         app.add_systems(
             PostUpdate,
-            add_prediction_interpolation_components::<P>
+            add_prediction_interpolation_components::
                 .after(InternalMainSet::<ServerMarker>::Send)
                 .run_if(SharedConfig::is_host_server_condition),
         );
@@ -104,7 +104,7 @@ pub struct ServerFilter {
 
 /// In HostServer mode, we will add the Predicted/Interpolated components to the server entities
 /// So that client code can still query for them
-fn add_prediction_interpolation_components<P: Protocol>(
+fn add_prediction_interpolation_components(
     mut commands: Commands,
     query: Query<(Entity, Ref<Replicate>, Option<&PrePredicted>)>,
     connection: Res<ClientConnection>,

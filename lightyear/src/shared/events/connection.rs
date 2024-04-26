@@ -12,12 +12,13 @@ use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
 use crate::prelude::Tick;
 use crate::protocol::channel::ChannelKind;
+use crate::protocol::component::ComponentNetId;
 use crate::protocol::message::MessageKind;
 use crate::protocol::{EventContext, Protocol};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]
-pub struct ConnectionEvents<P: Protocol> {
+pub struct ConnectionEvents {
     // replication
     pub spawns: Vec<Entity>,
     pub despawns: Vec<Entity>,
@@ -28,13 +29,13 @@ pub struct ConnectionEvents<P: Protocol> {
 
     // TODO: key by entity or by kind?
     // TODO: include the actual value in the event, or just the type? let's just include the type for now
-    pub component_inserts: HashMap<P::ComponentKinds, Vec<Entity>>,
+    pub component_inserts: HashMap<ComponentNetId, Vec<Entity>>,
     // pub insert_components: HashMap<Entity, Vec<P::Components>>,
-    pub component_removes: HashMap<P::ComponentKinds, Vec<Entity>>,
+    pub component_removes: HashMap<ComponentNetId, Vec<Entity>>,
     // TODO: here as well, we could only include the type.. we already apply the changes to the entity directly, so users could keep track of changes
     //  let's just start with the kind...
     //  also, normally the updates are sequenced
-    pub component_updates: HashMap<P::ComponentKinds, Vec<Entity>>,
+    pub component_updates: HashMap<ComponentNetId, Vec<Entity>>,
     // // TODO: what happens if we receive on the same frame an Update for tick 4 and update for tick 10?
     // //  can we just discard the older one? what about for inserts/removes?
     // pub component_updates: EntityHashMap<Entity, HashMap<P::ComponentKinds, Tick>>,
@@ -45,13 +46,13 @@ pub struct ConnectionEvents<P: Protocol> {
     empty: bool,
 }
 
-impl<P: Protocol> Default for ConnectionEvents<P> {
+impl Default for ConnectionEvents {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<P: Protocol> ConnectionEvents<P> {
+impl ConnectionEvents {
     pub fn new() -> Self {
         Self {
             // replication
@@ -102,18 +103,15 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub(crate) fn push_insert_component(
         &mut self,
         entity: Entity,
-        component: P::ComponentKinds,
+        kind: ComponentNetId,
         tick: Tick,
     ) {
-        trace!(?entity, ?component, "Received insert component");
+        trace!(?entity, ?kind, "Received insert component");
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("component_insert", "kind" => component.to_string()).increment(1);
+            metrics::counter!("component_insert", "kind" => kind.to_string()).increment(1);
         }
-        self.component_inserts
-            .entry(component)
-            .or_default()
-            .push(entity);
+        self.component_inserts.entry(kind).or_default().push(entity);
         // .push((entity, tick));
         self.empty = false;
     }
@@ -121,18 +119,15 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub(crate) fn push_remove_component(
         &mut self,
         entity: Entity,
-        component: P::ComponentKinds,
+        kind: ComponentNetId,
         tick: Tick,
     ) {
-        trace!(?entity, ?component, "Received remove component");
+        trace!(?entity, ?kind, "Received remove component");
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("component_remove", "kind" => component.to_string()).increment(1);
+            metrics::counter!("component_remove", "kind" => kind.to_string()).increment(1);
         }
-        self.component_removes
-            .entry(component)
-            .or_default()
-            .push(entity);
+        self.component_removes.entry(kind).or_default().push(entity);
         // .push((entity, tick));
         self.empty = false;
     }
@@ -141,13 +136,13 @@ impl<P: Protocol> ConnectionEvents<P> {
     pub(crate) fn push_update_component(
         &mut self,
         entity: Entity,
-        component: P::ComponentKinds,
+        kind: ComponentNetId,
         tick: Tick,
     ) {
-        trace!(?entity, ?component, "Received update component");
+        trace!(?entity, ?kind, "Received update component");
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("component_update", "kind" => component.to_string()).increment(1);
+            metrics::counter!("component_update", "kind" => kind.to_string()).increment(1);
         }
         // self.components_with_updates.insert(component.clone());
         // self.component_updates
@@ -161,10 +156,7 @@ impl<P: Protocol> ConnectionEvents<P> {
         //     })
         //     .or_insert(tick);
 
-        self.component_updates
-            .entry(component)
-            .or_default()
-            .push(entity);
+        self.component_updates.entry(kind).or_default().push(entity);
         // .push((entity, tick));
         self.empty = false;
     }
@@ -175,7 +167,7 @@ pub trait IterEntitySpawnEvent<Ctx: EventContext = ()> {
     fn has_entity_spawn(&self) -> bool;
 }
 
-impl<P: Protocol> IterEntitySpawnEvent for ConnectionEvents<P> {
+impl IterEntitySpawnEvent for ConnectionEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
         let spawns = std::mem::take(&mut self.spawns);
         Box::new(spawns.into_iter().map(|entity| (entity, ())))
@@ -191,7 +183,7 @@ pub trait IterEntityDespawnEvent<Ctx: EventContext = ()> {
     fn has_entity_despawn(&self) -> bool;
 }
 
-impl<P: Protocol> IterEntityDespawnEvent for ConnectionEvents<P> {
+impl IterEntityDespawnEvent for ConnectionEvents {
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
         let despawns = std::mem::take(&mut self.despawns);
         Box::new(despawns.into_iter().map(|entity| (entity, ())))
@@ -222,7 +214,7 @@ pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
     //     P::ComponentKinds: FromType<C>;
 }
 
-impl<P: Protocol> IterComponentUpdateEvent<P> for ConnectionEvents<P> {
+impl IterComponentUpdateEvent for ConnectionEvents {
     fn iter_component_update<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         P::ComponentKinds: FromType<C>,
@@ -277,7 +269,7 @@ pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
 }
 
 // TODO: move these implementations to client?
-impl<P: Protocol> IterComponentRemoveEvent<P> for ConnectionEvents<P> {
+impl IterComponentRemoveEvent for ConnectionEvents {
     fn iter_component_remove<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         P::ComponentKinds: FromType<C>,
@@ -309,7 +301,7 @@ pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
         P::ComponentKinds: FromType<C>;
 }
 
-impl<P: Protocol> IterComponentInsertEvent<P> for ConnectionEvents<P> {
+impl IterComponentInsertEvent for ConnectionEvents {
     fn iter_component_insert<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
     where
         P::ComponentKinds: FromType<C>,

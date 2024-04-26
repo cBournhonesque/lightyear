@@ -108,7 +108,7 @@ impl<R> Default for ReplicateResource<R> {
 pub(crate) mod send {
     use super::*;
     pub(crate) struct ResourceSendPlugin<R> {
-        _marker: PhantomData<R)>,
+        _marker: PhantomData<R>,
     }
 
     impl<R> Default for ResourceSendPlugin<R> {
@@ -132,9 +132,7 @@ pub(crate) mod send {
         }
     }
 
-    pub fn add_resource_send_systems<S: ReplicationSend, R: Resource + Clone>(
-        app: &mut App,
-    ) {
+    pub fn add_resource_send_systems<S: ReplicationSend, R: Resource + Clone>(app: &mut App) {
         app.add_systems(
             PostUpdate,
             copy_send_resource::<R>
@@ -200,9 +198,7 @@ pub(crate) mod receive {
         }
     }
 
-    pub fn add_resource_receive_systems<S: ReplicationSend, R: Resource + Clone>(
-        app: &mut App,
-    ) {
+    pub fn add_resource_receive_systems<S: ReplicationSend, R: Resource + Clone>(app: &mut App) {
         app.add_systems(
             PreUpdate,
             (copy_receive_resource::<R>, handle_despawned_entity::<R>)

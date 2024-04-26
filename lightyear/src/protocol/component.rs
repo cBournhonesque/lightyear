@@ -19,11 +19,12 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
-use crate::prelude::{Message, PreSpawnedPlayerObject};
+use crate::prelude::{Message, PreSpawnedPlayerObject, RemoteEntityMap, Tick};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::serialize::RawData;
 use crate::shared::events::connection::{
-    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
+    ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
@@ -47,30 +48,30 @@ pub struct ErasedComponentFns {
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub serialize: unsafe fn(),
     pub deserialize: unsafe fn(),
-    // pub map_entities: Option<unsafe fn()>,
-    // pub component_type: crate::protocol::message::ComponentType,
+    pub map_entities: Option<unsafe fn()>,
+    pub write: RawWriteFn,
+    pub remove: RawRemoveFn,
 }
 
 type SerializeFn<C> = fn(&C, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
 type DeserializeFn<C> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<C>;
+type MapEntitiesFn<C> = fn(&mut C, entity_map: &mut RemoteEntityMap);
+
+type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut) -> anyhow::Result<()>;
+type RawWriteFn = fn(
+    &ComponentRegistry,
+    &mut ReadWordBuffer,
+    &mut EntityWorldMut,
+    &mut RemoteEntityMap,
+    &mut ConnectionEvents,
+) -> anyhow::Result<()>;
 
 pub struct ComponentFns<C> {
     pub serialize: SerializeFn<C>,
     pub deserialize: DeserializeFn<C>,
-    // TODO: how to handle map entities, since map_entities takes a generic arg?
-    // pub map_entities: Option<fn<M: EntityMapper>(&mut self, entity_mapper: &mut M);>,
-    // pub message_type: crate::protocol::message::ComponentType,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum ComponentType {
-    /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
-    #[cfg(feature = "leafwing")]
-    LeafwingInput,
-    /// This is a message for a [`UserAction`](crate::inputs::native::UserAction)
-    NativeInput,
-    /// This is not an input message, but a regular [`Component`]
-    Normal,
+    pub map_entities: Option<MapEntitiesFn<C>>,
+    pub write: RawWriteFn,
+    pub remove: RawRemoveFn,
 }
 
 impl ErasedComponentFns {
@@ -86,7 +87,9 @@ impl ErasedComponentFns {
         ComponentFns {
             serialize: unsafe { std::mem::transmute(self.serialize) },
             deserialize: unsafe { std::mem::transmute(self.deserialize) },
-            // message_type: self.message_type,
+            map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
+            write: unsafe { std::mem::transmute(self.write) },
+            remove: unsafe { std::mem::transmute(self.remove) },
         }
     }
 }
@@ -104,17 +107,13 @@ impl ComponentRegistry {
     pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
-    // pub(crate) fn component_type(&self, net_id: NetId) -> ComponentType {
-    //     let kind = self.kind_map.kind(net_id).unwrap();
-    //     self.fns_map
-    //         .get(kind)
-    //         .map(|fns| fns.message_type)
-    //         .unwrap_or(ComponentType::Normal)
-    // }
+
     pub(crate) fn add_component<C: Component>(&mut self) {
         let message_kind = self.kind_map.add::<C>();
         let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
         let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
+        let write: RawWriteFn = Self::write::<C>;
+        let remove: RawRemoveFn = Self::remove::<C>;
         self.fns_map.insert(
             message_kind,
             ErasedComponentFns {
@@ -122,8 +121,30 @@ impl ComponentRegistry {
                 type_name: std::any::type_name::<C>(),
                 serialize: unsafe { std::mem::transmute(serialize) },
                 deserialize: unsafe { std::mem::transmute(deserialize) },
-                // map_entities: None,
-                // message_type,
+                map_entities: None,
+                write,
+                remove,
+            },
+        );
+    }
+
+    pub(crate) fn add_component_mapped<C: Component + MapEntities>(&mut self) {
+        let message_kind = self.kind_map.add::<C>();
+        let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
+        let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
+        let map_entities: MapEntitiesFn<C> = <C as MapEntities>::map_entities::<RemoteEntityMap>;
+        let write: RawWriteFn = Self::write::<C>;
+        let remove: RawRemoveFn = Self::remove::<C>;
+        self.fns_map.insert(
+            message_kind,
+            ErasedComponentFns {
+                type_id: TypeId::of::<C>(),
+                type_name: std::any::type_name::<C>(),
+                serialize: unsafe { std::mem::transmute(serialize) },
+                deserialize: unsafe { std::mem::transmute(deserialize) },
+                map_entities: Some(unsafe { std::mem::transmute(map_entities) }),
+                write,
+                remove: unsafe { std::mem::transmute(remove) },
             },
         );
     }
@@ -144,18 +165,92 @@ impl ComponentRegistry {
         (fns.serialize)(component, writer)
     }
 
-    pub(crate) fn deserialize<C: Component>(
+    fn internal_deserialize<C: Component>(
         &self,
         reader: &mut ReadWordBuffer,
-    ) -> anyhow::Result<C> {
+        entity_map: &mut RemoteEntityMap,
+    ) -> anyhow::Result<(NetId, C)> {
         let net_id = reader.decode::<ComponentNetId>(Fixed)?;
-        let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
+        let kind = self
+            .kind_map
+            .kind(net_id)
+            .context("unknown component kind")?;
         let erased_fns = self
             .fns_map
             .get(kind)
             .context("the component is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<C>() };
-        (fns.deserialize)(reader)
+        let mut component = (fns.deserialize)(reader)?;
+        if let Some(map_entities) = fns.map_entities {
+            map_entities(&mut component, entity_map);
+        }
+        Ok((net_id, component))
+    }
+
+    pub(crate) fn deserialize<C: Component>(
+        &self,
+        reader: &mut ReadWordBuffer,
+        entity_map: &mut RemoteEntityMap,
+    ) -> anyhow::Result<C> {
+        let (_, component) = self.internal_deserialize(reader, entity_map)?;
+        Ok(component)
+    }
+
+    /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
+    pub(crate) fn raw_write(
+        &self,
+        reader: &mut ReadWordBuffer,
+        entity_world_mut: &mut EntityWorldMut,
+        entity_map: &mut RemoteEntityMap,
+    ) -> anyhow::Result<()> {
+        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+        let kind = self
+            .kind_map
+            .kind(net_id)
+            .context("unknown component kind")?;
+        let erased_fns = self
+            .fns_map
+            .get(kind)
+            .context("the component is not part of the protocol")?;
+        (erased_fns.write)(self, reader, entity_world_mut, entity_map)
+    }
+
+    pub(crate) fn write<C: Component>(
+        &self,
+        reader: &mut ReadWordBuffer,
+        entity_world_mut: &mut EntityWorldMut,
+        entity_map: &mut RemoteEntityMap,
+        events: &mut ConnectionEvents,
+    ) -> anyhow::Result<()> {
+        let (net_id, component) = self.internal_deserialize::<C>(reader, entity_map)?;
+        let entity = entity_world_mut.id();
+        let tick = Tick(0);
+        // TODO: do we need the tick information in the event?
+        // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
+        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+            events.push_update_component(entity, net_id, tick);
+            *c = component;
+        } else {
+            events.push_insert_component(entity, net_id, tick);
+            entity_world_mut.insert(component);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn raw_remove(&self, net_id: ComponentNetId, entity_world_mut: &mut EntityWorldMut) {
+        let kind = self.kind_map.kind(net_id).expect("unknown component kind");
+        let erased_fns = self
+            .fns_map
+            .get(kind)
+            .expect("the component is not part of the protocol");
+        (erased_fns.remove)(self, entity_world_mut);
+    }
+
+    pub(crate) fn remove<C: Component>(
+        &self,
+        entity_world_mut: &mut EntityWorldMut,
+    ) -> anyhow::Result<()> {
+        entity_world_mut.remove::<C>();
     }
 }
 

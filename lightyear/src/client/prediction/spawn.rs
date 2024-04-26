@@ -15,7 +15,7 @@ use tracing::{debug, error, info, trace, warn};
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
-pub(crate) fn spawn_predicted_entity<P: Protocol>(
+pub(crate) fn spawn_predicted_entity(
     connection: Res<ConnectionManager>,
     mut manager: ResMut<PredictionManager>,
     mut commands: Commands,

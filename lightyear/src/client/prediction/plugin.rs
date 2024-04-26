@@ -90,11 +90,11 @@ impl PredictionConfig {
 }
 
 /// Plugin that enables client-side prediction
-pub struct PredictionPlugin<P: Protocol> {
-    _marker: PhantomData<P>,
+pub struct PredictionPlugin {
+    _marker: PhantomData,
 }
 
-impl<P: Protocol> PredictionPlugin<P> {
+impl PredictionPlugin {
     pub(crate) fn new() -> Self {
         Self {
             _marker: PhantomData,
@@ -102,7 +102,7 @@ impl<P: Protocol> PredictionPlugin<P> {
     }
 }
 
-impl<P: Protocol> Default for PredictionPlugin<P> {
+impl Default for PredictionPlugin {
     fn default() -> Self {
         Self {
             _marker: PhantomData,
@@ -202,7 +202,7 @@ where
                     apply_confirmed_update::<C, P>.in_set(PredictionSet::CheckRollback),
                     // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
                     restore_components_if_despawn_rolled_back::<C>
-                        // .before(run_rollback::<P>)
+                        // .before(run_rollback::)
                         .in_set(PredictionSet::PrepareRollback),
                 ),
             );
@@ -212,7 +212,7 @@ where
                 PreUpdate,
                 // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
                 restore_components_if_despawn_rolled_back::<C>
-                    // .before(run_rollback::<P>)
+                    // .before(run_rollback::)
                     .in_set(PredictionSet::PrepareRollback),
             );
         }
@@ -224,7 +224,7 @@ where
     );
 }
 
-impl<P: Protocol> Plugin for PredictionPlugin<P> {
+impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // we only run prediction:
         // - if we're not in host-server mode
@@ -285,7 +285,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
                     // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
                     // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
                     // - then we check if we should spawn a new predicted entity
-                    spawn_predicted_entity::<P>
+                    spawn_predicted_entity::
                         .after(PreSpawnedPlayerObjectSet::Spawn)
                         .after(PrePredictionSet::Spawn),
                     // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
@@ -339,8 +339,8 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
 
         // PLUGINS
         app.add_plugins((
-            PrePredictionPlugin::<P>::default(),
-            PreSpawnedPlayerObjectPlugin::<P>::default(),
+            PrePredictionPlugin::::default(),
+            PreSpawnedPlayerObjectPlugin::::default(),
         ));
     }
 }

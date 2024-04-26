@@ -22,11 +22,11 @@ use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 
-pub(crate) struct PreSpawnedPlayerObjectPlugin<P> {
-    marker: std::marker::PhantomData<P>,
+pub(crate) struct PreSpawnedPlayerObjectPlugin {
+    marker: std::marker::PhantomData,
 }
 
-impl<P> Default for PreSpawnedPlayerObjectPlugin<P> {
+impl Default for PreSpawnedPlayerObjectPlugin {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -47,7 +47,7 @@ pub enum PreSpawnedPlayerObjectSet {
     CleanUp,
 }
 
-impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
+impl Plugin for PreSpawnedPlayerObjectPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PreUpdate,
@@ -92,13 +92,13 @@ impl<P: Protocol> Plugin for PreSpawnedPlayerObjectPlugin<P> {
                 // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
                 //  tick to compute the hash
                 // compute hashes for all pre-spawned player objects
-                // compute_hash::<P>.in_set(ReplicationSet::SetPreSpawnedHash),
+                // compute_hash::.in_set(ReplicationSet::SetPreSpawnedHash),
             ),
         );
     }
 }
 
-impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
+impl PreSpawnedPlayerObjectPlugin {
     /// Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
     pub(crate) fn compute_prespawn_hash(world: &mut World) {
         // get the rollback tick if the pre-spawned entity is being recreated during rollback!
@@ -395,27 +395,27 @@ pub struct PreSpawnedPlayerObject {
 // /// This command must be used to spawn predicted entities
 // /// - It will insert the
 // /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
-// pub struct PredictionSpawnCommand<P: Protocol> {
+// pub struct PredictionSpawnCommand {
 //     entity: Entity,
-//     _marker: PhantomData<P>,
+//     _marker: PhantomData,
 // }
 //
-// impl<P: Protocol> Command for PredictionSpawnCommand<P> {
+// impl Command for PredictionSpawnCommand {
 //     fn apply(self, world: &mut World) {
 //         todo!()
 //     }
 // }
 //
 // pub trait PredictionSpawnCommandsExt {
-//     fn prediction_spawn<P: Protocol>(&mut self);
+//     fn prediction_spawn(&mut self);
 //
 // }
 // impl PredictionSpawnCommandsExt for EntityCommands<'_, '_, '_> {
-//     fn prediction_spawn<P: Protocol>(&mut self, pre) {
+//     fn prediction_spawn(&mut self, pre) {
 //         let entity = self.id();
 //         self.commands().add(PredictionDespawnCommand {
 //             entity,
-//             _marker: PhantomData::<P>,
+//             _marker: PhantomData::,
 //         })
 //     }
 // }

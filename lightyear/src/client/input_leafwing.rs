@@ -257,7 +257,7 @@ impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
 
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
-        // app.add_systems(PostUpdate, clear_input_events::<P>);
+        // app.add_systems(PostUpdate, clear_input_events::);
 
         // NOTE:
         // - maybe don't include the InputManagerPlugin for all ActionLike, but only for those that need to be replicated.

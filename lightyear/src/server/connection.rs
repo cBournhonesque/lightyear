@@ -56,7 +56,7 @@ pub struct ConnectionManager {
     pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
-    // pub(crate) events: ServerEvents<P>,
+    // pub(crate) events: ServerEvents,
 
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
@@ -267,7 +267,7 @@ pub struct Connection {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
-    pub(crate) events: ConnectionEvents<P>,
+    pub(crate) events: ConnectionEvents,
     pub(crate) ping_manager: PingManager,
 
     // TODO: maybe don't do any replication until connection is synced?
@@ -451,7 +451,7 @@ impl Connection {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) {
-        // ) -> ConnectionEvents<P> {
+        // ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
         for (channel_kind, messages) in self.message_manager.read_messages() {

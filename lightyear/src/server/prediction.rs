@@ -15,7 +15,7 @@ use crate::shared::replication::components::{DespawnTracker, Replicate};
 /// 2. Client will compute the hash of the entity and store it internally
 /// 3. Server (later) spawns the entity, computes the hash and replicates the PreSpawnedPlayerObject component
 /// 4. When the client receives the PreSpawnedPlayerObject component, it will compare the hash with the one it computed
-pub(crate) fn compute_hash<P: Protocol>(
+pub(crate) fn compute_hash(
     // we need a param-set because of https://github.com/bevyengine/bevy/issues/7255
     // (entity-mut conflicts with resources)
     mut set: ParamSet<(

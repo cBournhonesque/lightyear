@@ -27,11 +27,11 @@ impl Default for ReplicationConfig {
     }
 }
 
-pub struct ClientReplicationPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
+pub struct ClientReplicationPlugin {
+    marker: std::marker::PhantomData,
 }
 
-impl<P: Protocol> Default for ClientReplicationPlugin<P> {
+impl Default for ClientReplicationPlugin {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -39,7 +39,7 @@ impl<P: Protocol> Default for ClientReplicationPlugin<P> {
     }
 }
 
-impl<P: Protocol> Plugin for ClientReplicationPlugin<P> {
+impl Plugin for ClientReplicationPlugin {
     fn build(&self, app: &mut App) {
         let config = app.world.resource::<ClientConfig>();
         app

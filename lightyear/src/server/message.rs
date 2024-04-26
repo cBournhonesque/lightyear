@@ -106,7 +106,7 @@ impl BitSerializable for ServerMessage {
 }
 
 //
-// impl<P: Protocol> ServerMessage<P> {
+// impl ServerMessage {
 //     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
 //         match self {
 //             ServerMessage::Message(message) => {

@@ -71,7 +71,7 @@ pub struct ConnectionManager {
     pub(crate) message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
-    // pub(crate) events: ConnectionEvents<P>,
+    // pub(crate) events: ConnectionEvents,
     pub(crate) ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
 
@@ -322,7 +322,7 @@ impl ConnectionManager {
         time_manager: &TimeManager,
         tick_manager: &TickManager,
     ) {
-        // ) -> ConnectionEvents<P> {
+        // ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self

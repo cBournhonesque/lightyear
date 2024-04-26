@@ -262,7 +262,7 @@ pub(crate) fn send(
 /// Clear the received events
 /// We put this in a separate system as send because we want to run this every frame, and
 /// Send only runs every send_interval
-pub(crate) fn clear_events<P: Protocol>(mut connection_manager: ResMut<ConnectionManager>) {
+pub(crate) fn clear_events(mut connection_manager: ResMut<ConnectionManager>) {
     // connection_manager.events.clear();
 }
 

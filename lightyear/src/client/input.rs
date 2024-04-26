@@ -190,7 +190,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 
         // in case the framerate is faster than fixed-update interval, we also write/clear the events at frame limits
         // TODO: should we also write the events at PreUpdate?
-        // app.add_systems(PostUpdate, clear_input_events::<P>);
+        // app.add_systems(PostUpdate, clear_input_events::);
     }
 }
 

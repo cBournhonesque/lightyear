@@ -51,11 +51,11 @@ impl Plugin for ClientPlugin {
             .init_resource::<MessageRegistry>()
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::default())
-            .add_plugins(ClientEventsPlugin::<P>::default())
+            .add_plugins(ClientEventsPlugin::::default())
             .add_plugins(ClientDiagnosticsPlugin::default())
-            // .add_plugins(ClientReplicationPlugin::<P>::default())
-            .add_plugins(PredictionPlugin::<P>::default())
-            .add_plugins(InterpolationPlugin::<P>::new(
+            // .add_plugins(ClientReplicationPlugin::::default())
+            .add_plugins(PredictionPlugin::::default())
+            .add_plugins(InterpolationPlugin::::new(
                 config.client_config.interpolation.clone(),
             ));
 

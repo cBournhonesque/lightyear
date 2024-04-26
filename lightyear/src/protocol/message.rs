@@ -191,7 +191,11 @@ impl MessageRegistry {
         (fns.serialize)(message, writer)
     }
 
-    pub(crate) fn deserialize<M: Message>(&self, reader: &mut ReadWordBuffer) -> anyhow::Result<M> {
+    pub(crate) fn deserialize<M: Message>(
+        &self,
+        reader: &mut ReadWordBuffer,
+        entity_map: &mut RemoteEntityMap,
+    ) -> anyhow::Result<M> {
         let net_id = reader.decode::<NetId>(Fixed)?;
         let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
         let erased_fns = self
@@ -199,7 +203,11 @@ impl MessageRegistry {
             .get(kind)
             .context("the message is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<M>() };
-        (fns.deserialize)(reader)
+        let mut message = (fns.deserialize)(reader)?;
+        if let Some(map_entities) = fns.map_entities {
+            map_entities(&mut message, entity_map);
+        }
+        Ok(message)
     }
 
     pub(crate) fn map_entities<M: Message>(
