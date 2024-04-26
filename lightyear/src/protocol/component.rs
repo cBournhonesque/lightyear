@@ -1,19 +1,26 @@
+use anyhow::Context;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use bevy::prelude::{App, Component, Entity, EntityMapper, EntityWorldMut, TypePath, World};
+use bevy::prelude::{
+    App, Component, Entity, EntityMapper, EntityWorldMut, Resource, TypePath, World,
+};
 use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
-use crate::_reexport::{InstantCorrector, NullInterpolator};
+use crate::_reexport::{
+    InstantCorrector, NullInterpolator, ReadBuffer, ReadWordBuffer, WriteWordBuffer,
+};
+use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
 use crate::prelude::{Message, PreSpawnedPlayerObject};
+use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::shared::events::connection::{
     IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
@@ -22,10 +29,123 @@ use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
 use crate::shared::replication::ReplicationSend;
 
-// client writes an Enum containing all their message type
-// each message must derive message
+#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+pub struct ComponentRegistry {
+    // TODO: maybe instead of ComponentFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?
+    //  but how do we deal with implementing behaviour for types that don't have those traits?
+    fns_map: HashMap<ComponentKind, ErasedComponentFns>,
+    pub(crate) kind_map: TypeMapper<ComponentKind>,
+}
 
-// that big enum will implement MessageProtocol via a proc macro
+#[derive(Clone, Debug, PartialEq)]
+pub struct ErasedComponentFns {
+    type_id: TypeId,
+    type_name: &'static str,
+
+    // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
+    pub serialize: unsafe fn(),
+    pub deserialize: unsafe fn(),
+    // pub map_entities: Option<unsafe fn()>,
+    // pub component_type: crate::protocol::message::ComponentType,
+}
+
+type SerializeFn<C> = fn(&C, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
+type DeserializeFn<C> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<C>;
+
+pub struct ComponentFns<C> {
+    pub serialize: SerializeFn<C>,
+    pub deserialize: DeserializeFn<C>,
+    // TODO: how to handle map entities, since map_entities takes a generic arg?
+    // pub map_entities: Option<fn<M: EntityMapper>(&mut self, entity_mapper: &mut M);>,
+    // pub message_type: crate::protocol::message::ComponentType,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ComponentType {
+    /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
+    #[cfg(feature = "leafwing")]
+    LeafwingInput,
+    /// This is a message for a [`UserAction`](crate::inputs::native::UserAction)
+    NativeInput,
+    /// This is not an input message, but a regular [`Component`]
+    Normal,
+}
+
+impl ErasedComponentFns {
+    unsafe fn typed<C: Component>(&self) -> ComponentFns<C> {
+        debug_assert_eq!(
+            self.type_id,
+            TypeId::of::<C>(),
+            "The erased message fns were created for type {}, but we are trying to convert to type {}",
+            self.type_name,
+            std::any::type_name::<C>(),
+        );
+
+        ComponentFns {
+            serialize: unsafe { std::mem::transmute(self.serialize) },
+            deserialize: unsafe { std::mem::transmute(self.deserialize) },
+            // message_type: self.message_type,
+        }
+    }
+}
+
+impl ComponentRegistry {
+    // pub(crate) fn component_type(&self, net_id: NetId) -> ComponentType {
+    //     let kind = self.kind_map.kind(net_id).unwrap();
+    //     self.fns_map
+    //         .get(kind)
+    //         .map(|fns| fns.message_type)
+    //         .unwrap_or(ComponentType::Normal)
+    // }
+    pub(crate) fn add_component<C: Component>(&mut self) {
+        let message_kind = self.kind_map.add::<C>();
+        let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
+        let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
+        self.fns_map.insert(
+            message_kind,
+            ErasedComponentFns {
+                type_id: TypeId::of::<C>(),
+                type_name: std::any::type_name::<C>(),
+                serialize: unsafe { std::mem::transmute(serialize) },
+                deserialize: unsafe { std::mem::transmute(deserialize) },
+                // map_entities: None,
+                // message_type,
+            },
+        );
+    }
+
+    pub(crate) fn serialize<C: Component>(
+        &self,
+        message: &C,
+        writer: &mut WriteWordBuffer,
+    ) -> anyhow::Result<()> {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the message is not part of the protocol")?;
+        let fns = unsafe { erased_fns.typed::<C>() };
+        let net_id = self.kind_map.net_id(&kind).unwrap();
+        writer.encode(net_id, Fixed)?;
+        (fns.serialize)(message, writer)
+    }
+
+    pub(crate) fn deserialize<C: Component>(
+        &self,
+        reader: &mut ReadWordBuffer,
+    ) -> anyhow::Result<C> {
+        let net_id = reader.decode::<NetId>(Fixed)?;
+        let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
+        let erased_fns = self
+            .fns_map
+            .get(kind)
+            .context("the message is not part of the protocol")?;
+        let fns = unsafe { erased_fns.typed::<C>() };
+        (fns.deserialize)(reader)
+    }
+}
+
+// that big enum will implement ComponentProtocol via a proc macro
 // TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
 pub trait ComponentProtocol:
     BitSerializable
@@ -69,7 +189,7 @@ pub trait ComponentProtocol:
 
     // TODO: make this a system that runs after io-receive/recv/read
     //  maybe a standalone EventsPlugin
-    /// Takes messages that were written and writes MessageEvents
+    /// Takes messages that were written and writes ComponentEvents
     fn push_component_events<
         E: IterComponentInsertEvent<Self::Protocol, Ctx>
             + IterComponentRemoveEvent<Self::Protocol, Ctx>
@@ -135,7 +255,7 @@ pub trait ComponentProtocol:
 #[enum_delegate::register]
 pub trait ComponentBehaviour {}
 
-impl<T: Component + Message> ComponentBehaviour for T {}
+impl<C: Component + Message> ComponentBehaviour for C {}
 
 // Trait that lets us convert a component type into the corresponding ComponentProtocolKind
 // #[cfg(feature = "leafwing")]
@@ -224,4 +344,22 @@ pub trait ComponentKindBehaviour {
 /// Trait to convert a component type into the corresponding ComponentProtocolKind
 pub trait FromType<T> {
     fn from_type() -> Self;
+}
+
+/// [`ComponentKind`] is an internal wrapper around the type of the component
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
+pub struct ComponentKind(TypeId);
+
+impl ComponentKind {
+    pub fn of<C: Component>() -> Self {
+        Self(TypeId::of::<C>())
+    }
+}
+
+impl TypeKind for ComponentKind {}
+
+impl From<TypeId> for ComponentKind {
+    fn from(type_id: TypeId) -> Self {
+        Self(type_id)
+    }
 }

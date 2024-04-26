@@ -65,9 +65,12 @@ pub struct MessageFns<M> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MessageType {
+    /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
     #[cfg(feature = "leafwing")]
     LeafwingInput,
+    /// This is a message for a [`UserAction`](crate::inputs::native::UserAction)
     NativeInput,
+    /// This is not an input message, but a regular [`Message`]
     Normal,
 }
 
@@ -95,10 +98,6 @@ pub struct MessageRegistry {
     //  but how do we deal with implementing behaviour for types that don't have those traits?
     fns_map: HashMap<MessageKind, ErasedMessageFns>,
     pub(crate) kind_map: TypeMapper<MessageKind>,
-}
-
-fn default_serialize<M: Message>(message: &M, writer: &mut WriteWordBuffer) -> anyhow::Result<()> {
-    message.encode(writer)
 }
 
 /// Add a message to the list of messages that can be sent
