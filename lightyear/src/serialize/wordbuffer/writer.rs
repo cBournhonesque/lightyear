@@ -92,6 +92,24 @@ impl WriteBuffer for WriteWordBuffer {
 mod tests {
     use crate::serialize::reader::ReadBuffer;
     use crate::serialize::wordbuffer::reader::ReadWordBuffer;
+    use bitcode::{Decode, Encode};
+
+    #[derive(Encode, Decode)]
+    struct A;
+    #[test]
+    fn test_write_zst() -> anyhow::Result<()> {
+        use super::*;
+        use crate::serialize::writer::WriteBuffer;
+
+        let mut buffer = WriteWordBuffer::with_capacity(5);
+        // confirm that we serialize bit by bit
+        buffer.encode(&A, Fixed)?;
+
+        // finish
+        let bytes = buffer.finish_write();
+        assert_eq!(bytes, &[]);
+        Ok(())
+    }
 
     #[test]
     fn test_write_bits() -> anyhow::Result<()> {
