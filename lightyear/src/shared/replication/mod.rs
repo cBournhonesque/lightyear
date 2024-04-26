@@ -11,12 +11,12 @@ use bevy::utils::HashSet;
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind};
+use crate::_reexport::{ComponentProtocol, ComponentProtocolKind, WriteWordBuffer};
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
-use crate::protocol::component::ComponentNetId;
+use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::{EventContext, Protocol};
 use crate::serialize::RawData;
@@ -104,6 +104,10 @@ pub trait ReplicationSend: Resource {
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
     /// (in the client and the server replication plugins)
     type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
+
+    fn writer(&mut self) -> &mut WriteWordBuffer;
+
+    fn component_registry(&self) -> &ComponentRegistry;
 
     /// Set the priority for a given replication group, for a given client
     /// This IS the client-facing API that users must use to update the priorities for a given client.

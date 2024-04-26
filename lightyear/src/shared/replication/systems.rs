@@ -10,8 +10,9 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_reexport::FromType;
+use crate::_reexport::{FromType, WriteBuffer};
 use crate::prelude::{NetworkTarget, TickManager};
+use crate::protocol::component::ComponentRegistry;
 use crate::protocol::Protocol;
 use crate::server::replication::ServerReplicationSet;
 use crate::server::room::ClientVisibility;
@@ -237,20 +238,20 @@ fn send_entity_spawn<R: ReplicationSend>(
 /// (currently we only check for the second condition, which is enough but less efficient)
 ///
 /// NOTE: cannot use ConnectEvents because they are reset every frame
-fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend>(
+fn send_component_update<C: Component + Clone, R: ReplicationSend>(
+    registry: Res<ComponentRegistry>,
     query: Query<(Entity, Ref<C>, Ref<Replicate>)>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
-) where
-    <P as Protocol>::Components: From<C>,
-    P::ComponentKinds: FromType<C>,
-{
-    let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    query.iter().for_each(|(entity, component, replicate)| {
+) {
+    let kind = registry.net_id::<C>();
+    query.par_iter().for_each(|(entity, component, replicate)| {
         // do not replicate components that are disabled
-        if replicate.is_disabled::<C>() {
+        if replicate.is_disabled::<C>(registry.as_ref()) {
             return;
         }
+        // will store (NetworkTarget, is_Insert). We use this to avoid serializing if there are no clients we need to replicate to
+        let mut replicate_args = vec![];
         match replicate.replication_mode {
             ReplicationMode::Room => {
                 replicate
@@ -258,59 +259,29 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend>(
                     .iter()
                     .for_each(|(client_id, visibility)| {
                         if replicate.replication_target.should_send_to(client_id) {
+                            let target = replicate.target::<C>(registry.as_ref(), NetworkTarget::Only(vec![*client_id]));
                             match visibility {
                                 // TODO: here we required the component to be clone because we send it to multiple clients.
                                 //  but maybe we can instead serialize it to Bytes early and then have the bytes be shared between clients?
                                 //  or just pass a reference?
                                 ClientVisibility::Gained => {
-                                    let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
-                                    let _ = sender
-                                        .prepare_component_insert(
-                                            entity,
-                                            component.clone().into(),
-                                            replicate.as_ref(),
-                                            target,
-                                            system_bevy_ticks.this_run(),
-                                        )
-                                        .map_err(|e| {
-                                            error!("error sending component insert: {:?}", e);
-                                        });
+                                    replicate_args.push((target, true));
                                 }
                                 ClientVisibility::Lost => {}
                                 ClientVisibility::Maintained => {
-                                    // send an component_insert for components that were newly added
+                                    // send a component_insert for components that were newly added
                                     if component.is_added() {
-                                        let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
-                                        let _ = sender
-                                            .prepare_component_insert(
-                                                entity,
-                                                component.clone().into(),
-                                                replicate.as_ref(),
-                                                target,
-                                                system_bevy_ticks.this_run(),
-                                            )
-                                            .map_err(|e| {
-                                                error!("error sending component insert: {:?}", e);
-                                            });
-                                        // only update components that were not newly added
+                                        replicate_args.push((target, true));
                                     } else {
+                                        // only update components that were not newly added
+
                                         // do not send updates for these components, only inserts/removes
-                                        if replicate.is_replicate_once::<C>() {
+                                        if replicate.is_replicate_once::<C>(registry.as_ref()) {
+                                            // we can exit the function immediately because we know we don't want to replicate
+                                            // to any client
                                             return;
                                         }
-                                        let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
-                                        let _ = sender
-                                            .prepare_component_update(
-                                                entity,
-                                                component.clone().into(),
-                                                replicate.as_ref(),
-                                                target,
-                                                component.last_changed(),
-                                                system_bevy_ticks.this_run(),
-                                            )
-                                            .map_err(|e| {
-                                                error!("error sending component update: {:?}", e);
-                                            });
+                                        replicate_args.push((target, true));
                                     }
                                 }
                             }
@@ -327,21 +298,12 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend>(
                     let mut new_connected_target = target.clone();
                     new_connected_target
                         .intersection(NetworkTarget::Only(new_connected_clients.clone()));
-                    let _ = sender
-                        .prepare_component_insert(
-                            entity,
-                            component.clone().into(),
-                            replicate.as_ref(),
-                            replicate.target::<C>(new_connected_target),
-                            system_bevy_ticks.this_run(),
-                        )
-                        .map_err(|e| {
-                            error!("error sending component insert: {:?}", e);
-                        });
+                    replicate_args.push((replicate.target::<C>(registry.as_ref(), new_connected_target), true));
                     // don't re-send to newly connection client
                     target.exclude(new_connected_clients.clone());
                 }
 
+                let target = replicate.target::<C>(registry.as_ref(), target);
                 // send a component_insert for components that were newly added
                 // or if replicate was newly added.
                 // TODO: ideally what we should be checking is: is the component newly added
@@ -351,34 +313,54 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend>(
                 //  on the receiver's entity world mut to know if we emit a ComponentInsert or a ComponentUpdate?
                 if component.is_added() || replicate.is_added() {
                     trace!("component is added");
+                    replicate_args.push((target, true));
+                } else {
+                    // do not send updates for these components, only inserts/removes
+                    if replicate.is_replicate_once::<C>(registry.as_ref()) {
+                        trace!(?entity,
+                            "not replicating updates for {:?} because it is marked as replicate_once",
+                            kind
+                        );
+                        // we can exit the function immediately because we know we don't want to replicate
+                        // to any client
+                        return;
+                    }
+                    // otherwise send an update for all components that changed since the
+                    // last update we have ack-ed
+                    replicate_args.push((target, false));
+                }
+            }
+        }
+
+        if !replicate_args.is_empty() {
+            // serialize component
+            let writer = sender.writer();
+            writer.start_write();
+            registry.serialize(component.as_ref(), writer).expect("Could not serialize component");
+            let raw_data = writer.finish_write().to_vec();
+
+            replicate_args.into_iter().for_each(|(target, is_insert)| {
+                if is_insert {
                     let _ = sender
                         .prepare_component_insert(
                             entity,
-                            component.clone().into(),
+                            kind,
+                            raw_data,
                             replicate.as_ref(),
-                            replicate.target::<C>(target),
+                            target,
                             system_bevy_ticks.this_run(),
                         )
                         .map_err(|e| {
                             error!("error sending component insert: {:?}", e);
                         });
                 } else {
-                    // do not send updates for these components, only inserts/removes
-                    if replicate.is_replicate_once::<C>() {
-                        trace!(?entity,
-                            "not replicating updates for {:?} because it is marked as replicate_once",
-                            kind
-                        );
-                        return;
-                    }
-                    // otherwise send an update for all components that changed since the
-                    // last update we have ack-ed
                     let _ = sender
                         .prepare_component_update(
                             entity,
-                            component.clone().into(),
+                            kind,
+                            raw_data,
                             replicate.as_ref(),
-                            replicate.target::<C>(target),
+                            target,
                             component.last_changed(),
                             system_bevy_ticks.this_run(),
                         )
@@ -386,26 +368,25 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend>(
                             error!("error sending component update: {:?}", e);
                         });
                 }
-            }
+            });
         }
     });
 }
 
 /// This system sends updates for all components that were removed
-fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend>(
+fn send_component_removed<C: Component + Clone, R: ReplicationSend>(
+    registry: Res<ComponentRegistry>,
     // only remove the component for entities that are being actively replicated
     query: Query<&Replicate>,
     system_bevy_ticks: SystemChangeTick,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
-) where
-    P::ComponentKinds: FromType<C>,
-{
-    let kind = <P::ComponentKinds as FromType<C>>::from_type();
+) {
+    let kind = registry.net_id::<C>();
     removed.read().for_each(|entity| {
         if let Ok(replicate) = query.get(entity) {
             // do not replicate components that are disabled
-            if replicate.is_disabled::<C>() {
+            if replicate.is_disabled::<C>(registry.as_ref()) {
                 return;
             }
             match replicate.replication_mode {
@@ -420,8 +401,10 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend>
                                             entity,
                                             kind,
                                             replicate,
-                                            replicate
-                                                .target::<C>(NetworkTarget::Only(vec![*client_id])),
+                                            replicate.target::<C>(
+                                                registry.as_ref(),
+                                                NetworkTarget::Only(vec![*client_id]),
+                                            ),
                                             system_bevy_ticks.this_run(),
                                         )
                                         .map_err(|e| {
@@ -439,7 +422,10 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend>
                             entity,
                             kind,
                             replicate,
-                            replicate.target::<C>(replicate.replication_target.clone()),
+                            replicate.target::<C>(
+                                registry.as_ref(),
+                                replicate.replication_target.clone(),
+                            ),
                             system_bevy_ticks.this_run(),
                         )
                         .map_err(|e| {

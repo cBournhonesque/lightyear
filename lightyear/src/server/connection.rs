@@ -26,7 +26,7 @@ use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::ComponentRegistry;
+use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
@@ -61,7 +61,7 @@ pub struct ConnectionManager {
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    // replicate_component_cache: EntityHashMap<Entity, Replicate>,
+    replicate_component_cache: EntityHashMap<Entity, Replicate>,
 
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
@@ -86,7 +86,7 @@ impl ConnectionManager {
             message_registry,
             channel_registry,
             // events: ServerEvents::new(),
-            // replicate_component_cache: EntityHashMap::default(),
+            replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             reader_pool: BufferPool::new(1),
@@ -591,6 +591,10 @@ impl Connection {
 impl<P: Protocol> ReplicationSend for ConnectionManager {
     type SetMarker = ServerMarker;
 
+    fn component_registry(&self) -> &ComponentRegistry {
+        &self.component_registry
+    }
+
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,
@@ -642,14 +646,22 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
                 replication_sender.prepare_component_insert(
                     entity,
                     group_id,
-                    P::Components::from(ShouldBePredicted),
+                    self.component_registry()
+                        .get_net_id::<ShouldBePredicted>()
+                        .context("ShouldBePredicted is not registered")?,
+                    // ShouldBePredicted is a ZST
+                    vec![],
                 );
             }
             if replicate.interpolation_target.should_send_to(&client_id) {
                 replication_sender.prepare_component_insert(
                     entity,
                     group_id,
-                    P::Components::from(ShouldBeInterpolated),
+                    self.component_registry()
+                        .get_net_id::<ShouldBeInterpolated>()
+                        .context("ShouldBeInterpolated is not registered")?,
+                    // ShouldBeInterpolated is a ZST
+                    vec![],
                 );
             }
             // also set the priority for the group when we spawn it
@@ -690,13 +702,13 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
     fn prepare_component_insert(
         &mut self,
         entity: Entity,
-        component: P::Components,
+        kind: ComponentNetId,
+        component: RawData,
         replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group_id = replicate.replication_group.group_id(Some(entity));
-        let kind: P::ComponentKinds = (&component).into();
 
         // TODO: think about this. this feels a bit clumsy
         // TODO: this might not be required anymore since we separated ShouldBePredicted from PrePredicted
@@ -714,9 +726,15 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
 
         // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
         let mut actual_target = target;
-        if kind == <P::ComponentKinds as FromType<ShouldBePredicted>>::from_type()
-            || kind == <P::ComponentKinds as FromType<PreSpawnedPlayerObject>>::from_type()
-        {
+        let should_be_predicted_kind = self
+            .component_registry()
+            .get_net_id::<ShouldBePredicted>()
+            .context("ShouldBePredicted is not registered")?;
+        let pre_spawned_player_object_kind = self
+            .component_registry()
+            .get_net_id::<PreSpawnedPlayerObject>()
+            .context("PreSpawnedPlayerObject is not registered")?;
+        if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
             actual_target = replicate.prediction_target.clone();
         }
 
@@ -735,7 +753,7 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
                 //     .entry(group)
                 //     .or_default()
                 //     .update_collect_changes_since_this_tick(system_current_tick);
-                replication_sender.prepare_component_insert(entity, group_id, component.clone());
+                replication_sender.prepare_component_insert(entity, group_id, kind, component);
                 Ok(())
             })
     }
@@ -743,13 +761,13 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
     fn prepare_component_remove(
         &mut self,
         entity: Entity,
-        component_kind: P::ComponentKinds,
+        kind: ComponentNetId,
         replicate: &Replicate,
         target: NetworkTarget,
         system_current_tick: BevyTick,
     ) -> Result<()> {
         let group_id = replicate.replication_group.group_id(Some(entity));
-        debug!(?entity, ?component_kind, "Sending RemoveComponent");
+        debug!(?entity, ?kind, "Sending RemoveComponent");
         self.apply_replication(target).try_for_each(|client_id| {
             let replication_sender = &mut self.connection_mut(client_id)?.replication_sender;
             // TODO: I don't think it's actually correct to only correct the changes since that action.
@@ -764,7 +782,7 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
             //     .entry(group)
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
-            replication_sender.prepare_component_remove(entity, group_id, component_kind);
+            replication_sender.prepare_component_remove(entity, group_id, kind);
             Ok(())
         })
     }
@@ -772,13 +790,13 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
     fn prepare_component_update(
         &mut self,
         entity: Entity,
-        component: P::Components,
+        kind: ComponentNetId,
+        component: RawData,
         replicate: &Replicate,
         target: NetworkTarget,
         component_change_tick: BevyTick,
         system_current_tick: BevyTick,
     ) -> Result<()> {
-        let kind: P::ComponentKinds = (&component).into();
         trace!(
             ?kind,
             ?entity,
@@ -819,7 +837,7 @@ impl<P: Protocol> ReplicationSend for ConnectionManager {
                 //     tick = ?self.tick_manager.tick(),
                 //     "Updating single component"
                 // );
-                replication_sender.prepare_entity_update(entity, group_id, component.clone());
+                replication_sender.prepare_entity_update(entity, group_id, kind, component);
             }
             Ok(())
         })

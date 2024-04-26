@@ -12,6 +12,7 @@ use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
+use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::Protocol;
 use crate::server::room::ClientVisibility;
 
@@ -47,7 +48,7 @@ pub struct Replicate {
     pub replicate_hierarchy: bool,
 
     /// Lets you override the replication modalities for a specific component
-    // pub per_component_metadata: HashMap<P::ComponentKinds, PerComponentReplicationMetadata>,
+    pub per_component_metadata: HashMap<ComponentNetId, PerComponentReplicationMetadata>,
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
@@ -79,118 +80,98 @@ impl Replicate {
         self.replication_group.group_id(entity)
     }
 
-    // /// Returns true if we don't want to replicate the component
-    // pub fn is_disabled<C>(&self) -> bool
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata
-    //         .get(&kind)
-    //         .is_some_and(|metadata| metadata.disabled)
-    // }
+    /// Returns true if we don't want to replicate the component
+    pub fn is_disabled<C>(&self, registry: &ComponentRegistry) -> bool {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata
+            .get(&kind)
+            .is_some_and(|metadata| metadata.disabled)
+    }
 
-    // /// If true, the component will be replicated only once, when the entity is spawned.
-    // /// We do not replicate component updates
-    // pub fn is_replicate_once<C>(&self) -> bool
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata
-    //         .get(&kind)
-    //         .is_some_and(|metadata| metadata.replicate_once)
-    // }
+    /// If true, the component will be replicated only once, when the entity is spawned.
+    /// We do not replicate component updates
+    pub fn is_replicate_once<C>(&self, registry: &ComponentRegistry) -> bool {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata
+            .get(&kind)
+            .is_some_and(|metadata| metadata.replicate_once)
+    }
 
-    // /// Replication target for this specific component
-    // /// This will be the intersection of the provided `entity_target`, and the `target` of the component
-    // /// if it exists
-    // pub fn target<C>(&self, mut entity_target: NetworkTarget) -> NetworkTarget
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     match self.per_component_metadata.get(&kind) {
-    //         None => entity_target,
-    //         Some(metadata) => {
-    //             entity_target.intersection(metadata.target.clone());
-    //             trace!(?kind, "final target: {:?}", entity_target);
-    //             entity_target
-    //         }
-    //     }
-    // }
+    /// Replication target for this specific component
+    /// This will be the intersection of the provided `entity_target`, and the `target` of the component
+    /// if it exists
+    pub fn target<C>(
+        &self,
+        registry: &ComponentRegistry,
+        mut entity_target: NetworkTarget,
+    ) -> NetworkTarget {
+        let kind = registry.net_id::<C>();
+        match self.per_component_metadata.get(&kind) {
+            None => entity_target,
+            Some(metadata) => {
+                entity_target.intersection(metadata.target.clone());
+                trace!(?kind, "final target: {:?}", entity_target);
+                entity_target
+            }
+        }
+    }
 
-    // /// Disable the replication of a component for this entity
-    // pub fn disable_component<C>(&mut self)
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata
-    //         .entry(kind)
-    //         .or_default()
-    //         .disabled = true;
-    // }
+    /// Disable the replication of a component for this entity
+    pub fn disable_component<C>(&mut self, registry: &ComponentRegistry) {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .disabled = true;
+    }
 
-    // /// Enable the replication of a component for this entity
-    // pub fn enable_component<C>(&mut self)
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata
-    //         .entry(kind)
-    //         .or_default()
-    //         .disabled = false;
-    //     // if we are back at the default, remove the entry
-    //     if self.per_component_metadata.get(&kind).unwrap()
-    //         == &PerComponentReplicationMetadata::default()
-    //     {
-    //         self.per_component_metadata.remove(&kind);
-    //     }
-    // }
+    /// Enable the replication of a component for this entity
+    pub fn enable_component<C>(&mut self, registry: &ComponentRegistry) {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .disabled = false;
+        // if we are back at the default, remove the entry
+        if self.per_component_metadata.get(&kind).unwrap()
+            == &PerComponentReplicationMetadata::default()
+        {
+            self.per_component_metadata.remove(&kind);
+        }
+    }
 
-    // pub fn enable_replicate_once<C>(&mut self)
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata
-    //         .entry(kind)
-    //         .or_default()
-    //         .replicate_once = true;
-    // }
+    pub fn enable_replicate_once<C>(&mut self, registry: &ComponentRegistry) {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .replicate_once = true;
+    }
 
-    // pub fn disable_replicate_once<C>(&mut self)
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata
-    //         .entry(kind)
-    //         .or_default()
-    //         .replicate_once = false;
-    //     // if we are back at the default, remove the entry
-    //     if self.per_component_metadata.get(&kind).unwrap()
-    //         == &PerComponentReplicationMetadata::default()
-    //     {
-    //         self.per_component_metadata.remove(&kind);
-    //     }
-    // }
+    pub fn disable_replicate_once<C>(&mut self, registry: &ComponentRegistry) {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata
+            .entry(kind)
+            .or_default()
+            .replicate_once = false;
+        // if we are back at the default, remove the entry
+        if self.per_component_metadata.get(&kind).unwrap()
+            == &PerComponentReplicationMetadata::default()
+        {
+            self.per_component_metadata.remove(&kind);
+        }
+    }
 
-    // pub fn add_target<C>(&mut self, target: NetworkTarget)
-    // where
-    //     P::ComponentKinds: FromType<C>,
-    // {
-    //     let kind = <P::ComponentKinds as FromType<C>>::from_type();
-    //     self.per_component_metadata.entry(kind).or_default().target = target;
-    //     // if we are back at the default, remove the entry
-    //     if self.per_component_metadata.get(&kind).unwrap()
-    //         == &PerComponentReplicationMetadata::default()
-    //     {
-    //         self.per_component_metadata.remove(&kind);
-    //     }
-    // }
+    pub fn add_target<C>(&mut self, registry: &ComponentRegistry, target: NetworkTarget) {
+        let kind = registry.net_id::<C>();
+        self.per_component_metadata.entry(kind).or_default().target = target;
+        // if we are back at the default, remove the entry
+        if self.per_component_metadata.get(&kind).unwrap()
+            == &PerComponentReplicationMetadata::default()
+        {
+            self.per_component_metadata.remove(&kind);
+        }
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
@@ -298,7 +279,7 @@ impl Default for Replicate {
             replication_mode: ReplicationMode::default(),
             replication_group: Default::default(),
             replicate_hierarchy: true,
-            // per_component_metadata: HashMap::default(),
+            per_component_metadata: HashMap::default(),
         };
         // those metadata components should only be replicated once
         replicate.enable_replicate_once::<ShouldBePredicted>();

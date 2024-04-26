@@ -92,6 +92,18 @@ impl ErasedComponentFns {
 }
 
 impl ComponentRegistry {
+    pub fn net_id<C: Component>(&self) -> ComponentNetId {
+        self.kind_map
+            .net_id(&ComponentKind::of::<C>())
+            .copied()
+            .expect(format!(
+                "Component {} is not registered",
+                std::any::type_name::<C>()
+            ))
+    }
+    pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
+        self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
+    }
     // pub(crate) fn component_type(&self, net_id: NetId) -> ComponentType {
     //     let kind = self.kind_map.kind(net_id).unwrap();
     //     self.fns_map
@@ -118,18 +130,18 @@ impl ComponentRegistry {
 
     pub(crate) fn serialize<C: Component>(
         &self,
-        message: &C,
+        component: &C,
         writer: &mut WriteWordBuffer,
     ) -> anyhow::Result<()> {
         let kind = ComponentKind::of::<C>();
         let erased_fns = self
             .fns_map
             .get(&kind)
-            .context("the message is not part of the protocol")?;
+            .context("the component is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<C>() };
         let net_id = self.kind_map.net_id(&kind).unwrap();
         writer.encode(net_id, Fixed)?;
-        (fns.serialize)(message, writer)
+        (fns.serialize)(component, writer)
     }
 
     pub(crate) fn deserialize<C: Component>(
@@ -141,7 +153,7 @@ impl ComponentRegistry {
         let erased_fns = self
             .fns_map
             .get(kind)
-            .context("the message is not part of the protocol")?;
+            .context("the component is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<C>() };
         (fns.deserialize)(reader)
     }
