@@ -188,7 +188,6 @@ impl MessageRegistry {
             .context("the message is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<M>() };
         let net_id = self.kind_map.net_id(&kind).unwrap();
-        error!("in serialize: {:?}, net_id: {:?}", self, net_id);
         writer.encode(net_id, Fixed)?;
         (fns.serialize)(message, writer)
     }

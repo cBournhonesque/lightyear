@@ -189,6 +189,11 @@ impl ConnectionManager {
         self.message_registry
             .serialize(&message, &mut self.writer)?;
         let message_bytes = self.writer.finish_write().to_vec();
+
+        let mut reader = self.reader_pool.start_read(message_bytes.as_slice());
+        let net_id = reader.decode::<NetId>(Fixed)?;
+        self.reader_pool.attach(reader);
+
         let channel = ChannelKind::of::<C>();
         self.buffer_message(message_bytes, channel, target)
     }
@@ -212,7 +217,6 @@ impl ConnectionManager {
         message.encode(&mut self.writer)?;
         // TODO: doesn't this serialize the bytes twice?
         let message_bytes = self.writer.finish_write().to_vec();
-        error!("client send message bytes: {message_bytes:?}");
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())

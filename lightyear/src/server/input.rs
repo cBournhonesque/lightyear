@@ -124,10 +124,8 @@ fn receive_input_message<A: UserAction>(
     for (client_id, connection) in connection.connections.iter_mut() {
         if let Some(message_list) = connection.received_input_messages.remove(&net) {
             for message in message_list {
-                error!("received input message: {:?}", message);
-                // TODO: reuse buffer
-                let mut reader = ReadWordBuffer::start_read(&message);
-                // we have to re-decode the net id
+                let mut reader = connection.reader_pool.start_read(&message);
+                // we have to re-decode the net id, since it's included in the bytes
                 reader
                     .decode::<NetId>(Fixed)
                     .expect("could not decode net id");
@@ -136,10 +134,14 @@ fn receive_input_message<A: UserAction>(
                     InputMessage::<A>::decode(&mut reader).expect("could not decode message");
                 // TODO: if necessary, map entities
                 //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
-                debug!("Received input message: {:?}", message.end_tick);
-                if let Some((_, input_buffer)) = input_buffers.buffers.get_mut(client_id) {
-                    input_buffer.update_from_message(message);
-                }
+                debug!("Received input message: {:?}", message);
+                input_buffers
+                    .buffers
+                    .entry(*client_id)
+                    .or_default()
+                    .1
+                    .update_from_message(message);
+                connection.reader_pool.attach(reader);
             }
         }
     }
@@ -158,7 +160,7 @@ fn write_input_event<A: UserAction>(
         .buffers
         .iter_mut()
         .for_each(move |(client_id, (last_input, input_buffer))| {
-            trace!(?input_buffer, ?tick, ?client_id, "input buffer for client");
+            debug!(?input_buffer, ?tick, ?client_id, "input buffer for client");
             let received_input = input_buffer.pop(tick);
             let fallback = received_input.is_none();
 

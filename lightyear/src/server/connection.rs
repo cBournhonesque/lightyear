@@ -64,7 +64,7 @@ pub struct ConnectionManager {
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
     writer: WriteWordBuffer,
-    reader_pool: BufferPool,
+    pub(crate) reader_pool: BufferPool,
     packet_config: PacketConfig,
     ping_config: PingConfig,
 }
@@ -270,7 +270,7 @@ pub struct Connection {
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<Bytes>>,
     writer: WriteWordBuffer,
-    reader_pool: BufferPool,
+    pub(crate) reader_pool: BufferPool,
     // messages that we have received that need to be rebroadcasted to other clients
     // pub(crate) messages_to_rebroadcast: Vec<(P::Message, NetworkTarget, ChannelKind)>,
 }
@@ -452,28 +452,27 @@ impl Connection {
             if !messages.is_empty() {
                 trace!(?channel_name, ?messages, "Received messages");
                 for (tick, single_data) in messages.into_iter() {
+                    trace!(?tick, ?single_data, "received message");
                     // TODO: in this case, it looks like we might not need the pool?
                     //  we can just have a single buffer, and keep re-using that buffer
-                    trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
                     let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
                     // TODO: maybe just decode a single bit to know if it's message vs replication?
                     let message = ClientMessage::decode(&mut reader)
                         .expect("Could not decode server message");
+                    self.reader_pool.attach(reader);
+
                     match message {
                         ClientMessage::Message(mut message, target) => {
+                            let mut reader = self.reader_pool.start_read(message.as_slice());
                             let net_id = reader
                                 .decode::<NetId>(Fixed)
                                 .expect("could not decode MessageKind");
-                            error!(
-                                "received message: {:?}, net_id: {:?}, registry: {:?}",
-                                message, net_id, message_registry
-                            );
+                            self.reader_pool.attach(reader);
 
                             match message_registry.message_type(net_id) {
                                 #[cfg(feature = "leafwing")]
                                 MessageType::LeafwingInput => todo!(),
                                 MessageType::NativeInput => {
-                                    error!("received input message");
                                     self.received_input_messages
                                         .entry(net_id)
                                         .or_default()
@@ -533,7 +532,6 @@ impl Connection {
                             self.ping_manager.process_pong(&pong, time_manager);
                         }
                     }
-                    self.reader_pool.attach(reader);
                 }
             }
         }
