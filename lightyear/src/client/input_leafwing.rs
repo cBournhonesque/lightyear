@@ -128,29 +128,23 @@ impl<A> LeafwingInputConfig<A> {
 }
 
 /// Adds a plugin to handle inputs using the LeafwingInputManager
-pub struct LeafwingInputPlugin<P: Protocol, A: LeafwingUserAction> {
+pub struct LeafwingInputPlugin<A> {
     config: LeafwingInputConfig<A>,
-    _protocol_marker: PhantomData<P>,
-    _action_marker: PhantomData<A>,
+    _marker: PhantomData<A>,
 }
 
-impl<P: Protocol, A: LeafwingUserAction> LeafwingInputPlugin<P, A> {
+impl<A> LeafwingInputPlugin<A> {
     pub fn new(config: LeafwingInputConfig<A>) -> Self {
         Self {
             config,
-            _protocol_marker: PhantomData,
-            _action_marker: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<P: Protocol, A: LeafwingUserAction> Default for LeafwingInputPlugin<P, A> {
+impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
-        Self {
-            config: LeafwingInputConfig::default(),
-            _protocol_marker: PhantomData,
-            _action_marker: PhantomData,
-        }
+        Self::new(LeafwingInputConfig::default())
     }
 }
 
@@ -163,17 +157,15 @@ fn is_input_delay(config: Res<ClientConfig>) -> bool {
     config.prediction.input_delay_ticks > 0
 }
 
-impl<P: Protocol, A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<P, A>
-where
-    P::Message: From<InputMessage<A>>,
-    // FLOW WITH INPUT DELAY
-    // - pre-update: run leafwing to update ActionState
-    //   this is the action-state for tick T + delay
+impl<A: LeafwingUserAction + TypePath> Plugin for LeafwingInputPlugin<A>
+// FLOW WITH INPUT DELAY
+// - pre-update: run leafwing to update ActionState
+//   this is the action-state for tick T + delay
 
-    // - fixed-update:
-    //   - ONLY IF INPUT-DELAY IS NON ZERO. store the action-state in the buffer for tick T + delay
-    //   - generate the action-diffs for tick T + delay (using the ActionState)
-    //   - ONLY IF INPUT-DELAY IS NON ZERO. restore the action-state from the buffer for tick T
+// - fixed-update:
+//   - ONLY IF INPUT-DELAY IS NON ZERO. store the action-state in the buffer for tick T + delay
+//   - generate the action-diffs for tick T + delay (using the ActionState)
+//   - ONLY IF INPUT-DELAY IS NON ZERO. restore the action-state from the buffer for tick T
 {
     fn build(&self, app: &mut App) {
         // PLUGINS
@@ -238,7 +230,7 @@ where
             FixedPreUpdate,
             (
                 (
-                    (write_action_diffs::<A>, buffer_action_state::<P, A>),
+                    (write_action_diffs::<A>, buffer_action_state::<A>),
                     // get the action-state corresponding to the current tick (which we need to get from the buffer
                     //  because it was added to the buffer input_delay ticks ago)
                     get_non_rollback_action_state::<A>.run_if(is_input_delay),
@@ -274,7 +266,7 @@ where
         //   we want to add the input value computed during F1 to the buffer for tick TA, because the tick will use this value
         app.add_systems(
             PostUpdate,
-            prepare_input_message::<P, A>.in_set(InputSystemSet::SendInputMessage),
+            prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),
         );
 
         // NOTE: we run the buffer_action_state system in the Update for several reasons:
@@ -290,7 +282,7 @@ where
             PostUpdate,
             (
                 receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
-                clean_buffers::<P, A>.in_set(InputSystemSet::CleanUp),
+                clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
                 add_action_state_buffer_added_input_map::<A>.run_if(should_run.clone()),
                 toggle_actions::<A>,
             ),
@@ -415,7 +407,7 @@ fn get_delayed_action_state<A: LeafwingUserAction>(
 
 /// Write the value of the ActionStates for the current tick in the InputBuffer
 /// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<P: Protocol, A: LeafwingUserAction>(
+fn buffer_action_state<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     mut global_input_buffer: ResMut<InputBuffer<A>>,
@@ -556,7 +548,7 @@ fn write_action_diffs<A: LeafwingUserAction>(
 }
 
 /// System that removes old entries from the ActionDiffBuffer and the InputBuffer
-fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
+fn clean_buffers<A: LeafwingUserAction>(
     connection: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
     global_action_diff_buffer: Option<ResMut<ActionDiffBuffer<A>>>,
@@ -587,7 +579,7 @@ fn clean_buffers<P: Protocol, A: LeafwingUserAction>(
 
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 /// Also clear the ActionDiffBuffers and InputBuffers
-fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
+fn prepare_input_message<A: LeafwingUserAction>(
     mut connection: ResMut<ConnectionManager>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
@@ -601,9 +593,7 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
         ),
         With<InputMap<A>>,
     >,
-) where
-    P::Message: From<InputMessage<A>>,
-{
+) {
     let tick = tick_manager.tick() + config.prediction.input_delay_ticks as i16;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
@@ -656,21 +646,23 @@ fn prepare_input_message<P: Protocol, A: LeafwingUserAction>(
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
             // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
             if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
-                if let Some(server_entity) = connection
-                    .replication_receiver
-                    .remote_entity_map
-                    .get_remote(confirmed)
-                    .copied()
-                {
-                    debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
-                    action_diff_buffer.add_to_message(
-                        &mut message,
-                        tick,
-                        message_len,
-                        InputTarget::Entity(server_entity),
-                    );
-                }
+                // TODO: re-add
+                // if let Some(server_entity) = connection
+                //     .replication_receiver
+                //     .remote_entity_map
+                //     .get_remote(confirmed)
+                //     .copied()
+                // {
+                //     debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                //     action_diff_buffer.add_to_message(
+                //         &mut message,
+                //         tick,
+                //         message_len,
+                //         InputTarget::Entity(server_entity),
+                //     );
+                // }
             } else {
+                // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
                 debug!("not sending inputs because couldnt find server entity");
             }
         }
@@ -957,12 +949,10 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper
-            .client_app
-            .add_plugins((crate::client::input_leafwing::LeafwingInputPlugin::<
-                MyProtocol,
-                LeafwingInput1,
-            >::default(), InputPlugin));
+        stepper.client_app.add_plugins((
+            crate::client::input_leafwing::LeafwingInputPlugin::<LeafwingInput1>::default(),
+            InputPlugin,
+        ));
         // let press_action_id = stepper.client_app.world.register_system(press_action);
         stepper.server_app.add_plugins((
             LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),

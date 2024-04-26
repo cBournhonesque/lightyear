@@ -71,7 +71,6 @@ fn send_message(bencher: Bencher, n: usize) {
         })
         .bench_values(|mut stepper| {
             let client_id = ClientId::Netcode(0);
-
             let _ = stepper
                 .server_app
                 .world

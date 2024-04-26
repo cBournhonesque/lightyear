@@ -91,6 +91,8 @@ pub mod prelude {
     pub use crate::protocolize;
     pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::input::InputPlugin;
+    #[cfg(feature = "leafwing")]
+    pub use crate::shared::input_leafwing::LeafwingInputPlugin;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
@@ -121,9 +123,7 @@ pub mod prelude {
         };
         pub use crate::client::input::{InputConfig, InputManager, InputSystemSet};
         #[cfg(feature = "leafwing")]
-        pub use crate::client::input_leafwing::{
-            LeafwingInputConfig, LeafwingInputPlugin, ToggleActions,
-        };
+        pub use crate::client::input_leafwing::{LeafwingInputConfig, ToggleActions};
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{
             InterpolationConfig, InterpolationDelay, InterpolationSet,
@@ -166,8 +166,6 @@ pub mod prelude {
         };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::SteamConfig;
-        #[cfg(feature = "leafwing")]
-        pub use crate::server::input_leafwing::LeafwingInputPlugin;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use wtransport::tls::Certificate;
     }

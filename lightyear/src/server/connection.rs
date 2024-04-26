@@ -269,6 +269,8 @@ pub struct Connection {
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     pub(crate) received_input_messages: HashMap<NetId, Vec<Bytes>>,
+    #[cfg(feature = "leafwing")]
+    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     writer: WriteWordBuffer,
     pub(crate) reader_pool: BufferPool,
     // messages that we have received that need to be rebroadcasted to other clients
@@ -304,6 +306,8 @@ impl Connection {
             // events: ConnectionEvents::default(),
             received_messages: HashMap::default(),
             received_input_messages: HashMap::default(),
+            #[cfg(feature = "leafwing")]
+            received_leafwing_input_messages: HashMap::default(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
             reader_pool: BufferPool::new(1),
@@ -471,7 +475,11 @@ impl Connection {
 
                             match message_registry.message_type(net_id) {
                                 #[cfg(feature = "leafwing")]
-                                MessageType::LeafwingInput => todo!(),
+                                MessageType::LeafwingInput => self
+                                    .received_leafwing_input_messages
+                                    .entry(net_id)
+                                    .or_default()
+                                    .push(message.into()),
                                 MessageType::NativeInput => {
                                     self.received_input_messages
                                         .entry(net_id)
