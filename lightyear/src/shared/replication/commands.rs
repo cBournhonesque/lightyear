@@ -7,18 +7,18 @@ use crate::shared::replication::components::Replicate;
 
 pub struct RemoveReplicate;
 
-fn remove_replicate<P: Protocol, R: ReplicationSend<P>>(entity: Entity, world: &mut World) {
+fn remove_replicate<P: Protocol, R: ReplicationSend>(entity: Entity, world: &mut World) {
     let mut sender = world.resource_mut::<R>();
     // remove the entity from the cache of entities that are being replicated
     // so that if it gets despawned, the despawn won't be replicated
     sender.get_mut_replicate_component_cache().remove(&entity);
     // remove the replicate component
     if let Some(mut entity) = world.get_entity_mut(entity) {
-        entity.remove::<Replicate<P>>();
+        entity.remove::<Replicate>();
     }
 }
 
-pub trait RemoveReplicateCommandsExt<P: Protocol, R: ReplicationSend<P>> {
+pub trait RemoveReplicateCommandsExt<P: Protocol, R: ReplicationSend> {
     /// Remove the replicate component from the entity.
     /// This also makes sure that if you despawn the entity right after, the despawn won't be replicated.
     ///
@@ -26,7 +26,7 @@ pub trait RemoveReplicateCommandsExt<P: Protocol, R: ReplicationSend<P>> {
     /// immediately to clients (for example because clients are playing a despawn animation)/
     fn remove_replicate(&mut self);
 }
-impl<P: Protocol, R: ReplicationSend<P>> RemoveReplicateCommandsExt<P, R> for EntityCommands<'_> {
+impl<P: Protocol, R: ReplicationSend> RemoveReplicateCommandsExt<P, R> for EntityCommands<'_> {
     fn remove_replicate(&mut self) {
         self.add(remove_replicate::<P, R>);
     }

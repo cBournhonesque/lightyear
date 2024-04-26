@@ -158,7 +158,7 @@ impl<P: Protocol> PreSpawnedPlayerObjectPlugin<P> {
                                     world.components().get_info(component_id).unwrap().type_id()
                                 {
                                     // ignore some book-keeping components
-                                    if type_id != TypeId::of::<Replicate<P>>()
+                                    if type_id != TypeId::of::<Replicate>()
                                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()

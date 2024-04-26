@@ -27,7 +27,7 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-pub(crate) struct ReplicationReceiver<P: Protocol> {
+pub(crate) struct ReplicationReceiver {
     /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
     pub remote_entity_map: RemoteEntityMap,
 
@@ -36,10 +36,10 @@ pub(crate) struct ReplicationReceiver<P: Protocol> {
 
     // BOTH
     /// Buffer to so that we have an ordered receiver per group
-    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel<P>>,
+    pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
 }
 
-impl<P: Protocol> ReplicationReceiver<P> {
+impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
             // RECEIVE
@@ -51,11 +51,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     }
 
     /// Recv a new replication message and buffer it
-    pub(crate) fn recv_message(
-        &mut self,
-        message: ReplicationMessage<P::Components, P::ComponentKinds>,
-        remote_tick: Tick,
-    ) {
+    pub(crate) fn recv_message(&mut self, message: ReplicationMessage, remote_tick: Tick) {
         trace!(?message, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(message.group_id).or_default();
         match message.data {
@@ -124,13 +120,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
     pub(crate) fn read_messages(
         &mut self,
         current_tick: Tick,
-    ) -> Vec<(
-        ReplicationGroupId,
-        Vec<(
-            Tick,
-            ReplicationMessageData<P::Components, P::ComponentKinds>,
-        )>,
-    )> {
+    ) -> Vec<(ReplicationGroupId, Vec<(Tick, ReplicationMessageData)>)> {
         trace!(?current_tick, ?self.group_channels, "reading replication messages");
         self.group_channels
             .iter_mut()
@@ -162,7 +152,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
-    fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel<P>> {
+    fn channel_by_local(&self, local_entity: Entity) -> Option<&GroupChannel> {
         self.remote_entity_map
             .get_remote(local_entity)
             .and_then(|remote_entity| self.channel_by_remote(*remote_entity))
@@ -170,7 +160,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
     // USED BY RECEIVE SIDE (SEND SIZE CAN GET THE GROUP_ID EASILY)
     /// Get the group channel associated with a given entity
-    fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel<P>> {
+    fn channel_by_remote(&self, remote_entity: Entity) -> Option<&GroupChannel> {
         self.remote_entity_to_group
             .get(&remote_entity)
             .and_then(|group_id| self.group_channels.get(group_id))
@@ -182,7 +172,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
 /// - entity updates (component updates) to be done unreliably
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
-impl<P: Protocol> ReplicationReceiver<P> {
+impl ReplicationReceiver {
     // TODO: how can I emit metrics here that contain the channel kind?
     //  use a OnceCell that gets set with the channel name mapping when the protocol is finalized?
     //  the other option is to have wrappers in Connection, but that's pretty ugly
@@ -194,7 +184,7 @@ impl<P: Protocol> ReplicationReceiver<P> {
         &mut self,
         world: &mut World,
         tick: Tick,
-        replication: ReplicationMessageData<P::Components, P::ComponentKinds>,
+        replication: ReplicationMessageData,
         group_id: ReplicationGroupId,
         events: &mut ConnectionEvents<P>,
     ) {
@@ -372,28 +362,26 @@ impl<P: Protocol> ReplicationReceiver<P> {
 
 /// Channel to keep track of receiving/sending replication messages for a given Group
 #[derive(Debug)]
-pub struct GroupChannel<P: Protocol> {
+pub struct GroupChannel {
     // entities
     // set of remote entities that are part of the same Replication Group
     remote_entities: HashSet<Entity>,
     // actions
     pub actions_pending_recv_message_id: MessageId,
-    pub actions_recv_message_buffer:
-        BTreeMap<MessageId, (Tick, EntityActionMessage<P::Components, P::ComponentKinds>)>,
+    pub actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionMessage)>,
     // updates
     // map from necessary_last_action_tick to the buffered message
     // the first tick is the last_action_tick (we can only apply the update if the last action tick has been reached)
     // the second tick is the update's server tick when it was sent
     pub buffered_updates_with_last_action_tick:
-        BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage<P::Components>>>,
+        BTreeMap<Tick, BTreeMap<Tick, EntityUpdatesMessage>>,
     // updates for which there is no condition on the last_action_tick: we can apply them immediately
-    pub buffered_updates_without_last_action_tick:
-        BTreeMap<Tick, EntityUpdatesMessage<P::Components>>,
+    pub buffered_updates_without_last_action_tick: BTreeMap<Tick, EntityUpdatesMessage>,
     /// remote tick of the latest update/action that we applied to the local group
     pub latest_tick: Option<Tick>,
 }
 
-impl<P: Protocol> Default for GroupChannel<P> {
+impl Default for GroupChannel {
     fn default() -> Self {
         Self {
             remote_entities: HashSet::default(),
@@ -406,17 +394,14 @@ impl<P: Protocol> Default for GroupChannel<P> {
     }
 }
 
-impl<P: Protocol> GroupChannel<P> {
+impl GroupChannel {
     /// Reads a message from the internal buffer to get its content
     /// Since we are receiving messages in order, we don't return from the buffer
     /// until we have received the message we are waiting for (the next expected MessageId)
     /// This assumes that the sender sends all message ids sequentially.
     ///
     /// If had received updates that were waiting on a given action, we also return them
-    fn read_action(
-        &mut self,
-        current_tick: Tick,
-    ) -> Option<(Tick, EntityActionMessage<P::Components, P::ComponentKinds>)> {
+    fn read_action(&mut self, current_tick: Tick) -> Option<(Tick, EntityActionMessage)> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
         let message = self
             .actions_recv_message_buffer
@@ -439,7 +424,7 @@ impl<P: Protocol> GroupChannel<P> {
         Some(message)
     }
 
-    fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage<P::Components>)> {
+    fn read_buffered_updates(&mut self) -> Vec<(Tick, EntityUpdatesMessage)> {
         // if we haven't applied any actions (latest_tick is None) we cannot apply any updates
         let Some(latest_tick) = self.latest_tick else {
             return vec![];
@@ -475,15 +460,7 @@ impl<P: Protocol> GroupChannel<P> {
         res
     }
 
-    fn read_messages(
-        &mut self,
-        current_tick: Tick,
-    ) -> Option<
-        Vec<(
-            Tick,
-            ReplicationMessageData<P::Components, P::ComponentKinds>,
-        )>,
-    > {
+    fn read_messages(&mut self, current_tick: Tick) -> Option<Vec<(Tick, ReplicationMessageData)>> {
         let mut res = Vec::new();
 
         // check for any actions that are ready to be applied

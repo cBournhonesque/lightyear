@@ -440,7 +440,7 @@ pub enum ClientVisibility {
 /// Note that the rooms' entities/clients have already been updated at this point
 fn update_entity_replication_cache<P: Protocol>(
     mut room_manager: ResMut<RoomManager>,
-    mut query: Query<&mut Replicate<P>>,
+    mut query: Query<&mut Replicate>,
 ) {
     if !room_manager.events.is_empty() {
         trace!(?room_manager.events, "Room events");
@@ -531,7 +531,7 @@ fn update_entity_replication_cache<P: Protocol>(
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate<P>>) {
+fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate>) {
     for mut replicate in query.iter_mut() {
         replicate
             .replication_clients_cache

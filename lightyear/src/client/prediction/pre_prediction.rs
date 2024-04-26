@@ -176,7 +176,7 @@ impl<P: Protocol> PrePredictionPlugin<P> {
             debug!(?entity, "removing replicate from pre-predicted entity");
             commands
                 .entity(entity)
-                .remove::<Replicate<P>>()
+                .remove::<Replicate>()
                 .insert((Predicted {
                     confirmed_entity: None,
                 },));

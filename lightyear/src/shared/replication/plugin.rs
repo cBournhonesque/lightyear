@@ -18,14 +18,14 @@ use crate::shared::replication::resources::{
 use crate::shared::replication::systems::{add_replication_send_systems, cleanup};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 
-pub(crate) struct ReplicationPlugin<P: Protocol, R: ReplicationSend<P>> {
+pub(crate) struct ReplicationPlugin<R: ReplicationSend> {
     tick_duration: Duration,
     enable_send: bool,
     enable_receive: bool,
-    _marker: std::marker::PhantomData<(P, R)>,
+    _marker: std::marker::PhantomData<R>,
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> ReplicationPlugin<P, R> {
+impl<R: ReplicationSend> ReplicationPlugin<R> {
     pub(crate) fn new(tick_duration: Duration, enable_send: bool, enable_receive: bool) -> Self {
         Self {
             tick_duration,
@@ -36,14 +36,13 @@ impl<P: Protocol, R: ReplicationSend<P>> ReplicationPlugin<P, R> {
     }
 }
 
-impl<P: Protocol, R: ReplicationSend<P>> Plugin for ReplicationPlugin<P, R> {
+impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
     fn build(&self, app: &mut App) {
         // TODO: have a better constant for clean_interval?
         let clean_interval = self.tick_duration * (i16::MAX as u32 / 3);
 
         // REFLECTION
-        app.register_type::<Replicate<P>>()
-            .register_type::<P::ComponentKinds>()
+        app.register_type::<Replicate>()
             .register_type::<PerComponentReplicationMetadata>()
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()

@@ -10,6 +10,9 @@ pub(crate) type NetId = u16;
 
 pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 
+// Type used to serialize the data over the network
+// pub trait NetId: copy + PartialEq + Eq + Hash {}
+
 // needs trait_alias feature
 // type TypeKind = From<TypeId> + Copy + PartialEq + Eq + Hash {};
 

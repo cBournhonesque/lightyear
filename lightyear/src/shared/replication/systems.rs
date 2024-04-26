@@ -23,9 +23,9 @@ use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// For every entity that removes their Replicate component but are not despawned, remove the component
 /// from our replicate cache (so that the entity's despawns are no longer replicated)
-fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
+fn handle_replicate_remove<R: ReplicationSend>(
     mut sender: ResMut<R>,
-    mut query: RemovedComponents<Replicate<P>>,
+    mut query: RemovedComponents<Replicate>,
     entity_check: &Entities,
 ) {
     for entity in query.read() {
@@ -41,10 +41,10 @@ fn handle_replicate_remove<P: Protocol, R: ReplicationSend<P>>(
 /// This system adds DespawnTracker to each entity that was every replicated,
 /// so that we can track when they are despawned
 /// (we have a distinction between removing Replicate, which just stops replication; and despawning the entity)
-fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
+fn add_despawn_tracker<R: ReplicationSend>(
     mut sender: ResMut<R>,
     mut commands: Commands,
-    query: Query<(Entity, &Replicate<P>), (Added<Replicate<P>>, Without<DespawnTracker>)>,
+    query: Query<(Entity, &Replicate), (Added<Replicate>, Without<DespawnTracker>)>,
 ) {
     for (entity, replicate) in query.iter() {
         debug!("Adding Despawn tracker component");
@@ -55,8 +55,8 @@ fn add_despawn_tracker<P: Protocol, R: ReplicationSend<P>>(
     }
 }
 
-fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, &Replicate<P>)>,
+fn send_entity_despawn<R: ReplicationSend>(
+    query: Query<(Entity, &Replicate)>,
     system_bevy_ticks: SystemChangeTick,
     // TODO: ideally we want to send despawns for entities that still had REPLICATE at the time of despawn
     //  not just entities that had despawn tracker once
@@ -125,9 +125,9 @@ fn send_entity_despawn<P: Protocol, R: ReplicationSend<P>>(
     }
 }
 
-fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
+fn send_entity_spawn<R: ReplicationSend>(
     system_bevy_ticks: SystemChangeTick,
-    query: Query<(Entity, Ref<Replicate<P>>)>,
+    query: Query<(Entity, Ref<Replicate>)>,
     mut sender: ResMut<R>,
 ) {
     // Replicate to already connected clients (replicate only new entities)
@@ -237,8 +237,8 @@ fn send_entity_spawn<P: Protocol, R: ReplicationSend<P>>(
 /// (currently we only check for the second condition, which is enough but less efficient)
 ///
 /// NOTE: cannot use ConnectEvents because they are reset every frame
-fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
-    query: Query<(Entity, Ref<C>, Ref<Replicate<P>>)>,
+fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend>(
+    query: Query<(Entity, Ref<C>, Ref<Replicate>)>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) where
@@ -392,9 +392,9 @@ fn send_component_update<C: Component + Clone, P: Protocol, R: ReplicationSend<P
 }
 
 /// This system sends updates for all components that were removed
-fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<P>>(
+fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend>(
     // only remove the component for entities that are being actively replicated
-    query: Query<&Replicate<P>>,
+    query: Query<&Replicate>,
     system_bevy_ticks: SystemChangeTick,
     mut removed: RemovedComponents<C>,
     mut sender: ResMut<R>,
@@ -452,7 +452,7 @@ fn send_component_removed<C: Component + Clone, P: Protocol, R: ReplicationSend<
 }
 
 // add replication systems that are shared between client and server
-pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mut App) {
+pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend>(app: &mut App) {
     // we need to add despawn trackers immediately for entities for which we add replicate
     app.add_systems(
         PreUpdate,
@@ -483,7 +483,7 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend<P>>(app: &mu
 pub fn add_per_component_replication_send_systems<
     C: Component + Clone,
     P: Protocol,
-    R: ReplicationSend<P>,
+    R: ReplicationSend,
 >(
     app: &mut App,
 ) where
@@ -506,7 +506,7 @@ pub fn add_per_component_replication_send_systems<
     );
 }
 
-pub(crate) fn cleanup<P: Protocol, R: ReplicationSend<P>>(
+pub(crate) fn cleanup<P: Protocol, R: ReplicationSend>(
     mut sender: ResMut<R>,
     tick_manager: Res<TickManager>,
 ) {

@@ -29,6 +29,8 @@ use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
 use crate::shared::replication::ReplicationSend;
 
+pub type ComponentNetId = NetId;
+
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
     // TODO: maybe instead of ComponentFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?
@@ -134,7 +136,7 @@ impl ComponentRegistry {
         &self,
         reader: &mut ReadWordBuffer,
     ) -> anyhow::Result<C> {
-        let net_id = reader.decode::<NetId>(Fixed)?;
+        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
         let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
         let erased_fns = self
             .fns_map

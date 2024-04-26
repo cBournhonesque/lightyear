@@ -61,7 +61,7 @@ pub(crate) fn compute_hash<P: Protocol>(
             .filter_map(|component_id| {
                 if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                     // ignore some book-keeping components
-                    if type_id != TypeId::of::<Replicate<P>>()
+                    if type_id != TypeId::of::<Replicate>()
                         && type_id != TypeId::of::<ShouldBePredicted>()
                         && type_id != TypeId::of::<DespawnTracker>()
                     {

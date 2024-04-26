@@ -18,12 +18,12 @@ use tracing::error;
 mod command {
     use super::*;
 
-    pub struct StartReplicateCommand<R, P: Protocol> {
-        replicate: Replicate<P>,
-        _marker: PhantomData<(R, P)>,
+    pub struct StartReplicateCommand<R> {
+        replicate: Replicate,
+        _marker: PhantomData<R>,
     }
 
-    impl<R: Resource + Clone, P: Protocol> Command for StartReplicateCommand<R, P> {
+    impl<R: Resource + Clone> Command for StartReplicateCommand<R> {
         fn apply(self, world: &mut World) {
             if let Ok(entity) = world
                 .query_filtered::<Entity, With<ReplicateResource<R>>>()
@@ -37,30 +37,30 @@ mod command {
     }
 
     /// Extension trait to be able to replicate a resource to remote clients via [`Commands`].
-    pub trait ReplicateResourceExt<P: Protocol> {
+    pub trait ReplicateResourceExt {
         /// Start replicating a resource to remote clients.
         ///
         /// Any change to the resource will be replicated to the clients.
-        // TODO: we use `Replicate<P>` as argument instead of the simpler `NetworkTarget`
+        // TODO: we use `Replicate` as argument instead of the simpler `NetworkTarget`
         //  because it helps with type-inference when calling this method.
         //  We can switch to `NetworkTarget` if we remove the `P` bound of `Replicate`.
-        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate<P>);
+        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate);
     }
 
-    impl<P: Protocol> ReplicateResourceExt<P> for Commands<'_, '_> {
-        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate<P>) {
-            self.add(StartReplicateCommand::<R, P> {
+    impl ReplicateResourceExt for Commands<'_, '_> {
+        fn replicate_resource<R: Resource + Clone>(&mut self, replicate: Replicate) {
+            self.add(StartReplicateCommand::<R> {
                 replicate,
                 _marker: PhantomData,
             });
         }
     }
 
-    pub struct StopReplicateCommand<R, P> {
-        _marker: PhantomData<(R, P)>,
+    pub struct StopReplicateCommand<R> {
+        _marker: PhantomData<R>,
     }
 
-    impl<R, P> Default for StopReplicateCommand<R, P> {
+    impl<R> Default for StopReplicateCommand<R> {
         fn default() -> Self {
             Self {
                 _marker: PhantomData,
@@ -68,20 +68,20 @@ mod command {
         }
     }
 
-    impl<R: Resource + Clone, P: Protocol> Command for StopReplicateCommand<R, P> {
+    impl<R: Resource + Clone> Command for StopReplicateCommand<R> {
         fn apply(self, world: &mut World) {
             if let Ok(entity) = world
                 .query_filtered::<Entity, With<ReplicateResource<R>>>()
                 .get_single(world)
             {
                 // we do not despawn the entity, because that would delete the resource
-                world.entity_mut(entity).remove::<Replicate<P>>();
+                world.entity_mut(entity).remove::<Replicate>();
             }
         }
     }
 
     /// Extension trait to be able to stop replicating a resource to remote clients via [`Commands`].
-    pub trait StopReplicateResourceExt<P: Protocol> {
+    pub trait StopReplicateResourceExt {
         /// Stop replicating a resource to remote clients.
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
     }
@@ -107,11 +107,11 @@ impl<R> Default for ReplicateResource<R> {
 
 pub(crate) mod send {
     use super::*;
-    pub(crate) struct ResourceSendPlugin<P, R> {
-        _marker: PhantomData<(P, R)>,
+    pub(crate) struct ResourceSendPlugin<R> {
+        _marker: PhantomData<R)>,
     }
 
-    impl<P, R> Default for ResourceSendPlugin<P, R> {
+    impl<R> Default for ResourceSendPlugin<R> {
         fn default() -> Self {
             Self {
                 _marker: PhantomData,
@@ -119,7 +119,7 @@ pub(crate) mod send {
         }
     }
 
-    impl<P: Protocol, R: ReplicationSend<P>> Plugin for ResourceSendPlugin<P, R> {
+    impl<R: ReplicationSend> Plugin for ResourceSendPlugin<R> {
         fn build(&self, app: &mut App) {
             app.configure_sets(
                 PostUpdate,
@@ -132,19 +132,19 @@ pub(crate) mod send {
         }
     }
 
-    pub fn add_resource_send_systems<P: Protocol, S: ReplicationSend<P>, R: Resource + Clone>(
+    pub fn add_resource_send_systems<S: ReplicationSend, R: Resource + Clone>(
         app: &mut App,
     ) {
         app.add_systems(
             PostUpdate,
-            copy_send_resource::<P, R>
+            copy_send_resource::<R>
                 .in_set(InternalReplicationSet::<S::SetMarker>::SendResourceUpdates),
         );
     }
 
-    fn copy_send_resource<P: Protocol, R: Resource + Clone>(
+    fn copy_send_resource<R: Resource + Clone>(
         resource: Option<Res<R>>,
-        mut replicating_entity: Query<&mut ReplicateResource<R>, With<Replicate<P>>>,
+        mut replicating_entity: Query<&mut ReplicateResource<R>, With<Replicate>>,
     ) {
         if replicating_entity.iter().len() > 1 {
             error!(
@@ -177,11 +177,11 @@ pub(crate) mod send {
 pub(crate) mod receive {
     use super::*;
     use bevy::prelude::RemovedComponents;
-    pub(crate) struct ResourceReceivePlugin<P, R> {
-        _marker: PhantomData<(P, R)>,
+    pub(crate) struct ResourceReceivePlugin<R> {
+        _marker: PhantomData<R>,
     }
 
-    impl<P, R> Default for ResourceReceivePlugin<P, R> {
+    impl<R> Default for ResourceReceivePlugin<R> {
         fn default() -> Self {
             Self {
                 _marker: PhantomData,
@@ -189,7 +189,7 @@ pub(crate) mod receive {
         }
     }
 
-    impl<P: Protocol, R: ReplicationSend<P>> Plugin for ResourceReceivePlugin<P, R> {
+    impl<R: ReplicationSend> Plugin for ResourceReceivePlugin<R> {
         fn build(&self, app: &mut App) {
             app.configure_sets(
                 PreUpdate,
@@ -200,7 +200,7 @@ pub(crate) mod receive {
         }
     }
 
-    pub fn add_resource_receive_systems<P: Protocol, S: ReplicationSend<P>, R: Resource + Clone>(
+    pub fn add_resource_receive_systems<S: ReplicationSend, R: Resource + Clone>(
         app: &mut App,
     ) {
         app.add_systems(

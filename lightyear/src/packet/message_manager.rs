@@ -20,6 +20,7 @@ use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::{BufferPool, ReadWordBuffer};
+use crate::serialize::RawData;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
@@ -100,7 +101,7 @@ impl MessageManager {
     /// Returns the message id associated with the message, if there is one
     pub fn buffer_send_with_priority(
         &mut self,
-        message: Vec<u8>,
+        message: RawData,
         channel_kind: ChannelKind,
         priority: f32,
     ) -> anyhow::Result<Option<MessageId>> {

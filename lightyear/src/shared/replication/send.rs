@@ -14,9 +14,11 @@ use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;
 use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
-use crate::protocol::component::ComponentProtocol;
 use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
+use crate::protocol::component::{ComponentNetId, ComponentProtocol};
+use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
+use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 use super::{EntityActionMessage, EntityActions, EntityUpdatesMessage, ReplicationMessageData};
@@ -25,12 +27,12 @@ type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
-pub(crate) struct ReplicationSender<P: Protocol> {
+pub(crate) struct ReplicationSender {
     // TODO: this is unused by server-send, should we just move it to client-connection?
     //  in general, we should have some parts of replication-sender/receiver that are shared across all connections!
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
     /// Needed to know the value of the Replicate component after the entity gets despawned, to know how we replicate the EntityDespawn
-    pub replicate_component_cache: EntityHashMap<Entity, Replicate<P>>,
+    pub replicate_component_cache: EntityHashMap<Entity, Replicate>,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub updates_ack_tracker: Receiver<MessageId>,
 
@@ -40,15 +42,11 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     pub updates_message_id_to_group_id: HashMap<MessageId, (ReplicationGroupId, BevyTick)>,
     /// messages that are being written. We need to hold a buffer of messages because components actions/updates
     /// are being buffered individually but we want to group them inside a message
-    pub pending_actions: EntityHashMap<
-        ReplicationGroupId,
-        EntityHashMap<Entity, EntityActions<P::Components, P::ComponentKinds>>,
-    >,
-    pub pending_updates:
-        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<P::Components>>>,
+    pub pending_actions: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, EntityActions>>,
+    pub pending_updates: EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, Vec<RawData>>>,
     // Set of unique components for each entity, to avoid sending multiple updates/inserts for the same component
     pub pending_unique_components:
-        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<P::ComponentKinds>>>,
+        EntityHashMap<ReplicationGroupId, EntityHashMap<Entity, HashSet<ComponentNetId>>>,
 
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
@@ -59,7 +57,7 @@ pub(crate) struct ReplicationSender<P: Protocol> {
     pub message_send_receiver: Receiver<MessageId>,
 }
 
-impl<P: Protocol> ReplicationSender<P> {
+impl ReplicationSender {
     pub(crate) fn new(
         updates_ack_tracker: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
@@ -142,7 +140,7 @@ impl<P: Protocol> ReplicationSender<P> {
 /// - entity updates (component updates) to be done unreliably
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
-impl<P: Protocol> ReplicationSender<P> {
+impl ReplicationSender {
     /// Update the base priority for a given group
     pub(crate) fn update_base_priority(&mut self, group_id: ReplicationGroupId, priority: f32) {
         let channel = self.group_channels.entry(group_id).or_default();
@@ -185,10 +183,9 @@ impl<P: Protocol> ReplicationSender<P> {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        component: P::Components,
+        kind: ComponentNetId,
+        component: RawData,
     ) {
-        let kind: P::ComponentKinds = (&component).into();
-
         if self
             .pending_unique_components
             .entry(group_id)
@@ -224,7 +221,7 @@ impl<P: Protocol> ReplicationSender<P> {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        kind: P::ComponentKinds,
+        kind: ComponentNetId,
     ) {
         if self
             .pending_unique_components
@@ -255,9 +252,9 @@ impl<P: Protocol> ReplicationSender<P> {
         &mut self,
         entity: Entity,
         group_id: ReplicationGroupId,
-        component: P::Components,
+        kind: ComponentNetId,
+        component: RawData,
     ) {
-        let kind: P::ComponentKinds = (&component).into();
         if self
             .pending_unique_components
             .entry(group_id)
@@ -293,12 +290,7 @@ impl<P: Protocol> ReplicationSender<P> {
     pub(crate) fn finalize(
         &mut self,
         tick: Tick,
-    ) -> Vec<(
-        ChannelKind,
-        ReplicationGroupId,
-        ReplicationMessageData<P::Components, P::ComponentKinds>,
-        f32,
-    )> {
+    ) -> Vec<(ChannelKind, ReplicationGroupId, ReplicationMessageData, f32)> {
         let mut messages = Vec::new();
 
         for (group_id, mut actions) in self.pending_actions.drain() {

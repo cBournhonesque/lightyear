@@ -28,9 +28,9 @@ pub enum ServerMessage {
     #[bitcode_hint(frequency = 2)]
     // #[bitcode(with_serde)]
     Message(Vec<u8>),
-    // #[bitcode_hint(frequency = 3)]
+    #[bitcode_hint(frequency = 3)]
     // #[bitcode(with_serde)]
-    // Replication(ReplicationMessage<P::Components, P::ComponentKinds>),
+    Replication(ReplicationMessage),
     // the reason why we include sync here instead of doing another MessageManager is so that
     // the sync messages can be added to packets that have other messages
     #[bitcode_hint(frequency = 1)]

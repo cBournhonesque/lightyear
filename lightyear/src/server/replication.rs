@@ -106,7 +106,7 @@ pub struct ServerFilter {
 /// So that client code can still query for them
 fn add_prediction_interpolation_components<P: Protocol>(
     mut commands: Commands,
-    query: Query<(Entity, Ref<Replicate<P>>, Option<&PrePredicted>)>,
+    query: Query<(Entity, Ref<Replicate>, Option<&PrePredicted>)>,
     connection: Res<ClientConnection>,
 ) {
     let local_client = connection.id();
