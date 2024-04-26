@@ -18,8 +18,10 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::ServerConnections;
-use crate::prelude::{MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager};
-use crate::protocol::component::ComponentProtocol;
+use crate::prelude::{
+    ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
+};
+use crate::protocol::component::{ComponentProtocol, ComponentRegistry};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::shared::config::Mode;
@@ -29,19 +31,10 @@ use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
 use crate::transport::io::IoState;
 
-pub(crate) struct ClientNetworkingPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
+#[derive(Default)]
+pub(crate) struct ClientNetworkingPlugin;
 
-impl<P: Protocol> Default for ClientNetworkingPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
+impl Plugin for ClientNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
             // STATE
@@ -81,14 +74,14 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                receive::<P>.in_set(InternalMainSet::<ClientMarker>::Receive),
+                receive.in_set(InternalMainSet::<ClientMarker>::Receive),
             )
             .add_systems(
                 PostUpdate,
                 (
-                    send::<P>.in_set(InternalMainSet::<ClientMarker>::SendPackets),
+                    send.in_set(InternalMainSet::<ClientMarker>::SendPackets),
                     // TODO: update virtual time with Time<Real> so we have more accurate time at Send time.
-                    sync_update::<P>.in_set(SyncSet),
+                    sync_update.in_set(SyncSet),
                 ),
             );
 
@@ -97,10 +90,10 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
         //  a ConnectionManager or a NetConfig at startup
         // Create a new `ClientConnection` and `ConnectionManager` at startup, so that systems
         // that depend on these resources do not panic
-        app.world.run_system_once(rebuild_client_connection::<P>);
+        app.world.run_system_once(rebuild_client_connection);
 
         // CONNECTING
-        app.add_systems(OnEnter(NetworkingState::Connecting), connect::<P>);
+        app.add_systems(OnEnter(NetworkingState::Connecting), connect);
         app.add_systems(
             PreUpdate,
             handle_connection_failure.run_if(in_state(NetworkingState::Connecting)),
@@ -114,7 +107,7 @@ impl<P: Protocol> Plugin for ClientNetworkingPlugin<P> {
     }
 }
 
-pub(crate) fn receive<P: Protocol>(world: &mut World) {
+pub(crate) fn receive(world: &mut World) {
     trace!("Receive server packets");
     // TODO: here we can control time elapsed from the client's perspective?
 
@@ -223,7 +216,7 @@ pub(crate) fn receive<P: Protocol>(world: &mut World) {
     trace!("client finished recv");
 }
 
-pub(crate) fn send<P: Protocol>(
+pub(crate) fn send(
     mut netcode: ResMut<ClientConnection>,
     system_change_tick: SystemChangeTick,
     tick_manager: Res<TickManager>,
@@ -257,7 +250,7 @@ pub(crate) fn send<P: Protocol>(
 /// - server prediction time is computed from time, which has been updated via delta
 /// Also server sends the tick after FixedUpdate, so it makes sense that we would compare to the client tick after FixedUpdate
 /// So instead we update the sync manager at PostUpdate, after both ticks/time have been updated
-pub(crate) fn sync_update<P: Protocol>(
+pub(crate) fn sync_update(
     config: Res<ClientConfig>,
     netclient: Res<ClientConnection>,
     connection: ResMut<ConnectionManager>,
@@ -439,7 +432,7 @@ pub(crate) fn is_disconnected(netclient: Option<Res<ClientConnection>>) -> bool 
 /// This has several benefits:
 /// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
 /// - we can take into account any changes to the client config
-fn rebuild_client_connection<P: Protocol>(world: &mut World) {
+fn rebuild_client_connection(world: &mut World) {
     let client_config = world.resource::<ClientConfig>().clone();
     // if client_config.shared.mode == Mode::HostServer {
     //     assert!(
@@ -450,8 +443,9 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
 
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
     let connection_manager = ConnectionManager::new(
+        world.resource::<ComponentRegistry>(),
         world.resource::<MessageRegistry>(),
-        world.resource::<P>().channel_registry(),
+        world.resource::<ChannelRegistry>(),
         client_config.packet,
         client_config.sync,
         client_config.ping,
@@ -473,7 +467,7 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
 /// - rebuild the client connection manager
 /// - start the connection process
 /// - set the networking state to `Connecting`
-fn connect<P: Protocol>(world: &mut World) {
+fn connect(world: &mut World) {
     // TODO: should we prevent running Connect if we're already Connected?
     // if world.resource::<ClientConnection>().state() == NetworkingState::Connected {
     //     error!("The client is already started. The client can only start connecting when it is disconnected.");
@@ -484,7 +478,7 @@ fn connect<P: Protocol>(world: &mut World) {
     // - this allows us to take into account any changes to the client config (when building a
     // new client connection and connection manager, which want to do because we need to reset
     // the internal time, sync, priority, message numbers, etc.)
-    rebuild_client_connection::<P>(world);
+    rebuild_client_connection(world);
     let _ = world
         .resource_mut::<ClientConnection>()
         .connect()

@@ -18,52 +18,30 @@ use crate::shared::plugin::SharedPlugin;
 
 use super::config::ServerConfig;
 
-pub struct PluginConfig<P: Protocol> {
-    server_config: ServerConfig,
-    protocol: P,
+pub struct ServerPlugin {
+    config: ServerConfig,
 }
 
-// TODO: put all this in ServerConfig?
-impl<P: Protocol> PluginConfig<P> {
-    pub fn new(server_config: ServerConfig, protocol: P) -> Self {
-        PluginConfig {
-            server_config,
-            protocol,
-        }
+impl ServerPlugin {
+    pub fn new(config: ServerConfig) -> Self {
+        Self { config }
     }
 }
 
-pub struct ServerPlugin<P: Protocol> {
-    // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference
-    // in build()
-    config: Mutex<Option<PluginConfig<P>>>,
-}
-
-impl<P: Protocol> ServerPlugin<P> {
-    pub fn new(config: PluginConfig<P>) -> Self {
-        Self {
-            config: Mutex::new(Some(config)),
-        }
-    }
-}
-
-impl<P: Protocol> Plugin for ServerPlugin<P> {
+impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-
         app
             // RESOURCES //
-            .insert_resource(config.server_config.clone())
-            .insert_resource(config.protocol.clone())
+            .insert_resource(self.config.clone())
             .init_resource::<MessageRegistry>()
             // PLUGINS
             .add_plugins(ServerEventsPlugin::<P>::default())
-            .add_plugins(ServerNetworkingPlugin::<P>::default())
-            .add_plugins(RoomPlugin::<P>::default())
+            .add_plugins(ServerNetworkingPlugin::default())
+            .add_plugins(RoomPlugin::default())
             // .add_plugins(ServerReplicationPlugin::<P>::default())
-            .add_plugins(SharedPlugin::<P> {
+            .add_plugins(SharedPlugin {
                 // TODO: move shared config out of server_config?
-                config: config.server_config.shared.clone(),
+                config: self.config.shared.clone(),
                 ..default()
             });
     }

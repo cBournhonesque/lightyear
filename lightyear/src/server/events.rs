@@ -311,10 +311,6 @@ pub type ComponentInsertEvent<C> =
 pub type ComponentRemoveEvent<C> =
     crate::shared::events::components::ComponentRemoveEvent<C, ClientId>;
 
-#[cfg(feature = "leafwing")]
-/// Bevy [`Event`] emitted on the server on the frame where an input message from a client is received
-pub(crate) type InputMessageEvent<A> =
-    crate::shared::events::components::InputMessageEvent<A, ClientId>;
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
 pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, ClientId>;
 

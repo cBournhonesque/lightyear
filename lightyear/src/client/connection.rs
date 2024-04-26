@@ -357,9 +357,6 @@ impl ConnectionManager {
                                 .entry(net_id)
                                 .or_default()
                                 .push(message.into());
-
-                            // // map any entities inside the message
-                            // message.map_entities(&mut self.replication_receiver.remote_entity_map);
                             // // buffer the message
                             // self.events.push_message(channel_kind, message);
                         }
@@ -456,8 +453,17 @@ impl ConnectionManager {
     }
 }
 
-impl<P: Protocol> ReplicationSend for ConnectionManager {
+impl ReplicationSend for ConnectionManager {
     type SetMarker = ClientMarker;
+
+    fn writer(&mut self) -> &mut WriteWordBuffer {
+        &mut self.writer
+    }
+
+    fn component_registry(&self) -> &ComponentRegistry {
+        &self.component_registry
+    }
+
     fn update_priority(
         &mut self,
         replication_group_id: ReplicationGroupId,

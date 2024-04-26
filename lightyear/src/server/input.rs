@@ -8,7 +8,8 @@ use bitcode::__private::Fixed;
 
 use crate::prelude::server::MessageEvent;
 use crate::prelude::{
-    AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, TickManager, UserAction,
+    AppMessageExt, ChannelDirection, ClientId, Message, MessageRegistry, NetworkTarget,
+    TickManager, UserAction,
 };
 use crate::protocol::registry::NetId;
 use crate::protocol::{BitSerializable, Protocol};
@@ -123,8 +124,8 @@ fn receive_input_message<A: UserAction>(
     };
     for (client_id, connection) in connection.connections.iter_mut() {
         if let Some(message_list) = connection.received_input_messages.remove(&net) {
-            for message in message_list {
-                let mut reader = connection.reader_pool.start_read(&message);
+            for (message_bytes, target, channel_kind) in message_list {
+                let mut reader = connection.reader_pool.start_read(&message_bytes);
                 // we have to re-decode the net id, since it's included in the bytes
                 reader
                     .decode::<NetId>(Fixed)
@@ -141,6 +142,15 @@ fn receive_input_message<A: UserAction>(
                     .or_default()
                     .1
                     .update_from_message(message);
+
+                if target != NetworkTarget::None {
+                    connection.messages_to_rebroadcast.push((
+                        // TODO: avoid clone?
+                        message_bytes.to_vec(),
+                        target,
+                        channel_kind,
+                    ));
+                }
                 connection.reader_pool.attach(reader);
             }
         }

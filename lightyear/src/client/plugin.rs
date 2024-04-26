@@ -27,37 +27,20 @@ use crate::transport::PacketSender;
 
 use super::config::ClientConfig;
 
-pub struct PluginConfig<P: Protocol> {
-    client_config: ClientConfig,
-    protocol: P,
+pub struct ClientPlugin {
+    pub config: ClientConfig,
 }
 
-impl<P: Protocol> PluginConfig<P> {
-    pub fn new(client_config: ClientConfig, protocol: P) -> Self {
-        PluginConfig {
-            client_config,
-            protocol,
-        }
-    }
-}
-
-pub struct ClientPlugin<P: Protocol> {
-    // we add Mutex<Option> so that we can get ownership of the inner from an immutable reference in build()
-    config: Mutex<Option<PluginConfig<P>>>,
-}
-
-impl<P: Protocol> ClientPlugin<P> {
-    pub fn new(config: PluginConfig<P>) -> Self {
-        Self {
-            config: Mutex::new(Some(config)),
-        }
+impl ClientPlugin {
+    pub fn new(config: ClientConfig) -> Self {
+        Self { config }
     }
 }
 
 // TODO: create this as PluginGroup so that users can easily disable sub plugins?
 // TODO: override `ready` and `finish` to make sure that the transport/backend is connected
 //  before the plugin is ready
-impl<P: Protocol> Plugin for ClientPlugin<P> {
+impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         let config = self.config.lock().unwrap().deref_mut().take().unwrap();
 
@@ -67,9 +50,9 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             .insert_resource(config.protocol.clone())
             .init_resource::<MessageRegistry>()
             // PLUGINS //
-            .add_plugins(ClientNetworkingPlugin::<P>::default())
+            .add_plugins(ClientNetworkingPlugin::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            .add_plugins(ClientDiagnosticsPlugin::<P>::default())
+            .add_plugins(ClientDiagnosticsPlugin::default())
             // .add_plugins(ClientReplicationPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::default())
             .add_plugins(InterpolationPlugin::<P>::new(
@@ -81,7 +64,7 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
         if config.client_config.shared.mode == Mode::Separate {
             app
                 // PLUGINS
-                .add_plugins(SharedPlugin::<P> {
+                .add_plugins(SharedPlugin {
                     config: config.client_config.shared.clone(),
                     ..default()
                 });

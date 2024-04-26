@@ -438,11 +438,11 @@ fn send_component_removed<C: Component + Clone, R: ReplicationSend>(
 }
 
 // add replication systems that are shared between client and server
-pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend>(app: &mut App) {
+pub fn add_replication_send_systems<R: ReplicationSend>(app: &mut App) {
     // we need to add despawn trackers immediately for entities for which we add replicate
     app.add_systems(
         PreUpdate,
-        add_despawn_tracker::<P, R>.after(ServerReplicationSet::ClientReplication),
+        add_despawn_tracker::<R>.after(ServerReplicationSet::ClientReplication),
     );
     app.add_systems(
         PostUpdate,
@@ -450,15 +450,15 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend>(app: &mut A
             // TODO: try to move this to ReplicationSystems as well? entities are spawned only once
             //  so we can run the system every frame
             //  putting it here means we might miss entities that are spawned and depspawned within the send_interval? bug or feature?
-            send_entity_spawn::<P, R>
+            send_entity_spawn::<R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendEntityUpdates),
             // NOTE: we need to run `send_entity_despawn` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
             // NOTE: we make sure to update the replicate_cache before we make use of it in `send_entity_despawn`
             (
-                (add_despawn_tracker::<P, R>, handle_replicate_remove::<P, R>),
-                send_entity_despawn::<P, R>,
+                (add_despawn_tracker::<R>, handle_replicate_remove::<R>),
+                send_entity_despawn::<R>,
             )
                 .chain()
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
@@ -466,36 +466,26 @@ pub fn add_replication_send_systems<P: Protocol, R: ReplicationSend>(app: &mut A
     );
 }
 
-pub fn add_per_component_replication_send_systems<
-    C: Component + Clone,
-    P: Protocol,
-    R: ReplicationSend,
->(
+pub fn add_per_component_replication_send_systems<C: Component + Clone, R: ReplicationSend>(
     app: &mut App,
-) where
-    P::Components: From<C>,
-    P::ComponentKinds: FromType<C>,
-{
+) {
     app.add_systems(
         PostUpdate,
         (
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            send_component_removed::<C, P, R>
+            send_component_removed::<C, R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
-            send_component_update::<C, P, R>
+            send_component_update::<C, R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendComponentUpdates),
         ),
     );
 }
 
-pub(crate) fn cleanup<P: Protocol, R: ReplicationSend>(
-    mut sender: ResMut<R>,
-    tick_manager: Res<TickManager>,
-) {
+pub(crate) fn cleanup<R: ReplicationSend>(mut sender: ResMut<R>, tick_manager: Res<TickManager>) {
     let tick = tick_manager.tick();
     sender.cleanup(tick);
 }

@@ -81,11 +81,26 @@ impl Replicate {
     }
 
     /// Returns true if we don't want to replicate the component
+    pub(crate) fn is_disabled_untyped(&self, kind: ComponentNetId) -> bool {
+        self.per_component_metadata
+            .get(&kind)
+            .is_some_and(|metadata| metadata.disabled)
+    }
+
+    /// Returns true if we don't want to replicate the component
     pub fn is_disabled<C>(&self, registry: &ComponentRegistry) -> bool {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .get(&kind)
             .is_some_and(|metadata| metadata.disabled)
+    }
+
+    /// If true, the component will be replicated only once, when the entity is spawned.
+    /// We do not replicate component updates
+    pub fn is_replicate_once_untyped(&self, kind: ComponentNetId) -> bool {
+        self.per_component_metadata
+            .get(&kind)
+            .is_some_and(|metadata| metadata.replicate_once)
     }
 
     /// If true, the component will be replicated only once, when the entity is spawned.

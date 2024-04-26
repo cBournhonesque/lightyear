@@ -10,18 +10,9 @@ use crate::shared::config::SharedConfig;
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 
-pub struct SharedPlugin<P: Protocol> {
+#[derive(Default, Debug)]
+pub struct SharedPlugin {
     pub config: SharedConfig,
-    pub _marker: std::marker::PhantomData<P>,
-}
-
-impl<P: Protocol> Default for SharedPlugin<P> {
-    fn default() -> Self {
-        Self {
-            config: SharedConfig::default(),
-            _marker: std::marker::PhantomData,
-        }
-    }
 }
 
 /// You can use this as a SystemParam to identify whether you're running on the client or the server
@@ -40,7 +31,7 @@ impl<'w, 's> NetworkIdentity<'w, 's> {
     }
 }
 
-impl<P: Protocol> Plugin for SharedPlugin<P> {
+impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<Mode>()

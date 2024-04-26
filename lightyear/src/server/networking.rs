@@ -9,7 +9,8 @@ use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{MainSet, MessageRegistry, Mode, TickManager, TimeManager};
+use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
+use crate::protocol::component::ComponentRegistry;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
@@ -22,24 +23,8 @@ use crate::shared::sets::InternalMainSet;
 use crate::shared::time_manager::is_server_ready_to_send;
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
-pub(crate) struct ServerNetworkingPlugin<P: Protocol> {
-    marker: std::marker::PhantomData<P>,
-}
-
-impl<P: Protocol> Default for ServerNetworkingPlugin<P> {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-impl<P: Protocol> ServerNetworkingPlugin<P> {
-    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub(crate) struct ServerNetworkingPlugin;
 
 // TODO: have more parallelism here
 // - receive/send packets in parallel
@@ -47,7 +32,7 @@ impl<P: Protocol> ServerNetworkingPlugin<P> {
 // - update multiple transports in parallel
 // maybe by having each connection or each transport be a separate entity? and then use par_iter?
 
-impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
+impl Plugin for ServerNetworkingPlugin {
     fn build(&self, app: &mut App) {
         app
             // STATE
@@ -84,10 +69,10 @@ impl<P: Protocol> Plugin for ServerNetworkingPlugin<P> {
         // STARTUP
         // create the server connection resources to avoid some systems panicking
         // TODO: remove this when possible?
-        app.world.run_system_once(rebuild_server_connections::<P>);
+        app.world.run_system_once(rebuild_server_connections);
 
         // ON_START
-        app.add_systems(OnEnter(NetworkingState::Started), on_start::<P>);
+        app.add_systems(OnEnter(NetworkingState::Started), on_start);
 
         // ON_STOP
         app.add_systems(OnEnter(NetworkingState::Stopped), on_stop);
@@ -315,13 +300,14 @@ pub enum NetworkingState {
 /// This has several benefits:
 /// - the server connection's internal time is up-to-date (otherwise it might not be, since we don't run any server systems while the server is stopped)
 /// - we can take into account any changes to the server config
-fn rebuild_server_connections<P: Protocol>(world: &mut World) {
+fn rebuild_server_connections(world: &mut World) {
     let server_config = world.resource::<ServerConfig>().clone();
 
     // insert a new connection manager (to reset message numbers, ping manager, etc.)
     let connection_manager = ConnectionManager::new(
+        world.resource::<ComponentRegistry>().clone(),
         world.resource::<MessageRegistry>().clone(),
-        world.resource::<P>().channel_registry().clone(),
+        world.resource::<ChannelRegistry>().clone(),
         server_config.packet,
         server_config.ping,
     );
@@ -336,12 +322,12 @@ fn rebuild_server_connections<P: Protocol>(world: &mut World) {
 /// - rebuild the server connections resource from the latest `ServerConfig`
 /// - rebuild the server connection manager
 /// - start listening on the server connections
-fn on_start<P: Protocol>(world: &mut World) {
+fn on_start(world: &mut World) {
     if world.resource::<ServerConnections>().is_listening() {
         error!("The server is already started. The server can only be started when it is stopped.");
         return;
     }
-    rebuild_server_connections::<P>(world);
+    rebuild_server_connections(world);
     let _ = world
         .resource_mut::<ServerConnections>()
         .start()

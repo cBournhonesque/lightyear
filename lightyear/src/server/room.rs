@@ -86,17 +86,8 @@ impl RoomManager {
 }
 
 /// Plugin used to handle interest managements via [`Room`]s
-pub struct RoomPlugin<P: Protocol> {
-    _marker: std::marker::PhantomData<P>,
-}
-
-impl<P: Protocol> Default for RoomPlugin<P> {
-    fn default() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct RoomPlugin;
 
 /// System sets related to Rooms
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -109,7 +100,7 @@ pub enum RoomSystemSets {
     RoomBookkeeping,
 }
 
-impl<P: Protocol> Plugin for RoomPlugin<P> {
+impl Plugin for RoomPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<RoomManager>();
@@ -137,9 +128,8 @@ impl<P: Protocol> Plugin for RoomPlugin<P> {
         app.add_systems(
             PostUpdate,
             (
-                update_entity_replication_cache::<P>
-                    .in_set(RoomSystemSets::UpdateReplicationCaches),
-                (clear_entity_replication_cache::<P>, clean_entity_despawns)
+                update_entity_replication_cache.in_set(RoomSystemSets::UpdateReplicationCaches),
+                (clear_entity_replication_cache, clean_entity_despawns)
                     .in_set(RoomSystemSets::RoomBookkeeping),
             ),
         );
@@ -438,7 +428,7 @@ pub enum ClientVisibility {
 //  (we only use the ids in events, so we can read them in parallel)
 /// Update each entities' replication-client-list based on the room events
 /// Note that the rooms' entities/clients have already been updated at this point
-fn update_entity_replication_cache<P: Protocol>(
+fn update_entity_replication_cache(
     mut room_manager: ResMut<RoomManager>,
     mut query: Query<&mut Replicate>,
 ) {
@@ -531,7 +521,7 @@ fn update_entity_replication_cache<P: Protocol>(
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache<P: Protocol>(mut query: Query<&mut Replicate>) {
+fn clear_entity_replication_cache(mut query: Query<&mut Replicate>) {
     for mut replicate in query.iter_mut() {
         replicate
             .replication_clients_cache
@@ -627,7 +617,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -696,7 +686,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -787,7 +777,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -856,7 +846,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -925,7 +915,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -976,7 +966,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -1027,7 +1017,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -1066,7 +1056,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -1117,7 +1107,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app
@@ -1156,7 +1146,7 @@ mod tests {
         stepper
             .server_app
             .world
-            .run_system_once(update_entity_replication_cache::<MyProtocol>);
+            .run_system_once(update_entity_replication_cache);
         assert_eq!(
             stepper
                 .server_app

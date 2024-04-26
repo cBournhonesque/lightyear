@@ -15,7 +15,8 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::prelude::client::is_in_rollback;
-use crate::prelude::{client, MessageRegistry, Mode, SharedConfig, TickManager};
+use crate::prelude::server::MessageEvent;
+use crate::prelude::{client, MessageRegistry, Mode, NetworkTarget, SharedConfig, TickManager};
 use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::server::config::ServerConfig;
@@ -65,8 +66,6 @@ pub enum InputSystemSet {
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // EVENTS
-        app.add_event::<InputMessageEvent<A>>();
         // RESOURCES
         // app.init_resource::<GlobalActions<A>>();
         // TODO: (global action states) add a resource tracking the action-state of all clients
@@ -144,8 +143,8 @@ fn receive_input_message<A: LeafwingUserAction>(
     };
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_input_messages.remove(&net) {
-            for message in message_list {
-                let mut reader = connection.reader_pool.start_read(&message);
+            for (message_bytes, target, channel_kind) in message_list {
+                let mut reader = connection.reader_pool.start_read(&message_bytes);
                 // we have to re-decode the net id, since it's included in the bytes
                 reader
                     .decode::<NetId>(Fixed)
@@ -178,6 +177,14 @@ fn receive_input_message<A: LeafwingUserAction>(
                             // }
                         }
                     }
+                }
+                if target != NetworkTarget::None {
+                    connection.messages_to_rebroadcast.push((
+                        // TODO: avoid clone?
+                        message_bytes.to_vec(),
+                        target,
+                        channel_kind,
+                    ));
                 }
                 connection.reader_pool.attach(reader);
             }

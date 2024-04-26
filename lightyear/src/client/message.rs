@@ -1,6 +1,6 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 use anyhow::Context;
-use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, ResMut, Resource};
+use bevy::prelude::{App, EventWriter, IntoSystemConfigs, PreUpdate, Res, ResMut, Resource};
 use bevy::utils::HashMap;
 use bytes::Bytes;
 use tracing::{error, info_span, trace};
@@ -20,6 +20,7 @@ use crate::prelude::{ChannelDirection, ChannelKind, MainSet, Message, NetworkTar
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
+use crate::serialize::RawData;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};
 use crate::shared::sets::InternalMainSet;
@@ -29,7 +30,7 @@ use crate::shared::sets::InternalMainSet;
 pub enum ClientMessage {
     #[bitcode_hint(frequency = 2)]
     // #[bitcode(with_serde)]
-    Message(Vec<u8>, NetworkTarget),
+    Message(RawData, NetworkTarget),
     #[bitcode_hint(frequency = 3)]
     // #[bitcode(with_serde)]
     Replication(ReplicationMessage),
@@ -42,11 +43,12 @@ pub enum ClientMessage {
 
 /// Read the message received from the server and emit the MessageEvent event
 fn read_message<M: Message>(
+    message_registry: Res<MessageRegistry>,
     mut connection: ResMut<ConnectionManager>,
     mut event: EventWriter<MessageEvent<M>>,
 ) {
     let kind = MessageKind::of::<M>();
-    let Some(net) = connection.message_registry.kind_map.net_id(&kind).copied() else {
+    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
         error!(
             "Could not find the network id for the message kind: {:?}",
             kind
@@ -62,9 +64,11 @@ fn read_message<M: Message>(
                 .decode::<NetId>(Fixed)
                 .expect("could not decode net id");
             // TODO: decode using the function pointer instead of the type?
-            let message = M::decode(&mut reader).expect("could not decode message");
-            // TODO: if necessary, map entities
-            //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
+            let mut message = M::decode(&mut reader).expect("could not decode message");
+            message_registry.map_entities(
+                &mut message,
+                &mut connection.replication_receiver.remote_entity_map,
+            );
             event.send(MessageEvent::new(message, ()));
         }
     }

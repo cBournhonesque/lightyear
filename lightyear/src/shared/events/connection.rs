@@ -18,12 +18,6 @@ use crate::protocol::{EventContext, Protocol};
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]
 pub struct ConnectionEvents<P: Protocol> {
-    // inputs (used only for leafwing messages for now)
-    #[cfg(feature = "leafwing")]
-    pub input_messages: HashMap<MessageKind, Vec<P::Message>>,
-
-    // messages
-    pub messages: HashMap<MessageKind, HashMap<ChannelKind, Vec<P::Message>>>,
     // replication
     pub spawns: Vec<Entity>,
     pub despawns: Vec<Entity>,
@@ -60,11 +54,6 @@ impl<P: Protocol> Default for ConnectionEvents<P> {
 impl<P: Protocol> ConnectionEvents<P> {
     pub fn new() -> Self {
         Self {
-            // inputs
-            #[cfg(feature = "leafwing")]
-            input_messages: HashMap::new(),
-            // messages
-            messages: HashMap::new(),
             // replication
             spawns: Vec::new(),
             despawns: Vec::new(),
@@ -78,9 +67,6 @@ impl<P: Protocol> ConnectionEvents<P> {
     }
 
     pub fn clear(&mut self) {
-        #[cfg(feature = "leafwing")]
-        self.input_messages.clear();
-        self.messages.clear();
         self.spawns.clear();
         self.despawns.clear();
         self.component_inserts.clear();
@@ -91,42 +77,6 @@ impl<P: Protocol> ConnectionEvents<P> {
 
     pub fn is_empty(&self) -> bool {
         self.empty
-    }
-
-    #[cfg(feature = "leafwing")]
-    pub(crate) fn push_input_message(&mut self, message: P::Message) {
-        trace!(
-            "Received input message: {:?}. Kind: {:?}",
-            message.name(),
-            message.kind()
-        );
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("input_message", "kind" => message.name()).increment(1);
-        }
-        self.input_messages
-            .entry(message.kind())
-            .or_default()
-            .push(message);
-        // TODO: should we consider the events as empty even if there are only input messages?
-        //  since input_messages are only used for internal purposes
-        self.empty = false;
-    }
-
-    pub fn push_message(&mut self, channel_kind: ChannelKind, message: P::Message) {
-        trace!("Received message: {:?}", message.name());
-        #[cfg(feature = "metrics")]
-        {
-            let message_name = message.name();
-            metrics::counter!("message", "kind" => message_name).increment(1);
-        }
-        self.messages
-            .entry(message.kind())
-            .or_default()
-            .entry(channel_kind)
-            .or_default()
-            .push(message);
-        self.empty = false;
     }
 
     pub(crate) fn push_spawn(&mut self, entity: Entity) {
@@ -217,79 +167,6 @@ impl<P: Protocol> ConnectionEvents<P> {
             .push(entity);
         // .push((entity, tick));
         self.empty = false;
-    }
-}
-
-#[cfg(feature = "leafwing")]
-pub trait IterInputMessageEvent<P: Protocol, Ctx: EventContext = ()> {
-    fn into_iter_input_messages<A: LeafwingUserAction>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (InputMessage<A>, Ctx)> + '_>
-    where
-        P::Message: TryInto<InputMessage<A>, Error = ()>;
-
-    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool;
-}
-
-#[cfg(feature = "leafwing")]
-impl<P: Protocol> IterInputMessageEvent<P> for ConnectionEvents<P> {
-    fn into_iter_input_messages<A: LeafwingUserAction>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (InputMessage<A>, ())>>
-    where
-        // TODO: should we change this to `Into`
-        P::Message: TryInto<InputMessage<A>, Error = ()>,
-    {
-        let message_kind = MessageKind::of::<InputMessage<A>>();
-        trace!(?self.input_messages, "Trying to read messages of kind: {:?}", message_kind);
-
-        if let Some(data) = self.input_messages.remove(&message_kind) {
-            return Box::new(data.into_iter().map(|message| {
-                trace!("GOT INPUT MESSAGE: {:?}", message);
-                // SAFETY: we checked via message kind that only messages of the type M
-                // are in the list
-                (message.try_into().unwrap(), ())
-            }));
-        }
-        Box::new(iter::empty())
-    }
-
-    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool {
-        let message_kind = MessageKind::of::<InputMessage<A>>();
-        self.input_messages.contains_key(&message_kind)
-    }
-}
-
-pub trait IterMessageEvent<P: Protocol, Ctx: EventContext = ()> {
-    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, Ctx)> + '_>
-    where
-        P::Message: TryInto<M, Error = ()>;
-
-    fn has_messages<M: Message>(&self) -> bool;
-}
-
-impl<P: Protocol> IterMessageEvent<P> for ConnectionEvents<P> {
-    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, ())>>
-    where
-        // TODO: should we change this to `Into`
-        P::Message: TryInto<M, Error = ()>,
-    {
-        let message_kind = MessageKind::of::<M>();
-        if let Some(data) = self.messages.remove(&message_kind) {
-            return Box::new(data.into_iter().flat_map(|(_, messages)| {
-                messages.into_iter().map(|message| {
-                    // SAFETY: we checked via message kind that only messages of the type M
-                    // are in the list
-                    (message.try_into().unwrap(), ())
-                })
-            }));
-        }
-        Box::new(iter::empty())
-    }
-
-    fn has_messages<M: Message>(&self) -> bool {
-        let message_kind = MessageKind::of::<M>();
-        self.messages.contains_key(&message_kind)
     }
 }
 
@@ -459,34 +336,34 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_iter_messages() {
-        let mut events = ConnectionEvents::<MyProtocol>::new();
-        let channel_kind_1 = ChannelKind::of::<Channel1>();
-        let channel_kind_2 = ChannelKind::of::<Channel2>();
-        let message1_a = Message1("hello".to_string());
-        let message1_b = Message1("world".to_string());
-        events.push_message(
-            channel_kind_1,
-            MyMessageProtocol::Message1(message1_a.clone()),
-        );
-        events.push_message(
-            channel_kind_2,
-            MyMessageProtocol::Message1(message1_b.clone()),
-        );
-        events.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
-
-        // check that we have the correct messages
-        let messages: Vec<Message1> = events.into_iter_messages().map(|(m, _)| m).collect();
-        assert!(messages.contains(&message1_a));
-        assert!(messages.contains(&message1_b));
-
-        // check that there are no more message of that kind in the events
-        assert!(!events.messages.contains_key(&MessageKind::of::<Message1>()));
-
-        // check that we still have the other message kinds
-        assert!(events.messages.contains_key(&MessageKind::of::<Message2>()));
-    }
+    // #[test]
+    // fn test_iter_messages() {
+    //     let mut events = ConnectionEvents::<MyProtocol>::new();
+    //     let channel_kind_1 = ChannelKind::of::<Channel1>();
+    //     let channel_kind_2 = ChannelKind::of::<Channel2>();
+    //     let message1_a = Message1("hello".to_string());
+    //     let message1_b = Message1("world".to_string());
+    //     events.push_message(
+    //         channel_kind_1,
+    //         MyMessageProtocol::Message1(message1_a.clone()),
+    //     );
+    //     events.push_message(
+    //         channel_kind_2,
+    //         MyMessageProtocol::Message1(message1_b.clone()),
+    //     );
+    //     events.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
+    //
+    //     // check that we have the correct messages
+    //     let messages: Vec<Message1> = events.into_iter_messages().map(|(m, _)| m).collect();
+    //     assert!(messages.contains(&message1_a));
+    //     assert!(messages.contains(&message1_b));
+    //
+    //     // check that there are no more message of that kind in the events
+    //     assert!(!events.messages.contains_key(&MessageKind::of::<Message1>()));
+    //
+    //     // check that we still have the other message kinds
+    //     assert!(events.messages.contains_key(&MessageKind::of::<Message2>()));
+    // }
 
     // #[test]
     // fn test_iter_component_updates() {

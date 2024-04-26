@@ -220,7 +220,7 @@ impl ReplicationReceiver {
                         trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 
                         debug!(remote_entity = ?entity, "Received entity spawn");
-                        events.push_spawn(local_entity.id());
+                        // events.push_spawn(local_entity.id());
                     }
                 }
 
@@ -255,6 +255,9 @@ impl ReplicationReceiver {
                         continue;
                     };
 
+                    // NOTE: 2 options
+                    //  - send the raw data to a separate typed system
+                    //  -  or just insert it here via function pointers
                     // inserts
                     let kinds = actions
                         .insert

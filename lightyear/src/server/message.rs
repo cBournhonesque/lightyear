@@ -1,6 +1,6 @@
 use anyhow::Context;
 use bevy::app::{App, PreUpdate};
-use bevy::prelude::{EventWriter, IntoSystemConfigs, ResMut, Resource};
+use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut, Resource};
 use bevy::utils::HashMap;
 use bytes::Bytes;
 use tracing::{error, info_span, trace};
@@ -13,7 +13,7 @@ use crate::_reexport::{
     WriteBuffer, WriteWordBuffer,
 };
 use crate::packet::message::SingleData;
-use crate::prelude::{MainSet, Message, Protocol};
+use crate::prelude::{MainSet, Message, NetworkTarget, Protocol};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
 use crate::server::connection::ConnectionManager;
@@ -41,11 +41,12 @@ pub enum ServerMessage {
 
 /// Read the messages received from the clients and emit the MessageEvent event
 fn read_message<M: Message>(
+    message_registry: Res<MessageRegistry>,
     mut connection: ResMut<ConnectionManager>,
     mut event: EventWriter<MessageEvent<M>>,
 ) {
     let kind = MessageKind::of::<M>();
-    let Some(net) = connection.message_registry.kind_map.net_id(&kind).copied() else {
+    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
         error!(
             "Could not find the network id for the message kind: {:?}",
             kind
@@ -54,17 +55,27 @@ fn read_message<M: Message>(
     };
     for (client_id, connection) in connection.connections.iter_mut() {
         if let Some(message_list) = connection.received_messages.remove(&net) {
-            for message in message_list {
+            for (message_bytes, target, channel_kind) in message_list {
                 // TODO: reuse buffer
-                let mut reader = ReadWordBuffer::start_read(&message);
+                let mut reader = ReadWordBuffer::start_read(&message_bytes);
                 // we have to re-decode the net id
                 reader
                     .decode::<NetId>(Fixed)
                     .expect("could not decode net id");
                 // TODO: decode using the function pointer instead of the type?
-                let message = M::decode(&mut reader).expect("could not decode message");
-                // TODO: if necessary, map entities
-                //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
+                let mut message = M::decode(&mut reader).expect("could not decode message");
+                message_registry.map_entities(
+                    &mut message,
+                    &mut connection.replication_receiver.remote_entity_map,
+                );
+                if target != NetworkTarget::None {
+                    connection.messages_to_rebroadcast.push((
+                        // TODO: avoid clone?
+                        message_bytes.to_vec(),
+                        target,
+                        channel_kind,
+                    ));
+                }
                 event.send(MessageEvent::new(message, *client_id));
             }
         }

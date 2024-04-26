@@ -646,21 +646,20 @@ fn prepare_input_message<A: LeafwingUserAction>(
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
             // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
             if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
-                // TODO: re-add
-                // if let Some(server_entity) = connection
-                //     .replication_receiver
-                //     .remote_entity_map
-                //     .get_remote(confirmed)
-                //     .copied()
-                // {
-                //     debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
-                //     action_diff_buffer.add_to_message(
-                //         &mut message,
-                //         tick,
-                //         message_len,
-                //         InputTarget::Entity(server_entity),
-                //     );
-                // }
+                if let Some(server_entity) = connection
+                    .replication_receiver
+                    .remote_entity_map
+                    .get_remote(confirmed)
+                    .copied()
+                {
+                    debug!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                    action_diff_buffer.add_to_message(
+                        &mut message,
+                        tick,
+                        message_len,
+                        InputTarget::Entity(server_entity),
+                    );
+                }
             } else {
                 // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
                 debug!("not sending inputs because couldnt find server entity");

@@ -267,15 +267,16 @@ pub struct Connection {
     pub message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
-    // pub(crate) events: ConnectionEvents<P>,
+    pub(crate) events: ConnectionEvents<P>,
     pub(crate) ping_manager: PingManager,
 
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
-    pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
-    pub(crate) received_input_messages: HashMap<NetId, Vec<Bytes>>,
+    pub(crate) received_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
+    pub(crate) received_input_messages: HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     #[cfg(feature = "leafwing")]
-    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
+    pub(crate) received_leafwing_input_messages:
+        HashMap<NetId, Vec<(Bytes, NetworkTarget, ChannelKind)>>,
     writer: WriteWordBuffer,
     pub(crate) reader_pool: BufferPool,
     // messages that we have received that need to be rebroadcasted to other clients
@@ -481,57 +482,39 @@ impl Connection {
                                 .expect("could not decode MessageKind");
                             self.reader_pool.attach(reader);
 
+                            // we are also sending target and channel kind so the message can be
+                            // rebroadcasted to other clients after we have converted the entities from the
+                            // client World to the server World
+                            // TODO: but do we have data to convert the entities from the client to the server?
+                            //  I don't think so... maybe the sender should map_entities themselves?
+                            //  or it matters for input messages?
+                            let data = (message.into(), target, channel_kind);
+
                             match message_registry.message_type(net_id) {
                                 #[cfg(feature = "leafwing")]
                                 MessageType::LeafwingInput => self
                                     .received_leafwing_input_messages
                                     .entry(net_id)
                                     .or_default()
-                                    .push(message.into()),
+                                    .push(data),
                                 MessageType::NativeInput => {
                                     self.received_input_messages
                                         .entry(net_id)
                                         .or_default()
-                                        .push(message.into());
+                                        .push(data);
                                 }
                                 MessageType::Normal => {
-                                    self.received_messages
-                                        .entry(net_id)
-                                        .or_default()
-                                        .push(message.into());
+                                    self.received_messages.entry(net_id).or_default().push(data);
                                 }
                             }
 
-                            // trace!(
-                            //     "remote entity map: {:?}",
-                            //     self.replication_receiver.remote_entity_map
-                            // );
-                            // // map any entities inside the message
-                            // message.map_entities(&mut self.replication_receiver.remote_entity_map);
-                            // if target != NetworkTarget::None {
-                            //     self.messages_to_rebroadcast.push((
-                            //         message.clone(),
-                            //         target,
-                            //         channel_kind,
-                            //     ));
-                            // }
-                            // // don't put InputMessage into events else the events won't be classified as empty
-                            // match message.input_message_kind() {
-                            //     #[cfg(feature = "leafwing")]
-                            //     InputMessageKind::Leafwing => {
-                            //         trace!("received input message, pushing it to events");
-                            //         self.events.push_input_message(message);
-                            //     }
-                            //     InputMessageKind::Native => {
-                            //         let input_message = message.try_into().unwrap();
-                            //         debug!("Received input message: {:?}", input_message.end_tick);
-                            //         self.input_buffer.update_from_message(input_message);
-                            //     }
-                            //     InputMessageKind::None => {
-                            //         // buffer the message
-                            //         self.events.push_message(channel_kind, message);
-                            //     }
-                            // }
+                            if target != NetworkTarget::None {
+                                self.messages_to_rebroadcast.push((
+                                    message.clone(),
+                                    target,
+                                    channel_kind,
+                                ));
+                            }
                         }
                         ClientMessage::Replication(replication) => {
                             // buffer the replication message
@@ -588,8 +571,12 @@ impl Connection {
     }
 }
 
-impl<P: Protocol> ReplicationSend for ConnectionManager {
+impl ReplicationSend for ConnectionManager {
     type SetMarker = ServerMarker;
+
+    fn writer(&mut self) -> &mut WriteWordBuffer {
+        &mut self.writer
+    }
 
     fn component_registry(&self) -> &ComponentRegistry {
         &self.component_registry

@@ -1,3 +1,4 @@
+use bevy::prelude::{Resource, TypePath};
 use bevy::reflect::Reflect;
 use serde::Deserialize;
 use std::any::TypeId;
@@ -29,7 +30,7 @@ impl From<TypeId> for ChannelKind {
 }
 
 /// Registry to store metadata about the various [`Channel`]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Resource, Clone, Debug, PartialEq, TypePath)]
 pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel
     pub(in crate::protocol) builder_map: HashMap<ChannelKind, ChannelBuilder>,
