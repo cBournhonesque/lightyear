@@ -62,11 +62,11 @@ pub struct InputConfig {
 /// Note: it is advised to enable the feature `leafwing` and  switch to the `LeafwingInputPlugin`,
 /// which is more up-to-date and has more features.
 #[derive(Debug, Resource)]
-pub struct InputManager<A: UserAction> {
+pub struct InputManager<A> {
     pub(crate) input_buffer: InputBuffer<A>,
 }
 
-impl<A: UserAction> Default for InputManager<A> {
+impl<A> Default for InputManager<A> {
     fn default() -> Self {
         Self {
             input_buffer: InputBuffer::default(),
@@ -95,12 +95,12 @@ impl Default for InputConfig {
     }
 }
 
-pub struct InputPlugin<P: Protocol> {
+pub struct InputPlugin<A> {
     config: InputConfig,
-    _marker: std::marker::PhantomData<P>,
+    _marker: std::marker::PhantomData<A>,
 }
 
-impl<P: Protocol> InputPlugin<P> {
+impl<A: UserAction> InputPlugin<A> {
     fn new(config: InputConfig) -> Self {
         Self {
             config,
@@ -109,30 +109,27 @@ impl<P: Protocol> InputPlugin<P> {
     }
 }
 
-impl<P: Protocol> Default for InputPlugin<P> {
+impl<A: UserAction> Default for InputPlugin<A> {
     fn default() -> Self {
-        Self {
-            config: InputConfig::default(),
-            _marker: std::marker::PhantomData,
-        }
+        Self::new(InputConfig::default())
     }
 }
 
 /// Input of the user for the current tick
-pub struct CurrentInput<T: UserAction> {
+pub struct CurrentInput<A: UserAction> {
     // TODO: should we allow a Vec of inputs? for example if a user presses multiple buttons?
     //  or would that be encoded as a combination?
-    input: T,
+    input: A,
 }
 
-impl<P: Protocol> Plugin for InputPlugin<P> {
+impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<InputConfig>();
         // RESOURCES
-        app.init_resource::<InputManager<P::Input>>();
+        app.init_resource::<InputManager<A>>();
         // EVENT
-        app.add_event::<InputEvent<P::Input>>();
+        app.add_event::<InputEvent<A>>();
         // SETS
         app.configure_sets(
             FixedPreUpdate,
@@ -151,14 +148,14 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents.run_if(
                     // there are no tick events in host-server mode
-                    client_is_synced::<P>.and_then(not(SharedConfig::is_host_server_condition)),
+                    client_is_synced::<A>.and_then(not(SharedConfig::is_host_server_condition)),
                 ),
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage
                     .in_set(InternalMainSet::<ClientMarker>::Send)
                     .run_if(
                         // no need to send input messages via io if we are in host-server mode
-                        client_is_synced::<P>.and_then(not(SharedConfig::is_host_server_condition)),
+                        client_is_synced::<A>.and_then(not(SharedConfig::is_host_server_condition)),
                     ),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
@@ -169,25 +166,25 @@ impl<P: Protocol> Plugin for InputPlugin<P> {
         // Host server mode only!
         app.add_systems(
             FixedPreUpdate,
-            send_input_directly_to_client_events::<P::Input>
+            send_input_directly_to_client_events::<A>
                 .in_set(InputSystemSet::WriteInputEvent)
                 .run_if(SharedConfig::is_host_server_condition),
         );
         app.add_systems(
             FixedPreUpdate,
-            write_input_event::<P::Input>
+            write_input_event::<A>
                 .in_set(InputSystemSet::WriteInputEvent)
                 .run_if(not(SharedConfig::is_host_server_condition)),
         );
         app.add_systems(
             FixedPostUpdate,
-            clear_input_events::<P::Input>.in_set(InputSystemSet::ClearInputEvent),
+            clear_input_events::<A>.in_set(InputSystemSet::ClearInputEvent),
         );
         app.add_systems(
             PostUpdate,
             (
-                receive_tick_events::<P::Input>.in_set(InputSystemSet::ReceiveTickEvents),
-                prepare_input_message::<P>.in_set(InputSystemSet::SendInputMessage),
+                receive_tick_events::<A>.in_set(InputSystemSet::ReceiveTickEvents),
+                prepare_input_message::<A>.in_set(InputSystemSet::SendInputMessage),
             ),
         );
 
