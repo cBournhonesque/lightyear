@@ -61,7 +61,7 @@ pub struct ConnectionManager<P: Protocol> {
     pub(crate) replication_receiver: ReplicationReceiver<P>,
     pub(crate) events: ConnectionEvents<P>,
 
-    pub(crate) ping_manager: PingManager,
+    pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
     // TODO: maybe don't do any replication until connection is synced?
 }
