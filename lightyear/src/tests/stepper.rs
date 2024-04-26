@@ -188,9 +188,11 @@ impl BevyStepper {
         self.server_app.world.resource::<TickManager>().tick()
     }
     pub(crate) fn init(&mut self) {
+        self.server_app.finish();
         self.server_app
             .world
             .run_system_once(|mut commands: Commands| commands.start_server());
+        self.client_app.finish();
         self.client_app
             .world
             .run_system_once(|mut commands: Commands| commands.connect_client());

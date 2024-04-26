@@ -90,6 +90,7 @@ pub mod prelude {
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
     pub use crate::shared::config::{Mode, SharedConfig};
+    pub use crate::shared::input::InputPlugin;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{

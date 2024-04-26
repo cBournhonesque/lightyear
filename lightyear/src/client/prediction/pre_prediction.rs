@@ -54,7 +54,7 @@ impl<P: Protocol> Plugin for PrePredictionPlugin<P> {
                 PrePredictionSet::Clean,
             )
                 .chain()
-                .run_if(client_is_synced::<P>),
+                .run_if(client_is_synced),
         );
         app.add_systems(
             PreUpdate,

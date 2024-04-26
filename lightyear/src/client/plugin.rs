@@ -13,6 +13,7 @@ use crate::client::networking::ClientNetworkingPlugin;
 use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::connection::client::{ClientConnection, NetConfig};
+use crate::prelude::MessageRegistry;
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -64,10 +65,10 @@ impl<P: Protocol> Plugin for ClientPlugin<P> {
             // RESOURCES //
             .insert_resource(config.client_config.clone())
             .insert_resource(config.protocol.clone())
+            .init_resource::<MessageRegistry>()
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::<P>::default())
             .add_plugins(ClientEventsPlugin::<P>::default())
-            // .add_plugins(InputPlugin::<P>::default())
             .add_plugins(ClientDiagnosticsPlugin::<P>::default())
             // .add_plugins(ClientReplicationPlugin::<P>::default())
             .add_plugins(PredictionPlugin::<P>::default())

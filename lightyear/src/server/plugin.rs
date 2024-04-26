@@ -2,6 +2,7 @@
 use std::ops::DerefMut;
 use std::sync::Mutex;
 
+use crate::prelude::MessageRegistry;
 use bevy::prelude::*;
 
 use crate::protocol::component::ComponentProtocol;
@@ -54,10 +55,10 @@ impl<P: Protocol> Plugin for ServerPlugin<P> {
             // RESOURCES //
             .insert_resource(config.server_config.clone())
             .insert_resource(config.protocol.clone())
+            .init_resource::<MessageRegistry>()
             // PLUGINS
             .add_plugins(ServerEventsPlugin::<P>::default())
             .add_plugins(ServerNetworkingPlugin::<P>::default())
-            // .add_plugins(InputPlugin::<P>::default())
             .add_plugins(RoomPlugin::<P>::default())
             // .add_plugins(ServerReplicationPlugin::<P>::default())
             .add_plugins(SharedPlugin::<P> {

@@ -2,6 +2,7 @@
 //! Uses crossbeam channels to mock the network
 use bevy::core::TaskPoolThreadAssignmentPolicy;
 use bevy::ecs::system::RunSystemOnce;
+use bevy::log::error;
 use bevy::utils::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -44,10 +45,8 @@ pub struct LocalBevyStepper {
 struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MessageRegistry>();
         app.add_message::<Message2>(ChannelDirection::Bidirectional);
-        app.world.resource_mut::<MyProtocol>().message_registry =
-            app.world.resource::<MessageRegistry>().clone();
+        app.add_plugins(InputPlugin::<MyInput>::default());
     }
 }
 
@@ -198,10 +197,12 @@ impl LocalBevyStepper {
     }
 
     pub fn init(&mut self) {
+        self.server_app.finish();
         self.server_app
             .world
             .run_system_once(|mut commands: Commands| commands.start_server());
         self.client_apps.values_mut().for_each(|client_app| {
+            client_app.finish();
             let _ = client_app
                 .world
                 .run_system_once(|mut commands: Commands| commands.connect_client());

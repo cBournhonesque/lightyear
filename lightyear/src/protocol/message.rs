@@ -49,7 +49,7 @@ pub struct ErasedMessageFns {
     pub serialize: unsafe fn(),
     pub deserialize: unsafe fn(),
     // pub map_entities: Option<unsafe fn()>,
-    pub is_input: bool,
+    pub message_type: MessageType,
 }
 
 type SerializeFn<M> = fn(&M, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
@@ -60,7 +60,15 @@ pub struct MessageFns<M> {
     pub deserialize: DeserializeFn<M>,
     // TODO: how to handle map entities, since map_entities takes a generic arg?
     // pub map_entities: Option<fn<M: EntityMapper>(&mut self, entity_mapper: &mut M);>,
-    pub is_input: bool,
+    pub message_type: MessageType,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum MessageType {
+    #[cfg(feature = "leafwing")]
+    LeafwingInput,
+    NativeInput,
+    Normal,
 }
 
 impl ErasedMessageFns {
@@ -76,7 +84,7 @@ impl ErasedMessageFns {
         MessageFns {
             serialize: unsafe { std::mem::transmute(self.serialize) },
             deserialize: unsafe { std::mem::transmute(self.deserialize) },
-            is_input: self.is_input,
+            message_type: self.message_type,
         }
     }
 }
@@ -101,7 +109,7 @@ pub trait AppMessageExt {
 impl AppMessageExt for App {
     fn add_message<M: Message>(&mut self, direction: ChannelDirection) {
         if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
-            protocol.add_message::<M>();
+            protocol.add_message::<M>(MessageType::Normal);
         } else {
             todo!("create a protocol");
         }
@@ -144,7 +152,14 @@ impl AppMessageExt for App {
 // }
 
 impl MessageRegistry {
-    pub(crate) fn add_message<M: Message>(&mut self) {
+    pub(crate) fn message_type(&self, net_id: NetId) -> MessageType {
+        let kind = self.kind_map.kind(net_id).unwrap();
+        self.fns_map
+            .get(kind)
+            .map(|fns| fns.message_type)
+            .unwrap_or(MessageType::Normal)
+    }
+    pub(crate) fn add_message<M: Message>(&mut self, message_type: MessageType) {
         let message_kind = self.kind_map.add::<M>();
         let serialize: SerializeFn<M> = <M as BitSerializable>::encode;
         let deserialize: DeserializeFn<M> = <M as BitSerializable>::decode;
@@ -156,7 +171,7 @@ impl MessageRegistry {
                 serialize: unsafe { std::mem::transmute(serialize) },
                 deserialize: unsafe { std::mem::transmute(deserialize) },
                 // map_entities: None,
-                is_input: false,
+                message_type,
             },
         );
     }
@@ -173,6 +188,7 @@ impl MessageRegistry {
             .context("the message is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<M>() };
         let net_id = self.kind_map.net_id(&kind).unwrap();
+        error!("in serialize: {:?}, net_id: {:?}", self, net_id);
         writer.encode(net_id, Fixed)?;
         (fns.serialize)(message, writer)
     }

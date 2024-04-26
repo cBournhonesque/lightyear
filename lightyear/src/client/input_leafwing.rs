@@ -204,11 +204,11 @@ where
                 SyncSet,
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents
-                    .run_if(should_run.clone().and_then(client_is_synced::<P>)),
+                    .run_if(should_run.clone().and_then(client_is_synced)),
                 InputSystemSet::SendInputMessage
-                    .run_if(should_run.clone().and_then(client_is_synced::<P>))
+                    .run_if(should_run.clone().and_then(client_is_synced))
                     .in_set(InternalMainSet::<ClientMarker>::Send),
-                InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced::<P>)),
+                InputSystemSet::CleanUp.run_if(should_run.clone().and_then(client_is_synced)),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
                 .chain(),

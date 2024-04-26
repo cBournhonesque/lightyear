@@ -18,7 +18,7 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::SyncSet;
 use crate::connection::client::{ClientConnection, NetClient, NetConfig};
 use crate::connection::server::ServerConnections;
-use crate::prelude::{MainSet, SharedConfig, TickManager, TimeManager};
+use crate::prelude::{MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager};
 use crate::protocol::component::ComponentProtocol;
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
@@ -450,7 +450,7 @@ fn rebuild_client_connection<P: Protocol>(world: &mut World) {
 
     // insert a new connection manager (to reset sync, priority, message numbers, etc.)
     let connection_manager = ConnectionManager::new(
-        world.resource::<P>().message_registry(),
+        world.resource::<MessageRegistry>(),
         world.resource::<P>().channel_registry(),
         client_config.packet,
         client_config.sync,

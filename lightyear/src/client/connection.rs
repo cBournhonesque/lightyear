@@ -212,6 +212,7 @@ impl ConnectionManager {
         message.encode(&mut self.writer)?;
         // TODO: doesn't this serialize the bytes twice?
         let message_bytes = self.writer.finish_write().to_vec();
+        error!("client send message bytes: {message_bytes:?}");
         // message.emit_send_logs(&channel_name);
         self.message_manager.buffer_send(message_bytes, channel)?;
         Ok(())

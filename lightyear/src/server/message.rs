@@ -39,7 +39,7 @@ pub enum ServerMessage {
     Pong(Pong),
 }
 
-/// Read the message received from the server and emit the MessageEvent event
+/// Read the messages received from the clients and emit the MessageEvent event
 fn read_message<M: Message>(
     mut connection: ResMut<ConnectionManager>,
     mut event: EventWriter<MessageEvent<M>>,

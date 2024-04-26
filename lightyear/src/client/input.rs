@@ -40,9 +40,9 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::sync::{client_is_synced, SyncSet};
 use crate::connection::client::NetClient;
 use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::UserAction;
+use crate::inputs::native::{InputMessage, UserAction};
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{server, SharedConfig, Tick, TickManager};
+use crate::prelude::{server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::config::Mode;
 use crate::shared::sets::InternalMainSet;
@@ -124,7 +124,7 @@ pub struct CurrentInput<A: UserAction> {
 
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // REFLECTION
+        // REGISTRATION
         app.register_type::<InputConfig>();
         // RESOURCES
         app.init_resource::<InputManager<A>>();
@@ -148,14 +148,14 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                 // handle tick events from sync before sending the message
                 InputSystemSet::ReceiveTickEvents.run_if(
                     // there are no tick events in host-server mode
-                    client_is_synced::<A>.and_then(not(SharedConfig::is_host_server_condition)),
+                    client_is_synced.and_then(not(SharedConfig::is_host_server_condition)),
                 ),
                 // we send inputs only every send_interval
                 InputSystemSet::SendInputMessage
                     .in_set(InternalMainSet::<ClientMarker>::Send)
                     .run_if(
                         // no need to send input messages via io if we are in host-server mode
-                        client_is_synced::<A>.and_then(not(SharedConfig::is_host_server_condition)),
+                        client_is_synced.and_then(not(SharedConfig::is_host_server_condition)),
                     ),
                 InternalMainSet::<ClientMarker>::SendPackets,
             )
@@ -213,16 +213,6 @@ pub enum InputSystemSet {
     SendInputMessage,
 }
 
-// /// Runs at the start of every FixedUpdate schedule
-// /// The USER must write this. Check what inputs were pressed and add them to the input buffer
-// /// DO NOT RUN THIS DURING ROLLBACK
-// fn update_input_buffer<P: Protocol>(mut client: ResMut<Client<P>>) {}
-//
-// // system that runs after update_input_buffer, and uses the input to update the world?
-// // - NOT rollback: gets the input for the current tick from the input buffer, only runs on predicted entities.
-// // - IN rollback: gets the input for the current rollback tick from the input buffer, only runs on predicted entities.
-// fn apply_input() {}
-
 /// System that clears the input events.
 /// It is necessary because events are cleared every frame, but we want to clear every tick instead
 fn clear_input_events<A: UserAction>(mut input_events: EventReader<InputEvent<A>>) {
@@ -272,9 +262,9 @@ fn receive_tick_events<A: UserAction>(
 }
 
 /// Take the input buffer, and prepare the input message to send to the server
-fn prepare_input_message<P: Protocol>(
+fn prepare_input_message<A: UserAction>(
     connection: Option<ResMut<ConnectionManager>>,
-    mut input_manager: ResMut<InputManager<P::Input>>,
+    mut input_manager: ResMut<InputManager<A>>,
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
 ) {
@@ -310,10 +300,9 @@ fn prepare_input_message<P: Protocol>(
     if !message.is_empty() {
         // TODO: should we provide variants of each user-facing function, so that it pushes the error
         //  to the ConnectionEvents?
-        trace!(
+        error!(
             ?current_tick,
-            "sending input message: {:?}",
-            message.end_tick
+            "sending input message: {:?}", message.end_tick
         );
         connection
             .send_message::<InputChannel, _>(message)

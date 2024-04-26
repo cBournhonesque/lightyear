@@ -48,7 +48,7 @@ impl<T: UserAction> InputMessage<T> {
     }
 }
 
-impl<T: UserAction> Default for InputBuffer<T> {
+impl<T> Default for InputBuffer<T> {
     fn default() -> Self {
         Self {
             // buffer: SequenceBuffer::new(),

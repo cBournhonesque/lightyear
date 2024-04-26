@@ -233,7 +233,7 @@ impl<P: Protocol> Plugin for PredictionPlugin<P> {
         let should_prediction_run =
             not(SharedConfig::is_host_server_condition
                 .or_else(PredictionConfig::is_disabled_condition))
-            .and_then(client_is_synced::<P>);
+            .and_then(client_is_synced);
 
         // REFLECTION
         app.register_type::<Predicted>()

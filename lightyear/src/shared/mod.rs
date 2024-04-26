@@ -16,4 +16,5 @@ pub mod sets;
 
 pub mod tick_manager;
 
+pub mod input;
 pub mod time_manager;

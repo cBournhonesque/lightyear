@@ -26,7 +26,7 @@ use crate::prelude::{
     Channel, ChannelKind, Message, Mode, PreSpawnedPlayerObject, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::message::MessageRegistry;
+use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
 use crate::protocol::Protocol;
 use crate::serialize::reader::ReadBuffer;
@@ -177,43 +177,6 @@ impl ConnectionManager {
         self.connections.remove(&client_id);
     }
 
-    // /// Get the inputs for all clients for the given tick
-    // pub(crate) fn pop_inputs(
-    //     &mut self,
-    //     tick: Tick,
-    // ) -> impl Iterator<Item = (Option<P::Input>, ClientId)> + '_ {
-    //     self.connections
-    //         .iter_mut()
-    //         .map(move |(client_id, connection)| {
-    //             trace!(input_buffer = ?connection.input_buffer, ?tick, ?client_id, "input buffer for client");
-    //             let received_input = connection.input_buffer.pop(tick);
-    //             let fallback = received_input.is_none();
-    //
-    //             // NOTE: if there is no input for this tick, we should use the last input that we have
-    //             //  as a best-effort fallback.
-    //             let input = match received_input {
-    //                 None => connection.last_input.clone(),
-    //                 Some(i) => {
-    //                     connection.last_input = Some(i.clone());
-    //                     Some(i)
-    //                 }
-    //             };
-    //             if fallback {
-    //                 // TODO: do not log this while clients are syncing..
-    //                 debug!(
-    //                 ?client_id,
-    //                 ?tick,
-    //                 fallback_input = ?&input,
-    //                 "Missed client input!"
-    //                 )
-    //             }
-    //             // TODO: We should also let the user know that it needs to send inputs a bit earlier so that
-    //             //  we have more of a buffer. Send a SyncMessage to tell the user to speed up?
-    //             //  See Overwatch GDC video
-    //             (input, *client_id)
-    //         })
-    // }
-
     pub(crate) fn buffer_message(
         &mut self,
         message: Vec<u8>,
@@ -301,14 +264,11 @@ pub struct Connection {
     // pub(crate) replication_receiver: ReplicationReceiver<P>,
     // pub(crate) events: ConnectionEvents<P>,
     pub(crate) ping_manager: PingManager,
-    // /// Stores the inputs that we have received from the client.
-    // pub(crate) input_buffer: InputBuffer<P::Input>,
-    // /// Stores the last input we have received from the client.
-    // /// In case we are missing the client input for a tick, we will fallback to using this.
-    // pub(crate) last_input: Option<P::Input>,
+
     // TODO: maybe don't do any replication until connection is synced?
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
+    pub(crate) received_input_messages: HashMap<NetId, Vec<Bytes>>,
     writer: WriteWordBuffer,
     reader_pool: BufferPool,
     // messages that we have received that need to be rebroadcasted to other clients
@@ -341,10 +301,9 @@ impl Connection {
             // replication_sender,
             // replication_receiver,
             ping_manager: PingManager::new(ping_config),
-            // input_buffer: InputBuffer::default(),
-            // last_input: None,
             // events: ConnectionEvents::default(),
             received_messages: HashMap::default(),
+            received_input_messages: HashMap::default(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
             reader_pool: BufferPool::new(1),
@@ -481,6 +440,7 @@ impl Connection {
     ) {
         // ) -> ConnectionEvents<P> {
         let _span = trace_span!("receive").entered();
+        let message_registry = world.resource::<MessageRegistry>();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
                 .message_manager
@@ -499,16 +459,33 @@ impl Connection {
                     // TODO: maybe just decode a single bit to know if it's message vs replication?
                     let message = ClientMessage::decode(&mut reader)
                         .expect("Could not decode server message");
-
                     match message {
                         ClientMessage::Message(mut message, target) => {
                             let net_id = reader
                                 .decode::<NetId>(Fixed)
                                 .expect("could not decode MessageKind");
-                            self.received_messages
-                                .entry(net_id)
-                                .or_default()
-                                .push(message.into());
+                            error!(
+                                "received message: {:?}, net_id: {:?}, registry: {:?}",
+                                message, net_id, message_registry
+                            );
+
+                            match message_registry.message_type(net_id) {
+                                #[cfg(feature = "leafwing")]
+                                MessageType::LeafwingInput => todo!(),
+                                MessageType::NativeInput => {
+                                    error!("received input message");
+                                    self.received_input_messages
+                                        .entry(net_id)
+                                        .or_default()
+                                        .push(message.into());
+                                }
+                                MessageType::Normal => {
+                                    self.received_messages
+                                        .entry(net_id)
+                                        .or_default()
+                                        .push(message.into());
+                                }
+                            }
 
                             // trace!(
                             //     "remote entity map: {:?}",
@@ -556,6 +533,7 @@ impl Connection {
                             self.ping_manager.process_pong(&pong, time_manager);
                         }
                     }
+                    self.reader_pool.attach(reader);
                 }
             }
         }

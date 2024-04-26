@@ -168,7 +168,7 @@ where
                 Update,
                 (
                     apply_confirmed_update_mode_full::<C, P>,
-                    update_interpolate_status::<C, P>.run_if(client_is_synced::<P>),
+                    update_interpolate_status::<C, P>.run_if(client_is_synced),
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
                     insert_interpolated_component::<C, P>,
@@ -203,7 +203,7 @@ where
 impl<P: Protocol> Plugin for InterpolationPlugin<P> {
     fn build(&self, app: &mut App) {
         let should_run_interpolation =
-            not(SharedConfig::is_host_server_condition).and_then(client_is_synced::<P>);
+            not(SharedConfig::is_host_server_condition).and_then(client_is_synced);
 
         // REFLECT
         app.register_type::<InterpolationConfig>()

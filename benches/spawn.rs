@@ -10,8 +10,9 @@ use bevy::utils::Duration;
 use divan::{AllocProfiler, Bencher};
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
-use lightyear::prelude::{client, server};
+use lightyear::prelude::{client, server, MessageRegistry, TickManager};
 use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
+use lightyear::server::input::InputBuffers;
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 
@@ -31,10 +32,10 @@ const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
     args = NUM_ENTITIES,
 )]
 fn send_message(bencher: Bencher, n: usize) {
-    // tracing_subscriber::FmtSubscriber::builder()
-    //     .with_span_events(FmtSpan::ENTER)
-    //     .with_max_level(tracing::Level::INFO)
-    //     .init();
+    tracing_subscriber::FmtSubscriber::builder()
+        .with_span_events(FmtSpan::ENTER)
+        .with_max_level(tracing::Level::INFO)
+        .init();
 
     bencher
         .with_inputs(|| {
@@ -70,47 +71,87 @@ fn send_message(bencher: Bencher, n: usize) {
         })
         .bench_values(|mut stepper| {
             let client_id = ClientId::Netcode(0);
+            //
+            // error!(
+            //     "{:?}",
+            //     stepper.server_app.world.resource::<MessageRegistry>()
+            // );
+            // let _ = stepper
+            //     .server_app
+            //     .world
+            //     .resource_mut::<server::ConnectionManager>()
+            //     .send_message::<Channel1, _>(client_id, Message2(1))
+            //     .inspect_err(|e| error!("error: {e:?}"));
+            // stepper.frame_step();
+            // let client_id = ClientId::Netcode(0);
+            // assert_eq!(
+            //     stepper
+            //         .client_apps
+            //         .get_mut(&client_id)
+            //         .unwrap()
+            //         .world
+            //         .resource_mut::<Events<client::MessageEvent<Message2>>>()
+            //         .drain()
+            //         .map(|e| e.message().clone())
+            //         .collect::<Vec<_>>(),
+            //     vec![Message2(1)]
+            // );
+            //
+            // let _ = stepper
+            //     .client_apps
+            //     .get_mut(&client_id)
+            //     .unwrap()
+            //     .world
+            //     .resource_mut::<client::ConnectionManager>()
+            //     .send_message::<Channel1, _>(Message2(3))
+            //     .inspect_err(|e| error!("error: {e:?}"));
+            // stepper.frame_step();
+            // stepper.frame_step();
+            // assert_eq!(
+            //     stepper
+            //         .server_app
+            //         .world
+            //         .resource_mut::<Events<server::MessageEvent<Message2>>>()
+            //         .drain()
+            //         .map(|e| e.message().clone())
+            //         .collect::<Vec<_>>(),
+            //     vec![Message2(3)]
+            // );
 
-            let _ = stepper
-                .server_app
+            let tick = stepper
+                .client_apps
+                .get_mut(&client_id)
+                .unwrap()
                 .world
-                .resource_mut::<server::ConnectionManager>()
-                .send_message::<Channel1, _>(client_id, Message2(1))
-                .inspect_err(|e| error!("error: {e:?}"));
-            stepper.frame_step();
-            let client_id = ClientId::Netcode(0);
-            assert_eq!(
-                stepper
-                    .client_apps
-                    .get_mut(&client_id)
-                    .unwrap()
-                    .world
-                    .resource_mut::<Events<client::MessageEvent<Message2>>>()
-                    .drain()
-                    .map(|e| e.message().clone())
-                    .collect::<Vec<_>>(),
-                vec![Message2(1)]
-            );
-
+                .resource::<TickManager>()
+                .tick()
+                + 1;
             let _ = stepper
                 .client_apps
                 .get_mut(&client_id)
                 .unwrap()
                 .world
-                .resource_mut::<client::ConnectionManager>()
-                .send_message::<Channel1, _>(Message2(3))
-                .inspect_err(|e| error!("error: {e:?}"));
+                .resource_mut::<client::InputManager<MyInput>>()
+                .add_input(MyInput(1), tick);
             stepper.frame_step();
             stepper.frame_step();
+
+            error!(
+                "{:?}",
+                stepper
+                    .server_app
+                    .world
+                    .resource_mut::<InputBuffers<MyInput>>()
+            );
             assert_eq!(
                 stepper
                     .server_app
                     .world
-                    .resource_mut::<Events<server::MessageEvent<Message2>>>()
+                    .resource_mut::<Events<server::InputEvent<MyInput>>>()
                     .drain()
-                    .map(|e| e.message().clone())
+                    .map(|e| e.input().clone())
                     .collect::<Vec<_>>(),
-                vec![Message2(3)]
+                vec![Some(MyInput(1))]
             );
 
             // assert_eq!(stepper.client_app.world.entities().len(), n as u32);

@@ -9,7 +9,7 @@ use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
-use crate::prelude::{MainSet, Mode, TickManager, TimeManager};
+use crate::prelude::{MainSet, MessageRegistry, Mode, TickManager, TimeManager};
 use crate::protocol::message::MessageProtocol;
 use crate::protocol::Protocol;
 use crate::server::config::ServerConfig;
@@ -320,7 +320,7 @@ fn rebuild_server_connections<P: Protocol>(world: &mut World) {
 
     // insert a new connection manager (to reset message numbers, ping manager, etc.)
     let connection_manager = ConnectionManager::new(
-        world.resource::<P>().message_registry().clone(),
+        world.resource::<MessageRegistry>().clone(),
         world.resource::<P>().channel_registry().clone(),
         server_config.packet,
         server_config.ping,
