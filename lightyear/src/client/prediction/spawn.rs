@@ -62,12 +62,10 @@ pub(crate) fn spawn_predicted_entity(
                 // get the confirmed tick for the entity
                 // if we don't have it, something has gone very wrong
 
-                // TODO
-                // let confirmed_tick = connection
-                //     .replication_receiver
-                //     .get_confirmed_tick(confirmed_entity)
-                //     .unwrap();
-                let confirmed_tick = Tick(0);
+                let confirmed_tick = connection
+                    .replication_receiver
+                    .get_confirmed_tick(confirmed_entity)
+                    .unwrap();
                 confirmed_entity_mut.insert(Confirmed {
                     predicted: Some(predicted_entity),
                     interpolated: None,

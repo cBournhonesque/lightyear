@@ -133,31 +133,29 @@ pub enum InterpolationSet {
 }
 
 /// Add per-component systems related to interpolation
-pub fn add_prepare_interpolation_systems<C: SyncComponent, P: Protocol>(app: &mut App)
-where
-    P::Components: SyncMetadata<C>,
-    P::Components: ExternalMapper<C>,
-    P::ComponentKinds: FromType<C>,
-{
+pub fn add_prepare_interpolation_systems<C: SyncComponent>(
+    app: &mut App,
+    interpolation_mode: ComponentSyncMode,
+) {
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_systems(
         Update,
         (
-            add_component_history::<C, P>.in_set(InterpolationSet::SpawnHistory),
+            add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
             removed_components::<C>.in_set(InterpolationSet::Despawn),
         ),
     );
-    match P::Components::mode() {
+    match interpolation_mode {
         ComponentSyncMode::Full => {
             app.add_systems(
                 Update,
                 (
-                    apply_confirmed_update_mode_full::<C, P>,
-                    update_interpolate_status::<C, P>.run_if(client_is_synced),
+                    apply_confirmed_update_mode_full::<C>,
+                    update_interpolate_status::<C>.run_if(client_is_synced),
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
-                    insert_interpolated_component::<C, P>,
+                    insert_interpolated_component::<C>,
                 )
                     .chain()
                     .in_set(InterpolationSet::PrepareInterpolation),
@@ -166,7 +164,7 @@ where
         ComponentSyncMode::Simple => {
             app.add_systems(
                 Update,
-                apply_confirmed_update_mode_simple::<C, P>
+                apply_confirmed_update_mode_simple::<C>
                     .in_set(InterpolationSet::PrepareInterpolation),
             );
         }

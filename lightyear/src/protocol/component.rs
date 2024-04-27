@@ -11,18 +11,19 @@ use bevy::prelude::{
 };
 use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
+use bevy_xpbd_2d::parry::query::details::IntersectionCompositeShapeShapeBestFirstVisitor;
 use cfg_if::cfg_if;
 
 use crate::_reexport::{
-    InstantCorrector, NullInterpolator, ReadBuffer, ReadWordBuffer, ServerMarker, WriteBuffer,
-    WriteWordBuffer,
+    InstantCorrector, MessageKind, NullInterpolator, ReadBuffer, ReadWordBuffer, ServerMarker,
+    WriteBuffer, WriteWordBuffer,
 };
 use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
+use crate::client::components::{ComponentSyncMode, SyncMetadata};
 use crate::prelude::{
     client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
     RemoteEntityMap, ReplicateResource, Tick,
@@ -65,6 +66,10 @@ pub struct ErasedComponentFns {
     pub map_entities: Option<unsafe fn()>,
     pub write: RawWriteFn,
     pub remove: RawRemoveFn,
+    pub prediction_mode: ComponentSyncMode,
+    pub interpolation_mode: ComponentSyncMode,
+    pub interpolation: Option<unsafe fn()>,
+    pub correction: Option<unsafe fn()>,
 }
 
 type SerializeFn<C> = fn(&C, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
@@ -80,12 +85,18 @@ type RawWriteFn = fn(
     &mut ConnectionEvents,
 ) -> anyhow::Result<()>;
 
+type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
+
 pub struct ComponentFns<C> {
     pub serialize: SerializeFn<C>,
     pub deserialize: DeserializeFn<C>,
     pub map_entities: Option<MapEntitiesFn<C>>,
     pub write: RawWriteFn,
     pub remove: RawRemoveFn,
+    pub prediction_mode: ComponentSyncMode,
+    pub interpolation_mode: ComponentSyncMode,
+    pub interpolation: Option<LerpFn<C>>,
+    pub correction: Option<LerpFn<C>>,
 }
 
 impl ErasedComponentFns {
@@ -104,6 +115,12 @@ impl ErasedComponentFns {
             map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
             write: unsafe { std::mem::transmute(self.write) },
             remove: unsafe { std::mem::transmute(self.remove) },
+            prediction_mode: self.prediction_mode,
+            interpolation_mode: self.interpolation_mode,
+            interpolation: self
+                .interpolation
+                .map(|m| unsafe { std::mem::transmute(m) }),
+            correction: self.correction.map(|m| unsafe { std::mem::transmute(m) }),
         }
     }
 }
@@ -135,6 +152,10 @@ impl ComponentRegistry {
                 map_entities: None,
                 write,
                 remove,
+                prediction_mode: ComponentSyncMode::default(),
+                interpolation_mode: ComponentSyncMode::default(),
+                interpolation: None,
+                correction: None,
             },
         );
     }
@@ -156,6 +177,10 @@ impl ComponentRegistry {
                 map_entities: Some(unsafe { std::mem::transmute(map_entities) }),
                 write,
                 remove: unsafe { std::mem::transmute(remove) },
+                prediction_mode: ComponentSyncMode::default(),
+                interpolation_mode: ComponentSyncMode::default(),
+                interpolation: None,
+                correction: None,
             },
         );
     }
@@ -205,6 +230,72 @@ impl ComponentRegistry {
     ) -> anyhow::Result<C> {
         let (_, component) = self.internal_deserialize(reader, entity_map)?;
         Ok(component)
+    }
+
+    pub(crate) fn map_entities<C: Component>(&self, component: &mut C, entity_map: &mut EntityMap) {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        let fns = unsafe { erased_fns.typed::<C>() };
+        if let Some(map_entities) = fns.map_entities {
+            map_entities(component, entity_map);
+        }
+    }
+
+    pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        erased_fns.prediction_mode
+    }
+
+    pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        erased_fns.interpolation_mode
+    }
+
+    pub(crate) fn has_correction<C: Component>(&self) -> bool {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        erased_fns.correction.is_some()
+    }
+    pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        let fns = unsafe { erased_fns.typed::<C>() };
+        let correction_fn = fns.correction.unwrap();
+        correction_fn(predicted, corrected, t)
+    }
+
+    pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get(&kind)
+            .context("the component is not part of the protocol")
+            .unwrap();
+        let fns = unsafe { erased_fns.typed::<C>() };
+        let interpolation_fn = fns.interpolation.unwrap();
+        interpolation_fn(start, end, t)
     }
 
     /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
@@ -453,14 +544,6 @@ pub trait ComponentProtocol:
         Self: SyncMetadata<C>,
     {
         <Self as SyncMetadata<C>>::Interpolator::lerp(start, other, t)
-    }
-
-    /// Visually correct the component between two states, using the Corrector associated with the component
-    fn correct<C>(predicted: &C, corrected: &C, t: f32) -> C
-    where
-        Self: SyncMetadata<C>,
-    {
-        <Self as SyncMetadata<C>>::Corrector::lerp(predicted, corrected, t)
     }
 }
 

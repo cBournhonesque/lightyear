@@ -44,7 +44,7 @@ pub trait SyncMetadata<C> {
     fn mode() -> ComponentSyncMode;
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 /// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated
 ///
 /// We use a single enum instead of 2 separate enums because we want to be able to use the same enum for both predicted and interpolated components

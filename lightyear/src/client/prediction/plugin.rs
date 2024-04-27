@@ -134,12 +134,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
     rollback.is_some_and(|rollback| matches!(rollback.state, RollbackState::ShouldRollback { .. }))
 }
 
-pub fn add_prediction_systems<C: SyncComponent>(app: &mut App)
-// where
-//     P::ComponentKinds: FromType<C>,
-//     P::Components: SyncMetadata<C>,
-//     P::Components: ExternalMapper<C>,
-{
+pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
     app.add_systems(
         PreUpdate,
         (
@@ -147,34 +142,35 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App)
             add_component_history::<C>.in_set(PredictionSet::SpawnHistory),
         ),
     );
-    match P::Components::mode() {
+    match prediction_mode {
         ComponentSyncMode::Full => {
             app.add_systems(
                 PreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
                 // between the predicted and corrected state)
-                restore_corrected_state::<C, P>.in_set(PredictionSet::RestoreVisualCorrection),
+                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
             );
             app.add_systems(
                 PreUpdate,
                 (
                     // for SyncMode::Full, we need to check if we need to rollback.
-                    check_rollback::<C, P>.in_set(PredictionSet::CheckRollback),
-                    (prepare_rollback::<C, P>, prepare_rollback_prespawn::<C, P>)
+                    // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
+                    check_rollback::<C>.in_set(PredictionSet::CheckRollback),
+                    (prepare_rollback::<C>, prepare_rollback_prespawn::<C>)
                         .in_set(PredictionSet::PrepareRollback),
                 ),
             );
             app.add_systems(
                 FixedPostUpdate,
                 (
-                    add_prespawned_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
+                    add_prespawned_component_history::<C>.in_set(PredictionSet::SpawnHistory),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
             );
             app.add_systems(
                 PostUpdate,
-                get_visually_corrected_state::<C, P>.in_set(PredictionSet::VisualCorrection),
+                get_visually_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
             );
         }
         ComponentSyncMode::Simple => {
@@ -182,7 +178,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App)
                 PreUpdate,
                 (
                     // for SyncMode::Simple, just copy the confirmed components
-                    apply_confirmed_update::<C, P>.in_set(PredictionSet::CheckRollback),
+                    apply_confirmed_update::<C>.in_set(PredictionSet::CheckRollback),
                     // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
                     restore_components_if_despawn_rolled_back::<C>
                         // .before(run_rollback::)
@@ -203,7 +199,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App)
     };
     app.add_systems(
         FixedPostUpdate,
-        remove_component_for_despawn_predicted::<C, P>.in_set(PredictionSet::EntityDespawn),
+        remove_component_for_despawn_predicted::<C>.in_set(PredictionSet::EntityDespawn),
     );
 }
 
@@ -226,8 +222,6 @@ impl Plugin for PredictionPlugin {
             .register_type::<RollbackState>()
             .register_type::<PredictionDespawnMarker>()
             .register_type::<PredictionConfig>();
-
-        P::Components::add_prediction_systems(app);
 
         // RESOURCES
         app.init_resource::<PredictionManager>();
