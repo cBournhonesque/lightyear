@@ -9,11 +9,11 @@ use crate::shared::events::components::{
     ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent,
 };
 
-pub struct EventsPlugin<P, Ctx> {
-    marker: std::marker::PhantomData<(P, Ctx)>,
+pub struct EventsPlugin<Ctx> {
+    marker: std::marker::PhantomData<Ctx>,
 }
 
-impl<P, Ctx> Default for EventsPlugin<P, Ctx> {
+impl<Ctx> Default for EventsPlugin<Ctx> {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -21,12 +21,12 @@ impl<P, Ctx> Default for EventsPlugin<P, Ctx> {
     }
 }
 
-impl<P: Protocol, Ctx: EventContext> Plugin for EventsPlugin<P, Ctx> {
+impl<Ctx: EventContext> Plugin for EventsPlugin<Ctx> {
     fn build(&self, app: &mut App) {
         // EVENTS
         // per-component events
-        P::Components::add_events::<Ctx>(app);
-        P::Message::add_events::<Ctx>(app);
+        // P::Components::add_events::<Ctx>(app);
+        // P::Message::add_events::<Ctx>(app);
 
         app.add_event::<ConnectEvent<Ctx>>()
             .add_event::<DisconnectEvent<Ctx>>()

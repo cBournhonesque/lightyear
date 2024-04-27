@@ -52,16 +52,8 @@ pub mod _reexport {
     };
     pub use crate::shared::events::connection::{
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-        IterMessageEvent,
-    };
-    pub use crate::shared::events::systems::{
-        push_component_insert_events, push_component_remove_events, push_component_update_events,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
-    pub use crate::shared::replication::resources::{
-        receive::add_resource_receive_systems, send::add_resource_send_systems,
-    };
-    pub use crate::shared::replication::systems::add_per_component_replication_send_systems;
     pub use crate::shared::replication::ReplicationSend;
     pub use crate::shared::sets::{ClientMarker, ServerMarker};
     pub use crate::shared::time_manager::WrappedTime;
@@ -86,6 +78,7 @@ pub mod prelude {
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+    pub use crate::protocol::component::{AppComponentExt, ComponentRegistry};
     pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
     pub use crate::protocol::Protocol;
     pub use crate::protocolize;
@@ -132,7 +125,7 @@ pub mod prelude {
             InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
         };
         pub use crate::client::networking::{ClientCommands, NetworkingState};
-        pub use crate::client::plugin::{ClientPlugin, PluginConfig};
+        pub use crate::client::plugin::ClientPlugin;
         pub use crate::client::prediction::correction::Correction;
         pub use crate::client::prediction::plugin::is_in_rollback;
         pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
@@ -155,7 +148,7 @@ pub mod prelude {
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent, MessageEvent,
         };
         pub use crate::server::networking::{NetworkingState, ServerCommands};
-        pub use crate::server::plugin::{PluginConfig, ServerPlugin};
+        pub use crate::server::plugin::ServerPlugin;
         pub use crate::server::replication::{
             ReplicationConfig, ServerFilter, ServerReplicationSet,
         };

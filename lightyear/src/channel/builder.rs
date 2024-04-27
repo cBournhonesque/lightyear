@@ -184,7 +184,7 @@ impl ChannelMode {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 /// [`ChannelDirection`] specifies in which direction the packets can be sent
 pub enum ChannelDirection {
     ClientToServer,

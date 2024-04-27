@@ -33,17 +33,8 @@ impl Default for ReplicationConfig {
     }
 }
 
-pub struct ServerReplicationPlugin {
-    marker: std::marker::PhantomData,
-}
-
-impl Default for ServerReplicationPlugin {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct ServerReplicationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
@@ -79,13 +70,13 @@ impl Plugin for ServerReplicationPlugin {
             // SYSTEMS
             .add_systems(
                 PostUpdate,
-                compute_hash::.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
+                compute_hash.in_set(InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash),
             );
 
         // HOST-SERVER
         app.add_systems(
             PostUpdate,
-            add_prediction_interpolation_components::
+            add_prediction_interpolation_components
                 .after(InternalMainSet::<ServerMarker>::Send)
                 .run_if(SharedConfig::is_host_server_condition),
         );

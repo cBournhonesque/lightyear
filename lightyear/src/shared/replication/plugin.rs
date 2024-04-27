@@ -59,8 +59,8 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
         // SYSTEM SETS //
         if self.enable_receive {
             // PLUGINS
-            app.add_plugins(HierarchyReceivePlugin::<P, R>::default());
-            app.add_plugins(ResourceReceivePlugin::<P, R>::default());
+            app.add_plugins(HierarchyReceivePlugin::<R>::default());
+            app.add_plugins(ResourceReceivePlugin::<R>::default());
         }
         if self.enable_send {
             app.configure_sets(
@@ -97,15 +97,14 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
                 ),
             );
             // SYSTEMS
-            add_replication_send_systems::<P, R>(app);
-            P::Components::add_per_component_replication_send_systems::<R>(app);
+            add_replication_send_systems::<R>(app);
             // PLUGINS
-            app.add_plugins(HierarchySendPlugin::<P, R>::default());
-            app.add_plugins(ResourceSendPlugin::<P, R>::default());
+            app.add_plugins(HierarchySendPlugin::<R>::default());
+            app.add_plugins(ResourceSendPlugin::<R>::default());
         }
 
         // TODO: split receive cleanup from send cleanup
         // cleanup is for both receive and send
-        app.add_systems(Last, cleanup::<P, R>.run_if(on_timer(clean_interval)));
+        app.add_systems(Last, cleanup::<R>.run_if(on_timer(clean_interval)));
     }
 }

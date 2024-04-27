@@ -27,17 +27,8 @@ impl Default for ReplicationConfig {
     }
 }
 
-pub struct ClientReplicationPlugin {
-    marker: std::marker::PhantomData,
-}
-
-impl Default for ClientReplicationPlugin {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct ClientReplicationPlugin;
 
 impl Plugin for ClientReplicationPlugin {
     fn build(&self, app: &mut App) {

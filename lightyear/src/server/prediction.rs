@@ -7,10 +7,13 @@ use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
 use crate::_reexport::ComponentProtocol;
-use crate::prelude::{PreSpawnedPlayerObject, Protocol, ShouldBePredicted, TickManager};
+use crate::prelude::{
+    ComponentRegistry, PreSpawnedPlayerObject, Protocol, ShouldBePredicted, TickManager,
+};
+use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 
-/// Compute the hash of the spawned entity by hashing the type of all its components along with the tick at which it was created
+/// Compute the hash of the spawned entity by hashing the NetId of all its components along with the tick at which it was created
 /// 1. Client spawns an entity and adds the PreSpawnedPlayerObject component
 /// 2. Client will compute the hash of the entity and store it internally
 /// 3. Server (later) spawns the entity, computes the hash and replicates the PreSpawnedPlayerObject component
@@ -20,11 +23,13 @@ pub(crate) fn compute_hash(
     // (entity-mut conflicts with resources)
     mut set: ParamSet<(
         Query<EntityMut, Added<PreSpawnedPlayerObject>>,
+        Res<ComponentRegistry>,
         Res<TickManager>,
     )>,
     components: &Components,
 ) {
-    let tick = set.p1().tick();
+    let tick = set.p2().tick();
+    let net_id_map = set.p1().kind_map.kind_map.clone();
 
     // get the list of entities that need to have a new hash computed, along with the hash
     for mut entity_mut in set.p0().iter_mut() {
@@ -50,11 +55,9 @@ pub(crate) fn compute_hash(
         // TODO: figure out how to hash the spawn tick
         tick.hash(&mut hasher);
 
-        let protocol_component_types = P::Components::type_ids();
-
         // NOTE: we cannot call hash() multiple times because the components in the archetype
         //  might get iterated in any order!
-        //  Instead we will get the sorted list of types to hash first, sorted by type_id
+        //  Instead we will get the sorted list of types to hash first, sorted by net_id
         let mut kinds_to_hash = entity_mut
             .archetype()
             .components()
@@ -65,7 +68,7 @@ pub(crate) fn compute_hash(
                         && type_id != TypeId::of::<ShouldBePredicted>()
                         && type_id != TypeId::of::<DespawnTracker>()
                     {
-                        return protocol_component_types.get(&type_id).copied();
+                        return net_id_map.get(&ComponentKind::from(type_id)).copied();
                     }
                 }
                 None

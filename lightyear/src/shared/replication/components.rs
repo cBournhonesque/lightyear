@@ -88,7 +88,7 @@ impl Replicate {
     }
 
     /// Returns true if we don't want to replicate the component
-    pub fn is_disabled<C>(&self, registry: &ComponentRegistry) -> bool {
+    pub fn is_disabled<C: Component>(&self, registry: &ComponentRegistry) -> bool {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .get(&kind)
@@ -105,7 +105,7 @@ impl Replicate {
 
     /// If true, the component will be replicated only once, when the entity is spawned.
     /// We do not replicate component updates
-    pub fn is_replicate_once<C>(&self, registry: &ComponentRegistry) -> bool {
+    pub fn is_replicate_once<C: Component>(&self, registry: &ComponentRegistry) -> bool {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .get(&kind)
@@ -115,7 +115,7 @@ impl Replicate {
     /// Replication target for this specific component
     /// This will be the intersection of the provided `entity_target`, and the `target` of the component
     /// if it exists
-    pub fn target<C>(
+    pub fn target<C: Component>(
         &self,
         registry: &ComponentRegistry,
         mut entity_target: NetworkTarget,
@@ -132,7 +132,7 @@ impl Replicate {
     }
 
     /// Disable the replication of a component for this entity
-    pub fn disable_component<C>(&mut self, registry: &ComponentRegistry) {
+    pub fn disable_component<C: Component>(&mut self, registry: &ComponentRegistry) {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .entry(kind)
@@ -141,7 +141,7 @@ impl Replicate {
     }
 
     /// Enable the replication of a component for this entity
-    pub fn enable_component<C>(&mut self, registry: &ComponentRegistry) {
+    pub fn enable_component<C: Component>(&mut self, registry: &ComponentRegistry) {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .entry(kind)
@@ -155,7 +155,7 @@ impl Replicate {
         }
     }
 
-    pub fn enable_replicate_once<C>(&mut self, registry: &ComponentRegistry) {
+    pub fn enable_replicate_once<C: Component>(&mut self, registry: &ComponentRegistry) {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .entry(kind)
@@ -163,7 +163,7 @@ impl Replicate {
             .replicate_once = true;
     }
 
-    pub fn disable_replicate_once<C>(&mut self, registry: &ComponentRegistry) {
+    pub fn disable_replicate_once<C: Component>(&mut self, registry: &ComponentRegistry) {
         let kind = registry.net_id::<C>();
         self.per_component_metadata
             .entry(kind)
@@ -177,7 +177,11 @@ impl Replicate {
         }
     }
 
-    pub fn add_target<C>(&mut self, registry: &ComponentRegistry, target: NetworkTarget) {
+    pub fn add_target<C: Component>(
+        &mut self,
+        registry: &ComponentRegistry,
+        target: NetworkTarget,
+    ) {
         let kind = registry.net_id::<C>();
         self.per_component_metadata.entry(kind).or_default().target = target;
         // if we are back at the default, remove the entry

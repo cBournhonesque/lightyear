@@ -13,24 +13,21 @@
 //! }
 //! ```
 
+use crate::_reexport::{ClientMarker, ServerMarker};
+use crate::client::networking::is_connected;
+use crate::prelude::server::ConnectionManager;
 use crate::prelude::{ClientId, Protocol};
+use crate::server::networking::is_started;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
-use bevy::app::{App, Plugin, PostUpdate};
-use bevy::prelude::{Event, Events};
+use crate::shared::events::systems::push_component_events;
+use crate::shared::sets::InternalMainSet;
+use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy::prelude::{Component, Event, Events, IntoSystemConfigs};
 
 /// Plugin that handles generating bevy [`Events`] related to networking and replication
-pub struct ClientEventsPlugin {
-    marker: std::marker::PhantomData,
-}
-
-impl Default for ClientEventsPlugin {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct ClientEventsPlugin;
 
 impl Plugin for ClientEventsPlugin {
     fn build(&self, app: &mut App) {
@@ -43,8 +40,17 @@ impl Plugin for ClientEventsPlugin {
             //  can be created from Ctx and Message
             //  For Server it's the MessageEvent<M, ClientId>
             //  For Client it's MessageEvent<M> directly
-            .add_plugins(EventsPlugin::<P, ()>::default());
+            .add_plugins(EventsPlugin::<()>::default());
     }
+}
+
+pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
+    app.add_systems(
+        PreUpdate,
+        push_component_events::<C, ConnectionManager>
+            .after(InternalMainSet::<ClientMarker>::Receive)
+            .run_if(is_connected),
+    );
 }
 
 /// Bevy [`Event`] emitted on the client on the frame where the connection is established

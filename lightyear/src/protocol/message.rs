@@ -6,7 +6,7 @@ use std::fmt::Debug;
 
 use crate::_reexport::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
 use crate::client::message::add_server_to_client_message;
-use crate::prelude::{client, server, RemoteEntityMap};
+use crate::prelude::{client, server, Channel, RemoteEntityMap};
 use bevy::prelude::{
     App, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
 };
@@ -23,9 +23,7 @@ use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::server::message::add_client_to_server_message;
-#[cfg(feature = "leafwing")]
-use crate::shared::events::components::InputMessageEvent;
-use crate::shared::events::connection::IterMessageEvent;
+use crate::shared::replication::entity_map::EntityMap;
 
 pub enum InputMessageKind {
     /// This is a message for a [`LeafwingUserAction`](crate::inputs::leafwing::LeafwingUserAction)
@@ -50,7 +48,7 @@ pub struct ErasedMessageFns {
 
 type SerializeFn<M> = fn(&M, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
 type DeserializeFn<M> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<M>;
-type MapEntitiesFn<M> = fn(&mut M, entity_map: &mut RemoteEntityMap);
+type MapEntitiesFn<M> = fn(&mut M, entity_map: &mut EntityMap);
 
 pub struct MessageFns<M> {
     pub serialize: SerializeFn<M>,
@@ -101,7 +99,22 @@ pub struct MessageRegistry {
 pub trait AppMessageExt {
     fn add_message<M: Message>(&mut self, direction: ChannelDirection);
 
-    fn add_message_mapped<M: Message>(&mut self, direction: ChannelDirection);
+    fn add_message_mapped<M: Message + MapEntities>(&mut self, direction: ChannelDirection);
+}
+
+fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection) {
+    match direction {
+        ChannelDirection::ClientToServer => {
+            add_client_to_server_message::<M>(app);
+        }
+        ChannelDirection::ServerToClient => {
+            add_server_to_client_message::<M>(app);
+        }
+        ChannelDirection::Bidirectional => {
+            register_message_send::<M>(app, ChannelDirection::ClientToServer);
+            register_message_send::<M>(app, ChannelDirection::ServerToClient);
+        }
+    }
 }
 
 impl AppMessageExt for App {
@@ -111,22 +124,16 @@ impl AppMessageExt for App {
         } else {
             todo!("create a protocol");
         }
-        match direction {
-            ChannelDirection::ClientToServer => {
-                add_client_to_server_message::<M>(self);
-            }
-            ChannelDirection::ServerToClient => {
-                add_server_to_client_message::<M>(self);
-            }
-            ChannelDirection::Bidirectional => {
-                add_client_to_server_message::<M>(self);
-                add_server_to_client_message::<M>(self);
-            }
-        }
+        register_message_send::<M>(self, direction);
     }
 
-    fn add_message_mapped<M: Message>(&mut self, direction: ChannelDirection) {
-        todo!()
+    fn add_message_mapped<M: Message + MapEntities>(&mut self, direction: ChannelDirection) {
+        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
+            protocol.add_message_mapped::<M>(MessageType::Normal);
+        } else {
+            todo!("create a protocol");
+        }
+        register_message_send::<M>(self, direction);
     }
 }
 
@@ -161,7 +168,7 @@ impl MessageRegistry {
         let message_kind = self.kind_map.add::<M>();
         let serialize: SerializeFn<M> = <M as BitSerializable>::encode;
         let deserialize: DeserializeFn<M> = <M as BitSerializable>::decode;
-        let map_entities: MapEntitiesFn<M> = <M as MapEntities>::map_entities::<RemoteEntityMap>;
+        let map_entities: MapEntitiesFn<M> = <M as MapEntities>::map_entities::<EntityMap>;
         self.fns_map.insert(
             message_kind,
             ErasedMessageFns {
@@ -194,7 +201,7 @@ impl MessageRegistry {
     pub(crate) fn deserialize<M: Message>(
         &self,
         reader: &mut ReadWordBuffer,
-        entity_map: &mut RemoteEntityMap,
+        entity_map: &mut EntityMap,
     ) -> anyhow::Result<M> {
         let net_id = reader.decode::<NetId>(Fixed)?;
         let kind = self.kind_map.kind(net_id).context("unknown message kind")?;
@@ -210,11 +217,7 @@ impl MessageRegistry {
         Ok(message)
     }
 
-    pub(crate) fn map_entities<M: Message>(
-        &self,
-        message: &mut M,
-        entity_map: &mut RemoteEntityMap,
-    ) {
+    pub(crate) fn map_entities<M: Message>(&self, message: &mut M, entity_map: &mut EntityMap) {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
             .fns_map
@@ -256,12 +259,6 @@ pub trait MessageProtocol:
     // TODO: combine these 2 into a single function that takes app?
     /// Add events to the app
     fn add_events<Ctx: EventContext>(app: &mut App);
-
-    /// Takes messages that were written and writes MessageEvents
-    fn push_message_events<E: IterMessageEvent<Self::Protocol, Ctx>, Ctx: EventContext>(
-        world: &mut World,
-        events: &mut E,
-    );
 }
 
 /// [`MessageKind`] is an internal wrapper around the type of the message

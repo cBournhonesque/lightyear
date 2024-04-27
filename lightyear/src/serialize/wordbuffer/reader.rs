@@ -85,8 +85,8 @@ impl ReadWordBuffer {
         self.with_dependent_mut(|buffer, reader| {
             // SAFETY: we have mut access to the entire ReadWordBuffer
             unsafe {
-                let (reader, context) = buffer.deref_mut().start_read(bytes);
-                *reader = Some((reader, context));
+                let (new_reader, context) = buffer.deref_mut().start_read(bytes);
+                *(reader.0) = Some((new_reader, context));
             }
         });
     }

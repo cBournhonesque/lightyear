@@ -1,7 +1,7 @@
 //! Map between local and remote entities
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHashMap, EntityMapper, MapEntities};
-use bevy::prelude::{Component, Entity, EntityWorldMut, World};
+use bevy::prelude::{Component, Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use bevy::utils::hashbrown::hash_map::Entry;
 
@@ -9,6 +9,16 @@ use bevy::utils::hashbrown::hash_map::Entry;
 /// This is used to avoid the orphan rule, as we can't implement [`MapEntities`] on external types.
 pub trait ExternalMapper<C> {
     fn map_entities_for<M: EntityMapper>(component: &mut C, entity_mapper: &mut M);
+}
+
+#[derive(Default, Debug, Reflect, Deref, DerefMut)]
+pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
+
+impl EntityMapper for EntityMap {
+    /// Try to map the entity using the map, or return the initial entity if it doesn't work
+    fn map_entity(&mut self, entity: Entity) -> Entity {
+        self.0.get(&entity).copied().unwrap_or(entity)
+    }
 }
 
 // /// Any type can perform the mapping for another type C if C implements [`MapEntities`]
@@ -22,40 +32,22 @@ pub trait ExternalMapper<C> {
 #[derive(Default, Debug, Reflect)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
-    remote_to_local: EntityHashMap<Entity>,
-    local_to_remote: EntityHashMap<Entity>,
+    pub(crate) remote_to_local: EntityMap,
+    pub(crate) local_to_remote: EntityMap,
 }
 
 #[derive(Default, Debug, Reflect)]
 pub struct PredictedEntityMap {
     // map from the confirmed entity to the predicted entity
     // useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
-    pub(crate) confirmed_to_predicted: EntityHashMap<Entity>,
-}
-
-impl EntityMapper for PredictedEntityMap {
-    fn map_entity(&mut self, entity: Entity) -> Entity {
-        self.confirmed_to_predicted
-            .get(&entity)
-            .copied()
-            .unwrap_or(entity)
-    }
+    pub(crate) confirmed_to_predicted: EntityMap,
 }
 
 #[derive(Default, Debug, Reflect)]
 pub struct InterpolatedEntityMap {
     // map from the confirmed entity to the interpolated entity
     // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
-    pub(crate) confirmed_to_interpolated: EntityHashMap<Entity>,
-}
-
-impl EntityMapper for InterpolatedEntityMap {
-    fn map_entity(&mut self, entity: Entity) -> Entity {
-        self.confirmed_to_interpolated
-            .get(&entity)
-            .copied()
-            .unwrap_or(entity)
-    }
+    pub(crate) confirmed_to_interpolated: EntityMap,
 }
 
 impl RemoteEntityMap {
@@ -138,12 +130,6 @@ impl RemoteEntityMap {
     fn clear(&mut self) {
         self.local_to_remote.clear();
         self.remote_to_local.clear();
-    }
-}
-
-impl EntityMapper for RemoteEntityMap {
-    fn map_entity(&mut self, entity: Entity) -> Entity {
-        self.get_local(entity).copied().unwrap_or(entity)
     }
 }
 

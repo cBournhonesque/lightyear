@@ -1,34 +1,48 @@
 use anyhow::Context;
+use bevy::app::PreUpdate;
 use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use bevy::prelude::{
-    App, Component, Entity, EntityMapper, EntityWorldMut, Resource, TypePath, World,
+    App, Component, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs, Resource, TypePath,
+    World,
 };
 use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
 use crate::_reexport::{
-    InstantCorrector, NullInterpolator, ReadBuffer, ReadWordBuffer, WriteWordBuffer,
+    InstantCorrector, NullInterpolator, ReadBuffer, ReadWordBuffer, ServerMarker, WriteBuffer,
+    WriteWordBuffer,
 };
+use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncMetadata};
-use crate::prelude::{Message, PreSpawnedPlayerObject, RemoteEntityMap, Tick};
+use crate::prelude::{
+    client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
+    RemoteEntityMap, ReplicateResource, Tick,
+};
+use crate::protocol::message::MessageType;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 use crate::protocol::{BitSerializable, EventContext, Protocol};
 use crate::serialize::RawData;
+use crate::server::events::emit_replication_events;
+use crate::server::networking::is_started;
 use crate::shared::events::connection::{
     ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
+use crate::shared::events::systems::push_component_events;
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
+use crate::shared::replication::entity_map::EntityMap;
+use crate::shared::replication::systems::register_replicate_component_send;
 use crate::shared::replication::ReplicationSend;
+use crate::shared::sets::InternalMainSet;
 
 pub type ComponentNetId = NetId;
 
@@ -55,14 +69,14 @@ pub struct ErasedComponentFns {
 
 type SerializeFn<C> = fn(&C, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
 type DeserializeFn<C> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<C>;
-type MapEntitiesFn<C> = fn(&mut C, entity_map: &mut RemoteEntityMap);
+type MapEntitiesFn<C> = fn(&mut C, entity_map: &mut EntityMap);
 
-type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut) -> anyhow::Result<()>;
+type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut ReadWordBuffer,
     &mut EntityWorldMut,
-    &mut RemoteEntityMap,
+    &mut EntityMap,
     &mut ConnectionEvents,
 ) -> anyhow::Result<()>;
 
@@ -99,16 +113,13 @@ impl ComponentRegistry {
         self.kind_map
             .net_id(&ComponentKind::of::<C>())
             .copied()
-            .expect(format!(
-                "Component {} is not registered",
-                std::any::type_name::<C>()
-            ))
+            .expect(format!("Component {} is not registered", std::any::type_name::<C>()).as_str())
     }
     pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
 
-    pub(crate) fn add_component<C: Component>(&mut self) {
+    pub(crate) fn add_component<C: Component + Message>(&mut self) {
         let message_kind = self.kind_map.add::<C>();
         let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
         let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
@@ -128,11 +139,11 @@ impl ComponentRegistry {
         );
     }
 
-    pub(crate) fn add_component_mapped<C: Component + MapEntities>(&mut self) {
+    pub(crate) fn add_component_mapped<C: Component + Message + MapEntities>(&mut self) {
         let message_kind = self.kind_map.add::<C>();
         let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
         let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
-        let map_entities: MapEntitiesFn<C> = <C as MapEntities>::map_entities::<RemoteEntityMap>;
+        let map_entities: MapEntitiesFn<C> = <C as MapEntities>::map_entities::<EntityMap>;
         let write: RawWriteFn = Self::write::<C>;
         let remove: RawRemoveFn = Self::remove::<C>;
         self.fns_map.insert(
@@ -161,14 +172,14 @@ impl ComponentRegistry {
             .context("the component is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<C>() };
         let net_id = self.kind_map.net_id(&kind).unwrap();
-        writer.encode(net_id, Fixed)?;
+        <WriteWordBuffer as WriteBuffer>::encode::<NetId>(writer, net_id, Fixed)?;
         (fns.serialize)(component, writer)
     }
 
     fn internal_deserialize<C: Component>(
         &self,
         reader: &mut ReadWordBuffer,
-        entity_map: &mut RemoteEntityMap,
+        entity_map: &mut EntityMap,
     ) -> anyhow::Result<(NetId, C)> {
         let net_id = reader.decode::<ComponentNetId>(Fixed)?;
         let kind = self
@@ -190,7 +201,7 @@ impl ComponentRegistry {
     pub(crate) fn deserialize<C: Component>(
         &self,
         reader: &mut ReadWordBuffer,
-        entity_map: &mut RemoteEntityMap,
+        entity_map: &mut EntityMap,
     ) -> anyhow::Result<C> {
         let (_, component) = self.internal_deserialize(reader, entity_map)?;
         Ok(component)
@@ -201,7 +212,8 @@ impl ComponentRegistry {
         &self,
         reader: &mut ReadWordBuffer,
         entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut RemoteEntityMap,
+        entity_map: &mut EntityMap,
+        events: &mut ConnectionEvents,
     ) -> anyhow::Result<()> {
         let net_id = reader.decode::<ComponentNetId>(Fixed)?;
         let kind = self
@@ -212,14 +224,14 @@ impl ComponentRegistry {
             .fns_map
             .get(kind)
             .context("the component is not part of the protocol")?;
-        (erased_fns.write)(self, reader, entity_world_mut, entity_map)
+        (erased_fns.write)(self, reader, entity_world_mut, entity_map, events)
     }
 
     pub(crate) fn write<C: Component>(
         &self,
         reader: &mut ReadWordBuffer,
         entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut RemoteEntityMap,
+        entity_map: &mut EntityMap,
         events: &mut ConnectionEvents,
     ) -> anyhow::Result<()> {
         let (net_id, component) = self.internal_deserialize::<C>(reader, entity_map)?;
@@ -246,11 +258,107 @@ impl ComponentRegistry {
         (erased_fns.remove)(self, entity_world_mut);
     }
 
-    pub(crate) fn remove<C: Component>(
-        &self,
-        entity_world_mut: &mut EntityWorldMut,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
         entity_world_mut.remove::<C>();
+    }
+}
+
+/// Add a component to the list of components that can be sent
+pub trait AppComponentExt {
+    fn add_component<C: Component + Message>(&mut self, direction: ChannelDirection);
+
+    fn add_component_mapped<C: Component + Message + MapEntities>(
+        &mut self,
+        direction: ChannelDirection,
+    );
+
+    fn add_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
+
+    fn add_resource_mapped<R: Resource + Message + MapEntities>(
+        &mut self,
+        direction: ChannelDirection,
+    );
+}
+
+fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
+    match direction {
+        ChannelDirection::ClientToServer => {
+            register_replicate_component_send::<C, client::ConnectionManager>(app);
+            crate::server::events::emit_replication_events::<C>(app);
+        }
+        ChannelDirection::ServerToClient => {
+            register_replicate_component_send::<C, server::ConnectionManager>(app);
+            crate::client::events::emit_replication_events::<C>(app);
+        }
+        ChannelDirection::Bidirectional => {
+            register_replicate_component_send::<C, client::ConnectionManager>(app);
+            register_replicate_component_send::<C, server::ConnectionManager>(app);
+        }
+    }
+}
+
+fn register_resource_send<R: Resource + Message>(app: &mut App, direction: ChannelDirection) {
+    match direction {
+        ChannelDirection::ClientToServer => {
+            crate::shared::replication::resources::send::add_resource_send_systems::<
+                client::ConnectionManager,
+                R,
+            >(app);
+            crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                server::ConnectionManager,
+                R,
+            >(app);
+        }
+        ChannelDirection::ServerToClient => {
+            crate::shared::replication::resources::send::add_resource_send_systems::<
+                server::ConnectionManager,
+                R,
+            >(app);
+            crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                client::ConnectionManager,
+                R,
+            >(app);
+        }
+        ChannelDirection::Bidirectional => {
+            register_resource_send::<R>(app, ChannelDirection::ClientToServer);
+            register_resource_send::<R>(app, ChannelDirection::ServerToClient);
+        }
+    }
+}
+
+impl AppComponentExt for App {
+    fn add_component<C: Component + Message>(&mut self, direction: ChannelDirection) {
+        if let Some(mut registry) = self.world.get_resource_mut::<ComponentRegistry>() {
+            registry.add_component::<C>();
+        } else {
+            todo!("create a protocol");
+        }
+        register_component_send::<C>(self, direction);
+    }
+
+    fn add_component_mapped<C: Component + Message + MapEntities>(
+        &mut self,
+        direction: ChannelDirection,
+    ) {
+        if let Some(mut registry) = self.world.get_resource_mut::<ComponentRegistry>() {
+            registry.add_component_mapped::<C>();
+        } else {
+            todo!("create a protocol");
+        }
+        register_component_send::<C>(self, direction);
+    }
+
+    fn add_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
+        self.add_component::<ReplicateResource<R>>(direction);
+        register_resource_send::<R>(self, direction)
+    }
+
+    fn add_resource_mapped<R: Resource + Message + MapEntities>(
+        &mut self,
+        direction: ChannelDirection,
+    ) {
+        self.add_component_mapped::<ReplicateResource<R>>(direction);
+        register_resource_send::<R>(self, direction)
     }
 }
 
@@ -283,15 +391,13 @@ pub trait ComponentProtocol:
     fn update(self, entity: &mut EntityWorldMut);
 
     /// Add systems to send component inserts/removes/updates
-    fn add_per_component_replication_send_systems<R: ReplicationSend<Self::Protocol>>(
-        app: &mut App,
-    );
+    fn add_per_component_replication_send_systems<R: ReplicationSend>(app: &mut App);
 
     /// Add systems needed to replicate resources to remote
-    fn add_resource_send_systems<R: ReplicationSend<Self::Protocol>>(app: &mut App);
+    fn add_resource_send_systems<R: ReplicationSend>(app: &mut App);
 
     /// Add systems needed to receive resources from remote
-    fn add_resource_receive_systems<R: ReplicationSend<Self::Protocol>>(app: &mut App);
+    fn add_resource_receive_systems<R: ReplicationSend>(app: &mut App);
 
     /// Adds Component-related events to the app
     fn add_events<Ctx: EventContext>(app: &mut App);
@@ -300,9 +406,9 @@ pub trait ComponentProtocol:
     //  maybe a standalone EventsPlugin
     /// Takes messages that were written and writes ComponentEvents
     fn push_component_events<
-        E: IterComponentInsertEvent<Self::Protocol, Ctx>
-            + IterComponentRemoveEvent<Self::Protocol, Ctx>
-            + IterComponentUpdateEvent<Self::Protocol, Ctx>,
+        E: IterComponentInsertEvent<Ctx>
+            + IterComponentRemoveEvent<Ctx>
+            + IterComponentUpdateEvent<Ctx>,
         Ctx: EventContext,
     >(
         world: &mut World,

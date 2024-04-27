@@ -272,14 +272,14 @@ impl ReplicationReceiver {
                     //     .collect::<HashSet<P::ComponentKinds>>();
                     debug!(remote_entity = ?entity, "Received InsertComponent");
                     for mut component in actions.insert {
-                        // TODO: re-use buffers via pool?
                         self.reader.reset_read(component.as_slice());
                         let _ = world
                             .resource::<ComponentRegistry>()
                             .raw_write(
                                 &mut self.reader,
                                 &mut local_entity_mut,
-                                &mut self.remote_entity_map,
+                                &mut self.remote_entity_map.remote_to_local,
+                                events,
                             )
                             .inspect_err(|e| {
                                 error!("could not write the component to the entity: {:?}", e)
@@ -301,7 +301,7 @@ impl ReplicationReceiver {
                         events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
                         world
                             .resource::<ComponentRegistry>()
-                            .raw_remove(&mut local_entity_mut);
+                            .raw_remove(kind, &mut local_entity_mut);
                     }
 
                     // updates
@@ -319,7 +319,8 @@ impl ReplicationReceiver {
                             .raw_write(
                                 &mut self.reader,
                                 &mut local_entity_mut,
-                                &mut self.remote_entity_map,
+                                &mut self.remote_entity_map.remote_to_local,
+                                events,
                             )
                             .inspect_err(|e| {
                                 error!("could not write the component to the entity: {:?}", e)
@@ -332,18 +333,22 @@ impl ReplicationReceiver {
                 for (entity, components) in m.updates.into_iter() {
                     debug!(?components, remote_entity = ?entity, "Received UpdateComponent");
                     // update the entity only if it exists
-                    if let Ok(mut local_entity) =
+                    if let Ok(mut local_entity_mut) =
                         self.remote_entity_map.get_by_remote(world, entity)
                     {
                         for mut component in components {
-                            // map any entities inside the component
-                            component.map_entities(&mut self.remote_entity_map);
-                            events.push_update_component(
-                                local_entity.id(),
-                                (&component).into(),
-                                Tick(0),
-                            );
-                            component.update(&mut local_entity);
+                            self.reader.reset_read(component.as_slice());
+                            let _ = world
+                                .resource::<ComponentRegistry>()
+                                .raw_write(
+                                    &mut self.reader,
+                                    &mut local_entity_mut,
+                                    &mut self.remote_entity_map.remote_to_local,
+                                    events,
+                                )
+                                .inspect_err(|e| {
+                                    error!("could not write the component to the entity: {:?}", e)
+                                });
                         }
                     } else {
                         // we can get a few buffered updates after the entity has been despawned

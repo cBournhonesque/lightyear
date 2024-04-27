@@ -42,30 +42,25 @@ impl ClientPlugin {
 //  before the plugin is ready
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        let config = self.config.lock().unwrap().deref_mut().take().unwrap();
-
         app
             // RESOURCES //
-            .insert_resource(config.client_config.clone())
-            .insert_resource(config.protocol.clone())
+            .insert_resource(self.config.clone())
             .init_resource::<MessageRegistry>()
             // PLUGINS //
             .add_plugins(ClientNetworkingPlugin::default())
-            .add_plugins(ClientEventsPlugin::::default())
+            .add_plugins(ClientEventsPlugin::default())
             .add_plugins(ClientDiagnosticsPlugin::default())
-            // .add_plugins(ClientReplicationPlugin::::default())
-            .add_plugins(PredictionPlugin::::default())
-            .add_plugins(InterpolationPlugin::::new(
-                config.client_config.interpolation.clone(),
-            ));
+            .add_plugins(ClientReplicationPlugin::default())
+            .add_plugins(PredictionPlugin::default())
+            .add_plugins(InterpolationPlugin::new(self.config.interpolation.clone()));
 
         // TODO: how do we make sure that SharedPlugin is only added once if we want to switch between
         //  HostServer and Separate mode?
-        if config.client_config.shared.mode == Mode::Separate {
+        if self.config.shared.mode == Mode::Separate {
             app
                 // PLUGINS
                 .add_plugins(SharedPlugin {
-                    config: config.client_config.shared.clone(),
+                    config: self.config.shared.clone(),
                     ..default()
                 });
         }

@@ -238,14 +238,14 @@ fn send_entity_spawn<R: ReplicationSend>(
 /// (currently we only check for the second condition, which is enough but less efficient)
 ///
 /// NOTE: cannot use ConnectEvents because they are reset every frame
-fn send_component_update<C: Component + Clone, R: ReplicationSend>(
+pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
     registry: Res<ComponentRegistry>,
     query: Query<(Entity, Ref<C>, Ref<Replicate>)>,
     system_bevy_ticks: SystemChangeTick,
     mut sender: ResMut<R>,
 ) {
     let kind = registry.net_id::<C>();
-    query.par_iter().for_each(|(entity, component, replicate)| {
+    query.iter().for_each(|(entity, component, replicate)| {
         // do not replicate components that are disabled
         if replicate.is_disabled::<C>(registry.as_ref()) {
             return;
@@ -374,7 +374,7 @@ fn send_component_update<C: Component + Clone, R: ReplicationSend>(
 }
 
 /// This system sends updates for all components that were removed
-fn send_component_removed<C: Component + Clone, R: ReplicationSend>(
+pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
     registry: Res<ComponentRegistry>,
     // only remove the component for entities that are being actively replicated
     query: Query<&Replicate>,
@@ -466,20 +466,18 @@ pub fn add_replication_send_systems<R: ReplicationSend>(app: &mut App) {
     );
 }
 
-pub fn add_per_component_replication_send_systems<C: Component + Clone, R: ReplicationSend>(
-    app: &mut App,
-) {
+pub(crate) fn register_replicate_component_send<C: Component, R: ReplicationSend>(app: &mut App) {
     app.add_systems(
         PostUpdate,
         (
             // NOTE: we need to run `send_component_removed` once per frame (and not once per send_interval)
             //  because the RemovedComponents Events are present only for 1 frame and we might miss them if we don't run this every frame
             //  It is ok to run it every frame because it creates at most one message per despawn
-            send_component_removed::<C, R>
+            crate::shared::replication::systems::send_component_removed::<C, R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendDespawnsAndRemovals),
             // NOTE: we run this system once every `send_interval` because we don't want to send too many Update messages
             //  and use up all the bandwidth
-            send_component_update::<C, R>
+            crate::shared::replication::systems::send_component_update::<C, R>
                 .in_set(InternalReplicationSet::<R::SetMarker>::SendComponentUpdates),
         ),
     );

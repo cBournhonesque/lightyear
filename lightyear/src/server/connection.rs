@@ -56,7 +56,7 @@ pub struct ConnectionManager {
     pub(crate) component_registry: ComponentRegistry,
     pub(crate) message_registry: MessageRegistry,
     channel_registry: ChannelRegistry,
-    // pub(crate) events: ServerEvents,
+    pub(crate) events: ServerEvents,
 
     // NOTE: we put this here because we only need one per world, not one per connection
     /// Stores the last `Replicate` component for each replicated entity owned by the current world (the world that sends replication updates)
@@ -85,7 +85,7 @@ impl ConnectionManager {
             component_registry,
             message_registry,
             channel_registry,
-            // events: ServerEvents::new(),
+            events: ServerEvents::new(),
             replicate_component_cache: EntityHashMap::default(),
             new_clients: vec![],
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
@@ -309,7 +309,7 @@ impl Connection {
             replication_sender,
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
-            // events: ConnectionEvents::default(),
+            events: ConnectionEvents::default(),
             received_messages: HashMap::default(),
             received_input_messages: HashMap::default(),
             #[cfg(feature = "leafwing")]
@@ -511,7 +511,7 @@ impl Connection {
                             if target != NetworkTarget::None {
                                 self.messages_to_rebroadcast.push((
                                     message.clone(),
-                                    target,
+                                    target.clone(),
                                     channel_kind,
                                 ));
                             }
@@ -572,7 +572,13 @@ impl Connection {
 }
 
 impl ReplicationSend for ConnectionManager {
+    type Events = ServerEvents;
+    type EventContext = ClientId;
     type SetMarker = ServerMarker;
+
+    fn events(&mut self) -> &mut Self::Events {
+        &mut self.events
+    }
 
     fn writer(&mut self) -> &mut WriteWordBuffer {
         &mut self.writer

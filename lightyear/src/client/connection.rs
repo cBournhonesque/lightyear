@@ -71,7 +71,7 @@ pub struct ConnectionManager {
     pub(crate) message_manager: MessageManager,
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
-    // pub(crate) events: ConnectionEvents,
+    pub(crate) events: ConnectionEvents,
     pub(crate) ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
 
@@ -115,7 +115,7 @@ impl ConnectionManager {
             replication_receiver,
             ping_manager: PingManager::new(ping_config),
             sync_manager: SyncManager::new(sync_config, input_delay_ticks),
-            // events: ConnectionEvents::default(),
+            events: ConnectionEvents::default(),
             received_messages: HashMap::default(),
             writer: WriteWordBuffer::with_capacity(PACKET_BUFFER_CAPACITY),
             // TODO: it looks like we don't really need the pool this case, we can just keep re-using the same buffer
@@ -261,7 +261,7 @@ impl ConnectionManager {
                 // TODO: doesn't this serialize the bytes twice?
                 let message_bytes = self.writer.finish_write().to_vec();
                 trace!("Sending replication message: {:?}", message);
-                message.emit_send_logs(&channel_name);
+                // message.emit_send_logs(&channel_name);
                 let message_id = self
                     .message_manager
                     .buffer_send_with_priority(message_bytes, channel, priority)?
@@ -454,7 +454,13 @@ impl ConnectionManager {
 }
 
 impl ReplicationSend for ConnectionManager {
+    type Events = ConnectionEvents;
+    type EventContext = ();
     type SetMarker = ClientMarker;
+
+    fn events(&mut self) -> &mut Self::Events {
+        &mut self.events
+    }
 
     fn writer(&mut self) -> &mut WriteWordBuffer {
         &mut self.writer

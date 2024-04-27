@@ -60,10 +60,16 @@ fn read_message<M: Message>(
             // TODO: reuse buffer
             let mut reader = ReadWordBuffer::start_read(&message);
             // we have to re-decode the net id
-            let message = message_registry.deserialize::<M>(
+            let Ok(message) = message_registry.deserialize::<M>(
                 &mut reader,
-                &mut connection.replication_receiver.remote_entity_map,
-            );
+                &mut connection
+                    .replication_receiver
+                    .remote_entity_map
+                    .remote_to_local,
+            ) else {
+                error!("Could not deserialize message");
+                continue;
+            };
             // reader
             //     .decode::<NetId>(Fixed)
             //     .expect("could not decode net id");
@@ -101,7 +107,6 @@ impl BitSerializable for ClientMessage {
     }
 }
 
-//
 // impl ClientMessage {
 //     pub(crate) fn emit_send_logs(&self, channel_name: &str) {
 //         match self {

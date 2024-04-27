@@ -22,7 +22,6 @@ use crate::shared::tick_manager::Tick;
 /// - If the entity is confirmed, we despawn both the predicted and confirmed entities
 pub struct PredictionDespawnCommand {
     entity: Entity,
-    _marker: PhantomData,
 }
 
 #[derive(Component, PartialEq, Debug, Reflect)]
@@ -83,10 +82,7 @@ pub trait PredictionDespawnCommandsExt {
 impl PredictionDespawnCommandsExt for EntityCommands<'_> {
     fn prediction_despawn(&mut self) {
         let entity = self.id();
-        self.commands().add(PredictionDespawnCommand {
-            entity,
-            _marker: PhantomData::,
-        })
+        self.commands().add(PredictionDespawnCommand { entity })
     }
 }
 

@@ -19,9 +19,9 @@ pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 /// Struct to map a type to an id that can be serialized over the network
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeMapper<K: TypeKind> {
-    pub(in crate::protocol) next_net_id: NetId,
-    pub(in crate::protocol) kind_map: HashMap<K, NetId>,
-    pub(in crate::protocol) id_map: HashMap<NetId, K>,
+    pub(crate) next_net_id: NetId,
+    pub(crate) kind_map: HashMap<K, NetId>,
+    pub(crate) id_map: HashMap<NetId, K>,
 }
 
 impl<K: TypeKind> Default for TypeMapper<K> {

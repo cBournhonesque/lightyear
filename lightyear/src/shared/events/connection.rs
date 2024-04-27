@@ -10,7 +10,7 @@ use crate::_reexport::{FromType, MessageProtocol};
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
-use crate::prelude::Tick;
+use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentNetId;
 use crate::protocol::message::MessageKind;
@@ -195,18 +195,12 @@ impl IterEntityDespawnEvent for ConnectionEvents {
 }
 
 /// Iterate through all the events for a given entity
-pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
+pub trait IterComponentUpdateEvent<Ctx: EventContext = ()> {
     /// Find all the updates of component C
     fn iter_component_update<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
-    where
-        P::ComponentKinds: FromType<C>;
-
-    /// Is there any update for component C
-    fn has_component_update<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>;
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
 
     // /// Find all the updates of component C for a given entity
     // fn get_component_update<C: Component>(&self, entity: Entity) -> Option<Ctx>
@@ -215,11 +209,11 @@ pub trait IterComponentUpdateEvent<P: Protocol, Ctx: EventContext = ()> {
 }
 
 impl IterComponentUpdateEvent for ConnectionEvents {
-    fn iter_component_update<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
+    fn iter_component_update<C: Component>(
+        &mut self,
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+        let component_kind = component_registry.net_id::<C>();
         if let Some(data) = self.component_updates.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
@@ -231,15 +225,6 @@ impl IterComponentUpdateEvent for ConnectionEvents {
         //             updates.get(&C::into_kind()).map(|tick| (*entity, *tick))
         //         }),
         // )
-    }
-
-    fn has_component_update<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.component_updates.contains_key(&component_kind)
-        // self.components_with_updates.contains(&C::into_kind())
     }
 
     // // TODO: is it possible to receive multiple updates for the same component/entity?
@@ -257,68 +242,44 @@ impl IterComponentUpdateEvent for ConnectionEvents {
     // }
 }
 
-pub trait IterComponentRemoveEvent<P: Protocol, Ctx: EventContext = ()> {
+pub trait IterComponentRemoveEvent<Ctx: EventContext = ()> {
     fn iter_component_remove<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
-    where
-        P::ComponentKinds: FromType<C>;
-    fn has_component_remove<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>;
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
 }
 
 // TODO: move these implementations to client?
 impl IterComponentRemoveEvent for ConnectionEvents {
-    fn iter_component_remove<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
+    fn iter_component_remove<C: Component>(
+        &mut self,
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+        let component_kind = component_registry.net_id::<C>();
         if let Some(data) = self.component_removes.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
         Box::new(iter::empty())
     }
-
-    fn has_component_remove<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.component_removes.contains_key(&component_kind)
-    }
 }
 
-pub trait IterComponentInsertEvent<P: Protocol, Ctx: EventContext = ()> {
+pub trait IterComponentInsertEvent<Ctx: EventContext = ()> {
     fn iter_component_insert<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>
-    where
-        P::ComponentKinds: FromType<C>;
-    fn has_component_insert<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>;
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
 }
 
 impl IterComponentInsertEvent for ConnectionEvents {
-    fn iter_component_insert<C: Component>(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
+    fn iter_component_insert<C: Component>(
+        &mut self,
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+        let component_kind = component_registry.net_id::<C>();
         if let Some(data) = self.component_inserts.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
         }
         Box::new(iter::empty())
-    }
-
-    fn has_component_insert<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        let component_kind = <P::ComponentKinds as FromType<C>>::from_type();
-        self.component_inserts.contains_key(&component_kind)
     }
 }
 

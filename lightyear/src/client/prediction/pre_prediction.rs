@@ -16,17 +16,8 @@ use crate::shared::sets::InternalReplicationSet;
 use bevy::prelude::*;
 use tracing::{debug, error, trace, warn};
 
-pub(crate) struct PrePredictionPlugin {
-    marker: std::marker::PhantomData,
-}
-
-impl Default for PrePredictionPlugin {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub(crate) struct PrePredictionPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PrePredictionSet {

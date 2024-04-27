@@ -17,22 +17,14 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ShouldBePredicted, Tick, TickManager};
+use crate::prelude::{ComponentRegistry, ShouldBePredicted, Tick, TickManager};
+use crate::protocol::component::ComponentKind;
 use crate::protocol::Protocol;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 
-pub(crate) struct PreSpawnedPlayerObjectPlugin {
-    marker: std::marker::PhantomData,
-}
-
-impl Default for PreSpawnedPlayerObjectPlugin {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub(crate) struct PreSpawnedPlayerObjectPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PreSpawnedPlayerObjectSet {
@@ -109,19 +101,21 @@ impl PreSpawnedPlayerObjectPlugin {
         };
 
         world.resource_scope(|world: &mut World, mut manager: Mut<PredictionManager>| {
-            let components = world.components();
+            world.resource_scope(
+                |world: &mut World, mut component_registry: Mut<ComponentRegistry>| {
+                    let components = world.components();
 
-            // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
-            let mut pre_spawned_query = world
+                    // ignore confirmed entities just in case we somehow didn't remove their hash during PreUpdate
+                    let mut pre_spawned_query = world
                 .query_filtered::<(EntityRef, Ref<PreSpawnedPlayerObject>), Without<Confirmed>>();
-            // let mut predicted_entities = vec![];
-            for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
-                // we only care about newly-added PreSpawnedPlayerObject components
-                if !prespawn.is_added() {
-                    continue;
-                }
-                let entity = entity_ref.id();
-                let hash = prespawn.hash.map_or_else(
+                    // let mut predicted_entities = vec![];
+                    for (entity_ref, prespawn) in pre_spawned_query.iter(world) {
+                        // we only care about newly-added PreSpawnedPlayerObject components
+                        if !prespawn.is_added() {
+                            continue;
+                        }
+                        let entity = entity_ref.id();
+                        let hash = prespawn.hash.map_or_else(
                     || {
                         // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
                         // TODO: should I create the hasher once outside?
@@ -145,8 +139,6 @@ impl PreSpawnedPlayerObjectPlugin {
                         // // TODO: we only want to use components from the protocol, because server/client might use a lot of different stuff...
                         // entity_ref.contains_type_id()
 
-                        let protocol_component_types = P::Components::type_ids();
-
                         // NOTE: we cannot call hash() multiple times because the components in the archetype
                         //  might get iterated in any order!
                         //  Instead we will get the sorted list of types to hash first, sorted by type_id
@@ -163,7 +155,7 @@ impl PreSpawnedPlayerObjectPlugin {
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
                                     {
-                                        return protocol_component_types.get(&type_id).copied();
+                                        return component_registry.kind_map.net_id(&ComponentKind::from(type_id)).copied();
                                     }
                                 }
                                 None
@@ -193,29 +185,31 @@ impl PreSpawnedPlayerObjectPlugin {
                     },
                 );
 
-                // TODO: what to do in multiple entities share the same hash?
-                //  just match a random one of them? or should the user have a more precise hash?
-                manager
-                    .prespawn_hash_to_entities
-                    .entry(hash)
-                    .or_default()
-                    .push(entity);
-                // add a timer on the entity so that it gets despawned if the interpolation tick
-                // reaches it without matching with any server entity
-                manager.prespawn_tick_to_hash.add_item(tick, hash);
-                // predicted_entities.push(entity);
-            }
+                        // TODO: what to do in multiple entities share the same hash?
+                        //  just match a random one of them? or should the user have a more precise hash?
+                        manager
+                            .prespawn_hash_to_entities
+                            .entry(hash)
+                            .or_default()
+                            .push(entity);
+                        // add a timer on the entity so that it gets despawned if the interpolation tick
+                        // reaches it without matching with any server entity
+                        manager.prespawn_tick_to_hash.add_item(tick, hash);
+                        // predicted_entities.push(entity);
+                    }
 
-            // NOTE: originally I wanted to remove PreSpawnedPlayerObject here because I wanted to call `compute_hash`
-            // at PostUpdate, which would run twice (at the end of FixedUpdate and at PostUpdate)
-            // But actually we need the component to be present so that we spawn a ComponentHistory
+                    // NOTE: originally I wanted to remove PreSpawnedPlayerObject here because I wanted to call `compute_hash`
+                    // at PostUpdate, which would run twice (at the end of FixedUpdate and at PostUpdate)
+                    // But actually we need the component to be present so that we spawn a ComponentHistory
 
-            // for entity in predicted_entities {
-            //     info!("remove PreSpawnedPlayerObject");
-            //     // we stored the relevant information in the PredictionManager resource
-            //     // so we can remove the component here
-            //     world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
-            // }
+                    // for entity in predicted_entities {
+                    //     info!("remove PreSpawnedPlayerObject");
+                    //     // we stored the relevant information in the PredictionManager resource
+                    //     // so we can remove the component here
+                    //     world.entity_mut(entity).remove::<PreSpawnedPlayerObject>();
+                    // }
+                },
+            );
         });
     }
 

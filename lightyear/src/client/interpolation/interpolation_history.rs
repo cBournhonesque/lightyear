@@ -108,7 +108,7 @@ pub(crate) fn add_component_history<C: SyncComponent, P: Protocol>(
                     let mut new_component = confirmed_component.deref().clone();
                     P::Components::map_entities_for(
                         &mut new_component,
-                        &mut manager.interpolated_entity_map,
+                        &mut manager.interpolated_entity_map.confirmed_to_interpolated,
                     );
                     match P::Components::mode() {
                         ComponentSyncMode::Full => {
@@ -174,7 +174,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent, P: Protocol>(
                     let mut component = confirmed_component.deref().clone();
                     P::Components::map_entities_for(
                         &mut component,
-                        &mut manager.interpolated_entity_map,
+                        &mut manager.interpolated_entity_map.confirmed_to_interpolated,
                     );
                     trace!(?kind, tick = ?tick, "adding confirmed update to history");
                     // update the history at the value that the entity currently is
@@ -206,7 +206,7 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent, P: Protocol>(
                     let mut component = confirmed_component.deref().clone();
                     P::Components::map_entities_for(
                         &mut component,
-                        &mut manager.interpolated_entity_map,
+                        &mut manager.interpolated_entity_map.confirmed_to_interpolated,
                     );
                     *interpolated_component = component;
                 }

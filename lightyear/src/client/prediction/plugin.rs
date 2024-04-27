@@ -90,25 +90,8 @@ impl PredictionConfig {
 }
 
 /// Plugin that enables client-side prediction
-pub struct PredictionPlugin {
-    _marker: PhantomData,
-}
-
-impl PredictionPlugin {
-    pub(crate) fn new() -> Self {
-        Self {
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl Default for PredictionPlugin {
-    fn default() -> Self {
-        Self {
-            _marker: PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct PredictionPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PredictionSet {
@@ -151,17 +134,17 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
     rollback.is_some_and(|rollback| matches!(rollback.state, RollbackState::ShouldRollback { .. }))
 }
 
-pub fn add_prediction_systems<C: SyncComponent, P: Protocol>(app: &mut App)
-where
-    P::ComponentKinds: FromType<C>,
-    P::Components: SyncMetadata<C>,
-    P::Components: ExternalMapper<C>,
+pub fn add_prediction_systems<C: SyncComponent>(app: &mut App)
+// where
+//     P::ComponentKinds: FromType<C>,
+//     P::Components: SyncMetadata<C>,
+//     P::Components: ExternalMapper<C>,
 {
     app.add_systems(
         PreUpdate,
         (
             // handle components being added
-            add_component_history::<C, P>.in_set(PredictionSet::SpawnHistory),
+            add_component_history::<C>.in_set(PredictionSet::SpawnHistory),
         ),
     );
     match P::Components::mode() {
@@ -285,7 +268,7 @@ impl Plugin for PredictionPlugin {
                     // - we first check if the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted
                     // - then we check if it is a PrePredicted entity. If match, remove ShouldBePredicted
                     // - then we check if we should spawn a new predicted entity
-                    spawn_predicted_entity::
+                    spawn_predicted_entity
                         .after(PreSpawnedPlayerObjectSet::Spawn)
                         .after(PrePredictionSet::Spawn),
                     // NOTE: we put `despawn_confirmed` here because we only need to run it once per frame,
@@ -339,8 +322,8 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((
-            PrePredictionPlugin::::default(),
-            PreSpawnedPlayerObjectPlugin::::default(),
+            PrePredictionPlugin::default(),
+            PreSpawnedPlayerObjectPlugin::default(),
         ));
     }
 }

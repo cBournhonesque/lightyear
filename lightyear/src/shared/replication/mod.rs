@@ -11,7 +11,10 @@ use bevy::utils::HashSet;
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ComponentProtocol, ComponentProtocolKind, WriteWordBuffer};
+use crate::_reexport::{
+    ComponentProtocol, ComponentProtocolKind, IterComponentInsertEvent, IterComponentRemoveEvent,
+    IterComponentUpdateEvent, WriteWordBuffer,
+};
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
 use crate::packet::message::MessageId;
@@ -98,12 +101,17 @@ pub struct ReplicationMessage {
 ///
 /// The trait is made public because it is needed in the macros
 pub trait ReplicationSend: Resource {
+    type Events: IterComponentInsertEvent<Self::EventContext>
+        + IterComponentRemoveEvent<Self::EventContext>
+        + IterComponentUpdateEvent<Self::EventContext>;
     // Type of the context associated with the events emitted by this replication plugin
-    // type EventContext: EventContext;
+    type EventContext: EventContext;
     /// Marker to identify the type of the ReplicationSet component
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times
     /// (in the client and the server replication plugins)
     type SetMarker: Debug + Hash + Send + Sync + Eq + Clone;
+
+    fn events(&mut self) -> &mut Self::Events;
 
     fn writer(&mut self) -> &mut WriteWordBuffer;
 

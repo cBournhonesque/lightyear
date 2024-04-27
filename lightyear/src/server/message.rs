@@ -66,7 +66,10 @@ fn read_message<M: Message>(
                 let mut message = M::decode(&mut reader).expect("could not decode message");
                 message_registry.map_entities(
                     &mut message,
-                    &mut connection.replication_receiver.remote_entity_map,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
                 );
                 if target != NetworkTarget::None {
                     connection.messages_to_rebroadcast.push((

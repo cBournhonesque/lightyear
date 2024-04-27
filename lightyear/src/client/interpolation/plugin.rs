@@ -93,28 +93,14 @@ impl InterpolationConfig {
     }
 }
 
+#[derive(Default)]
 pub struct InterpolationPlugin {
     config: InterpolationConfig,
-
-    // minimum_snapshots
-    _marker: PhantomData,
 }
 
 impl InterpolationPlugin {
     pub(crate) fn new(config: InterpolationConfig) -> Self {
-        Self {
-            config,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl Default for InterpolationPlugin {
-    fn default() -> Self {
-        Self {
-            config: InterpolationConfig::default(),
-            _marker: PhantomData,
-        }
+        Self { config }
     }
 }
 
@@ -241,7 +227,7 @@ impl Plugin for InterpolationPlugin {
         app.add_systems(
             Update,
             (
-                spawn_interpolated_entity::.in_set(InterpolationSet::SpawnInterpolation),
+                spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
                 despawn_interpolated.in_set(InterpolationSet::Despawn),
             ),
         );

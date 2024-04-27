@@ -12,6 +12,8 @@ use crate::serialize::writer::WriteBuffer;
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
 use bevy::ecs::entity::MapEntities;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 // strategies to avoid copying:
 // - have a net_id for each message or component
@@ -27,8 +29,8 @@ wrapping_id!(MessageId);
 ///
 /// Every type that can be sent over the network must implement this trait.
 ///
-pub trait Message: EventContext + BitSerializable {}
-impl<T: EventContext + BitSerializable> Message for T {}
+pub trait Message: EventContext + BitSerializable + DeserializeOwned + Serialize {}
+impl<T: EventContext + BitSerializable + DeserializeOwned + Serialize> Message for T {}
 
 pub type FragmentIndex = u8;
 

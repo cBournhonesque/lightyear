@@ -6,11 +6,14 @@ use crate::shared::replication::components::Replicate;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 use async_compat::CompatExt;
 use bevy::app::App;
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::system::Command;
 use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, IntoSystemConfigs, IntoSystemSetConfigs, Plugin,
-    PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource, SystemSet, With, World,
+    Commands, Component, DetectChanges, Entity, EntityMapper, IntoSystemConfigs,
+    IntoSystemSetConfigs, Plugin, PostUpdate, PreUpdate, Query, Ref, Res, ResMut, Resource,
+    SystemSet, With, World,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use tracing::error;
@@ -86,6 +89,7 @@ mod command {
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
     }
 }
+use crate::protocol::BitSerializable;
 pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};
 
 /// This component can be added to an entity to start replicating a [`Resource`] to remote clients.
@@ -97,6 +101,14 @@ pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResou
 #[derive(Component, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReplicateResource<R> {
     resource: Option<R>,
+}
+
+impl<R: MapEntities> MapEntities for ReplicateResource<R> {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.resource
+            .as_mut()
+            .map(|r| r.map_entities(entity_mapper));
+    }
 }
 
 impl<R> Default for ReplicateResource<R> {
@@ -128,11 +140,12 @@ pub(crate) mod send {
                 InternalReplicationSet::<R::SetMarker>::SendResourceUpdates
                     .before(InternalReplicationSet::<R::SetMarker>::SendComponentUpdates),
             );
-            P::Components::add_resource_send_systems::<R>(app);
         }
     }
 
-    pub fn add_resource_send_systems<S: ReplicationSend, R: Resource + Clone>(app: &mut App) {
+    pub(crate) fn add_resource_send_systems<S: ReplicationSend, R: Resource + Clone>(
+        app: &mut App,
+    ) {
         app.add_systems(
             PostUpdate,
             copy_send_resource::<R>
@@ -194,11 +207,12 @@ pub(crate) mod receive {
                 InternalReplicationSet::<R::SetMarker>::ReceiveResourceUpdates
                     .after(InternalMainSet::<R::SetMarker>::Receive),
             );
-            P::Components::add_resource_receive_systems::<R>(app);
         }
     }
 
-    pub fn add_resource_receive_systems<S: ReplicationSend, R: Resource + Clone>(app: &mut App) {
+    pub(crate) fn add_resource_receive_systems<S: ReplicationSend, R: Resource + Clone>(
+        app: &mut App,
+    ) {
         app.add_systems(
             PreUpdate,
             (copy_receive_resource::<R>, handle_despawned_entity::<R>)

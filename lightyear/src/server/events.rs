@@ -12,6 +12,7 @@ use crate::connection::id::ClientId;
 #[cfg(feature = "leafwing")]
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
+use crate::prelude::{server, ComponentRegistry};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::{clear_events, is_started};
@@ -21,30 +22,22 @@ use crate::shared::events::connection::{
     ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
 };
 use crate::shared::events::plugin::EventsPlugin;
+use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::InternalMainSet;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 /// Plugin that handles generating bevy [`Events`] related to networking and replication
-pub struct ServerEventsPlugin {
-    marker: std::marker::PhantomData,
-}
-
-impl Default for ServerEventsPlugin {
-    fn default() -> Self {
-        Self {
-            marker: std::marker::PhantomData,
-        }
-    }
-}
+#[derive(Default)]
+pub struct ServerEventsPlugin;
 
 impl Plugin for ServerEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // PLUGIN
-            .add_plugins(EventsPlugin::<P, ClientId>::default())
+            .add_plugins(EventsPlugin::<ClientId>::default())
             // SYSTEM_SET
-            .add_systems(PostUpdate, clear_events::.run_if(is_started));
+            .add_systems(PostUpdate, clear_events.run_if(is_started));
     }
 }
 
@@ -54,6 +47,15 @@ pub struct ServerEvents {
     pub disconnections: Vec<ClientId>,
     pub events: HashMap<ClientId, ConnectionEvents>,
     pub empty: bool,
+}
+
+pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
+    app.add_systems(
+        PreUpdate,
+        push_component_events::<C, ConnectionManager>
+            .after(InternalMainSet::<ServerMarker>::Receive)
+            .run_if(is_started),
+    );
 }
 
 impl ServerEvents {
@@ -136,51 +138,6 @@ impl ServerEvents {
     }
 }
 
-#[cfg(feature = "leafwing")]
-impl IterInputMessageEvent<P, ClientId> for ServerEvents {
-    fn into_iter_input_messages<A: LeafwingUserAction>(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (InputMessage<A>, ClientId)> + '_>
-    where
-        P::Message: TryInto<InputMessage<A>, Error = ()>,
-    {
-        trace!("num client events: {:?}", self.events.len());
-        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
-            trace!("reading all input messages for client: {:?}", client_id);
-            let messages = events
-                .into_iter_input_messages::<A>()
-                .map(|(message, _)| message);
-            let client_ids = std::iter::once(*client_id).cycle();
-            messages.zip(client_ids)
-        }))
-    }
-
-    fn has_input_messages<A: LeafwingUserAction>(&self) -> bool {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_input_messages::<A>())
-    }
-}
-
-impl IterMessageEvent<P, ClientId> for ServerEvents {
-    fn into_iter_messages<M: Message>(&mut self) -> Box<dyn Iterator<Item = (M, ClientId)> + '_>
-    where
-        P::Message: TryInto<M, Error = ()>,
-    {
-        Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
-            let messages = events.into_iter_messages::<M>().map(|(message, _)| message);
-            let client_ids = std::iter::once(*client_id).cycle();
-            messages.zip(client_ids)
-        }))
-    }
-
-    fn has_messages<M: Message>(&self) -> bool {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_messages::<M>())
-    }
-}
-
 impl IterEntitySpawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
@@ -213,81 +170,48 @@ impl IterEntityDespawnEvent<ClientId> for ServerEvents {
     }
 }
 
-impl IterComponentUpdateEvent<P, ClientId> for ServerEvents {
+impl IterComponentUpdateEvent<ClientId> for ServerEvents {
     fn iter_component_update<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_update::<C>()
+                .iter_component_update::<C>(component_registry)
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }
-
-    fn has_component_update<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_component_update::<C>())
-    }
 }
 
-impl IterComponentRemoveEvent<P, ClientId> for ServerEvents {
+impl IterComponentRemoveEvent<ClientId> for ServerEvents {
     fn iter_component_remove<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_remove::<C>()
+                .iter_component_remove::<C>(component_registry)
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
-    }
-
-    fn has_component_remove<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_component_remove::<C>())
     }
 }
 
-impl IterComponentInsertEvent<P, ClientId> for ServerEvents {
+impl IterComponentInsertEvent<ClientId> for ServerEvents {
     fn iter_component_insert<C: Component>(
         &mut self,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_>
-    where
-        P::ComponentKinds: FromType<C>,
-    {
+        component_registry: &ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
-                .iter_component_insert::<C>()
+                .iter_component_insert::<C>(component_registry)
                 .map(|(entity, _)| entity);
             let client_ids = std::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
-    }
-
-    fn has_component_insert<C: Component>(&self) -> bool
-    where
-        P::ComponentKinds: FromType<C>,
-    {
-        self.events
-            .iter()
-            .any(|(_, connection_events)| connection_events.has_component_insert::<C>())
     }
 }
 
