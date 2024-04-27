@@ -124,7 +124,7 @@ pub(crate) fn movement(
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)
 pub(crate) fn send_message(
-    mut server: ResMut<ServerConnectionManager>,
+    mut server: ResMut<ConnectionManager>,
     input: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {

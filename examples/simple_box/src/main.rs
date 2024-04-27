@@ -29,7 +29,6 @@ use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::client::ExampleClientPlugin;
-use crate::protocol::protocol;
 use crate::server::ExampleServerPlugin;
 use crate::settings::*;
 use crate::shared::{shared_config, SharedPlugin};
@@ -168,9 +167,8 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         net: net_config,
         ..default()
     };
-    let plugin_config = client::PluginConfig::new(client_config, protocol());
     app.add_plugins((
-        client::ClientPlugin::new(plugin_config),
+        client::ClientPlugin::new(client_config),
         ExampleClientPlugin,
         SharedPlugin,
     ));
@@ -206,7 +204,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
+        server::ServerPlugin::new(server_config),
         ExampleServerPlugin,
         SharedPlugin,
     ));
@@ -242,7 +240,7 @@ fn combined_app(
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
+        server::ServerPlugin::new(server_config),
         ExampleServerPlugin,
     ));
 
@@ -256,9 +254,8 @@ fn combined_app(
         },
         ..default()
     };
-    let plugin_config = client::PluginConfig::new(client_config, protocol());
     app.add_plugins((
-        client::ClientPlugin::new(plugin_config),
+        client::ClientPlugin::new(client_config),
         ExampleClientPlugin,
     ));
     // shared plugin
