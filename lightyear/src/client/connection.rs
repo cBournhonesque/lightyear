@@ -343,6 +343,8 @@ impl ConnectionManager {
                     // other message-handling logic
                     match message {
                         ServerMessage::Message(mut message) => {
+                            // reset the reader to read the inner bytes
+                            reader.reset_read(message.as_ref());
                             // TODO:
                             //  - read the message kind from the bytes
                             //  - send the remaining message bytes to a typed system via a channel (maybe directly the MessageEvent channel?)
@@ -350,7 +352,6 @@ impl ConnectionManager {
                             let net_id = reader
                                 .decode::<NetId>(Fixed)
                                 .expect("could not decode MessageKind");
-                            error!(?net_id, "client received message");
                             self.received_messages
                                 .entry(net_id)
                                 .or_default()

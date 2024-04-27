@@ -214,12 +214,12 @@ pub(crate) fn send(
     mut connection: ResMut<ConnectionManager>,
 ) {
     trace!("Send packets to server");
-    // // finalize any packets that are needed for replication
-    // connection
-    //     .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
-    //     .unwrap_or_else(|e| {
-    //         error!("Error preparing replicate send: {}", e);
-    //     });
+    // finalize any packets that are needed for replication
+    connection
+        .buffer_replication_messages(tick_manager.tick(), system_change_tick.this_run())
+        .unwrap_or_else(|e| {
+            error!("Error preparing replicate send: {}", e);
+        });
     // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
         .send_packets(time_manager.as_ref(), tick_manager.as_ref())

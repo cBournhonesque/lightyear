@@ -23,7 +23,7 @@ use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::client::components::{ComponentSyncMode, SyncMetadata};
 use crate::client::config::ClientConfig;
@@ -83,6 +83,7 @@ type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
     &ComponentRegistry,
     &mut ReadWordBuffer,
+    ComponentNetId,
     &mut EntityWorldMut,
     &mut EntityMap,
     &mut ConnectionEvents,
@@ -263,16 +264,23 @@ impl ComponentRegistry {
             .context("the component is not part of the protocol")?;
         let fns = unsafe { erased_fns.typed::<C>() };
         let net_id = self.kind_map.net_id(&kind).unwrap();
+        trace!(
+            ?net_id,
+            "serializing component: {:?}",
+            std::any::type_name::<C>()
+        );
         <WriteWordBuffer as WriteBuffer>::encode::<NetId>(writer, net_id, Fixed)?;
         (fns.serialize)(component, writer)
     }
 
-    fn internal_deserialize<C: Component>(
+    /// Deserialize only the component value (the ComponentNetId has already been read)
+    fn raw_deserialize<C: Component>(
         &self,
         reader: &mut ReadWordBuffer,
+        net_id: ComponentNetId,
         entity_map: &mut EntityMap,
-    ) -> anyhow::Result<(NetId, C)> {
-        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+    ) -> anyhow::Result<C> {
+        // let net_id = reader.decode::<ComponentNetId>(Fixed)?;
         let kind = self
             .kind_map
             .kind(net_id)
@@ -286,7 +294,7 @@ impl ComponentRegistry {
         if let Some(map_entities) = fns.map_entities {
             map_entities(&mut component, entity_map);
         }
-        Ok((net_id, component))
+        Ok(component)
     }
 
     pub(crate) fn deserialize<C: Component>(
@@ -294,8 +302,8 @@ impl ComponentRegistry {
         reader: &mut ReadWordBuffer,
         entity_map: &mut EntityMap,
     ) -> anyhow::Result<C> {
-        let (_, component) = self.internal_deserialize(reader, entity_map)?;
-        Ok(component)
+        let net_id = reader.decode::<ComponentNetId>(Fixed)?;
+        self.raw_deserialize(reader, net_id, entity_map)
     }
 
     pub(crate) fn map_entities<C: Component>(&self, component: &mut C, entity_map: &mut EntityMap) {
@@ -381,20 +389,21 @@ impl ComponentRegistry {
             .fns_map
             .get(kind)
             .context("the component is not part of the protocol")?;
-        (erased_fns.write)(self, reader, entity_world_mut, entity_map, events)
+        (erased_fns.write)(self, reader, net_id, entity_world_mut, entity_map, events)
     }
 
     pub(crate) fn write<C: Component>(
         &self,
         reader: &mut ReadWordBuffer,
+        net_id: ComponentNetId,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut EntityMap,
         events: &mut ConnectionEvents,
     ) -> anyhow::Result<()> {
-        let (net_id, component) = self.internal_deserialize::<C>(reader, entity_map)?;
+        let component = self.raw_deserialize::<C>(reader, net_id, entity_map)?;
         let entity = entity_world_mut.id();
-        let tick = Tick(0);
         // TODO: do we need the tick information in the event?
+        let tick = Tick(0);
         // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
             events.push_update_component(entity, net_id, tick);

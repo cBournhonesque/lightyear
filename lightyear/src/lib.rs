@@ -84,7 +84,8 @@ pub mod prelude {
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::{NetworkIdentity, SharedPlugin};
     pub use crate::shared::replication::components::{
-        NetworkTarget, PrePredicted, ReplicationGroup, ReplicationMode, ShouldBePredicted,
+        NetworkTarget, PrePredicted, Replicate, ReplicationGroup, ReplicationMode,
+        ShouldBePredicted,
     };
     pub use crate::shared::replication::entity_map::{ExternalMapper, RemoteEntityMap};
     pub use crate::shared::replication::hierarchy::ParentSync;

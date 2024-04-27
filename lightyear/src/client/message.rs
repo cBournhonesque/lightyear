@@ -57,7 +57,6 @@ fn read_message<M: Message>(
     };
     if let Some(message_list) = connection.received_messages.remove(&net) {
         for message in message_list {
-            error!("read message of type: {:?}", std::any::type_name::<M>());
             let mut reader = connection.reader_pool.start_read(&message);
             // we have to re-decode the net id
             let Ok(message) = message_registry.deserialize::<M>(

@@ -13,6 +13,7 @@ use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
 use lightyear::prelude::{client, server, MessageRegistry, Tick, TickManager};
 use lightyear::prelude::{ClientId, NetworkTarget, SharedConfig, TickConfig};
 use lightyear::server::input::InputBuffers;
+use lightyear::shared::replication::components::Replicate;
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::protocol::*;
 
@@ -110,6 +111,23 @@ fn send_message(bencher: Bencher, n: usize) {
                     .map(|e| e.message().clone())
                     .collect::<Vec<_>>(),
                 vec![Message2(3)]
+            );
+
+            let _ = stepper
+                .server_app
+                .world
+                .spawn((Component1(1.0), Replicate::default()));
+            stepper.frame_step();
+            assert_eq!(
+                stepper
+                    .client_apps
+                    .get_mut(&client_id)
+                    .unwrap()
+                    .world
+                    .query::<&Component1>()
+                    .get_single(&stepper.client_apps.get(&client_id).unwrap().world)
+                    .unwrap(),
+                &Component1(1.0)
             );
 
             // assert_eq!(stepper.client_app.world.entities().len(), n as u32);

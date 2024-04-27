@@ -667,7 +667,6 @@ impl ReplicationSend for ConnectionManager {
             }
             // also set the priority for the group when we spawn it
             self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
-
             Ok(())
         })
     }

@@ -208,12 +208,12 @@ pub(crate) fn send(
     time_manager: Res<TimeManager>,
 ) {
     trace!("Send packets to clients");
-    // // finalize any packets that are needed for replication
-    // connection_manager
-    //     .buffer_replication_messages(tick_manager.tick(), change_tick.this_run())
-    //     .unwrap_or_else(|e| {
-    //         error!("Error preparing replicate send: {}", e);
-    //     });
+    // finalize any packets that are needed for replication
+    connection_manager
+        .buffer_replication_messages(tick_manager.tick(), change_tick.this_run())
+        .unwrap_or_else(|e| {
+            error!("Error preparing replicate send: {}", e);
+        });
 
     // SEND_PACKETS: send buffered packets to io
     let span = trace_span!("send_packets").entered();
