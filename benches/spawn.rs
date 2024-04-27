@@ -78,7 +78,6 @@ fn send_message(bencher: Bencher, n: usize) {
                 .send_message::<Channel1, _>(client_id, Message2(1))
                 .inspect_err(|e| error!("error: {e:?}"));
             stepper.frame_step();
-            let client_id = ClientId::Netcode(0);
             assert_eq!(
                 stepper
                     .client_apps

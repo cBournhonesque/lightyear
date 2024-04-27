@@ -2,7 +2,7 @@
 use anyhow::{Context, Result};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Entity, Resource, World};
+use bevy::prelude::{Entity, Mut, Resource, World};
 use bevy::utils::{HashMap, HashSet};
 use bitcode::__private::Fixed;
 use bytes::Bytes;
@@ -177,7 +177,7 @@ impl ConnectionManager {
         metrics::gauge!("connected_clients").decrement(1.0);
 
         info!("Client {} disconnected", client_id);
-        // self.events.push_disconnection(client_id);
+        self.events.push_disconnection(client_id);
         self.connections.remove(&client_id);
     }
 
@@ -244,11 +244,17 @@ impl ConnectionManager {
             .iter_mut()
             .for_each(|(client_id, connection)| {
                 let _span = trace_span!("receive", ?client_id).entered();
-                // receive events on the connection
-                // let events = connection.receive(world, time_manager, tick_manager);
-                connection.receive(world, time_manager, tick_manager);
-                // move the events from the connection to the connection manager
-                // self.events.push_events(*client_id, events);
+                world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+                    // receive events on the connection
+                    let events = connection.receive(
+                        world,
+                        component_registry.as_ref(),
+                        time_manager,
+                        tick_manager,
+                    );
+                    // move the events from the connection to the connection manager
+                    self.events.push_events(*client_id, events);
+                });
 
                 // rebroadcast messages
                 messages_to_rebroadcast
@@ -447,10 +453,10 @@ impl Connection {
     pub fn receive(
         &mut self,
         world: &mut World,
+        component_registry: &ComponentRegistry,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) {
-        // ) -> ConnectionEvents {
+    ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
         let message_registry = world.resource::<MessageRegistry>();
         for (channel_kind, messages) in self.message_manager.read_messages() {
@@ -532,30 +538,31 @@ impl Connection {
             }
         }
 
-        // // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
-        // // Check if we have any replication messages we can apply to the World (and emit events)
-        // for (group, replication_list) in
-        //     self.replication_receiver.read_messages(tick_manager.tick())
-        // {
-        //     trace!(?group, ?replication_list, "read replication messages");
-        //     replication_list
-        //         .into_iter()
-        //         .for_each(|(tick, replication)| {
-        //             // TODO: we could include the server tick when this replication_message was sent.
-        //             self.replication_receiver.apply_world(
-        //                 world,
-        //                 tick,
-        //                 replication,
-        //                 group,
-        //                 &mut self.events,
-        //             );
-        //         });
-        // }
+        // NOTE: we run this outside `messages.is_empty()` because we might have some messages from a future tick that we can now process
+        // Check if we have any replication messages we can apply to the World (and emit events)
+        for (group, replication_list) in
+            self.replication_receiver.read_messages(tick_manager.tick())
+        {
+            trace!(?group, ?replication_list, "read replication messages");
+            replication_list
+                .into_iter()
+                .for_each(|(tick, replication)| {
+                    // TODO: we could include the server tick when this replication_message was sent.
+                    self.replication_receiver.apply_world(
+                        world,
+                        component_registry,
+                        tick,
+                        replication,
+                        group,
+                        &mut self.events,
+                    );
+                });
+        }
 
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        // std::mem::replace(&mut self.events, ConnectionEvents::new())
+        std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
     pub fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {

@@ -169,40 +169,31 @@ pub(crate) fn receive(world: &mut World) {
                                                             time_manager.as_ref(),
                                                             tick_manager.as_ref(),
                                                         );
-                                                        // // TODO: run these in EventsPlugin!
-                                                        // // HANDLE EVENTS
-                                                        // if !events.is_empty() {
-                                                        //     // Message Events
-                                                        //     P::Message::push_message_events(world, &mut events);
-                                                        //
-                                                        //     // SpawnEntity event
-                                                        //     if events.has_entity_spawn() {
-                                                        //         let mut entity_spawn_event_writer = world
-                                                        //             .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                                        //             .unwrap();
-                                                        //         for (entity, _) in events.into_iter_entity_spawn() {
-                                                        //             entity_spawn_event_writer
-                                                        //                 .send(EntitySpawnEvent::new(entity, ()));
-                                                        //         }
-                                                        //     }
-                                                        //     // DespawnEntity event
-                                                        //     if events.has_entity_despawn() {
-                                                        //         let mut entity_despawn_event_writer = world
-                                                        //             .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                                        //             .unwrap();
-                                                        //         for (entity, _) in events.into_iter_entity_despawn()
-                                                        //         {
-                                                        //             entity_despawn_event_writer
-                                                        //                 .send(EntityDespawnEvent::new(entity, ()));
-                                                        //         }
-                                                        //     }
-                                                        //
-                                                        //     // Update component events (updates, inserts, removes)
-                                                        //     P::Components::push_component_events(
-                                                        //         world,
-                                                        //         &mut events,
-                                                        //     );
-                                                        // }
+                                                        // TODO: run these in EventsPlugin!
+                                                        // HANDLE EVENTS
+                                                        if !events.is_empty() {
+                                                            // SpawnEntity event
+                                                            if events.has_entity_spawn() {
+                                                                let mut entity_spawn_event_writer = world
+                                                                    .get_resource_mut::<Events<EntitySpawnEvent>>()
+                                                                    .unwrap();
+                                                                for (entity, _) in events.into_iter_entity_spawn() {
+                                                                    entity_spawn_event_writer
+                                                                        .send(EntitySpawnEvent::new(entity, ()));
+                                                                }
+                                                            }
+                                                            // DespawnEntity event
+                                                            if events.has_entity_despawn() {
+                                                                let mut entity_despawn_event_writer = world
+                                                                    .get_resource_mut::<Events<EntityDespawnEvent>>()
+                                                                    .unwrap();
+                                                                for (entity, _) in events.into_iter_entity_despawn()
+                                                                {
+                                                                    entity_despawn_event_writer
+                                                                        .send(EntityDespawnEvent::new(entity, ()));
+                                                                }
+                                                            }
+                                                        }
                                                     });
                                             });
                                         });

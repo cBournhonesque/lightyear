@@ -78,7 +78,7 @@ pub struct ConnectionManager {
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: HashMap<NetId, Vec<Bytes>>,
     writer: WriteWordBuffer,
-    reader_pool: BufferPool,
+    pub(crate) reader_pool: BufferPool,
     // TODO: maybe don't do any replication until connection is synced?
 }
 
@@ -143,9 +143,7 @@ impl ConnectionManager {
     }
 
     pub(crate) fn clear(&mut self) {
-        // TODO
-        return;
-        // self.events.clear();
+        self.events.clear();
     }
 
     pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
@@ -322,8 +320,7 @@ impl ConnectionManager {
         world: &mut World,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) {
-        // ) -> ConnectionEvents {
+    ) -> ConnectionEvents {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
@@ -353,13 +350,11 @@ impl ConnectionManager {
                             let net_id = reader
                                 .decode::<NetId>(Fixed)
                                 .expect("could not decode MessageKind");
-                            // TODO: very flimsy! fix this!
+                            error!(?net_id, "client received message");
                             self.received_messages
                                 .entry(net_id)
                                 .or_default()
                                 .push(message.into());
-                            // // buffer the message
-                            // self.events.push_message(channel_kind, message);
                         }
                         ServerMessage::Replication(replication) => {
                             // buffer the replication message
@@ -426,7 +421,7 @@ impl ConnectionManager {
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        // std::mem::replace(&mut self.events, ConnectionEvents::new())
+        std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
     pub(crate) fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {
@@ -452,7 +447,7 @@ impl ConnectionManager {
         }
         trace!(?tick, last_server_tick = ?self.sync_manager.latest_received_server_tick, "Recv server packet");
         // notify the replication sender that some sent messages were received
-        // self.replication_sender.recv_update_acks();
+        self.replication_sender.recv_update_acks();
         Ok(())
     }
 }

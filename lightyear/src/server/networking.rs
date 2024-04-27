@@ -152,59 +152,46 @@ pub(crate) fn receive(world: &mut World) {
                                                     error!("Error during receive: {}", e);
                                                 });
 
-                                            // // EVENTS: Write the received events into bevy events
-                                            // if !connection_manager.events.is_empty() {
-                                            //     // TODO: write these as systems? might be easier to also add the events to the app
-                                            //     //  it might just be less efficient? + maybe tricky to
-                                            //     // Input events
-                                            //     // Update the input buffers with any InputMessage received:
-                                            //
-                                            //     // ADD A FUNCTION THAT ITERATES THROUGH EACH CONNECTION AND RETURNS InputEvent for THE CURRENT TICK
-                                            //
-                                            //     // Connection / Disconnection events
-                                            //     if connection_manager.events.has_connections() {
-                                            //         let mut connect_event_writer =
-                                            //             world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
-                                            //         for client_id in connection_manager.events.iter_connections() {
-                                            //             debug!("Client connected event: {}", client_id);
-                                            //             connect_event_writer.send(ConnectEvent::new(client_id));
-                                            //         }
-                                            //     }
-                                            //
-                                            //     if connection_manager.events.has_disconnections() {
-                                            //         let mut connect_event_writer =
-                                            //             world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
-                                            //         for client_id in connection_manager.events.iter_disconnections() {
-                                            //             debug!("Client disconnected event: {}", client_id);
-                                            //             connect_event_writer.send(DisconnectEvent::new(client_id));
-                                            //         }
-                                            //     }
-                                            //
-                                            //     // Message Events
-                                            //     P::Message::push_message_events(world, &mut connection_manager.events);
-                                            //
-                                            //     // EntitySpawn Events
-                                            //     if connection_manager.events.has_entity_spawn() {
-                                            //         let mut entity_spawn_event_writer = world
-                                            //             .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                            //             .unwrap();
-                                            //         for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
-                                            //             entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, client_id));
-                                            //         }
-                                            //     }
-                                            //     // EntityDespawn Events
-                                            //     if connection_manager.events.has_entity_despawn() {
-                                            //         let mut entity_despawn_event_writer = world
-                                            //             .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                            //             .unwrap();
-                                            //         for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
-                                            //             entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, client_id));
-                                            //         }
-                                            //     }
-                                            //
-                                            //     // Update component events (updates, inserts, removes)
-                                            //     P::Components::push_component_events(world, &mut connection_manager.events);
-                                            // }
+                                            // EVENTS: Write the received events into bevy events
+                                            if !connection_manager.events.is_empty() {
+                                                // Connection / Disconnection events
+                                                if connection_manager.events.has_connections() {
+                                                    let mut connect_event_writer =
+                                                        world.get_resource_mut::<Events<ConnectEvent>>().unwrap();
+                                                    for client_id in connection_manager.events.iter_connections() {
+                                                        debug!("Client connected event: {}", client_id);
+                                                        connect_event_writer.send(ConnectEvent::new(client_id));
+                                                    }
+                                                }
+
+                                                if connection_manager.events.has_disconnections() {
+                                                    let mut connect_event_writer =
+                                                        world.get_resource_mut::<Events<DisconnectEvent>>().unwrap();
+                                                    for client_id in connection_manager.events.iter_disconnections() {
+                                                        debug!("Client disconnected event: {}", client_id);
+                                                        connect_event_writer.send(DisconnectEvent::new(client_id));
+                                                    }
+                                                }
+
+                                                // EntitySpawn Events
+                                                if connection_manager.events.has_entity_spawn() {
+                                                    let mut entity_spawn_event_writer = world
+                                                        .get_resource_mut::<Events<EntitySpawnEvent>>()
+                                                        .unwrap();
+                                                    for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
+                                                        entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, client_id));
+                                                    }
+                                                }
+                                                // EntityDespawn Events
+                                                if connection_manager.events.has_entity_despawn() {
+                                                    let mut entity_despawn_event_writer = world
+                                                        .get_resource_mut::<Events<EntityDespawnEvent>>()
+                                                        .unwrap();
+                                                    for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
+                                                        entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, client_id));
+                                                    }
+                                                }
+                                            }
                                         });
                                 });
                         });

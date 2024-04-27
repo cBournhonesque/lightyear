@@ -57,8 +57,8 @@ fn read_message<M: Message>(
     };
     if let Some(message_list) = connection.received_messages.remove(&net) {
         for message in message_list {
-            // TODO: reuse buffer
-            let mut reader = ReadWordBuffer::start_read(&message);
+            error!("read message of type: {:?}", std::any::type_name::<M>());
+            let mut reader = connection.reader_pool.start_read(&message);
             // we have to re-decode the net id
             let Ok(message) = message_registry.deserialize::<M>(
                 &mut reader,
@@ -70,15 +70,7 @@ fn read_message<M: Message>(
                 error!("Could not deserialize message");
                 continue;
             };
-            // reader
-            //     .decode::<NetId>(Fixed)
-            //     .expect("could not decode net id");
-            // // TODO: decode using the function pointer instead of the type?
-            // let mut message = M::decode(&mut reader).expect("could not decode message");
-            // message_registry.map_entities(
-            //     &mut message,
-            //     &mut connection.replication_receiver.remote_entity_map,
-            // );
+            connection.reader_pool.attach(reader);
             event.send(MessageEvent::new(message, ()));
         }
     }

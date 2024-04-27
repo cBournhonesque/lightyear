@@ -51,7 +51,7 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<Message1>(ChannelDirection::ClientToServer);
+        app.add_message::<Message1>(ChannelDirection::Bidirectional);
         app.add_message::<Message2>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
