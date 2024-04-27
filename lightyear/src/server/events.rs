@@ -16,10 +16,8 @@ use crate::prelude::{server, ComponentRegistry};
 use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::{clear_events, is_started};
-#[cfg(feature = "leafwing")]
-use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::events::connection::{
-    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent, IterMessageEvent,
+    ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
 use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
@@ -171,10 +169,10 @@ impl IterEntityDespawnEvent<ClientId> for ServerEvents {
 }
 
 impl IterComponentUpdateEvent<ClientId> for ServerEvents {
-    fn iter_component_update<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
+    fn iter_component_update<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
                 .iter_component_update::<C>(component_registry)
@@ -186,10 +184,10 @@ impl IterComponentUpdateEvent<ClientId> for ServerEvents {
 }
 
 impl IterComponentRemoveEvent<ClientId> for ServerEvents {
-    fn iter_component_remove<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
+    fn iter_component_remove<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
                 .iter_component_remove::<C>(component_registry)
@@ -201,10 +199,10 @@ impl IterComponentRemoveEvent<ClientId> for ServerEvents {
 }
 
 impl IterComponentInsertEvent<ClientId> for ServerEvents {
-    fn iter_component_insert<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
+    fn iter_component_insert<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ClientId)> + 'a> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let updates = events
                 .iter_component_insert::<C>(component_registry)

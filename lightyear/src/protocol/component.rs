@@ -4,6 +4,7 @@ use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
+use std::ops::{Add, Mul};
 
 use bevy::prelude::{
     App, Component, Entity, EntityMapper, EntityWorldMut, IntoSystemConfigs, Resource, TypePath,
@@ -11,12 +12,12 @@ use bevy::prelude::{
 };
 use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
-use bevy_xpbd_2d::parry::query::details::IntersectionCompositeShapeShapeBestFirstVisitor;
 use cfg_if::cfg_if;
 
 use crate::_reexport::{
-    InstantCorrector, MessageKind, NullInterpolator, ReadBuffer, ReadWordBuffer, ServerMarker,
-    WriteBuffer, WriteWordBuffer,
+    add_interpolation_systems, add_prediction_systems, add_prepare_interpolation_systems,
+    InstantCorrector, LinearInterpolator, MessageKind, NullInterpolator, ReadBuffer,
+    ReadWordBuffer, ServerMarker, WriteBuffer, WriteWordBuffer,
 };
 use bitcode::Encode;
 use bitcode::__private::Fixed;
@@ -24,6 +25,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::client::components::{ComponentSyncMode, SyncMetadata};
+use crate::prelude::client::SyncComponent;
 use crate::prelude::{
     client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
     RemoteEntityMap, ReplicateResource, Tick,
@@ -87,6 +89,20 @@ type RawWriteFn = fn(
 
 type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
 
+trait Linear {
+    fn lerp(start: &Self, other: &Self, t: f32) -> Self;
+}
+
+impl<C> Linear for C
+where
+    for<'a> &'a C: Mul<f32, Output = C>,
+    C: Add<C, Output = C>,
+{
+    fn lerp(start: &Self, other: &Self, t: f32) -> Self {
+        start * (1.0 - t) + other * t
+    }
+}
+
 pub struct ComponentFns<C> {
     pub serialize: SerializeFn<C>,
     pub deserialize: DeserializeFn<C>,
@@ -136,7 +152,7 @@ impl ComponentRegistry {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
 
-    pub(crate) fn add_component<C: Component + Message>(&mut self) {
+    pub(crate) fn register_component<C: Component + Message>(&mut self) {
         let message_kind = self.kind_map.add::<C>();
         let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
         let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
@@ -160,29 +176,78 @@ impl ComponentRegistry {
         );
     }
 
-    pub(crate) fn add_component_mapped<C: Component + Message + MapEntities>(&mut self) {
-        let message_kind = self.kind_map.add::<C>();
-        let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
-        let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
+    pub(crate) fn register_resource<R: Resource + Message>(&mut self) {
+        self.register_component::<ReplicateResource<R>>();
+    }
+
+    // TODO: add map_entities for resources
+    pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         let map_entities: MapEntitiesFn<C> = <C as MapEntities>::map_entities::<EntityMap>;
-        let write: RawWriteFn = Self::write::<C>;
-        let remove: RawRemoveFn = Self::remove::<C>;
-        self.fns_map.insert(
-            message_kind,
-            ErasedComponentFns {
-                type_id: TypeId::of::<C>(),
-                type_name: std::any::type_name::<C>(),
-                serialize: unsafe { std::mem::transmute(serialize) },
-                deserialize: unsafe { std::mem::transmute(deserialize) },
-                map_entities: Some(unsafe { std::mem::transmute(map_entities) }),
-                write,
-                remove: unsafe { std::mem::transmute(remove) },
-                prediction_mode: ComponentSyncMode::default(),
-                interpolation_mode: ComponentSyncMode::default(),
-                interpolation: None,
-                correction: None,
-            },
-        );
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.map_entities = Some(unsafe { std::mem::transmute(map_entities) });
+    }
+
+    pub(crate) fn set_prediction_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.prediction_mode = mode;
+    }
+
+    pub(crate) fn set_linear_correction<C: Component + Linear>(&mut self) {
+        let correction_fn: LerpFn<C> = <C as Linear>::lerp;
+        // let correction_fn: LerpFn<C> =
+        //     |predicted, corrected, t| predicted * (1.0 - t) + corrected * t;
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.correction = Some(unsafe { std::mem::transmute(correction_fn) });
+    }
+
+    pub(crate) fn set_correction<C: Component>(&mut self, correction_fn: LerpFn<C>) {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.correction = Some(unsafe { std::mem::transmute(correction_fn) });
+    }
+
+    pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.interpolation_mode = mode;
+    }
+
+    pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
+        let interpolation_fn: LerpFn<C> = <C as Linear>::lerp;
+        // let interpolation_fn: LerpFn<C> = |start, end, t| start * (1.0 - t) + end * t;
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
+    }
+
+    pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
+        let kind = ComponentKind::of::<C>();
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the component is not part of the protocol");
+        erased_fns.correction = Some(unsafe { std::mem::transmute(interpolation_fn) });
     }
 
     pub(crate) fn serialize<C: Component>(
@@ -354,23 +419,6 @@ impl ComponentRegistry {
     }
 }
 
-/// Add a component to the list of components that can be sent
-pub trait AppComponentExt {
-    fn add_component<C: Component + Message>(&mut self, direction: ChannelDirection);
-
-    fn add_component_mapped<C: Component + Message + MapEntities>(
-        &mut self,
-        direction: ChannelDirection,
-    );
-
-    fn add_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
-
-    fn add_resource_mapped<R: Resource + Message + MapEntities>(
-        &mut self,
-        direction: ChannelDirection,
-    );
-}
-
 fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
     match direction {
         ChannelDirection::ClientToServer => {
@@ -417,39 +465,76 @@ fn register_resource_send<R: Resource + Message>(app: &mut App, direction: Chann
     }
 }
 
+/// Add a component to the list of components that can be sent
+pub trait AppComponentExt {
+    fn register_component<C: Component + Message>(&mut self, direction: ChannelDirection);
+
+    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
+
+    fn add_map_entities<C: MapEntities + 'static>(&mut self);
+    fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode);
+    fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self);
+
+    fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>);
+    fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode);
+    fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self);
+
+    fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>);
+}
+
 impl AppComponentExt for App {
-    fn add_component<C: Component + Message>(&mut self, direction: ChannelDirection) {
-        if let Some(mut registry) = self.world.get_resource_mut::<ComponentRegistry>() {
-            registry.add_component::<C>();
-        } else {
-            todo!("create a protocol");
-        }
+    fn register_component<C: Component + Message>(&mut self, direction: ChannelDirection) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.register_component::<C>();
         register_component_send::<C>(self, direction);
     }
 
-    fn add_component_mapped<C: Component + Message + MapEntities>(
-        &mut self,
-        direction: ChannelDirection,
-    ) {
-        if let Some(mut registry) = self.world.get_resource_mut::<ComponentRegistry>() {
-            registry.add_component_mapped::<C>();
-        } else {
-            todo!("create a protocol");
+    fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
+        self.register_component::<ReplicateResource<R>>(direction);
+        register_resource_send::<R>(self, direction)
+    }
+
+    fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.add_map_entities::<C>();
+    }
+
+    // TODO: make prediction/interpolation possible on server?
+    fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_prediction_mode::<C>(prediction_mode);
+        add_prediction_systems::<C>(self, prediction_mode);
+    }
+
+    fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_linear_correction::<C>();
+        // TODO: register correction systems only if correction is enabled?
+    }
+
+    fn add_correction_fn<C: SyncComponent>(&mut self, correction_fn: LerpFn<C>) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_correction::<C>(correction_fn);
+    }
+
+    fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_interpolation_mode::<C>(interpolation_mode);
+        add_prepare_interpolation_systems::<C>(self, interpolation_mode);
+        if interpolation_mode == ComponentSyncMode::Full {
+            // TODO: handle custom interpolation
+            add_interpolation_systems::<C>(self);
         }
-        register_component_send::<C>(self, direction);
     }
 
-    fn add_resource<R: Resource + Message>(&mut self, direction: ChannelDirection) {
-        self.add_component::<ReplicateResource<R>>(direction);
-        register_resource_send::<R>(self, direction)
+    fn add_linear_interpolation_fn<C: SyncComponent + Linear>(&mut self) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_linear_interpolation::<C>();
     }
 
-    fn add_resource_mapped<R: Resource + Message + MapEntities>(
-        &mut self,
-        direction: ChannelDirection,
-    ) {
-        self.add_component_mapped::<ReplicateResource<R>>(direction);
-        register_resource_send::<R>(self, direction)
+    fn add_interpolation_fn<C: SyncComponent>(&mut self, interpolation_fn: LerpFn<C>) {
+        let mut registry = self.world.resource_mut::<ComponentRegistry>();
+        registry.set_interpolation::<C>(interpolation_fn);
     }
 }
 
@@ -472,40 +557,6 @@ pub trait ComponentProtocol:
 {
     type Protocol: Protocol;
 
-    /// Map from the type-id to the component kind for each component in the protocol
-    fn type_ids() -> HashMap<TypeId, <Self::Protocol as Protocol>::ComponentKinds>;
-
-    /// Apply a ComponentInsert to an entity
-    fn insert(self, entity: &mut EntityWorldMut);
-
-    /// Apply a ComponentUpdate to an entity
-    fn update(self, entity: &mut EntityWorldMut);
-
-    /// Add systems to send component inserts/removes/updates
-    fn add_per_component_replication_send_systems<R: ReplicationSend>(app: &mut App);
-
-    /// Add systems needed to replicate resources to remote
-    fn add_resource_send_systems<R: ReplicationSend>(app: &mut App);
-
-    /// Add systems needed to receive resources from remote
-    fn add_resource_receive_systems<R: ReplicationSend>(app: &mut App);
-
-    /// Adds Component-related events to the app
-    fn add_events<Ctx: EventContext>(app: &mut App);
-
-    // TODO: make this a system that runs after io-receive/recv/read
-    //  maybe a standalone EventsPlugin
-    /// Takes messages that were written and writes ComponentEvents
-    fn push_component_events<
-        E: IterComponentInsertEvent<Ctx>
-            + IterComponentRemoveEvent<Ctx>
-            + IterComponentUpdateEvent<Ctx>,
-        Ctx: EventContext,
-    >(
-        world: &mut World,
-        events: &mut E,
-    );
-
     fn add_prediction_systems(app: &mut App);
 
     /// Add all component systems for the PrepareInterpolation SystemSet
@@ -513,38 +564,6 @@ pub trait ComponentProtocol:
 
     /// Add all component systems for the Interpolation SystemSet
     fn add_interpolation_systems(app: &mut App);
-
-    // /// Get the sync mode for the component
-    // fn mode<C>() -> ComponentSyncMode
-    // where
-    //     Self: SyncMetadata<C>,
-    // {
-    //     <Self as SyncMetadata<C>>::mode()
-    // }
-
-    /// If false, we don't want to apply any interpolation
-    fn has_interpolation<C>() -> bool
-    where
-        Self: SyncMetadata<C>,
-    {
-        TypeId::of::<<Self as SyncMetadata<C>>::Interpolator>() != TypeId::of::<NullInterpolator>()
-    }
-
-    /// If false, we don't want to apply any corrections
-    fn has_correction<C>() -> bool
-    where
-        Self: SyncMetadata<C>,
-    {
-        TypeId::of::<<Self as SyncMetadata<C>>::Corrector>() != TypeId::of::<InstantCorrector>()
-    }
-
-    /// Interpolate the component between two states, using the Interpolator associated with the component
-    fn lerp<C>(start: &C, other: &C, t: f32) -> C
-    where
-        Self: SyncMetadata<C>,
-    {
-        <Self as SyncMetadata<C>>::Interpolator::lerp(start, other, t)
-    }
 }
 
 // TODO: enum_delegate doesn't work with generics + cannot be used multiple times since it derives a bunch of Into/From traits
@@ -649,7 +668,7 @@ pub trait FromType<T> {
 pub struct ComponentKind(TypeId);
 
 impl ComponentKind {
-    pub fn of<C: Component>() -> Self {
+    pub fn of<C: 'static>() -> Self {
         Self(TypeId::of::<C>())
     }
 }

@@ -174,13 +174,10 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
 
 // We add the interpolate system in different function because we might not want to add them
 // in case there is custom interpolation logic.
-pub fn add_interpolation_systems<C: Component + Clone, P: Protocol>(app: &mut App)
-where
-    P::Components: SyncMetadata<C>,
-{
+pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
     app.add_systems(
         Update,
-        interpolate::<C, P>.in_set(InterpolationSet::Interpolate),
+        interpolate::<C>.in_set(InterpolationSet::Interpolate),
     );
 }
 
@@ -194,13 +191,13 @@ impl Plugin for InterpolationPlugin {
             .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
 
-        // TODO: separate prediction and interpolation attributes
-        // TODO: make the custom interpolation logic per-component?
-        //  i.e. we enable the custom interpolation only for some components, but not for all
-        P::Components::add_prepare_interpolation_systems(app);
-        if !self.config.custom_interpolation_logic {
-            P::Components::add_interpolation_systems(app);
-        }
+        // // TODO: separate prediction and interpolation attributes
+        // // TODO: make the custom interpolation logic per-component?
+        // //  i.e. we enable the custom interpolation only for some components, but not for all
+        // P::Components::add_prepare_interpolation_systems(app);
+        // if !self.config.custom_interpolation_logic {
+        //     P::Components::add_interpolation_systems(app);
+        // }
 
         // RESOURCES
         app.init_resource::<InterpolationManager>();

@@ -300,9 +300,11 @@ impl Default for Replicate {
             replicate_hierarchy: true,
             per_component_metadata: HashMap::default(),
         };
+        // TODO: what's the point in replicating them once since they don't change?
+        //  or is it because they are removed and we don't want to replicate the removal?
         // those metadata components should only be replicated once
-        replicate.enable_replicate_once::<ShouldBePredicted>();
-        replicate.enable_replicate_once::<ShouldBeInterpolated>();
+        // replicate.enable_replicate_once::<ShouldBePredicted>();
+        // replicate.enable_replicate_once::<ShouldBeInterpolated>();
         // cfg_if! {
         //     // the ActionState components are replicated only once when the entity is spawned
         //     // then they get updated by the user inputs, not by replication!

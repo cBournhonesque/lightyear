@@ -5,13 +5,13 @@ use std::ops::Deref;
 use bevy::ecs::entity::Entities;
 use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::{
-    Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, PostUpdate,
+    Added, App, Commands, Component, DetectChanges, Entity, IntoSystemConfigs, Mut, PostUpdate,
     PreUpdate, Query, Ref, RemovedComponents, Res, ResMut, With, Without,
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_reexport::{FromType, WriteBuffer};
-use crate::prelude::{NetworkTarget, TickManager};
+use crate::_reexport::{FromType, ShouldBeInterpolated, WriteBuffer};
+use crate::prelude::{NetworkTarget, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;
 use crate::protocol::Protocol;
 use crate::server::replication::ServerReplicationSet;
@@ -128,11 +128,17 @@ fn send_entity_despawn<R: ReplicationSend>(
 
 fn send_entity_spawn<R: ReplicationSend>(
     system_bevy_ticks: SystemChangeTick,
-    query: Query<(Entity, Ref<Replicate>)>,
+    component_registry: Res<ComponentRegistry>,
+    mut query: Query<(Entity, Ref<Replicate>)>,
     mut sender: ResMut<R>,
 ) {
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate)| {
+        // if replicate.is_added() {
+        //     // we only replicate these once
+        //     replicate.enable_replicate_once::<ShouldBePredicted>(component_registry.as_ref());
+        //     replicate.enable_replicate_once::<ShouldBeInterpolated>(component_registry.as_ref());
+        // }
         match replicate.replication_mode {
             // for room mode, no need to handle newly-connected clients specially; they just need
             // to be added to the correct room
@@ -345,7 +351,8 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                         .prepare_component_insert(
                             entity,
                             kind,
-                            raw_data,
+                            // TODO: avoid the clone by using Arc<u8>?
+                            raw_data.clone(),
                             replicate.as_ref(),
                             target,
                             system_bevy_ticks.this_run(),
@@ -358,7 +365,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                         .prepare_component_update(
                             entity,
                             kind,
-                            raw_data,
+                            raw_data.clone(),
                             replicate.as_ref(),
                             target,
                             component.last_changed(),

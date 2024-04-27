@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{
-    Commands, Component, Entity, Query, Reflect, RemovedComponents, ResMut, With, Without, World,
+    Commands, Component, Entity, Query, Reflect, RemovedComponents, Res, ResMut, With, Without,
+    World,
 };
 use tracing::{debug, error, trace};
 
@@ -10,7 +11,7 @@ use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, Syn
 use crate::client::config::ClientConfig;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{Mode, ShouldBePredicted, TickManager};
+use crate::prelude::{ComponentRegistry, Mode, ShouldBePredicted, TickManager};
 use crate::protocol::Protocol;
 use crate::shared::tick_manager::Tick;
 
@@ -110,14 +111,13 @@ pub struct RemovedCache<C: Component>(pub Option<C>);
 
 #[allow(clippy::type_complexity)]
 /// Instead of despawning the entity, we remove all components except the history and the predicted marker
-pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent, P: Protocol>(
+pub(crate) fn remove_component_for_despawn_predicted<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     mut commands: Commands,
     full_query: Query<Entity, (With<C>, With<PredictionDespawnMarker>)>,
     simple_query: Query<(Entity, &C), With<PredictionDespawnMarker>>,
-) where
-    P::Components: SyncMetadata<C>,
-{
-    match P::Components::mode() {
+) {
+    match component_registry.prediction_mode::<C>() {
         // for full components, we can delete the component
         // it will get re-instated during rollback if the confirmed entity doesn't get despawned
         ComponentSyncMode::Full => {

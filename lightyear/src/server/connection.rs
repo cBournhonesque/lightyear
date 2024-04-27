@@ -488,7 +488,8 @@ impl Connection {
                             // TODO: but do we have data to convert the entities from the client to the server?
                             //  I don't think so... maybe the sender should map_entities themselves?
                             //  or it matters for input messages?
-                            let data = (message.into(), target, channel_kind);
+                            // TODO: avoid clone with Arc<[u8]>?
+                            let data = (message.clone().into(), target.clone(), channel_kind);
 
                             match message_registry.message_type(net_id) {
                                 #[cfg(feature = "leafwing")]
@@ -509,11 +510,8 @@ impl Connection {
                             }
 
                             if target != NetworkTarget::None {
-                                self.messages_to_rebroadcast.push((
-                                    message.clone(),
-                                    target.clone(),
-                                    channel_kind,
-                                ));
+                                self.messages_to_rebroadcast
+                                    .push((message, target, channel_kind));
                             }
                         }
                         ClientMessage::Replication(replication) => {
@@ -619,6 +617,14 @@ impl ReplicationSend for ConnectionManager {
         trace!(?entity, "Prepare entity spawn to client");
         let group_id = replicate.replication_group.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
+        let should_be_predicted_kind = self
+            .component_registry()
+            .get_net_id::<ShouldBePredicted>()
+            .context("ShouldBePredicted is not registered")?;
+        let should_be_interpolated_kind = self
+            .component_registry()
+            .get_net_id::<ShouldBeInterpolated>()
+            .context("ShouldBeInterpolated is not registered")?;
         self.apply_replication(target).try_for_each(|client_id| {
             // trace!(
             //     ?client_id,
@@ -639,9 +645,7 @@ impl ReplicationSend for ConnectionManager {
                 replication_sender.prepare_component_insert(
                     entity,
                     group_id,
-                    self.component_registry()
-                        .get_net_id::<ShouldBePredicted>()
-                        .context("ShouldBePredicted is not registered")?,
+                    should_be_predicted_kind,
                     // ShouldBePredicted is a ZST
                     vec![],
                 );
@@ -650,9 +654,7 @@ impl ReplicationSend for ConnectionManager {
                 replication_sender.prepare_component_insert(
                     entity,
                     group_id,
-                    self.component_registry()
-                        .get_net_id::<ShouldBeInterpolated>()
-                        .context("ShouldBeInterpolated is not registered")?,
+                    should_be_interpolated_kind,
                     // ShouldBeInterpolated is a ZST
                     vec![],
                 );
@@ -746,7 +748,12 @@ impl ReplicationSend for ConnectionManager {
                 //     .entry(group)
                 //     .or_default()
                 //     .update_collect_changes_since_this_tick(system_current_tick);
-                replication_sender.prepare_component_insert(entity, group_id, kind, component);
+                replication_sender.prepare_component_insert(
+                    entity,
+                    group_id,
+                    kind,
+                    component.clone(),
+                );
                 Ok(())
             })
     }
@@ -830,7 +837,8 @@ impl ReplicationSend for ConnectionManager {
                 //     tick = ?self.tick_manager.tick(),
                 //     "Updating single component"
                 // );
-                replication_sender.prepare_entity_update(entity, group_id, kind, component);
+                // TODO: avoid component clone with Arc<[u8]>
+                replication_sender.prepare_entity_update(entity, group_id, kind, component.clone());
             }
             Ok(())
         })

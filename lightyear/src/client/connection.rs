@@ -2,7 +2,7 @@
 use anyhow::Result;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHashMap, MapEntities};
-use bevy::prelude::{Entity, Local, Resource, World};
+use bevy::prelude::{Entity, Local, Mut, Resource, World};
 use bevy::reflect::Reflect;
 use bevy::utils::{Duration, HashMap};
 use bitcode::encoding::Fixed;
@@ -318,6 +318,7 @@ impl ConnectionManager {
 
     pub(crate) fn receive(
         &mut self,
+        // TODO: use Commands to avoid blocking the world?
         world: &mut World,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
@@ -403,19 +404,22 @@ impl ConnectionManager {
             for (group, replication_list) in
                 self.replication_receiver.read_messages(tick_manager.tick())
             {
-                trace!(?group, ?replication_list, "read replication messages");
-                replication_list
-                    .into_iter()
-                    .for_each(|(tick, replication)| {
-                        // TODO: we could include the server tick when this replication_message was sent.
-                        self.replication_receiver.apply_world(
-                            world,
-                            tick,
-                            replication,
-                            group,
-                            &mut self.events,
-                        );
-                    });
+                world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+                    trace!(?group, ?replication_list, "read replication messages");
+                    replication_list
+                        .into_iter()
+                        .for_each(|(tick, replication)| {
+                            // TODO: we could include the server tick when this replication_message was sent.
+                            self.replication_receiver.apply_world(
+                                world,
+                                component_registry.as_ref(),
+                                tick,
+                                replication,
+                                group,
+                                &mut self.events,
+                            );
+                        });
+                })
             }
         }
 

@@ -327,7 +327,8 @@ pub fn update_prediction_history<T: SyncComponent>(
 
 /// When we receive a server update, we might want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
-pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
+pub(crate) fn apply_confirmed_update<C: SyncComponent>(
+    component_registry: Res<ComponentRegistry>,
     // TODO: unfortunately we need this to be mutable because of the MapEntities trait even though it's not actually needed...
     mut manager: ResMut<PredictionManager>,
     mut predicted_entities: Query<
@@ -339,15 +340,12 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
         ),
     >,
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
-) where
-    P::Components: SyncMetadata<C>,
-    P::Components: ExternalMapper<C>,
-{
+) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.predicted {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok(mut predicted_component) = predicted_entities.get_mut(p) {
-                    match P::Components::mode() {
+                    match component_registry.prediction_mode::<C>() {
                         ComponentSyncMode::Full => {
                             error!(
                                 "The predicted entity {:?} should have a ComponentHistory",
@@ -361,7 +359,7 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent, P: Protocol>(
                         ComponentSyncMode::Simple => {
                             // map any entities from confirmed to predicted
                             let mut component = confirmed_component.deref().clone();
-                            P::Components::map_entities_for(
+                            component_registry.map_entities(
                                 &mut component,
                                 &mut manager.predicted_entity_map.confirmed_to_predicted,
                             );

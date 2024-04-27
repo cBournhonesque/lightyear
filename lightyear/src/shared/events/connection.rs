@@ -197,10 +197,10 @@ impl IterEntityDespawnEvent for ConnectionEvents {
 /// Iterate through all the events for a given entity
 pub trait IterComponentUpdateEvent<Ctx: EventContext = ()> {
     /// Find all the updates of component C
-    fn iter_component_update<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
+    fn iter_component_update<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + 'a>;
 
     // /// Find all the updates of component C for a given entity
     // fn get_component_update<C: Component>(&self, entity: Entity) -> Option<Ctx>
@@ -209,10 +209,10 @@ pub trait IterComponentUpdateEvent<Ctx: EventContext = ()> {
 }
 
 impl IterComponentUpdateEvent for ConnectionEvents {
-    fn iter_component_update<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
+    fn iter_component_update<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, ())> + 'a> {
         let component_kind = component_registry.net_id::<C>();
         if let Some(data) = self.component_updates.remove(&component_kind) {
             return Box::new(data.into_iter().map(|entity| (entity, ())));
@@ -243,17 +243,17 @@ impl IterComponentUpdateEvent for ConnectionEvents {
 }
 
 pub trait IterComponentRemoveEvent<Ctx: EventContext = ()> {
-    fn iter_component_remove<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
+    fn iter_component_remove<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
 }
 
 // TODO: move these implementations to client?
 impl IterComponentRemoveEvent for ConnectionEvents {
-    fn iter_component_remove<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
+    fn iter_component_remove<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
         let component_kind = component_registry.net_id::<C>();
         if let Some(data) = self.component_removes.remove(&component_kind) {
@@ -264,14 +264,14 @@ impl IterComponentRemoveEvent for ConnectionEvents {
 }
 
 pub trait IterComponentInsertEvent<Ctx: EventContext = ()> {
-    fn iter_component_insert<C: Component>(
-        &mut self,
-        component_registry: &ComponentRegistry,
-    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + '_>;
+    fn iter_component_insert<'a, 'b: 'a, C: Component>(
+        &'a mut self,
+        component_registry: &'b ComponentRegistry,
+    ) -> Box<dyn Iterator<Item = (Entity, Ctx)> + 'a>;
 }
 
 impl IterComponentInsertEvent for ConnectionEvents {
-    fn iter_component_insert<C: Component>(
+    fn iter_component_insert<'a, 'b: 'a, C: Component>(
         &mut self,
         component_registry: &ComponentRegistry,
     ) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {

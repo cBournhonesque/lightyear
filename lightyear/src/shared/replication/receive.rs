@@ -187,6 +187,7 @@ impl ReplicationReceiver {
         &mut self,
         // TODO: should we use Commands to avoid the need to block the world?
         world: &mut World,
+        component_registry: &ComponentRegistry,
         tick: Tick,
         replication: ReplicationMessageData,
         group_id: ReplicationGroupId,
@@ -273,8 +274,7 @@ impl ReplicationReceiver {
                     debug!(remote_entity = ?entity, "Received InsertComponent");
                     for mut component in actions.insert {
                         self.reader.reset_read(component.as_slice());
-                        let _ = world
-                            .resource::<ComponentRegistry>()
+                        let _ = component_registry
                             .raw_write(
                                 &mut self.reader,
                                 &mut local_entity_mut,
@@ -299,9 +299,7 @@ impl ReplicationReceiver {
                     trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
                     for kind in actions.remove {
                         events.push_remove_component(local_entity_mut.id(), kind, Tick(0));
-                        world
-                            .resource::<ComponentRegistry>()
-                            .raw_remove(kind, &mut local_entity_mut);
+                        component_registry.raw_remove(kind, &mut local_entity_mut);
                     }
 
                     // updates
@@ -314,8 +312,7 @@ impl ReplicationReceiver {
                     for mut component in actions.updates {
                         // TODO: re-use buffers via pool?
                         self.reader.reset_read(component.as_slice());
-                        let _ = world
-                            .resource::<ComponentRegistry>()
+                        let _ = component_registry
                             .raw_write(
                                 &mut self.reader,
                                 &mut local_entity_mut,
@@ -338,8 +335,7 @@ impl ReplicationReceiver {
                     {
                         for mut component in components {
                             self.reader.reset_read(component.as_slice());
-                            let _ = world
-                                .resource::<ComponentRegistry>()
+                            let _ = component_registry
                                 .raw_write(
                                     &mut self.reader,
                                     &mut local_entity_mut,
