@@ -9,11 +9,10 @@
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
-use crate::_reexport::{ComponentProtocol, FromType};
+use crate::_internal::FromType;
 use crate::client::components::{LerpFn, SyncComponent, SyncMetadata};
 use crate::client::easings::ease_out_quad;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};
-use crate::protocol::Protocol;
 
 // TODO: instead of requiring the component to implement the correction, we could have a separate
 //  'type registry' that stores the correction function for each component type.

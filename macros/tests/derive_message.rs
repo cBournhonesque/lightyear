@@ -31,14 +31,14 @@ pub mod some_message {
     protocolize! {
         Self = MyProtocol,
         Message = MyMessageProtocol,
-        Component = MyComponentProtocol,
+        Component = My
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::some_message::*;
-    use lightyear::_reexport::{
+    use lightyear::_internal::{
         BitSerializable, MessageProtocol, ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer,
     };
 

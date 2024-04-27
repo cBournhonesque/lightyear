@@ -1,11 +1,15 @@
 //! Bevy [`bevy::prelude::Plugin`] used by both the server and the client
+use crate::_internal::ShouldBeInterpolated;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::prelude::{
-    IoConfig, LinkConditionerConfig, Mode, PingConfig, Protocol, TickConfig, TransportConfig,
+    AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, IoConfig,
+    LinkConditionerConfig, MessageRegistry, Mode, PingConfig, PrePredicted, PreSpawnedPlayerObject,
+    ShouldBePredicted, TickConfig, TransportConfig,
 };
 use crate::server::config::ServerConfig;
+use crate::server::message::ServerMessage::Message;
 use crate::shared::config::SharedConfig;
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
@@ -43,6 +47,9 @@ impl Plugin for SharedPlugin {
 
         // RESOURCES
         // NOTE: this tick duration must be the same as any previous existing fixed timesteps
+        app.insert_resource(ChannelRegistry::default());
+        app.insert_resource(ComponentRegistry::default());
+        app.insert_resource(MessageRegistry::default());
         app.insert_resource(Time::<Fixed>::from_seconds(
             self.config.tick.tick_duration.as_secs_f64(),
         ));

@@ -8,12 +8,12 @@ use tracing::{error, info_span, trace};
 use bitcode::__private::Fixed;
 use bitcode::{Decode, Encode};
 
-use crate::_reexport::{
-    BitSerializable, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer, ServerMarker,
-    WriteBuffer, WriteWordBuffer,
+use crate::_internal::{
+    BitSerializable, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker, WriteBuffer,
+    WriteWordBuffer,
 };
 use crate::packet::message::SingleData;
-use crate::prelude::{MainSet, Message, NetworkTarget, Protocol};
+use crate::prelude::{MainSet, Message, NetworkTarget};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
 use crate::server::connection::ConnectionManager;

@@ -23,7 +23,7 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use bevy::prelude::{
     not, App, Condition, EventReader, EventWriter, Events, FixedPostUpdate, FixedPreUpdate, In,
     IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate, Res, ResMut, Resource, SystemSet,
@@ -43,7 +43,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::{InputMessage, UserAction};
 use crate::prelude::client::ClientConnection;
 use crate::prelude::{server, AppMessageExt, ChannelDirection, SharedConfig, Tick, TickManager};
-use crate::protocol::Protocol;
+
 use crate::shared::config::Mode;
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;

@@ -2,7 +2,7 @@
 use std::collections::BTreeMap;
 use std::iter::Extend;
 
-use crate::_reexport::{ReadBuffer, ReadWordBuffer};
+use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use anyhow::Context;
 use bevy::ecs::entity::{EntityHash, MapEntities};
 use bevy::prelude::{DespawnRecursiveExt, Entity, World};
@@ -13,9 +13,8 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::Tick;
-use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
-use crate::protocol::component::{ComponentProtocol, ComponentRegistry};
-use crate::protocol::Protocol;
+use crate::protocol::component::ComponentRegistry;
+
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::components::ReplicationGroupId;
 

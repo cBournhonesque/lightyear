@@ -1,5 +1,5 @@
 //! Handles client-generated inputs
-use crate::_reexport::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
+use crate::_internal::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
 use bevy::prelude::*;
@@ -12,7 +12,7 @@ use crate::prelude::{
     TickManager, UserAction,
 };
 use crate::protocol::registry::NetId;
-use crate::protocol::{BitSerializable, Protocol};
+use crate::protocol::BitSerializable;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::InputEvent;
 use crate::server::networking::is_started;

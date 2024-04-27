@@ -6,7 +6,7 @@ use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::*;
 use tracing::{debug, error, trace};
 
-use crate::_reexport::EntityUpdatesChannel;
+use crate::_internal::EntityUpdatesChannel;
 use crate::packet::message::{FragmentData, MessageContainer, MessageId, SingleData};
 use crate::prelude::{ChannelKind, ChannelRegistry, Tick};
 use crate::protocol::registry::NetId;

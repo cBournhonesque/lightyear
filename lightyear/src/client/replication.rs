@@ -1,12 +1,13 @@
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use crate::client::config::ClientConfig;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
 use crate::client::connection::ConnectionManager;
+use crate::client::networking::is_connected;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Protocol, SharedConfig};
+use crate::prelude::SharedConfig;
 use crate::shared::replication::plugin::ReplicationPlugin;
 use crate::shared::sets::InternalReplicationSet;
 
@@ -35,11 +36,11 @@ impl Plugin for ClientReplicationPlugin {
         let config = app.world.resource::<ClientConfig>();
         app
             // PLUGIN
-            // .add_plugins(ReplicationPlugin::<P, ConnectionManager>::new(
-            //     config.shared.tick.tick_duration,
-            //     config.replication.enable_send,
-            //     config.replication.enable_receive,
-            // ))
+            .add_plugins(ReplicationPlugin::<ConnectionManager>::new(
+                config.shared.tick.tick_duration,
+                config.replication.enable_send,
+                config.replication.enable_receive,
+            ))
             // TODO: currently we only support pre-spawned entities spawned during the FixedUpdate schedule
             // // SYSTEM SETS
             // .configure_sets(
@@ -54,8 +55,11 @@ impl Plugin for ClientReplicationPlugin {
                 //  and the message might be ignored by the server
                 //  But then pre-predicted entities that are spawned right away will not be replicated?
                 // NOTE: we always need to add this condition if we don't enable replication, because
-                InternalReplicationSet::<ClientMarker>::All
-                    .run_if(client_is_synced.and_then(not(SharedConfig::is_host_server_condition))),
+                InternalReplicationSet::<ClientMarker>::All.run_if(
+                    is_connected
+                        .and_then(client_is_synced)
+                        .and_then(not(SharedConfig::is_host_server_condition)),
+                ),
             );
     }
 }

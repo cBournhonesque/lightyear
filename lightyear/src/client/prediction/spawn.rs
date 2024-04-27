@@ -6,7 +6,7 @@ use crate::client::events::ComponentInsertEvent;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::connection::client::ClientConnection;
-use crate::prelude::{Protocol, ShouldBePredicted, Tick};
+use crate::prelude::{ShouldBePredicted, Tick};
 use crate::shared::replication::components::PrePredicted;
 use bevy::prelude::{Added, Commands, Entity, EventReader, Query, Ref, Res, ResMut, With, Without};
 use tracing::{debug, error, info, trace, warn};

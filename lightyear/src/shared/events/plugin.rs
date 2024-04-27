@@ -3,8 +3,7 @@
 use bevy::app::App;
 use bevy::prelude::Plugin;
 
-use crate::_reexport::{ComponentProtocol, EventContext, MessageProtocol};
-use crate::prelude::Protocol;
+use crate::_internal::EventContext;
 use crate::shared::events::components::{
     ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent,
 };

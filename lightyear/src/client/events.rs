@@ -13,10 +13,10 @@
 //! }
 //! ```
 
-use crate::_reexport::{ClientMarker, ServerMarker};
+use crate::_internal::{ClientMarker, ServerMarker};
+use crate::client::connection::ConnectionManager;
 use crate::client::networking::is_connected;
-use crate::prelude::server::ConnectionManager;
-use crate::prelude::{ClientId, Protocol};
+use crate::prelude::ClientId;
 use crate::server::networking::is_started;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::events::plugin::EventsPlugin;
@@ -45,6 +45,9 @@ impl Plugin for ClientEventsPlugin {
 }
 
 pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
+    app.add_event::<ComponentUpdateEvent<C>>();
+    app.add_event::<ComponentInsertEvent<C>>();
+    app.add_event::<ComponentRemoveEvent<C>>();
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>

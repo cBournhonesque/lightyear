@@ -10,14 +10,13 @@ use bevy::utils::{hashbrown, HashMap, HashSet};
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_reexport::{EntityActionsChannel, EntityUpdatesChannel, FromType};
+use crate::_internal::{EntityActionsChannel, EntityUpdatesChannel, FromType};
 use crate::packet::message::MessageId;
 use crate::prelude::{ShouldBePredicted, Tick};
 use crate::protocol::channel::ChannelKind;
-use crate::protocol::component::{ComponentBehaviour, ComponentKindBehaviour};
-use crate::protocol::component::{ComponentNetId, ComponentProtocol};
+use crate::protocol::component::ComponentNetId;
 use crate::protocol::registry::NetId;
-use crate::protocol::Protocol;
+
 use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 

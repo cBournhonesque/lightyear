@@ -4,7 +4,7 @@ use bytes::Bytes;
 
 use bitcode::encoding::{Fixed, Gamma};
 
-use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
+use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 use crate::packet::packet::FRAGMENT_SIZE;
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::reader::ReadBuffer;
@@ -299,7 +299,7 @@ impl MessageContainer {
 
 #[cfg(test)]
 mod tests {
-    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
+    use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 
     use super::*;
 

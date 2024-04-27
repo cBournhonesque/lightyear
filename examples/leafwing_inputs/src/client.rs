@@ -8,7 +8,7 @@ use bevy::utils::Duration;
 use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ClientMarker;
+use lightyear::_internal::ClientMarker;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::LeafwingInputPlugin;

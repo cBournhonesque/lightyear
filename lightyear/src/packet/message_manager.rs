@@ -298,7 +298,7 @@ mod tests {
 
     use bevy::utils::Duration;
 
-    use crate::_reexport::*;
+    use crate::_internal::*;
     use crate::packet::message::MessageId;
     use crate::packet::packet::FRAGMENT_SIZE;
     use crate::packet::priority_manager::PriorityConfig;

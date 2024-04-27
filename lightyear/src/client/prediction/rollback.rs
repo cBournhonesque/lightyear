@@ -10,7 +10,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, FromType};
+use crate::_internal::FromType;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -19,7 +19,6 @@ use crate::client::prediction::predicted_history::ComponentState;
 use crate::client::prediction::resource::PredictionManager;
 use crate::prelude::client::SyncMetadata;
 use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, Tick, TickManager};
-use crate::protocol::Protocol;
 
 use super::predicted_history::PredictionHistory;
 use super::Predicted;

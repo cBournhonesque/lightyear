@@ -8,7 +8,7 @@ use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::_reexport::{ClientMarker, ReplicationSend};
+use crate::_internal::{ClientMarker, ReplicationSend};
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -21,9 +21,8 @@ use crate::connection::server::ServerConnections;
 use crate::prelude::{
     ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
 };
-use crate::protocol::component::{ComponentProtocol, ComponentRegistry};
-use crate::protocol::message::MessageProtocol;
-use crate::protocol::Protocol;
+use crate::protocol::component::ComponentRegistry;
+
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::sets::InternalMainSet;

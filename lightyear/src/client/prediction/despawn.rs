@@ -12,7 +12,7 @@ use crate::client::config::ClientConfig;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::prelude::{ComponentRegistry, Mode, ShouldBePredicted, TickManager};
-use crate::protocol::Protocol;
+
 use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:

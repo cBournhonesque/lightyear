@@ -10,10 +10,10 @@ use bevy::prelude::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::_reexport::{FromType, ShouldBeInterpolated, WriteBuffer};
+use crate::_internal::{FromType, ShouldBeInterpolated, WriteBuffer};
 use crate::prelude::{NetworkTarget, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentRegistry;
-use crate::protocol::Protocol;
+
 use crate::server::replication::ServerReplicationSet;
 use crate::server::room::ClientVisibility;
 use crate::shared::replication::components::{DespawnTracker, Replicate, ReplicationMode};

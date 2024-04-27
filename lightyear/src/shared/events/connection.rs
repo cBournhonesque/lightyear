@@ -6,15 +6,13 @@ use bevy::prelude::{Component, Entity, Resource};
 use bevy::utils::HashMap;
 use tracing::trace;
 
-use crate::_reexport::{FromType, MessageProtocol};
-#[cfg(feature = "leafwing")]
-use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
+use crate::_internal::FromType;
 use crate::packet::message::Message;
 use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::channel::ChannelKind;
 use crate::protocol::component::ComponentNetId;
 use crate::protocol::message::MessageKind;
-use crate::protocol::{EventContext, Protocol};
+use crate::protocol::EventContext;
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]

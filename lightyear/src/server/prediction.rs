@@ -6,10 +6,7 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
-use crate::_reexport::ComponentProtocol;
-use crate::prelude::{
-    ComponentRegistry, PreSpawnedPlayerObject, Protocol, ShouldBePredicted, TickManager,
-};
+use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 

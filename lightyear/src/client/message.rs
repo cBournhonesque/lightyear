@@ -8,9 +8,9 @@ use tracing::{error, info_span, trace};
 use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 
-use crate::_reexport::{
-    BitSerializable, ClientMarker, MessageKind, MessageProtocol, ReadBuffer, ReadWordBuffer,
-    ServerMarker, WriteBuffer, WriteWordBuffer,
+use crate::_internal::{
+    BitSerializable, ClientMarker, MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker,
+    WriteBuffer, WriteWordBuffer,
 };
 use crate::client::connection::ConnectionManager;
 use crate::client::events::MessageEvent;
@@ -19,7 +19,7 @@ use crate::packet::message::SingleData;
 use crate::prelude::{ChannelDirection, ChannelKind, MainSet, Message, NetworkTarget};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
-use crate::protocol::Protocol;
+
 use crate::serialize::RawData;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::{ReplicationMessage, ReplicationMessageData};

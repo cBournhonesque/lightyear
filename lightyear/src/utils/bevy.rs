@@ -6,7 +6,7 @@ use bevy::hierarchy::Parent;
 use bevy::prelude::{Children, Entity, EntityMapper, Transform};
 use tracing::{info, trace};
 
-use crate::_reexport::LinearInterpolator;
+use crate::_internal::LinearInterpolator;
 use crate::client::components::{ComponentSyncMode, LerpFn, SyncComponent};
 use crate::prelude::Message;
 

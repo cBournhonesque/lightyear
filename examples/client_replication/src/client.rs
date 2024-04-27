@@ -5,7 +5,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::_reexport::ShouldBeInterpolated;
+use lightyear::_internal::ShouldBeInterpolated;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 

@@ -6,7 +6,7 @@ use std::ops::Mul;
 
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::*;
+use crate::_internal::*;
 use crate::prelude::*;
 
 // Messages

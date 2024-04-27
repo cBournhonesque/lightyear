@@ -615,7 +615,7 @@ mod tests {
 
     use lightyear_macros::ChannelInternal;
 
-    use crate::_reexport::*;
+    use crate::_internal::*;
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::message::MessageId;
     use crate::prelude::*;
@@ -637,9 +637,9 @@ mod tests {
             ..default()
         };
         let mut c = ChannelRegistry::new();
-        c.add::<Channel1>(settings.clone());
-        c.add::<Channel2>(settings.clone());
-        c.add::<Channel3>(settings.clone());
+        c.add_channel::<Channel1>(settings.clone());
+        c.add_channel::<Channel2>(settings.clone());
+        c.add_channel::<Channel3>(settings.clone());
         c
     }
 

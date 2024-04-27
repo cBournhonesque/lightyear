@@ -14,7 +14,7 @@ use bevy::reflect::{FromReflect, GetTypeRegistration};
 use bevy::utils::HashMap;
 use cfg_if::cfg_if;
 
-use crate::_reexport::{
+use crate::_internal::{
     add_interpolation_systems, add_prediction_systems, add_prepare_interpolation_systems,
     InstantCorrector, LinearInterpolator, MessageKind, NullInterpolator, ReadBuffer,
     ReadWordBuffer, ServerMarker, WriteBuffer, WriteWordBuffer,
@@ -23,23 +23,24 @@ use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 use crate::client::components::{ComponentSyncMode, SyncMetadata};
+use crate::client::config::ClientConfig;
 use crate::prelude::client::SyncComponent;
+use crate::prelude::server::{ServerConfig, ServerPlugin};
 use crate::prelude::{
     client, server, ChannelDirection, Message, MessageRegistry, PreSpawnedPlayerObject,
     RemoteEntityMap, ReplicateResource, Tick,
 };
 use crate::protocol::message::MessageType;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::RawData;
-use crate::server::events::emit_replication_events;
 use crate::server::networking::is_started;
 use crate::shared::events::connection::{
     ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
 };
-use crate::shared::events::systems::push_component_events;
 use crate::shared::replication::components::ShouldBePredicted;
 use crate::shared::replication::components::{PrePredicted, ShouldBeInterpolated};
 use crate::shared::replication::entity_map::EntityMap;
@@ -89,7 +90,7 @@ type RawWriteFn = fn(
 
 type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
 
-trait Linear {
+pub trait Linear {
     fn lerp(start: &Self, other: &Self, t: f32) -> Self;
 }
 
@@ -420,43 +421,63 @@ impl ComponentRegistry {
 }
 
 fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
+    let is_client = app.world.get_resource::<ClientConfig>().is_some();
+    let is_server = app.world.get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
-            register_replicate_component_send::<C, client::ConnectionManager>(app);
-            crate::server::events::emit_replication_events::<C>(app);
+            if is_client {
+                register_replicate_component_send::<C, client::ConnectionManager>(app);
+            }
+            if is_server {
+                crate::server::events::emit_replication_events::<C>(app);
+            }
         }
         ChannelDirection::ServerToClient => {
-            register_replicate_component_send::<C, server::ConnectionManager>(app);
-            crate::client::events::emit_replication_events::<C>(app);
+            if is_server {
+                register_replicate_component_send::<C, server::ConnectionManager>(app);
+            }
+            if is_client {
+                crate::client::events::emit_replication_events::<C>(app);
+            }
         }
         ChannelDirection::Bidirectional => {
-            register_replicate_component_send::<C, client::ConnectionManager>(app);
-            register_replicate_component_send::<C, server::ConnectionManager>(app);
+            register_component_send::<C>(app, ChannelDirection::ServerToClient);
+            register_component_send::<C>(app, ChannelDirection::ClientToServer);
         }
     }
 }
 
 fn register_resource_send<R: Resource + Message>(app: &mut App, direction: ChannelDirection) {
+    let is_client = app.world.get_resource::<ClientConfig>().is_some();
+    let is_server = app.world.get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
-            crate::shared::replication::resources::send::add_resource_send_systems::<
-                client::ConnectionManager,
-                R,
-            >(app);
-            crate::shared::replication::resources::receive::add_resource_receive_systems::<
-                server::ConnectionManager,
-                R,
-            >(app);
+            if is_client {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    client::ConnectionManager,
+                    R,
+                >(app);
+            }
+            if is_server {
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    server::ConnectionManager,
+                    R,
+                >(app);
+            }
         }
         ChannelDirection::ServerToClient => {
-            crate::shared::replication::resources::send::add_resource_send_systems::<
-                server::ConnectionManager,
-                R,
-            >(app);
-            crate::shared::replication::resources::receive::add_resource_receive_systems::<
-                client::ConnectionManager,
-                R,
-            >(app);
+            if is_server {
+                crate::shared::replication::resources::send::add_resource_send_systems::<
+                    server::ConnectionManager,
+                    R,
+                >(app);
+            }
+            if is_client {
+                crate::shared::replication::resources::receive::add_resource_receive_systems::<
+                    client::ConnectionManager,
+                    R,
+                >(app);
+            }
         }
         ChannelDirection::Bidirectional => {
             register_resource_send::<R>(app, ChannelDirection::ClientToServer);
@@ -499,11 +520,15 @@ impl AppComponentExt for App {
         registry.add_map_entities::<C>();
     }
 
-    // TODO: make prediction/interpolation possible on server?
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_prediction_mode::<C>(prediction_mode);
-        add_prediction_systems::<C>(self, prediction_mode);
+
+        // TODO: make prediction/interpolation possible on server?
+        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        if is_client {
+            add_prediction_systems::<C>(self, prediction_mode);
+        }
     }
 
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self) {
@@ -520,10 +545,14 @@ impl AppComponentExt for App {
     fn add_interpolation<C: SyncComponent>(&mut self, interpolation_mode: ComponentSyncMode) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
         registry.set_interpolation_mode::<C>(interpolation_mode);
-        add_prepare_interpolation_systems::<C>(self, interpolation_mode);
-        if interpolation_mode == ComponentSyncMode::Full {
-            // TODO: handle custom interpolation
-            add_interpolation_systems::<C>(self);
+        // TODO: make prediction/interpolation possible on server?
+        let is_client = self.world.get_resource::<ClientConfig>().is_some();
+        if is_client {
+            add_prepare_interpolation_systems::<C>(self, interpolation_mode);
+            if interpolation_mode == ComponentSyncMode::Full {
+                // TODO: handle custom interpolation
+                add_interpolation_systems::<C>(self);
+            }
         }
     }
 
@@ -537,123 +566,6 @@ impl AppComponentExt for App {
         registry.set_interpolation::<C>(interpolation_fn);
     }
 }
-
-// that big enum will implement ComponentProtocol via a proc macro
-// TODO: remove the extra  Serialize + DeserializeOwned + Clone  bounds
-pub trait ComponentProtocol:
-    BitSerializable
-    + Serialize
-    + DeserializeOwned
-    + MapEntities
-    + ComponentBehaviour
-    + Debug
-    + Send
-    + Sync
-    + From<ShouldBePredicted>
-    + From<PrePredicted>
-    + From<ShouldBeInterpolated>
-    + TryInto<ShouldBePredicted>
-    + TryInto<PrePredicted>
-{
-    type Protocol: Protocol;
-
-    fn add_prediction_systems(app: &mut App);
-
-    /// Add all component systems for the PrepareInterpolation SystemSet
-    fn add_prepare_interpolation_systems(app: &mut App);
-
-    /// Add all component systems for the Interpolation SystemSet
-    fn add_interpolation_systems(app: &mut App);
-}
-
-// TODO: enum_delegate doesn't work with generics + cannot be used multiple times since it derives a bunch of Into/From traits
-/// Trait to delegate a method from the ComponentProtocol enum to the inner Component type
-///  We use it mainly for the IntoKind, From implementations
-#[enum_delegate::register]
-pub trait ComponentBehaviour {}
-
-impl<C: Component + Message> ComponentBehaviour for C {}
-
-// Trait that lets us convert a component type into the corresponding ComponentProtocolKind
-// #[cfg(feature = "leafwing")]
-// pub trait FromTypes: FromType<ShouldBePredicted> + FromType<ShouldBeInterpolated> {}
-//
-// #[cfg(not(feature = "leafwing"))]
-// pub trait FromTypes: FromType<ShouldBePredicted> + FromType<ShouldBeInterpolated> {}
-
-cfg_if!(
-    if #[cfg(feature = "leafwing")] {
-        use leafwing_input_manager::prelude::ActionState;
-        pub trait ComponentProtocolKind:
-            BitSerializable
-            + Serialize
-            + DeserializeOwned
-            + PartialEq
-            + Eq
-            + PartialOrd
-            + Ord
-            + Clone
-            + Copy
-            + Hash
-            + Debug
-            + Send
-            + Sync
-            + Display
-            + FromReflect
-            + TypePath
-            + GetTypeRegistration
-            + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
-            + ComponentKindBehaviour
-            + FromType<ShouldBePredicted>
-            + FromType<ShouldBeInterpolated>
-            + FromType<PrePredicted>
-            + FromType<PreSpawnedPlayerObject>
-            + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput1>>
-            + FromType<ActionState<<Self::Protocol as Protocol>::LeafwingInput2>>
-        {
-            type Protocol: Protocol;
-        }
-    } else {
-        pub trait ComponentProtocolKind:
-            BitSerializable
-            + Serialize
-            + DeserializeOwned
-            + PartialEq
-            + Eq
-            + PartialOrd
-            + Ord
-            + Clone
-            + Copy
-            + Hash
-            + Debug
-            + Send
-            + Sync
-            + Display
-            + FromReflect
-            + TypePath
-            + GetTypeRegistration
-            + for<'a> From<&'a <Self::Protocol as Protocol>::Components>
-            + ComponentKindBehaviour
-            + FromType<ShouldBePredicted>
-            + FromType<ShouldBeInterpolated>
-            + FromType<PrePredicted>
-            + FromType<PreSpawnedPlayerObject>
-        {
-            type Protocol: Protocol;
-        }
-    }
-);
-
-/// Trait to delegate a method from the ComponentProtocolKind enum to the inner Component type
-pub trait ComponentKindBehaviour {
-    /// Remove the component for an entity
-    fn remove(self, entity: &mut EntityWorldMut);
-}
-
-// /// Trait to convert a component type into the corresponding ComponentProtocolKind
-// pub trait IntoKind<K: ComponentProtocolKind> {
-//     fn into_kind() -> K;
-// }
 
 // TODO: prefer FromType to IntoKind because IntoKind requires adding an additional bound to the component type,
 //  which is not possible for external components.

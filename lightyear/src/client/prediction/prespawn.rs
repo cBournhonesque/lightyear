@@ -6,7 +6,7 @@ use std::any::{Any, TypeId};
 use std::hash::{BuildHasher, Hash, Hasher};
 use tracing::{debug, info, trace, warn};
 
-use crate::_reexport::{ClientMarker, ComponentProtocol};
+use crate::_internal::ClientMarker;
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::ComponentInsertEvent;
@@ -19,7 +19,7 @@ use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
 use crate::prelude::{ComponentRegistry, ShouldBePredicted, Tick, TickManager};
 use crate::protocol::component::ComponentKind;
-use crate::protocol::Protocol;
+
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
 
@@ -448,7 +448,7 @@ mod tests {
     use bevy::utils::Duration;
     use hashbrown::HashMap;
 
-    use crate::_reexport::ItemWithReadyKey;
+    use crate::_internal::ItemWithReadyKey;
     use crate::client::prediction::resource::PredictionManager;
     use crate::prelude::client::*;
     use crate::prelude::*;

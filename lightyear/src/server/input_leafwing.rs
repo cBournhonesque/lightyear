@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bitcode::__private::Fixed;
 use leafwing_input_manager::prelude::*;
 
-use crate::_reexport::{MessageKind, ReadBuffer, ServerMarker};
+use crate::_internal::{MessageKind, ReadBuffer, ServerMarker};
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::prediction::Predicted;

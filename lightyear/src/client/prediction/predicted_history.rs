@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::_reexport::FromType;
+use crate::_internal::FromType;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Or, Query, Ref, RemovedComponents, Res, ResMut,
     With, Without,
@@ -13,7 +13,7 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::prelude::{
     ComponentRegistry, ExternalMapper, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
 };
-use crate::protocol::Protocol;
+
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 

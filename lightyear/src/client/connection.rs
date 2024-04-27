@@ -10,7 +10,7 @@ use bytes::Bytes;
 use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::_reexport::{
+use crate::_internal::{
     ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel, ReplicationSend, WriteBuffer,
     WriteWordBuffer,
 };
@@ -27,7 +27,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::MessageRegistry;
 use crate::protocol::registry::NetId;
-use crate::protocol::{BitSerializable, Protocol};
+use crate::protocol::BitSerializable;
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::serialize::RawData;

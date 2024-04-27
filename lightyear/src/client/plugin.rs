@@ -14,9 +14,7 @@ use crate::client::prediction::plugin::PredictionPlugin;
 use crate::client::replication::ClientReplicationPlugin;
 use crate::connection::client::{ClientConnection, NetConfig};
 use crate::prelude::MessageRegistry;
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::message::MessageProtocol;
-use crate::protocol::Protocol;
+
 use crate::server::plugin::ServerPlugin;
 use crate::shared::config::Mode;
 use crate::shared::events::connection::ConnectionEvents;
@@ -44,15 +42,7 @@ impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app
             // RESOURCES //
-            .insert_resource(self.config.clone())
-            .init_resource::<MessageRegistry>()
-            // PLUGINS //
-            .add_plugins(ClientNetworkingPlugin::default())
-            .add_plugins(ClientEventsPlugin::default())
-            .add_plugins(ClientDiagnosticsPlugin::default())
-            .add_plugins(ClientReplicationPlugin::default())
-            .add_plugins(PredictionPlugin::default())
-            .add_plugins(InterpolationPlugin::new(self.config.interpolation.clone()));
+            .insert_resource(self.config.clone());
 
         // TODO: how do we make sure that SharedPlugin is only added once if we want to switch between
         //  HostServer and Separate mode?
@@ -64,5 +54,14 @@ impl Plugin for ClientPlugin {
                     ..default()
                 });
         }
+
+        app
+            // PLUGINS //
+            .add_plugins(ClientNetworkingPlugin::default())
+            .add_plugins(ClientEventsPlugin::default())
+            .add_plugins(ClientDiagnosticsPlugin::default())
+            .add_plugins(ClientReplicationPlugin::default())
+            .add_plugins(PredictionPlugin::default())
+            .add_plugins(InterpolationPlugin::new(self.config.interpolation.clone()));
     }
 }

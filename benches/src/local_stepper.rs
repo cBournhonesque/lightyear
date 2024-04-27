@@ -42,14 +42,6 @@ pub struct LocalBevyStepper {
     pub current_time: bevy::utils::Instant,
 }
 
-struct SharedPlugin;
-impl Plugin for SharedPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_message::<Message2>(ChannelDirection::Bidirectional);
-        app.add_plugins(InputPlugin::<MyInput>::default());
-    }
-}
-
 // Do not forget to use --features mock_time when using the LinkConditioner
 impl LocalBevyStepper {
     pub fn new(
@@ -119,9 +111,7 @@ impl LocalBevyStepper {
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            let plugin_config = client::PluginConfig::new(config, protocol());
-            let plugin = client::ClientPlugin::new(plugin_config);
-            client_app.add_plugins((plugin, SharedPlugin));
+            client_app.add_plugins((ClientPlugin::new(config), ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
                 .world
@@ -161,9 +151,7 @@ impl LocalBevyStepper {
             }],
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
-        server_app.add_plugins((plugin, SharedPlugin));
+        server_app.add_plugins((ServerPlugin::new(config), ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
@@ -213,7 +201,7 @@ impl LocalBevyStepper {
             if self
                 .client_apps
                 .values()
-                .all(|c| c.world.resource::<ClientConnectionManager>().is_synced())
+                .all(|c| c.world.resource::<client::ConnectionManager>().is_synced())
             {
                 return;
             }

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::utils::HashMap;
 use tracing::trace;
 
-use crate::_reexport::{
+use crate::_internal::{
     FromType, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     ServerMarker,
 };
@@ -13,7 +13,7 @@ use crate::connection::id::ClientId;
 use crate::inputs::leafwing::{InputMessage, LeafwingUserAction};
 use crate::packet::message::Message;
 use crate::prelude::{server, ComponentRegistry};
-use crate::protocol::Protocol;
+
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::{clear_events, is_started};
 use crate::shared::events::connection::{
@@ -48,6 +48,9 @@ pub struct ServerEvents {
 }
 
 pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
+    app.add_event::<ComponentUpdateEvent<C>>();
+    app.add_event::<ComponentInsertEvent<C>>();
+    app.add_event::<ComponentRemoveEvent<C>>();
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>

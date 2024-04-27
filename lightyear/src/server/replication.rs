@@ -1,13 +1,15 @@
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
-use crate::_reexport::ServerMarker;
+use crate::_internal::{ClientMarker, ServerMarker};
 use crate::client::components::Confirmed;
 use crate::client::interpolation::Interpolated;
+use crate::client::networking::is_connected;
 use crate::client::prediction::Predicted;
+use crate::client::sync::client_is_synced;
 use crate::connection::client::NetClient;
 use crate::prelude::client::ClientConnection;
-use crate::prelude::{Mode, PrePredicted, Protocol, SharedConfig};
+use crate::prelude::{Mode, PrePredicted, SharedConfig};
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::networking::is_started;
@@ -48,11 +50,11 @@ impl Plugin for ServerReplicationPlugin {
 
         app
             // PLUGIN
-            // .add_plugins(ReplicationPlugin::<P, ConnectionManager>::new(
-            //     config.shared.tick.tick_duration,
-            //     config.replication.enable_send,
-            //     config.replication.enable_receive,
-            // ))
+            .add_plugins(ReplicationPlugin::<ConnectionManager>::new(
+                config.shared.tick.tick_duration,
+                config.replication.enable_send,
+                config.replication.enable_receive,
+            ))
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
@@ -66,6 +68,10 @@ impl Plugin for ServerReplicationPlugin {
                 InternalReplicationSet::<ServerMarker>::SetPreSpawnedHash
                     .before(InternalReplicationSet::<ServerMarker>::SendComponentUpdates)
                     .in_set(InternalReplicationSet::<ServerMarker>::All),
+            )
+            .configure_sets(
+                PostUpdate,
+                InternalReplicationSet::<ServerMarker>::All.run_if(is_started),
             )
             // SYSTEMS
             .add_systems(

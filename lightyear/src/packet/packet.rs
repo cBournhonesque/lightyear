@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
+use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
 use bitcode::encoding::{Fixed, Gamma};
 
 use crate::connection::netcode::MAX_PACKET_SIZE;
@@ -368,7 +368,7 @@ mod tests {
     use bitcode::encoding::Gamma;
     use lightyear_macros::ChannelInternal;
 
-    use crate::_reexport::{ReadWordBuffer, WriteWordBuffer};
+    use crate::_internal::{ReadWordBuffer, WriteWordBuffer};
     use crate::packet::message::{FragmentData, MessageId, SingleData};
     use crate::packet::packet::{FragmentedPacket, SinglePacket};
     use crate::packet::packet_manager::PacketBuilder;
@@ -389,8 +389,8 @@ mod tests {
             ..default()
         };
         let mut c = ChannelRegistry::new();
-        c.add::<Channel1>(settings.clone());
-        c.add::<Channel2>(settings.clone());
+        c.add_channel::<Channel1>(settings.clone());
+        c.add_channel::<Channel2>(settings.clone());
         c
     }
 

@@ -5,9 +5,6 @@ use std::sync::Mutex;
 use crate::prelude::MessageRegistry;
 use bevy::prelude::*;
 
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::message::MessageProtocol;
-use crate::protocol::Protocol;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::ServerEventsPlugin;
 use crate::server::input::InputPlugin;
@@ -33,16 +30,16 @@ impl Plugin for ServerPlugin {
         app
             // RESOURCES //
             .insert_resource(self.config.clone())
-            .init_resource::<MessageRegistry>()
             // PLUGINS
-            .add_plugins(ServerEventsPlugin::default())
-            .add_plugins(ServerNetworkingPlugin::default())
-            .add_plugins(RoomPlugin::default())
-            .add_plugins(ServerReplicationPlugin::default())
+            // NOTE: SharedPlugin needs to be added after config
             .add_plugins(SharedPlugin {
                 // TODO: move shared config out of server_config?
                 config: self.config.shared.clone(),
                 ..default()
-            });
+            })
+            .add_plugins(ServerEventsPlugin::default())
+            .add_plugins(ServerNetworkingPlugin::default())
+            .add_plugins(RoomPlugin::default())
+            .add_plugins(ServerReplicationPlugin::default());
     }
 }

@@ -3,9 +3,8 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{ClientMarker, ReplicationSend};
+use crate::_internal::{ClientMarker, ReplicationSend};
 use crate::prelude::ReplicationGroup;
-use crate::protocol::Protocol;
 use crate::shared::replication::components::Replicate;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 

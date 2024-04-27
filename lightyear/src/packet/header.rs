@@ -5,7 +5,7 @@ use tracing::trace;
 
 use bitcode::{Decode, Encode};
 
-use crate::_reexport::WrappedTime;
+use crate::_internal::WrappedTime;
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::PacketStatsManager;
@@ -286,7 +286,7 @@ impl ReceiveBuffer {
 mod tests {
     use bitcode::encoding::Fixed;
 
-    use crate::_reexport::*;
+    use crate::_internal::*;
 
     use super::*;
 

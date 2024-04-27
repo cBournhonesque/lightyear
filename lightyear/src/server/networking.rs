@@ -4,15 +4,14 @@ use bevy::ecs::system::{RunSystemOnce, SystemChangeTick, SystemParam};
 use bevy::prelude::*;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::_reexport::{ComponentProtocol, ServerMarker};
+use crate::_internal::ServerMarker;
 use crate::client::config::ClientConfig;
 use crate::client::networking::is_disconnected;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::connection::server::{NetConfig, NetServer, ServerConnection, ServerConnections};
 use crate::prelude::{ChannelRegistry, MainSet, MessageRegistry, Mode, TickManager, TimeManager};
 use crate::protocol::component::ComponentRegistry;
-use crate::protocol::message::MessageProtocol;
-use crate::protocol::Protocol;
+
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
 use crate::server::events::{ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent};

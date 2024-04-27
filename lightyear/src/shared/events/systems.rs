@@ -1,6 +1,6 @@
-use crate::_reexport::ReplicationSend;
+use crate::_internal::ReplicationSend;
 use crate::prelude::ComponentRegistry;
-use crate::protocol::{EventContext, Protocol};
+use crate::protocol::EventContext;
 use crate::shared::events::components::{
     ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent,
 };

@@ -4,7 +4,6 @@ use bevy::time::Stopwatch;
 use bevy::utils::Duration;
 use tracing::{error, trace};
 
-use crate::protocol::Protocol;
 use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::ping::store::{PingId, PingStore};
 use crate::shared::time_manager::{TimeManager, WrappedTime};

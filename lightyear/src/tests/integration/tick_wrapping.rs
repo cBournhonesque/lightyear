@@ -1,4 +1,4 @@
-use crate::_reexport::WrappedTime;
+use crate::_internal::WrappedTime;
 use crate::client::input::InputManager;
 use crate::prelude::client::{InputSystemSet, SyncConfig};
 use crate::prelude::server::InputEvent;

@@ -4,7 +4,7 @@ use bevy::ecs::entity::MapEntities;
 use std::any::TypeId;
 use std::fmt::Debug;
 
-use crate::_reexport::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+use crate::_internal::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
 use crate::client::message::add_server_to_client_message;
 use crate::prelude::{client, server, Channel, RemoteEntityMap};
 use bevy::prelude::{
@@ -20,8 +20,9 @@ use tracing::error;
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
 use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
+use crate::protocol::component::ComponentKind;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::{BitSerializable, EventContext, Protocol};
+use crate::protocol::{BitSerializable, EventContext};
 use crate::server::message::add_client_to_server_message;
 use crate::shared::replication::entity_map::EntityMap;
 
@@ -99,7 +100,7 @@ pub struct MessageRegistry {
 pub trait AppMessageExt {
     fn add_message<M: Message>(&mut self, direction: ChannelDirection);
 
-    fn add_message_mapped<M: Message + MapEntities>(&mut self, direction: ChannelDirection);
+    fn add_map_entities<M: MapEntities + 'static>(&mut self);
 }
 
 fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection) {
@@ -119,21 +120,14 @@ fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection)
 
 impl AppMessageExt for App {
     fn add_message<M: Message>(&mut self, direction: ChannelDirection) {
-        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
-            protocol.add_message::<M>(MessageType::Normal);
-        } else {
-            todo!("create a protocol");
-        }
+        let mut registry = self.world.resource_mut::<MessageRegistry>();
+        registry.add_message::<M>(MessageType::Normal);
         register_message_send::<M>(self, direction);
     }
 
-    fn add_message_mapped<M: Message + MapEntities>(&mut self, direction: ChannelDirection) {
-        if let Some(mut protocol) = self.world.get_resource_mut::<MessageRegistry>() {
-            protocol.add_message_mapped::<M>(MessageType::Normal);
-        } else {
-            todo!("create a protocol");
-        }
-        register_message_send::<M>(self, direction);
+    fn add_map_entities<M: MapEntities + 'static>(&mut self) {
+        let mut registry = self.world.resource_mut::<MessageRegistry>();
+        registry.add_map_entities::<M>();
     }
 }
 
@@ -161,25 +155,15 @@ impl MessageRegistry {
             },
         );
     }
-    pub(crate) fn add_message_mapped<M: Message + MapEntities>(
-        &mut self,
-        message_type: MessageType,
-    ) {
-        let message_kind = self.kind_map.add::<M>();
-        let serialize: SerializeFn<M> = <M as BitSerializable>::encode;
-        let deserialize: DeserializeFn<M> = <M as BitSerializable>::decode;
+
+    pub(crate) fn add_map_entities<M: MapEntities + 'static>(&mut self) {
+        let kind = MessageKind::of::<M>();
         let map_entities: MapEntitiesFn<M> = <M as MapEntities>::map_entities::<EntityMap>;
-        self.fns_map.insert(
-            message_kind,
-            ErasedMessageFns {
-                type_id: TypeId::of::<M>(),
-                type_name: std::any::type_name::<M>(),
-                serialize: unsafe { std::mem::transmute(serialize) },
-                deserialize: unsafe { std::mem::transmute(deserialize) },
-                map_entities: Some(unsafe { std::mem::transmute(map_entities) }),
-                message_type,
-            },
-        );
+        let erased_fns = self
+            .fns_map
+            .get_mut(&kind)
+            .expect("the message is not part of the protocol");
+        erased_fns.map_entities = Some(unsafe { std::mem::transmute(map_entities) });
     }
 
     pub(crate) fn serialize<M: Message>(
@@ -231,42 +215,12 @@ impl MessageRegistry {
     }
 }
 
-/// A [`MessageProtocol`] is basically an enum that contains all the [`Message`] that can be sent
-/// over the network.
-pub trait MessageProtocol:
-    BitSerializable
-    + Serialize
-    + DeserializeOwned
-    + Clone
-    + MapEntities
-    + Debug
-    + Send
-    + Sync
-    + From<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>>
-    + TryInto<InputMessage<<<Self as MessageProtocol>::Protocol as Protocol>::Input>, Error = ()>
-{
-    type Protocol: Protocol;
-
-    /// Get the name of the Message
-    fn name(&self) -> &'static str;
-
-    /// Returns the MessageKind of the Message
-    fn kind(&self) -> MessageKind;
-
-    /// Returns true if the message is an input message
-    fn input_message_kind(&self) -> InputMessageKind;
-
-    // TODO: combine these 2 into a single function that takes app?
-    /// Add events to the app
-    fn add_events<Ctx: EventContext>(app: &mut App);
-}
-
 /// [`MessageKind`] is an internal wrapper around the type of the message
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
 pub struct MessageKind(TypeId);
 
 impl MessageKind {
-    pub fn of<M: Message>() -> Self {
+    pub fn of<M: 'static>() -> Self {
         Self(TypeId::of::<M>())
     }
 }

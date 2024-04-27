@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::_reexport::FromType;
+use crate::_internal::FromType;
 use bevy::prelude::{
     Commands, Component, DetectChanges, Entity, Query, Ref, Res, ResMut, With, Without,
 };
@@ -13,7 +13,7 @@ use crate::client::interpolation::interpolate::InterpolateStatus;
 use crate::client::interpolation::resource::InterpolationManager;
 use crate::client::interpolation::Interpolated;
 use crate::prelude::{ComponentRegistry, ExternalMapper, TickManager};
-use crate::protocol::Protocol;
+
 use crate::shared::tick_manager::Tick;
 use crate::utils::ready_buffer::ReadyBuffer;
 

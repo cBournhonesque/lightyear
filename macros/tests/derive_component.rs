@@ -40,19 +40,19 @@ pub mod some_component {
     #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
     pub struct Component5(pub f32);
 
-    #[component_protocol(protocol = "MyProtocol")]
-    pub enum MyComponentProtocol {
-        #[protocol(sync(mode = "full", lerp = "LinearInterpolator"))]
-        Component1(Component1),
-        #[protocol(sync(mode = "simple"), map_entities)]
-        Component2(Component2),
-        #[protocol(sync(mode = "once"))]
-        Component3(Component3),
-        Component4(Component4),
-        #[protocol(sync(mode = "full", lerp = "MyCustomInterpolator"))]
-        Component5(Component5),
-        Resource1(ReplicateResource<Resource1>),
-    }
+    // #[component_protocol(protocol = "MyProtocol")]
+    // pub enum MyComponentProtocol {
+    //     #[protocol(sync(mode = "full", lerp = "LinearInterpolator"))]
+    //     Component1(Component1),
+    //     #[protocol(sync(mode = "simple"), map_entities)]
+    //     Component2(Component2),
+    //     #[protocol(sync(mode = "once"))]
+    //     Component3(Component3),
+    //     Component4(Component4),
+    //     #[protocol(sync(mode = "full", lerp = "MyCustomInterpolator"))]
+    //     Component5(Component5),
+    //     Resource1(ReplicateResource<Resource1>),
+    // }
 
     // custom interpolation logic
     pub struct MyCustomInterpolator;
@@ -61,22 +61,13 @@ pub mod some_component {
             start.clone()
         }
     }
-
-    #[message_protocol(protocol = "MyProtocol")]
-    pub enum MyMessageProtocol {}
-
-    protocolize! {
-        Self = MyProtocol,
-        Message = MyMessageProtocol,
-        Component = MyComponentProtocol,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use bevy::ecs::entity::MapEntities;
     use bevy::prelude::Entity;
-    use lightyear::_reexport::ComponentProtocol;
+    use lightyear::_internal::ComponentProtocol;
     use lightyear::prelude::RemoteEntityMap;
     use lightyear::protocol::BitSerializable;
     use lightyear::serialize::reader::ReadBuffer;

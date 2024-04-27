@@ -10,10 +10,9 @@ use hashbrown::hash_map::Entry;
 use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::_reexport::{
-    BitSerializable, EntityUpdatesChannel, FromType, InputMessageKind, MessageKind,
-    MessageProtocol, PingChannel, ReplicationSend, ServerMarker, ShouldBeInterpolated, WriteBuffer,
-    WriteWordBuffer,
+use crate::_internal::{
+    BitSerializable, EntityUpdatesChannel, FromType, InputMessageKind, MessageKind, PingChannel,
+    ReplicationSend, ServerMarker, ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
@@ -29,7 +28,7 @@ use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::message::{MessageRegistry, MessageType};
 use crate::protocol::registry::NetId;
-use crate::protocol::Protocol;
+
 use crate::serialize::reader::ReadBuffer;
 use crate::serialize::wordbuffer::reader::BufferPool;
 use crate::serialize::RawData;

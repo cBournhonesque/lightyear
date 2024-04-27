@@ -7,7 +7,7 @@ use bevy::prelude::{
 use bevy::reflect::Reflect;
 use bevy::transform::TransformSystem;
 
-use crate::_reexport::{ClientMarker, FromType};
+use crate::_internal::{ClientMarker, FromType};
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent, SyncMetadata};
 use crate::client::config::ClientConfig;
 use crate::client::prediction::correction::{
@@ -28,8 +28,7 @@ use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::prelude::{ExternalMapper, PreSpawnedPlayerObject, SharedConfig};
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::Protocol;
+
 use crate::shared::sets::InternalMainSet;
 
 use super::pre_prediction::{PrePredictionPlugin, PrePredictionSet};

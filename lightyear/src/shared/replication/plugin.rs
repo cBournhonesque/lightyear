@@ -2,10 +2,10 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-use crate::_reexport::{ComponentProtocol, ReplicationSend, ShouldBeInterpolated};
+use crate::_internal::{ReplicationSend, ShouldBeInterpolated};
 use crate::prelude::{
-    NetworkTarget, PrePredicted, Protocol, RemoteEntityMap, ReplicationGroup, ReplicationMode,
-    ShouldBePredicted,
+    AppComponentExt, ChannelDirection, NetworkTarget, PrePredicted, PreSpawnedPlayerObject,
+    RemoteEntityMap, ReplicationGroup, ReplicationMode, ShouldBePredicted,
 };
 use crate::shared::replication::components::{
     PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
@@ -55,6 +55,12 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
             .register_type::<RemoteEntityMap>()
             .register_type::<PredictedEntityMap>()
             .register_type::<InterpolatedEntityMap>();
+
+        // PROTOCOL
+        app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
+        app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
+        app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
+        app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
 
         // SYSTEM SETS //
         if self.enable_receive {

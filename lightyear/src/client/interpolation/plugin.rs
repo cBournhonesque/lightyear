@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::_reexport::FromType;
+use crate::_internal::FromType;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
@@ -15,8 +15,6 @@ use crate::client::interpolation::spawn::spawn_interpolated_entity;
 use crate::client::interpolation::Interpolated;
 use crate::client::sync::client_is_synced;
 use crate::prelude::{ExternalMapper, Mode, SharedConfig};
-use crate::protocol::component::ComponentProtocol;
-use crate::protocol::Protocol;
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,

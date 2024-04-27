@@ -1,7 +1,7 @@
 //! Module to handle the replication of bevy [`Resource`]s
 
-use crate::_reexport::{ComponentProtocol, ReplicationSend};
-use crate::prelude::{Message, Protocol};
+use crate::_internal::ReplicationSend;
+use crate::prelude::Message;
 use crate::shared::replication::components::Replicate;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 use async_compat::CompatExt;

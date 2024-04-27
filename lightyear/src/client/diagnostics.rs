@@ -4,7 +4,7 @@ use bevy::diagnostic::Diagnostics;
 use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
 
 use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{Protocol, SharedConfig};
+use crate::prelude::SharedConfig;
 use crate::transport::io::IoDiagnosticsPlugin;
 
 #[derive(Default, Debug)]

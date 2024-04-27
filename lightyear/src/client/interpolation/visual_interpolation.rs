@@ -35,10 +35,10 @@
 
 use bevy::prelude::*;
 
-use crate::_reexport::{ComponentProtocol, FromType};
+use crate::_internal::FromType;
 use crate::client::components::{ComponentSyncMode, SyncComponent, SyncMetadata};
 use crate::prelude::client::InterpolationSet;
-use crate::prelude::{ComponentRegistry, Protocol, TickManager, TimeManager};
+use crate::prelude::{ComponentRegistry, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
     _marker: std::marker::PhantomData<C>,

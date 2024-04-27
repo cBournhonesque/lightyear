@@ -11,9 +11,8 @@ use bevy::utils::HashSet;
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::_reexport::{
-    ComponentProtocol, ComponentProtocolKind, IterComponentInsertEvent, IterComponentRemoveEvent,
-    IterComponentUpdateEvent, WriteWordBuffer,
+use crate::_internal::{
+    IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent, WriteWordBuffer,
 };
 use crate::channel::builder::Channel;
 use crate::connection::id::ClientId;
@@ -21,7 +20,7 @@ use crate::packet::message::MessageId;
 use crate::prelude::{NetworkTarget, Tick};
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
-use crate::protocol::{EventContext, Protocol};
+use crate::protocol::EventContext;
 use crate::serialize::RawData;
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 

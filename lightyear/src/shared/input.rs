@@ -1,6 +1,6 @@
 //! Plugin to register and handle user inputs.
 
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use crate::client::config::ClientConfig;
 use crate::inputs::native::InputMessage;
 use crate::prelude::{MessageRegistry, UserAction};

@@ -6,7 +6,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::_reexport::LinearInterpolator;
+use lightyear::_internal::LinearInterpolator;
 use lightyear::connection::netcode::NetcodeServer;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;

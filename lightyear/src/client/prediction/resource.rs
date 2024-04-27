@@ -4,7 +4,7 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
 use bevy::reflect::Reflect;
 
-use crate::_reexport::ReadyBuffer;
+use crate::_internal::ReadyBuffer;
 use crate::prelude::Tick;
 use crate::shared::replication::entity_map::PredictedEntityMap;
 

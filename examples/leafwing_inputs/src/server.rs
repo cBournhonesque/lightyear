@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::utils::Duration;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::_reexport::ServerMarker;
+use lightyear::_internal::ServerMarker;
 
 use lightyear::prelude::client::{Confirmed, Predicted};
 pub use lightyear::prelude::server::*;

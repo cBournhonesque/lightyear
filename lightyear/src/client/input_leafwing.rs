@@ -36,7 +36,7 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use crate::_reexport::ClientMarker;
+use crate::_internal::ClientMarker;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -55,7 +55,7 @@ use crate::inputs::leafwing::input_buffer::{
 };
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{Mode, SharedConfig, TickManager};
-use crate::protocol::Protocol;
+
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{FixedUpdateSet, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;

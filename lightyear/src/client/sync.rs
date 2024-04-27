@@ -8,7 +8,7 @@ use tracing::{debug, info, trace};
 use crate::client::connection::ConnectionManager;
 use crate::client::interpolation::plugin::InterpolationDelay;
 use crate::packet::packet::PacketId;
-use crate::protocol::Protocol;
+
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::tick_manager::{Tick, TickEvent};

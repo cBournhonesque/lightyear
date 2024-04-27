@@ -7,13 +7,13 @@ use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::_reexport::FromType;
+use crate::_internal::FromType;
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
 use crate::protocol::component::{ComponentNetId, ComponentRegistry};
-use crate::protocol::Protocol;
+
 use crate::server::room::ClientVisibility;
 
 /// Component inserted to each replicable entities, to detect when they are despawned

@@ -17,7 +17,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 
 // re-exports (mostly used in the derive macro crate or for internal purposes)
 #[doc(hidden)]
-pub mod _reexport {
+pub mod _internal {
     pub use enum_delegate;
     pub use enum_dispatch::enum_dispatch;
     pub use paste::paste;
@@ -36,12 +36,9 @@ pub mod _reexport {
     pub use crate::client::interpolation::{LinearInterpolator, NullInterpolator};
     pub use crate::client::prediction::add_prediction_systems;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
-    pub use crate::protocol::component::{
-        ComponentBehaviour, ComponentKindBehaviour, ComponentProtocol, ComponentProtocolKind,
-        FromType,
-    };
+    pub use crate::protocol::component::FromType;
     pub use crate::protocol::message::InputMessageKind;
-    pub use crate::protocol::message::{MessageKind, MessageProtocol};
+    pub use crate::protocol::message::MessageKind;
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
     pub use crate::serialize::wordbuffer::reader::ReadWordBuffer;
@@ -77,11 +74,9 @@ pub mod prelude {
     pub use crate::inputs::leafwing::LeafwingUserAction;
     pub use crate::inputs::native::UserAction;
     pub use crate::packet::message::Message;
-    pub use crate::protocol::channel::{ChannelKind, ChannelRegistry};
+    pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
     pub use crate::protocol::component::{AppComponentExt, ComponentRegistry};
     pub use crate::protocol::message::{AppMessageExt, MessageRegistry};
-    pub use crate::protocol::Protocol;
-    pub use crate::protocolize;
     pub use crate::shared::config::{Mode, SharedConfig};
     pub use crate::shared::input::InputPlugin;
     #[cfg(feature = "leafwing")]

@@ -12,9 +12,9 @@ use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
 use tracing::{info, trace};
 
-use crate::_reexport::ServerMarker;
+use crate::_internal::ServerMarker;
 use crate::connection::id::ClientId;
-use crate::protocol::Protocol;
+
 use crate::server::networking::is_started;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;

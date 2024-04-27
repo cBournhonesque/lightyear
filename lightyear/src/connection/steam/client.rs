@@ -1,4 +1,4 @@
-use crate::_reexport::{ReadBuffer, ReadWordBuffer};
+use crate::_internal::{ReadBuffer, ReadWordBuffer};
 use crate::client::networking::NetworkingState;
 use crate::connection::client::NetClient;
 use crate::connection::id::ClientId;
