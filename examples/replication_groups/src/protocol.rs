@@ -276,8 +276,6 @@ pub enum Inputs {
     None,
 }
 
-impl UserAction for Inputs {}
-
 // Protocol
 pub(crate) struct ProtocolPlugin;
 

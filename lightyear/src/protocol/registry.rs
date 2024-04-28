@@ -43,7 +43,7 @@ impl<K: TypeKind> TypeMapper<K> {
     pub fn add<T: 'static>(&mut self) -> K {
         let kind = K::from(TypeId::of::<T>());
         if self.kind_map.contains_key(&kind) {
-            panic!("Type already registered");
+            panic!("Type {:?} already registered", std::any::type_name::<T>());
         }
         let net_id = self.next_net_id;
         self.kind_map.insert(kind, net_id);

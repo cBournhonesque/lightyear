@@ -35,6 +35,7 @@ use crate::prelude::{
 };
 use crate::protocol::message::MessageType;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
+use crate::protocol::serialize::{ErasedSerializeFns, MapEntitiesFn, SerializeFns};
 use crate::protocol::{BitSerializable, EventContext};
 use crate::serialize::RawData;
 use crate::server::networking::is_started;
@@ -52,10 +53,55 @@ pub type ComponentNetId = NetId;
 
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
-    // TODO: maybe instead of ComponentFns, use an erased trait objects? like dyn ErasedSerialize + ErasedDeserialize ?
-    //  but how do we deal with implementing behaviour for types that don't have those traits?
-    fns_map: HashMap<ComponentKind, ErasedComponentFns>,
+    replication_map: HashMap<ComponentKind, ReplicationMetadata>,
+    interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
+    prediction_map: HashMap<ComponentKind, PredictionMetadata>,
+    serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
     pub(crate) kind_map: TypeMapper<ComponentKind>,
+}
+
+#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+pub struct ReplicationMetadata {
+    pub write: RawWriteFn,
+    pub remove: RawRemoveFn,
+}
+
+#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+pub struct PredictionMetadata {
+    pub prediction_mode: ComponentSyncMode,
+    pub correction: Option<unsafe fn()>,
+}
+
+impl PredictionMetadata {
+    unsafe fn typed<C: Component>(&self) -> <C> {
+        debug_assert_eq!(
+            self.type_id,
+            TypeId::of::<C>(),
+            "The erased message fns were created for type {}, but we are trying to convert to type {}",
+            self.type_name,
+            std::any::type_name::<C>(),
+        );
+
+        ComponentFns {
+            serialize: unsafe { std::mem::transmute(self.serialize) },
+            deserialize: unsafe { std::mem::transmute(self.deserialize) },
+            map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
+            write: self.write,
+            remove: self.remove,
+            prediction_mode: self.prediction_mode,
+            interpolation_mode: self.interpolation_mode,
+            interpolation: self
+                .interpolation
+                .map(|m| unsafe { std::mem::transmute(m) }),
+            correction: self.correction.map(|m| unsafe { std::mem::transmute(m) }),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+pub struct InterpolationMetadata {
+    pub interpolation_mode: ComponentSyncMode,
+    pub interpolation: Option<unsafe fn()>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,10 +120,6 @@ pub struct ErasedComponentFns {
     pub interpolation: Option<unsafe fn()>,
     pub correction: Option<unsafe fn()>,
 }
-
-type SerializeFn<C> = fn(&C, writer: &mut WriteWordBuffer) -> anyhow::Result<()>;
-type DeserializeFn<C> = fn(reader: &mut ReadWordBuffer) -> anyhow::Result<C>;
-type MapEntitiesFn<C> = fn(&mut C, entity_map: &mut EntityMap);
 
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
 type RawWriteFn = fn(
@@ -155,123 +197,107 @@ impl ComponentRegistry {
     }
 
     pub(crate) fn register_component<C: Component + Message>(&mut self) {
-        let message_kind = self.kind_map.add::<C>();
-        let serialize: SerializeFn<C> = <C as BitSerializable>::encode;
-        let deserialize: DeserializeFn<C> = <C as BitSerializable>::decode;
+        let component_kind = self.kind_map.add::<C>();
+        self.serialize_fns_map
+            .insert(component_kind, ErasedSerializeFns::new::<C>());
         let write: RawWriteFn = Self::write::<C>;
         let remove: RawRemoveFn = Self::remove::<C>;
-        self.fns_map.insert(
-            message_kind,
-            ErasedComponentFns {
-                type_id: TypeId::of::<C>(),
-                type_name: std::any::type_name::<C>(),
-                serialize: unsafe { std::mem::transmute(serialize) },
-                deserialize: unsafe { std::mem::transmute(deserialize) },
-                map_entities: None,
-                write,
-                remove,
-                prediction_mode: ComponentSyncMode::default(),
-                interpolation_mode: ComponentSyncMode::default(),
-                interpolation: None,
-                correction: None,
-            },
-        );
+        self.replication_map
+            .insert(component_kind, ReplicationMetadata { write, remove });
     }
 
     pub(crate) fn register_resource<R: Resource + Message>(&mut self) {
         self.register_component::<ReplicateResource<R>>();
     }
 
-    // TODO: add map_entities for resources
+    pub(crate) fn try_add_map_entities<C: MapEntities + 'static>(&mut self) {
+        let kind = ComponentKind::of::<C>();
+        if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
+            erased_fns.add_map_entities::<C>();
+        }
+    }
+
     pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
-        let map_entities: MapEntitiesFn<C> = <C as MapEntities>::map_entities::<EntityMap>;
         let erased_fns = self
-            .fns_map
+            .serialize_fns_map
             .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        erased_fns.map_entities = Some(unsafe { std::mem::transmute(map_entities) });
+            .context("the message is not part of the protocol")?;
+        erased_fns.add_map_entities::<C>();
     }
 
     pub(crate) fn set_prediction_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let prediction_metadata = self
+            .prediction_map
             .get_mut(&kind)
             .expect("the component is not part of the protocol");
-        erased_fns.prediction_mode = mode;
+        prediction_metadata.prediction_mode = mode;
     }
 
     pub(crate) fn set_linear_correction<C: Component + Linear>(&mut self) {
         let correction_fn: LerpFn<C> = <C as Linear>::lerp;
-        // let correction_fn: LerpFn<C> =
-        //     |predicted, corrected, t| predicted * (1.0 - t) + corrected * t;
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let prediction_metadata = self
+            .prediction_map
             .get_mut(&kind)
             .expect("the component is not part of the protocol");
-        erased_fns.correction = Some(unsafe { std::mem::transmute(correction_fn) });
+        prediction_metadata.correction = Some(unsafe { std::mem::transmute(correction_fn) });
     }
 
     pub(crate) fn set_correction<C: Component>(&mut self, correction_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let prediction_metadata = self
+            .prediction_map
             .get_mut(&kind)
             .expect("the component is not part of the protocol");
-        erased_fns.correction = Some(unsafe { std::mem::transmute(correction_fn) });
+        prediction_metadata.correction = Some(unsafe { std::mem::transmute(correction_fn) });
     }
 
     pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let interpolation_metadata = self
+            .interpolation_map
             .get_mut(&kind)
             .expect("the component is not part of the protocol");
-        erased_fns.interpolation_mode = mode;
+        interpolation_metadata.interpolation_mode = mode;
     }
 
     pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
         let interpolation_fn: LerpFn<C> = <C as Linear>::lerp;
-        // let interpolation_fn: LerpFn<C> = |start, end, t| start * (1.0 - t) + end * t;
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let interpolation_metadata = self
+            .interpolation_map
             .get_mut(&kind)
             .expect("the component is not part of the protocol");
-        erased_fns.interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
+        interpolation_metadata.interpolation =
+            Some(unsafe { std::mem::transmute(interpolation_fn) });
     }
 
     pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let interpolation_metadata = self
+            .interpolation_map
             .get_mut(&kind)
             .expect("the component is not part of the protocol");
-        erased_fns.correction = Some(unsafe { std::mem::transmute(interpolation_fn) });
+        interpolation_metadata.interpolation =
+            Some(unsafe { std::mem::transmute(interpolation_fn) });
     }
 
-    pub(crate) fn serialize<C: Component>(
+    pub(crate) fn serialize<C: Component + Message>(
         &self,
         component: &C,
         writer: &mut WriteWordBuffer,
     ) -> anyhow::Result<RawData> {
         let kind = ComponentKind::of::<C>();
         let erased_fns = self
-            .fns_map
+            .serialize_fns_map
             .get(&kind)
             .context("the component is not part of the protocol")?;
-        let fns = unsafe { erased_fns.typed::<C>() };
         let net_id = self.kind_map.net_id(&kind).unwrap();
-        trace!(
-            ?net_id,
-            "serializing component: {:?}",
-            std::any::type_name::<C>()
-        );
         writer.start_write();
-        <WriteWordBuffer as WriteBuffer>::encode::<NetId>(writer, net_id, Fixed)?;
-        (fns.serialize)(component, writer)?;
+        writer.encode(net_id, Fixed)?;
+        erased_fns.serialize(component, writer)?;
         Ok(writer.finish_write().to_vec())
     }
 
@@ -282,21 +308,15 @@ impl ComponentRegistry {
         net_id: ComponentNetId,
         entity_map: &mut EntityMap,
     ) -> anyhow::Result<C> {
-        // let net_id = reader.decode::<ComponentNetId>(Fixed)?;
         let kind = self
             .kind_map
             .kind(net_id)
             .context("unknown component kind")?;
         let erased_fns = self
-            .fns_map
+            .serialize_fns_map
             .get(kind)
             .context("the component is not part of the protocol")?;
-        let fns = unsafe { erased_fns.typed::<C>() };
-        let mut component = (fns.deserialize)(reader)?;
-        if let Some(map_entities) = fns.map_entities {
-            map_entities(&mut component, entity_map);
-        }
-        Ok(component)
+        erased_fns.deserialize(reader, entity_map)
     }
 
     pub(crate) fn deserialize<C: Component>(
@@ -308,57 +328,55 @@ impl ComponentRegistry {
         self.raw_deserialize(reader, net_id, entity_map)
     }
 
-    pub(crate) fn map_entities<C: Component>(&self, component: &mut C, entity_map: &mut EntityMap) {
+    pub(crate) fn map_entities<C: MapEntities + 'static>(
+        &self,
+        component: &mut C,
+        entity_map: &mut EntityMap,
+    ) {
         let kind = ComponentKind::of::<C>();
         let erased_fns = self
-            .fns_map
+            .serialize_fns_map
             .get(&kind)
             .context("the component is not part of the protocol")
             .unwrap();
-        let fns = unsafe { erased_fns.typed::<C>() };
-        if let Some(map_entities) = fns.map_entities {
-            map_entities(component, entity_map);
-        }
+        erased_fns.map_entities(component, entity_map)
     }
 
     pub(crate) fn prediction_mode<C: Component>(&self) -> ComponentSyncMode {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        self.prediction_map
             .get(&kind)
             .context("the component is not part of the protocol")
-            .unwrap();
-        erased_fns.prediction_mode
+            .map_or(ComponentSyncMode::None, |metadata| metadata.prediction_mode)
     }
 
     pub(crate) fn interpolation_mode<C: Component>(&self) -> ComponentSyncMode {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        self.interpolation_map
             .get(&kind)
             .context("the component is not part of the protocol")
-            .unwrap();
-        erased_fns.interpolation_mode
+            .map_or(ComponentSyncMode::None, |metadata| {
+                metadata.interpolation_mode
+            })
     }
 
     pub(crate) fn has_correction<C: Component>(&self) -> bool {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        self.prediction_map
             .get(&kind)
             .context("the component is not part of the protocol")
-            .unwrap();
-        erased_fns.correction.is_some()
+            .map_or(false, |metadata| metadata.correction.is_some())
     }
     pub(crate) fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let prediction_metadata = self
+            .prediction_map
             .get(&kind)
             .context("the component is not part of the protocol")
             .unwrap();
+        prediction_metadata.correction
         let fns = unsafe { erased_fns.typed::<C>() };
-        let correction_fn = fns.correction.unwrap();
+        let correction_fn = fns.correction.epx();
         correction_fn(predicted, corrected, t)
     }
 

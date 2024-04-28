@@ -42,7 +42,7 @@ pub enum ServerMessage {
 /// Read the messages received from the clients and emit the MessageEvent event
 fn read_message<M: Message>(
     message_registry: Res<MessageRegistry>,
-    mut connection: ResMut<ConnectionManager>,
+    mut connection_manager: ResMut<ConnectionManager>,
     mut event: EventWriter<MessageEvent<M>>,
 ) {
     let kind = MessageKind::of::<M>();
@@ -53,24 +53,18 @@ fn read_message<M: Message>(
         );
         return;
     };
-    for (client_id, connection) in connection.connections.iter_mut() {
+    for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                // TODO: reuse buffer
-                let mut reader = ReadWordBuffer::start_read(&message_bytes);
-                // we have to re-decode the net id
-                reader
-                    .decode::<NetId>(Fixed)
-                    .expect("could not decode net id");
-                // TODO: decode using the function pointer instead of the type?
-                let mut message = M::decode(&mut reader).expect("could not decode message");
-                message_registry.map_entities(
-                    &mut message,
+                let mut reader = connection_manager.reader_pool.start_read(&message_bytes);
+                let mut message = message_registry.deserialize::<M>(
+                    &mut reader,
                     &mut connection
                         .replication_receiver
                         .remote_entity_map
                         .remote_to_local,
-                );
+                )?;
+                connection_manager.reader_pool.attach(reader);
                 if target != NetworkTarget::None {
                     connection.messages_to_rebroadcast.push((
                         // TODO: avoid clone?

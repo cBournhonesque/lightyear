@@ -153,9 +153,6 @@ pub enum AdminActions {
     Reset,
 }
 
-impl LeafwingUserAction for PlayerActions {}
-impl LeafwingUserAction for AdminActions {}
-
 // Protocol
 pub(crate) struct ProtocolPlugin;
 
@@ -167,7 +164,7 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
         app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
@@ -182,14 +179,14 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Position>(ChannelDirection::ServerToClient);
         app.add_prediction::<Position>(ComponentSyncMode::Full);
         app.add_interpolation::<Position>(ComponentSyncMode::Full);
-        app.add_interpolation_fn::<Position>(<LinearInterpolator as LerpFn<Position>>::lerp);
-        app.add_correction_fn::<Position>(<LinearInterpolator as LerpFn<Position>>::lerp);
+        app.add_interpolation_fn::<Position>(position::lerp);
+        app.add_correction_fn::<Position>(position::lerp);
 
         app.register_component::<Rotation>(ChannelDirection::ServerToClient);
         app.add_prediction::<Rotation>(ComponentSyncMode::Full);
         app.add_interpolation::<Rotation>(ComponentSyncMode::Full);
-        app.add_interpolation_fn::<Rotation>(<LinearInterpolator as LerpFn<Rotation>>::lerp);
-        app.add_correction_fn::<Rotation>(<LinearInterpolator as LerpFn<Rotation>>::lerp);
+        app.add_interpolation_fn::<Rotation>(rotation::lerp);
+        app.add_correction_fn::<Rotation>(rotation::lerp);
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client

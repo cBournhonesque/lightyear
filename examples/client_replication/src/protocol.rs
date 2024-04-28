@@ -133,7 +133,7 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient);
+        app.register_component::<PlayerId>(ChannelDirection::Bidirectional);
         app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
@@ -142,7 +142,7 @@ impl Plugin for ProtocolPlugin {
         app.add_interpolation::<PlayerPosition>(ComponentSyncMode::Full);
         app.add_linear_interpolation_fn::<PlayerPosition>();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient);
+        app.register_component::<PlayerColor>(ChannelDirection::Bidirectional);
         app.add_prediction::<PlayerColor>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
 

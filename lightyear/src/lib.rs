@@ -35,7 +35,6 @@ pub(crate) mod _internal {
     pub use crate::client::prediction::add_prediction_systems;
     pub use crate::client::prediction::correction::{InstantCorrector, InterpolatedCorrector};
     pub use crate::protocol::component::FromType;
-    pub use crate::protocol::message::InputMessageKind;
     pub use crate::protocol::message::MessageKind;
     pub use crate::protocol::{BitSerializable, EventContext};
     pub use crate::serialize::reader::ReadBuffer;
