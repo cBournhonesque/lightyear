@@ -100,7 +100,7 @@ pub struct MessageRegistry {
 pub trait AppMessageExt {
     fn add_message<M: Message>(&mut self, direction: ChannelDirection);
 
-    fn add_map_entities<M: MapEntities + 'static>(&mut self);
+    fn add_message_map_entities<M: MapEntities + 'static>(&mut self);
 }
 
 fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection) {
@@ -125,7 +125,8 @@ impl AppMessageExt for App {
         register_message_send::<M>(self, direction);
     }
 
-    fn add_map_entities<M: MapEntities + 'static>(&mut self) {
+    // TODO: have a single map_entities function, and try on both MessageRegistry and ComponentRegistry?
+    fn add_message_map_entities<M: MapEntities + 'static>(&mut self) {
         let mut registry = self.world.resource_mut::<MessageRegistry>();
         registry.add_map_entities::<M>();
     }

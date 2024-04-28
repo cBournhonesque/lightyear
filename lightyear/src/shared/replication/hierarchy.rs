@@ -170,7 +170,7 @@ mod tests {
     use bevy::hierarchy::{BuildWorldChildren, Children, Parent};
     use bevy::prelude::{default, Entity, With};
 
-    use crate::prelude::ReplicationGroup;
+    use crate::prelude::{Replicate, ReplicationGroup};
     use crate::shared::replication::hierarchy::ParentSync;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};

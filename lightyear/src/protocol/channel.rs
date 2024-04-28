@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_channel_registry() -> anyhow::Result<()> {
-        let mut registry = ChannelRegistry::new();
+        let mut registry = ChannelRegistry::default();
 
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,

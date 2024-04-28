@@ -30,6 +30,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             .add_message::<InputMessage<A>>(MessageType::LeafwingInput);
         let is_client = app.world.get_resource::<ClientConfig>().is_some();
         let is_server = app.world.get_resource::<ServerConfig>().is_some();
+        // TODO: add input config!
         if is_client {
             app.add_plugins(crate::client::input::InputPlugin::<A>::default());
         }

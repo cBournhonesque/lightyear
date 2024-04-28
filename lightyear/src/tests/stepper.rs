@@ -120,8 +120,7 @@ impl BevyStepper {
             ping: PingConfig::default(),
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
+        let plugin = server::ServerPlugin::new(config);
         server_app.add_plugins(plugin);
 
         // Setup client
@@ -145,8 +144,7 @@ impl BevyStepper {
             interpolation: interpolation_config,
             ..default()
         };
-        let plugin_config = client::PluginConfig::new(config, protocol());
-        let plugin = client::ClientPlugin::new(plugin_config);
+        let plugin = client::ClientPlugin::new(config);
         client_app.add_plugins(plugin);
 
         // Initialize Real time (needed only for the first TimeSystem run)
@@ -173,7 +171,7 @@ impl BevyStepper {
 
     pub(crate) fn interpolation_tick(&mut self) -> Tick {
         self.client_app.world.resource_scope(
-            |world: &mut World, manager: Mut<ClientConnectionManager>| {
+            |world: &mut World, manager: Mut<client::ConnectionManager>| {
                 manager
                     .sync_manager
                     .interpolation_tick(world.resource::<TickManager>())
@@ -202,7 +200,7 @@ impl BevyStepper {
             if self
                 .client_app
                 .world
-                .resource::<ClientConnectionManager>()
+                .resource::<client::ConnectionManager>()
                 .is_synced()
             {
                 break;

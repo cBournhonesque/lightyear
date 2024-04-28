@@ -223,7 +223,7 @@ mod tests {
         stepper.client_app.world.insert_resource(Toggle(true));
         stepper
             .client_app
-            .add_plugins(VisualInterpolationPlugin::<Component1, MyProtocol>::default());
+            .add_plugins(VisualInterpolationPlugin::<Component1>::default());
         let entity = stepper
             .client_app
             .world

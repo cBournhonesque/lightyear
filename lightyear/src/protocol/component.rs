@@ -501,7 +501,7 @@ pub trait AppComponentExt {
 
     fn register_resource<R: Resource + Message>(&mut self, direction: ChannelDirection);
 
-    fn add_map_entities<C: MapEntities + 'static>(&mut self);
+    fn add_component_map_entities<C: MapEntities + 'static>(&mut self);
     fn add_prediction<C: SyncComponent>(&mut self, prediction_mode: ComponentSyncMode);
     fn add_linear_correction_fn<C: SyncComponent + Linear>(&mut self);
 
@@ -524,8 +524,9 @@ impl AppComponentExt for App {
         register_resource_send::<R>(self, direction)
     }
 
-    fn add_map_entities<C: MapEntities + 'static>(&mut self) {
+    fn add_component_map_entities<C: MapEntities + 'static>(&mut self) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
+
         registry.add_map_entities::<C>();
     }
 

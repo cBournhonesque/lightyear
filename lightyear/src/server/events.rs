@@ -241,69 +241,50 @@ pub type MessageEvent<M> = crate::shared::events::components::MessageEvent<M, Cl
 
 #[cfg(test)]
 mod tests {
+    use crate::prelude::Tick;
     use crate::protocol::channel::ChannelKind;
-    use crate::tests::protocol::{
-        Channel1, Channel2, Message1, Message2, MyMessageProtocol, MyProtocol,
-    };
+    use crate::tests::protocol::{Channel1, Channel2, Component1, Component2, Message1, Message2};
 
     use super::*;
 
     #[test]
-    fn test_iter_messages() {
+    fn test_iter_component_removes() {
         let client_1 = ClientId::Netcode(1);
         let client_2 = ClientId::Netcode(2);
-        let mut events_1 = ConnectionEvents::<MyProtocol>::new();
+        let entity_1 = Entity::from_raw(0);
+        let entity_2 = Entity::from_raw(1);
+        let mut events_1 = ConnectionEvents::new();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         let message1_a = Message1("hello".to_string());
         let message1_b = Message1("world".to_string());
-        events_1.push_message(
-            channel_kind_1,
-            MyMessageProtocol::Message1(message1_a.clone()),
-        );
-        events_1.push_message(
-            channel_kind_2,
-            MyMessageProtocol::Message1(message1_b.clone()),
-        );
-        events_1.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(1)));
-
-        let mut server_events = ServerEvents::<MyProtocol>::new();
+        let mut component_registry = ComponentRegistry::default();
+        component_registry.register_component::<Component1>();
+        let net_id_1 = component_registry.net_id::<Component1>();
+        let net_id_2 = component_registry.net_id::<Component2>();
+        events_1.push_remove_component(entity_1, net_id_1, Tick(0));
+        events_1.push_remove_component(entity_1, net_id_2, Tick(0));
+        events_1.push_remove_component(entity_2, net_id_1, Tick(0));
+        let mut server_events = ServerEvents::new();
         server_events.push_events(client_1, events_1);
 
-        let mut events_2 = ConnectionEvents::<MyProtocol>::new();
-        let message1_c = Message1("test".to_string());
-        events_2.push_message(
-            channel_kind_1,
-            MyMessageProtocol::Message1(message1_c.clone()),
-        );
-        events_2.push_message(channel_kind_1, MyMessageProtocol::Message2(Message2(2)));
-
+        let mut events_2 = ConnectionEvents::new();
+        events_2.push_remove_component(entity_2, net_id_2, Tick(0));
         server_events.push_events(client_2, events_2);
 
         // check that we have the correct messages
-        let messages: Vec<(Message1, ClientId)> = server_events.into_iter_messages().collect();
-        assert_eq!(messages.len(), 3);
-        assert!(messages.contains(&(message1_a, client_1)));
-        assert!(messages.contains(&(message1_b, client_1)));
-        assert!(messages.contains(&(message1_c, client_2)));
+        let data: Vec<(Entity, ClientId)> = server_events
+            .iter_component_remove::<Component1>(&component_registry)
+            .collect();
+        assert_eq!(data.len(), 2);
+        assert!(data.contains(&(entity_1, client_1)));
+        assert!(data.contains(&(entity_2, client_1)));
 
-        // check that there are no more message of that kind in the events
-        assert!(!server_events
-            .events
-            .get(&client_1)
-            .unwrap()
-            .has_messages::<Message1>());
-        assert!(!server_events
-            .events
-            .get(&client_2)
-            .unwrap()
-            .has_messages::<Message1>());
-
-        // check that we still have the other message kinds
-        assert!(server_events
-            .events
-            .get(&client_2)
-            .unwrap()
-            .has_messages::<Message2>());
+        let data: Vec<(Entity, ClientId)> = server_events
+            .iter_component_remove::<Component2>(&component_registry)
+            .collect();
+        assert_eq!(data.len(), 2);
+        assert!(data.contains(&(entity_1, client_1)));
+        assert!(data.contains(&(entity_2, client_2)));
     }
 }

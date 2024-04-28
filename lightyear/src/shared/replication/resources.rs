@@ -88,6 +88,12 @@ mod command {
         /// Stop replicating a resource to remote clients.
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
     }
+
+    impl StopReplicateResourceExt for Commands {
+        fn stop_replicate_resource<R: Resource + Clone>(&mut self) {
+            self.add(StopReplicateCommand::<R>::default());
+        }
+    }
 }
 use crate::protocol::BitSerializable;
 pub use command::{ReplicateResourceExt, StopReplicateCommand, StopReplicateResourceExt};
@@ -265,7 +271,7 @@ mod tests {
     use crate::prelude::client::NetworkingState;
     use crate::prelude::NetworkTarget;
     use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::protocol::{Component1, MyProtocol, Replicate, Resource1};
+    use crate::tests::protocol::{Component1, Replicate, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::prelude::{Commands, Entity, OnEnter, With};
 

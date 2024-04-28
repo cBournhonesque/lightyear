@@ -37,7 +37,7 @@ mod tests {
 
     use crate::client::sync::SyncConfig;
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::prelude::{server, LinkConditionerConfig, SharedConfig, TickConfig};
     use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
@@ -119,10 +119,7 @@ mod tests {
             .is_ok());
 
         // apply the command to remove replicate
-        remove_replicate::<MyProtocol, ServerConnectionManager>(
-            entity,
-            &mut stepper.server_app.world,
-        );
+        remove_replicate::<server::ConnectionManager>(entity, &mut stepper.server_app.world);
         stepper.server_app.world.entity_mut(entity).despawn();
         stepper.frame_step();
         stepper.frame_step();

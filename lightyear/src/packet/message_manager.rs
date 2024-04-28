@@ -294,9 +294,11 @@ impl MessageManager {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::default;
     use std::collections::HashMap;
 
     use bevy::utils::Duration;
+    use bevy_xpbd_2d::parry::na::SameShapeStorage;
 
     use crate::_internal::*;
     use crate::packet::message::MessageId;
@@ -307,6 +309,25 @@ mod tests {
 
     use super::*;
 
+    fn setup() -> (MessageManager, MessageManager) {
+        let mut channel_registry = ChannelRegistry::default();
+        channel_registry.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+        channel_registry.add_channel::<Channel2>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+
+        // Create message managers
+        let mut client_message_manager =
+            MessageManager::new(&channel_registry, PriorityConfig::default());
+        let mut server_message_manager =
+            MessageManager::new(&channel_registry, PriorityConfig::default());
+        (client_message_manager, server_message_manager)
+    }
+
     #[test]
     /// We want to test that we can send/receive messages over a connection
     fn test_message_manager_single_message() -> Result<(), anyhow::Error> {
@@ -314,18 +335,10 @@ mod tests {
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
-
-        let time_manager = TimeManager::default();
-        let protocol = protocol();
-
-        // Create message managers
-        let mut client_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
-        let mut server_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send
-        let message = MyMessageProtocol::Message1(Message1("1".to_string()));
+        let message = vec![0, 1];
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -403,19 +416,13 @@ mod tests {
         //     .with_span_events(FmtSpan::ENTER)
         //     .with_max_level(tracing::Level::TRACE)
         //     .init();
-        let protocol = protocol();
-
-        // Create message managers
-        let mut client_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
-        let mut server_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let (mut client_message_manager, mut server_message_manager) = setup();
 
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
 
         let data = std::str::from_utf8(&[0; MESSAGE_SIZE]).unwrap().to_string();
-        let message = MyMessageProtocol::Message1(Message1(data));
+        let message = vec![0];
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;
@@ -487,10 +494,7 @@ mod tests {
             .contains_key(&PacketId(1)));
 
         // Server sends back a message
-        server_message_manager.buffer_send(
-            MyMessageProtocol::Message1(Message1("b".to_string())),
-            channel_kind_1,
-        )?;
+        server_message_manager.buffer_send(vec![1], channel_kind_1)?;
         let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages
@@ -509,13 +513,7 @@ mod tests {
 
     #[test]
     fn test_notify_ack() -> anyhow::Result<()> {
-        let protocol = protocol();
-
-        // Create message managers
-        let mut client_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
-        let mut server_message_manager =
-            MessageManager::new(protocol.channel_registry(), PriorityConfig::default());
+        let (mut client_message_manager, mut server_message_manager) = setup();
 
         let update_acks_tracker = client_message_manager
             .channels
@@ -525,7 +523,7 @@ mod tests {
             .subscribe_acks();
 
         let message_id = client_message_manager
-            .buffer_send(MyMessageProtocol::Message2(Message2(1)), Channel2::kind())?
+            .buffer_send(vec![0], Channel2::kind())?
             .unwrap();
         assert_eq!(message_id, MessageId(0));
         let mut payloads = client_message_manager.send_packets(Tick(0))?;
@@ -550,8 +548,7 @@ mod tests {
         }
 
         // Server sends back a message (to ack the message)
-        server_message_manager
-            .buffer_send(MyMessageProtocol::Message2(Message2(1)), Channel2::kind())?;
+        server_message_manager.buffer_send(vec![1], Channel2::kind())?;
         let mut packet_bytes = server_message_manager.send_packets(Tick(0))?;
 
         // On client side: keep looping to receive bytes on the network, then process them into messages

@@ -636,7 +636,7 @@ mod tests {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         };
-        let mut c = ChannelRegistry::new();
+        let mut c = ChannelRegistry::default();
         c.add_channel::<Channel1>(settings.clone());
         c.add_channel::<Channel2>(settings.clone());
         c.add_channel::<Channel3>(settings.clone());

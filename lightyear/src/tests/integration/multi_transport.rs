@@ -136,8 +136,7 @@ impl MultiBevyStepper {
             ],
             ..default()
         };
-        let plugin_config = server::PluginConfig::new(config, protocol());
-        let plugin = server::ServerPlugin::new(plugin_config);
+        let plugin = server::ServerPlugin::new(config);
         server_app.add_plugins(plugin);
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
@@ -171,8 +170,7 @@ impl MultiBevyStepper {
                 interpolation: interpolation_config.clone(),
                 ..default()
             };
-            let plugin_config = client::PluginConfig::new(config, protocol());
-            let plugin = client::ClientPlugin::new(plugin_config);
+            let plugin = client::ClientPlugin::new(config);
             client_app.add_plugins(plugin);
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
@@ -215,12 +213,12 @@ impl MultiBevyStepper {
             if self
                 .client_app_1
                 .world
-                .resource::<ClientConnectionManager>()
+                .resource::<client::ConnectionManager>()
                 .is_synced()
                 && self
                     .client_app_2
                     .world
-                    .resource::<ClientConnectionManager>()
+                    .resource::<client::ConnectionManager>()
                     .is_synced()
             {
                 return;
