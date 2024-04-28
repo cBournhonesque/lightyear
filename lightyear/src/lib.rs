@@ -17,7 +17,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 
 // re-exports (mostly used in the derive macro crate or for internal purposes)
 #[doc(hidden)]
-pub mod _internal {
+pub(crate) mod _internal {
     pub use enum_delegate;
     pub use enum_dispatch::enum_dispatch;
     pub use paste::paste;
@@ -49,7 +49,7 @@ pub mod _internal {
         IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
     };
     pub use crate::shared::replication::components::ShouldBeInterpolated;
-    pub use crate::shared::replication::ReplicationSend;
+    // pub(crate) use crate::shared::replication::ReplicationSend;
     pub use crate::shared::sets::{ClientMarker, ServerMarker};
     pub use crate::shared::time_manager::WrappedTime;
     pub use crate::utils::ready_buffer::{ItemWithReadyKey, ReadyBuffer};

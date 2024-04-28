@@ -3,12 +3,12 @@ use anyhow::{anyhow, Context, Result};
 use async_channel::TryRecvError;
 use std::ops::DerefMut;
 
+use crate::_internal::ClientMarker;
 use bevy::ecs::system::{Command, RunSystemOnce, SystemChangeTick, SystemParam, SystemState};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::_internal::{ClientMarker, ReplicationSend, ServerMarker};
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -168,7 +168,7 @@ pub(crate) fn receive(world: &mut World) {
                                                                 .unwrap();
                                                         }
                                                         // RECEIVE: receive packets from message managers
-                                                        let mut events = connection.receive(world, time_manager.as_ref(), tick_manager.as_ref());
+                                                        connection.receive(world, time_manager.as_ref(), tick_manager.as_ref());
                                                     });
                                             });
                                         });

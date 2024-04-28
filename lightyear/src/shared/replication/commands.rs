@@ -1,8 +1,8 @@
 use bevy::ecs::system::{Command, EntityCommands};
 use bevy::prelude::{Entity, World};
 
-use crate::_internal::ReplicationSend;
 use crate::shared::replication::components::Replicate;
+use crate::shared::replication::ReplicationSend;
 
 pub struct RemoveReplicate;
 

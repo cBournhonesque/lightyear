@@ -229,13 +229,6 @@ pub(crate) fn send(
     connection_manager.new_clients.clear();
 }
 
-/// Clear the received events
-/// We put this in a separate system as send because we want to run this every frame, and
-/// Send only runs every send_interval
-pub(crate) fn clear_events(mut connection_manager: ResMut<ConnectionManager>) {
-    connection_manager.events.clear();
-}
-
 /// Run condition to check that the server is ready to send packets
 ///
 /// We check the status of the `ServerConnections` directly instead of using the `State<NetworkingState>`

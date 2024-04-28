@@ -3,9 +3,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::_internal::{ClientMarker, ReplicationSend};
 use crate::prelude::ReplicationGroup;
 use crate::shared::replication::components::Replicate;
+use crate::shared::replication::ReplicationSend;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.

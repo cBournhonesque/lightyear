@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::_internal::{
     BitSerializable, EntityUpdatesChannel, FromType, InputMessageKind, MessageKind, PingChannel,
-    ReplicationSend, ServerMarker, ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
+    ServerMarker, ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
@@ -41,8 +41,8 @@ use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{NetworkTarget, Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::ReplicationMessage;
 use crate::shared::replication::ReplicationMessageData;
+use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;

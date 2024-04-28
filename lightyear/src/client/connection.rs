@@ -11,8 +11,7 @@ use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::_internal::{
-    ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel, ReplicationSend, WriteBuffer,
-    WriteWordBuffer,
+    ClientMarker, EntityUpdatesChannel, MessageKind, PingChannel, WriteBuffer, WriteWordBuffer,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::config::PacketConfig;
@@ -38,8 +37,8 @@ use crate::shared::ping::message::{Ping, Pong, SyncMessage};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 use crate::shared::replication::receive::ReplicationReceiver;
 use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::ReplicationMessage;
 use crate::shared::replication::ReplicationMessageData;
+use crate::shared::replication::{ReplicationMessage, ReplicationSend};
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
@@ -140,10 +139,6 @@ impl ConnectionManager {
         self.sync_manager
             .latest_received_server_tick
             .unwrap_or(Tick(0))
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.events.clear();
     }
 
     pub(crate) fn update(&mut self, time_manager: &TimeManager, tick_manager: &TickManager) {
@@ -320,7 +315,7 @@ impl ConnectionManager {
         world: &mut World,
         time_manager: &TimeManager,
         tick_manager: &TickManager,
-    ) -> ConnectionEvents {
+    ) {
         let _span = trace_span!("receive").entered();
         for (channel_kind, messages) in self.message_manager.read_messages() {
             let channel_name = self
@@ -420,11 +415,6 @@ impl ConnectionManager {
                 })
             }
         }
-
-        // TODO: do i really need this? I could just create events in this function directly?
-        //  why do i need to make events a field of the connection?
-        //  is it because of push_connection?
-        std::mem::replace(&mut self.events, ConnectionEvents::new())
     }
 
     pub(crate) fn recv_packet(&mut self, packet: Packet, tick_manager: &TickManager) -> Result<()> {

@@ -22,7 +22,9 @@ use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
 use crate::serialize::RawData;
-use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::events::connection::{
+    ClearEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
+};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 pub mod components;
@@ -100,12 +102,13 @@ pub struct ReplicationMessage {
 /// (this trait is used to easily enable both client to server and server to client replication)
 ///
 /// The trait is made public because it is needed in the macros
-pub trait ReplicationSend: Resource {
+pub(crate) trait ReplicationSend: Resource {
     type Events: IterComponentInsertEvent<Self::EventContext>
         + IterComponentRemoveEvent<Self::EventContext>
         + IterComponentUpdateEvent<Self::EventContext>
         + IterEntitySpawnEvent<Self::EventContext>
-        + IterEntityDespawnEvent<Self::EventContext>;
+        + IterEntityDespawnEvent<Self::EventContext>
+        + ClearEvents;
     /// Type of the context associated with the events emitted by this replication plugin
     type EventContext: EventContext;
     /// Marker to identify the type of the ReplicationSet component

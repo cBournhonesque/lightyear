@@ -15,7 +15,6 @@ use crate::packet::message::Message;
 use crate::prelude::{server, ComponentRegistry};
 
 use crate::server::connection::ConnectionManager;
-use crate::server::networking::{clear_events, is_started};
 use crate::shared::events::connection::{
     ConnectionEvents, IterEntityDespawnEvent, IterEntitySpawnEvent,
 };
@@ -33,9 +32,7 @@ impl Plugin for ServerEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // PLUGIN
-            .add_plugins(EventsPlugin::<ConnectionManager>::default())
-            // SYSTEM_SET
-            .add_systems(PostUpdate, clear_events.run_if(is_started));
+            .add_plugins(EventsPlugin::<ConnectionManager>::default());
     }
 }
 
@@ -58,6 +55,15 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     );
 }
 
+impl crate::shared::events::connection::ClearEvents for ServerEvents {
+    fn clear(&mut self) {
+        self.connections = Vec::new();
+        self.disconnections = Vec::new();
+        self.empty = true;
+        self.events = HashMap::default();
+    }
+}
+
 impl ServerEvents {
     pub(crate) fn new() -> Self {
         Self {
@@ -66,14 +72,6 @@ impl ServerEvents {
             events: HashMap::default(),
             empty: true,
         }
-    }
-
-    /// Clear all events except for the input buffer which we want to keep around
-    pub(crate) fn clear(&mut self) {
-        self.connections = Vec::new();
-        self.disconnections = Vec::new();
-        self.empty = true;
-        self.events = HashMap::default();
     }
 
     pub fn is_empty(&self) -> bool {

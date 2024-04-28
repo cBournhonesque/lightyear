@@ -442,8 +442,8 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
     })
 }
 
-// add replication systems that are shared between client and server
-pub fn add_replication_send_systems<R: ReplicationSend>(app: &mut App) {
+/// add replication systems that are shared between client and server
+pub(crate) fn add_replication_send_systems<R: ReplicationSend>(app: &mut App) {
     // we need to add despawn trackers immediately for entities for which we add replicate
     app.add_systems(
         PreUpdate,

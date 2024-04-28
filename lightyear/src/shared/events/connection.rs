@@ -43,6 +43,21 @@ pub struct ConnectionEvents {
     empty: bool,
 }
 
+pub(crate) trait ClearEvents {
+    fn clear(&mut self);
+}
+
+impl ClearEvents for ConnectionEvents {
+    fn clear(&mut self) {
+        self.spawns.clear();
+        self.despawns.clear();
+        self.component_inserts.clear();
+        self.component_removes.clear();
+        self.component_updates.clear();
+        self.empty = true;
+    }
+}
+
 impl Default for ConnectionEvents {
     fn default() -> Self {
         Self::new()
@@ -61,15 +76,6 @@ impl ConnectionEvents {
             // bookkeeping
             empty: true,
         }
-    }
-
-    pub fn clear(&mut self) {
-        self.spawns.clear();
-        self.despawns.clear();
-        self.component_inserts.clear();
-        self.component_removes.clear();
-        self.component_updates.clear();
-        self.empty = true;
     }
 
     pub fn is_empty(&self) -> bool {
