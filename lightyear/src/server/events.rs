@@ -33,7 +33,7 @@ impl Plugin for ServerEventsPlugin {
     fn build(&self, app: &mut App) {
         app
             // PLUGIN
-            .add_plugins(EventsPlugin::<ClientId>::default())
+            .add_plugins(EventsPlugin::<ConnectionManager>::default())
             // SYSTEM_SET
             .add_systems(PostUpdate, clear_events.run_if(is_started));
     }
@@ -54,8 +54,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .after(InternalMainSet::<ServerMarker>::Receive)
-            .run_if(is_started),
+            .in_set(InternalMainSet::<ServerMarker>::EmitEvents),
     );
 }
 

@@ -8,7 +8,7 @@ use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::_internal::{ClientMarker, ReplicationSend};
+use crate::_internal::{ClientMarker, ReplicationSend, ServerMarker};
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -22,6 +22,7 @@ use crate::prelude::{
     ChannelRegistry, MainSet, MessageRegistry, SharedConfig, TickManager, TimeManager,
 };
 use crate::protocol::component::ComponentRegistry;
+use crate::server::networking::is_started;
 
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
@@ -41,8 +42,11 @@ impl Plugin for ClientNetworkingPlugin {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ClientMarker>::Receive
-                    .in_set(MainSet::Receive)
+                (
+                    InternalMainSet::<ClientMarker>::Receive.in_set(MainSet::Receive),
+                    InternalMainSet::<ClientMarker>::EmitEvents.in_set(MainSet::EmitEvents),
+                )
+                    .chain()
                     .run_if(not(
                         SharedConfig::is_host_server_condition.or_else(is_disconnected)
                     )),
@@ -164,36 +168,7 @@ pub(crate) fn receive(world: &mut World) {
                                                                 .unwrap();
                                                         }
                                                         // RECEIVE: receive packets from message managers
-                                                        let mut events = connection.receive(
-                                                            world,
-                                                            time_manager.as_ref(),
-                                                            tick_manager.as_ref(),
-                                                        );
-                                                        // TODO: run these in EventsPlugin!
-                                                        // HANDLE EVENTS
-                                                        if !events.is_empty() {
-                                                            // SpawnEntity event
-                                                            if events.has_entity_spawn() {
-                                                                let mut entity_spawn_event_writer = world
-                                                                    .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                                                    .unwrap();
-                                                                for (entity, _) in events.into_iter_entity_spawn() {
-                                                                    entity_spawn_event_writer
-                                                                        .send(EntitySpawnEvent::new(entity, ()));
-                                                                }
-                                                            }
-                                                            // DespawnEntity event
-                                                            if events.has_entity_despawn() {
-                                                                let mut entity_despawn_event_writer = world
-                                                                    .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                                                    .unwrap();
-                                                                for (entity, _) in events.into_iter_entity_despawn()
-                                                                {
-                                                                    entity_despawn_event_writer
-                                                                        .send(EntityDespawnEvent::new(entity, ()));
-                                                                }
-                                                            }
-                                                        }
+                                                        let mut events = connection.receive(world, time_manager.as_ref(), tick_manager.as_ref());
                                                     });
                                             });
                                         });

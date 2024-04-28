@@ -39,8 +39,11 @@ impl Plugin for ServerNetworkingPlugin {
             // SYSTEM SETS
             .configure_sets(
                 PreUpdate,
-                InternalMainSet::<ServerMarker>::Receive
-                    .in_set(MainSet::Receive)
+                (
+                    InternalMainSet::<ServerMarker>::Receive.in_set(MainSet::Receive),
+                    InternalMainSet::<ServerMarker>::EmitEvents.in_set(MainSet::EmitEvents),
+                )
+                    .chain()
                     .run_if(is_started),
             )
             .configure_sets(
@@ -170,25 +173,6 @@ pub(crate) fn receive(world: &mut World) {
                                                     for client_id in connection_manager.events.iter_disconnections() {
                                                         debug!("Client disconnected event: {}", client_id);
                                                         connect_event_writer.send(DisconnectEvent::new(client_id));
-                                                    }
-                                                }
-
-                                                // EntitySpawn Events
-                                                if connection_manager.events.has_entity_spawn() {
-                                                    let mut entity_spawn_event_writer = world
-                                                        .get_resource_mut::<Events<EntitySpawnEvent>>()
-                                                        .unwrap();
-                                                    for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
-                                                        entity_spawn_event_writer.send(EntitySpawnEvent::new(entity, client_id));
-                                                    }
-                                                }
-                                                // EntityDespawn Events
-                                                if connection_manager.events.has_entity_despawn() {
-                                                    let mut entity_despawn_event_writer = world
-                                                        .get_resource_mut::<Events<EntityDespawnEvent>>()
-                                                        .unwrap();
-                                                    for (entity, client_id) in connection_manager.events.into_iter_entity_spawn() {
-                                                        entity_despawn_event_writer.send(EntityDespawnEvent::new(entity, client_id));
                                                     }
                                                 }
                                             }

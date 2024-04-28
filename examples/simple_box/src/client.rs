@@ -40,6 +40,7 @@ impl Plugin for ExampleClientPlugin {
                 receive_message1,
                 receive_entity_spawn,
                 receive_entity_despawn,
+                receive_player_id_insert,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
                 button_system,
@@ -148,6 +149,16 @@ pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
 pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
     for event in reader.read() {
         info!("Received entity despawn: {:?}", event.entity());
+    }
+}
+
+/// Example system to handle ComponentInsertEvent events
+pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEvent<PlayerId>>) {
+    for event in reader.read() {
+        info!(
+            "Received component PlayerId insert for entity: {:?}",
+            event.entity()
+        );
     }
 }
 

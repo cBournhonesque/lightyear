@@ -35,12 +35,7 @@ impl Plugin for ClientEventsPlugin {
             // EVENTS
             .add_event::<ConnectEvent>()
             // PLUGIN
-            // TODO: it's annoying to have to keep that () around...
-            //  revisit this.. maybe the into_iter_messages returns directly an object that
-            //  can be created from Ctx and Message
-            //  For Server it's the MessageEvent<M, ClientId>
-            //  For Client it's MessageEvent<M> directly
-            .add_plugins(EventsPlugin::<()>::default());
+            .add_plugins(EventsPlugin::<ConnectionManager>::default());
     }
 }
 
@@ -51,8 +46,7 @@ pub(crate) fn emit_replication_events<C: Component>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         push_component_events::<C, ConnectionManager>
-            .after(InternalMainSet::<ClientMarker>::Receive)
-            .run_if(is_connected),
+            .in_set(InternalMainSet::<ClientMarker>::EmitEvents),
     );
 }
 

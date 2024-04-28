@@ -39,6 +39,9 @@ pub(crate) enum InternalMainSet<M> {
     ///
     /// Runs in `PreUpdate`.
     Receive,
+    /// Systems that emit networking-related events
+    /// Runs in `PreUpdate`, after `Receive`
+    EmitEvents,
 
     /// Systems that send data (buffer any data to be sent, and send any buffered packets)
     ///
@@ -56,6 +59,9 @@ pub enum MainSet {
     ///
     /// Runs in `PreUpdate`.
     Receive,
+    /// Systems that emit networking-related events
+    /// Runs in `PreUpdate`, after `Receive`
+    EmitEvents,
 
     /// Systems that send data (buffer any data to be sent, and send any buffered packets)
     ///

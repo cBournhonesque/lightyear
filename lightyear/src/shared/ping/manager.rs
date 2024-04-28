@@ -216,9 +216,9 @@ impl PingManager {
 
     /// Received a pong: update
     /// Returns true if we have enough pongs to finalize the handshake
-    pub(crate) fn process_pong(&mut self, pong: &Pong, time_manager: &TimeManager) {
+    pub(crate) fn process_pong(&mut self, pong: &Pong, current_time: WrappedTime) {
         trace!("Received pong: {:?}", pong);
-        let received_time = time_manager.current_time();
+        let received_time = current_time;
 
         let Some(ping_sent_time) = self.ping_store.remove(pong.ping_id) else {
             error!("Received a ping that is not present in the ping-store anymore");
@@ -247,33 +247,14 @@ impl PingManager {
         }
     }
 
-    /// Update the ping manager when we receive a new sync message
-    pub(crate) fn handle_new_sync_message(
-        &mut self,
-        sync_message: &SyncMessage,
-        time_manager: &TimeManager,
-    ) {
-        match sync_message {
-            SyncMessage::Ping(ping) => {
-                // prepare a pong in response (but do not send yet, because we need
-                // to set the correct send time)
-                self.buffer_pending_pong(ping, time_manager);
-            }
-            SyncMessage::Pong(pong) => {
-                // process the pong
-                self.process_pong(pong, time_manager);
-            }
-        }
-    }
-
     /// When we receive a Ping, we prepare a Pong in response.
     /// However we cannot send it immediately because we send packets at a regular interval
     /// Keep track of the pongs we need to send
-    pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, time_manager: &TimeManager) {
+    pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, current_time: WrappedTime) {
         self.pongs_to_send.push(Pong {
             ping_id: ping.id,
-            // TODO: we want to use real time no?
-            ping_received_time: time_manager.current_time(),
+            // TODO: we want to use real time instead of just time_manager.current_time() no?
+            ping_received_time: current_time,
             // TODO: can we get a more precise time? (based on real)?
             // TODO: otherwise we can consider that there's an entire tick duration between receive and sent
             // we are using 0.0 as a placeholder for now, we will fill it when we actually

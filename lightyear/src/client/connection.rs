@@ -364,11 +364,13 @@ impl ConnectionManager {
                         ServerMessage::Ping(ping) => {
                             // prepare a pong in response (but do not send yet, because we need
                             // to set the correct send time)
-                            self.ping_manager.buffer_pending_pong(&ping, time_manager);
+                            self.ping_manager
+                                .buffer_pending_pong(&ping, time_manager.current_time());
                         }
                         ServerMessage::Pong(pong) => {
                             // process the pong
-                            self.ping_manager.process_pong(&pong, time_manager);
+                            self.ping_manager
+                                .process_pong(&pong, time_manager.current_time());
                             // TODO: a bit dangerous because we want:
                             // - real time when computing RTT
                             // - virtual time when computing the generation

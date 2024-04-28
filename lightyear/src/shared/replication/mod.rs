@@ -22,6 +22,7 @@ use crate::protocol::component::{ComponentNetId, ComponentRegistry};
 use crate::protocol::registry::NetId;
 use crate::protocol::EventContext;
 use crate::serialize::RawData;
+use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
 use crate::shared::replication::components::{Replicate, ReplicationGroupId};
 
 pub mod components;
@@ -102,8 +103,10 @@ pub struct ReplicationMessage {
 pub trait ReplicationSend: Resource {
     type Events: IterComponentInsertEvent<Self::EventContext>
         + IterComponentRemoveEvent<Self::EventContext>
-        + IterComponentUpdateEvent<Self::EventContext>;
-    // Type of the context associated with the events emitted by this replication plugin
+        + IterComponentUpdateEvent<Self::EventContext>
+        + IterEntitySpawnEvent<Self::EventContext>
+        + IterEntityDespawnEvent<Self::EventContext>;
+    /// Type of the context associated with the events emitted by this replication plugin
     type EventContext: EventContext;
     /// Marker to identify the type of the ReplicationSet component
     /// This is mostly relevant in the unified mode, where a ReplicationSet can be added several times

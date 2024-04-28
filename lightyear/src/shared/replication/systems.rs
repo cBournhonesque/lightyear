@@ -341,9 +341,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
         if !replicate_args.is_empty() {
             // serialize component
             let writer = sender.writer();
-            writer.start_write();
-            registry.serialize(component.as_ref(), writer).expect("Could not serialize component");
-            let raw_data = writer.finish_write().to_vec();
+            let raw_data = registry.serialize(component.as_ref(), writer).expect("Could not serialize component");
 
             replicate_args.into_iter().for_each(|(target, is_insert)| {
                 if is_insert {

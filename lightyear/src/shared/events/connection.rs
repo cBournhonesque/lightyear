@@ -37,7 +37,6 @@ pub struct ConnectionEvents {
     // // TODO: what happens if we receive on the same frame an Update for tick 4 and update for tick 10?
     // //  can we just discard the older one? what about for inserts/removes?
     // pub component_updates: EntityHashMap<Entity, HashMap<P::ComponentKinds, Tick>>,
-    // components_with_updates: HashSet<P::ComponentKinds>,
 
     // How can i easily get the events (inserts/adds/removes) for a given entity? add components on that entity
     // that track that?
@@ -59,7 +58,6 @@ impl ConnectionEvents {
             component_inserts: Default::default(),
             component_removes: Default::default(),
             component_updates: Default::default(),
-            // components_with_updates: Default::default(),
             // bookkeeping
             empty: true,
         }

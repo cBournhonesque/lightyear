@@ -256,7 +256,7 @@ impl ComponentRegistry {
         &self,
         component: &C,
         writer: &mut WriteWordBuffer,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<RawData> {
         let kind = ComponentKind::of::<C>();
         let erased_fns = self
             .fns_map
@@ -269,8 +269,10 @@ impl ComponentRegistry {
             "serializing component: {:?}",
             std::any::type_name::<C>()
         );
+        writer.start_write();
         <WriteWordBuffer as WriteBuffer>::encode::<NetId>(writer, net_id, Fixed)?;
-        (fns.serialize)(component, writer)
+        (fns.serialize)(component, writer)?;
+        Ok(writer.finish_write().to_vec())
     }
 
     /// Deserialize only the component value (the ComponentNetId has already been read)

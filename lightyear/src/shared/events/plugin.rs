@@ -1,18 +1,20 @@
 //! Create the bevy [`Plugin`]
 
-use bevy::app::App;
-use bevy::prelude::Plugin;
+use bevy::app::{App, PreUpdate};
+use bevy::prelude::{IntoSystemConfigs, Plugin};
 
-use crate::_internal::EventContext;
+use crate::_internal::{EventContext, ReplicationSend};
 use crate::shared::events::components::{
     ConnectEvent, DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent,
 };
+use crate::shared::events::systems::push_entity_events;
+use crate::shared::sets::InternalMainSet;
 
-pub struct EventsPlugin<Ctx> {
-    marker: std::marker::PhantomData<Ctx>,
+pub struct EventsPlugin<R> {
+    marker: std::marker::PhantomData<R>,
 }
 
-impl<Ctx> Default for EventsPlugin<Ctx> {
+impl<R> Default for EventsPlugin<R> {
     fn default() -> Self {
         Self {
             marker: std::marker::PhantomData,
@@ -20,16 +22,17 @@ impl<Ctx> Default for EventsPlugin<Ctx> {
     }
 }
 
-impl<Ctx: EventContext> Plugin for EventsPlugin<Ctx> {
+impl<R: ReplicationSend> Plugin for EventsPlugin<R> {
     fn build(&self, app: &mut App) {
         // EVENTS
-        // per-component events
-        // P::Components::add_events::<Ctx>(app);
-        // P::Message::add_events::<Ctx>(app);
-
-        app.add_event::<ConnectEvent<Ctx>>()
-            .add_event::<DisconnectEvent<Ctx>>()
-            .add_event::<EntitySpawnEvent<Ctx>>()
-            .add_event::<EntityDespawnEvent<Ctx>>();
+        app.add_event::<ConnectEvent<R::EventContext>>()
+            .add_event::<DisconnectEvent<R::EventContext>>()
+            .add_event::<EntitySpawnEvent<R::EventContext>>()
+            .add_event::<EntityDespawnEvent<R::EventContext>>();
+        // SYSTEMS
+        app.add_systems(
+            PreUpdate,
+            push_entity_events::<R>.in_set(InternalMainSet::<R::SetMarker>::EmitEvents),
+        );
     }
 }

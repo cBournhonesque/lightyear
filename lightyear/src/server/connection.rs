@@ -164,7 +164,7 @@ impl ConnectionManager {
                 self.packet_config.clone(),
                 self.ping_config.clone(),
             );
-            // self.events.push_connection(client_id);
+            self.events.push_connection(client_id);
             self.new_clients.push(client_id);
             e.insert(connection);
         } else {
@@ -526,12 +526,14 @@ impl Connection {
                         ClientMessage::Ping(ping) => {
                             // prepare a pong in response (but do not send yet, because we need
                             // to set the correct send time)
-                            self.ping_manager.buffer_pending_pong(&ping, time_manager);
+                            self.ping_manager
+                                .buffer_pending_pong(&ping, time_manager.current_time());
                             trace!("buffer pong");
                         }
                         ClientMessage::Pong(pong) => {
                             // process the pong
-                            self.ping_manager.process_pong(&pong, time_manager);
+                            self.ping_manager
+                                .process_pong(&pong, time_manager.current_time());
                         }
                     }
                 }
@@ -623,15 +625,44 @@ impl ReplicationSend for ConnectionManager {
         trace!(?entity, "Prepare entity spawn to client");
         let group_id = replicate.replication_group.group_id(Some(entity));
         // TODO: should we have additional state tracking so that we know we are in the process of sending this entity to clients?
-        let should_be_predicted_kind = self
-            .component_registry()
-            .get_net_id::<ShouldBePredicted>()
-            .context("ShouldBePredicted is not registered")?;
-        let should_be_interpolated_kind = self
-            .component_registry()
-            .get_net_id::<ShouldBeInterpolated>()
-            .context("ShouldBeInterpolated is not registered")?;
+
         self.apply_replication(target).try_for_each(|client_id| {
+            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
+            if replicate.prediction_target.should_send_to(&client_id) {
+                // TODO: the serialized data is always the same; cache it somehow?
+                let should_be_predicted_kind = self
+                    .component_registry()
+                    .get_net_id::<ShouldBePredicted>()
+                    .context("ShouldBePredicted is not registered")?;
+                let should_be_predicted_data = self
+                    .component_registry
+                    .serialize(&ShouldBePredicted, &mut self.writer)?;
+                self.connection_mut(client_id)?
+                    .replication_sender
+                    .prepare_component_insert(
+                        entity,
+                        group_id,
+                        should_be_predicted_kind,
+                        should_be_predicted_data,
+                    );
+            }
+            if replicate.interpolation_target.should_send_to(&client_id) {
+                let should_be_interpolated_kind = self
+                    .component_registry()
+                    .get_net_id::<ShouldBeInterpolated>()
+                    .context("ShouldBeInterpolated is not registered")?;
+                let should_be_interpolated_data = self
+                    .component_registry
+                    .serialize(&ShouldBeInterpolated, &mut self.writer)?;
+                self.connection_mut(client_id)?
+                    .replication_sender
+                    .prepare_component_insert(
+                        entity,
+                        group_id,
+                        should_be_interpolated_kind,
+                        should_be_interpolated_data,
+                    );
+            }
             // trace!(
             //     ?client_id,
             //     ?entity,
@@ -646,25 +677,6 @@ impl ReplicationSend for ConnectionManager {
             //     .or_default()
             //     .update_collect_changes_since_this_tick(system_current_tick);
             replication_sender.prepare_entity_spawn(entity, group_id);
-            // if we need to do prediction/interpolation, send a marker component to indicate that to the client
-            if replicate.prediction_target.should_send_to(&client_id) {
-                replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    should_be_predicted_kind,
-                    // ShouldBePredicted is a ZST
-                    vec![],
-                );
-            }
-            if replicate.interpolation_target.should_send_to(&client_id) {
-                replication_sender.prepare_component_insert(
-                    entity,
-                    group_id,
-                    should_be_interpolated_kind,
-                    // ShouldBeInterpolated is a ZST
-                    vec![],
-                );
-            }
             // also set the priority for the group when we spawn it
             self.update_priority(group_id, client_id, replicate.replication_group.priority())?;
             Ok(())
