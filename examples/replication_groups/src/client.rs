@@ -5,8 +5,8 @@ use std::str::FromStr;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
+use lightyear::client::interpolation::LinearInterpolator;
 
-use lightyear::_internal::LinearInterpolator;
 use lightyear::connection::netcode::NetcodeServer;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -54,7 +54,7 @@ impl Plugin for ExampleClientPlugin {
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        app.add_plugins(VisualInterpolationPlugin::<PlayerPosition, MyProtocol>::default());
+        app.add_plugins(VisualInterpolationPlugin::<PlayerPosition>::default());
         app.add_systems(Update, debug_pre_visual_interpolation);
         app.add_systems(Last, debug_post_visual_interpolation);
     }
@@ -116,9 +116,6 @@ pub(crate) fn movement(
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
-        return;
-    }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             for position in position_query.iter_mut() {

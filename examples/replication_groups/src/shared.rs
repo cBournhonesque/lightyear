@@ -26,6 +26,8 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
+        // REFLECTION
         app.register_type::<PlayerId>();
         app.register_type::<PlayerPosition>();
         app.register_type::<PlayerParent>();

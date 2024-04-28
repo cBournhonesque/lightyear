@@ -223,7 +223,7 @@ mod lobby {
         mut commands: Commands,
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyTable>,
-        mut connection_manager: ResMut<ClientConnectionManager>,
+        mut connection_manager: ResMut<ConnectionManager>,
         settings: Res<Settings>,
         config: ResMut<ClientConfig>,
         lobbies: Option<Res<Lobbies>>,

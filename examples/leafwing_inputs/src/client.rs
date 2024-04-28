@@ -8,10 +8,8 @@ use bevy::utils::Duration;
 use bevy_xpbd_2d::parry::shape::ShapeType::Ball;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::_internal::ClientMarker;
 
 use lightyear::inputs::native::input_buffer::InputBuffer;
-use lightyear::prelude::client::LeafwingInputPlugin;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -24,7 +22,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         // add the LeafwingInputPlugin to be able to send leafwing ActionStates to the server
-        app.add_plugins(LeafwingInputPlugin::<MyProtocol, PlayerActions>::new(
+        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::new(
             LeafwingInputConfig::<PlayerActions> {
                 send_diffs_only: true,
                 ..default()

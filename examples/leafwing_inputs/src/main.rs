@@ -17,7 +17,6 @@ use clap::{Parser, ValueEnum};
 use lightyear::prelude::client::{
     InterpolationConfig, InterpolationDelay, NetConfig, PredictionConfig,
 };
-use lightyear::prelude::server::LeafwingInputPlugin;
 use serde::{Deserialize, Serialize};
 
 use lightyear::prelude::{Mode, TransportConfig};
@@ -25,7 +24,7 @@ use lightyear::shared::log::add_log_layer;
 use lightyear::transport::LOCAL_SOCKET;
 
 use crate::client::ExampleClientPlugin;
-use crate::protocol::{protocol, MyProtocol, PlayerActions, PlayerId};
+use crate::protocol::{PlayerActions, PlayerId};
 use crate::server::ExampleServerPlugin;
 use crate::settings::*;
 use crate::shared::{shared_config, SharedPlugin};
@@ -169,9 +168,8 @@ fn client_app(settings: Settings, net_config: client::NetConfig) -> App {
         },
         ..default()
     };
-    let plugin_config = client::PluginConfig::new(client_config, protocol());
     app.add_plugins((
-        client::ClientPlugin::new(plugin_config),
+        client::ClientPlugin::new(client_config),
         ExampleClientPlugin,
         SharedPlugin,
     ));
@@ -211,7 +209,7 @@ fn server_app(settings: Settings, extra_transport_configs: Vec<TransportConfig>)
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
+        server::ServerPlugin::new(server_config),
         ExampleServerPlugin {
             predict_all: settings.server.predict_all,
         },
@@ -253,7 +251,7 @@ fn combined_app(
         ..default()
     };
     app.add_plugins((
-        server::ServerPlugin::new(server::PluginConfig::new(server_config, protocol())),
+        server::ServerPlugin::new(server_config),
         ExampleServerPlugin {
             predict_all: settings.server.predict_all,
         },
@@ -279,9 +277,8 @@ fn combined_app(
         },
         ..default()
     };
-    let plugin_config = client::PluginConfig::new(client_config, protocol());
     app.add_plugins((
-        client::ClientPlugin::new(plugin_config),
+        client::ClientPlugin::new(client_config),
         ExampleClientPlugin,
     ));
     // shared plugin
