@@ -22,8 +22,6 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Global>();
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_plugins(LeafwingInputPlugin::<Inputs>::default());
         app.add_systems(
             Update,
             (handle_connections, (tick_timers, update_props).chain()),

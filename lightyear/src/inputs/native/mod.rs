@@ -22,4 +22,7 @@ pub trait UserAction:
 {
 }
 
-impl UserAction for () {}
+impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static> UserAction
+    for A
+{
+}

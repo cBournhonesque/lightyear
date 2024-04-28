@@ -5,7 +5,6 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-use lightyear::_internal::ShouldBeInterpolated;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -118,9 +117,6 @@ fn player_movement(
     // InputEvent is a special case: we get an event for every fixed-update system run instead of every frame!
     mut input_reader: EventReader<InputEvent<Inputs>>,
 ) {
-    if <Components as SyncMetadata<PlayerPosition>>::mode() != ComponentSyncMode::Full {
-        return;
-    }
     for input in input_reader.read() {
         if let Some(input) = input.input() {
             for position in position_query.iter_mut() {
@@ -191,7 +187,7 @@ fn delete_player(
                                 // we need to use this special function to despawn prediction entity
                                 // the reason is that we actually keep the entity around for a while,
                                 // in case we need to re-store it for rollback
-                                entity_mut.prediction_despawn::<MyProtocol>();
+                                entity_mut.prediction_despawn();
                                 debug!("Despawning the predicted/pre-predicted player because we received player action!");
                             }
                         }
@@ -247,7 +243,7 @@ pub(crate) fn receive_message(mut reader: EventReader<MessageEvent<Message1>>) {
 
 /// Send messages from server to clients
 pub(crate) fn send_message(
-    mut client: ResMut<ClientConnectionManager>,
+    mut client: ResMut<ConnectionManager>,
     input: Res<ButtonInput<KeyCode>>,
 ) {
     if input.pressed(KeyCode::KeyM) {

@@ -17,28 +17,6 @@ pub(crate) mod input_buffer;
 /// An enum that represents a list of user actions.
 ///
 /// See more information in the leafwing_input_manager crate: [`Actionlike`]
-pub trait LeafwingUserAction:
-    Serialize
-    + DeserializeOwned
-    + Copy
-    + Clone
-    + PartialEq
-    + Send
-    + Sync
-    + Debug
-    + Actionlike
-    + TypePath
-    + FromReflect
-    + 'static
-{
-}
+pub trait LeafwingUserAction: Serialize + DeserializeOwned + Copy + Debug + Actionlike {}
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Hash, Reflect, Actionlike)]
-pub enum NoAction1 {}
-
-impl LeafwingUserAction for NoAction1 {}
-
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Hash, Reflect, Actionlike)]
-pub enum NoAction2 {}
-
-impl LeafwingUserAction for NoAction2 {}
+impl<A: Serialize + DeserializeOwned + Copy + Debug + Actionlike> LeafwingUserAction for A {}

@@ -20,10 +20,6 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            LeafwingInputPlugin::<MyProtocol, PlayerActions>::default(),
-            LeafwingInputPlugin::<MyProtocol, AdminActions>::default(),
-        ));
         app.add_systems(Startup, init);
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(

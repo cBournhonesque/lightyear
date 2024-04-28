@@ -12,7 +12,7 @@ use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
 use crate::prelude::ParentSync;
-use crate::protocol::component::{ComponentNetId, ComponentRegistry};
+use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
 
 use crate::server::room::ClientVisibility;
 
@@ -47,8 +47,11 @@ pub struct Replicate {
     /// and `ParentSync` components to the children yourself
     pub replicate_hierarchy: bool,
 
+    // TODO: could it be dangerous to use component kind here? (because the value could vary between rust versions)
+    //  should be ok, because this is not networked
     /// Lets you override the replication modalities for a specific component
-    pub per_component_metadata: HashMap<ComponentNetId, PerComponentReplicationMetadata>,
+    #[reflect(ignore)]
+    pub per_component_metadata: HashMap<ComponentKind, PerComponentReplicationMetadata>,
 }
 
 /// This lets you specify how to customize the replication behaviour for a given component
@@ -81,15 +84,8 @@ impl Replicate {
     }
 
     /// Returns true if we don't want to replicate the component
-    pub(crate) fn is_disabled_untyped(&self, kind: ComponentNetId) -> bool {
-        self.per_component_metadata
-            .get(&kind)
-            .is_some_and(|metadata| metadata.disabled)
-    }
-
-    /// Returns true if we don't want to replicate the component
-    pub fn is_disabled<C: Component>(&self, registry: &ComponentRegistry) -> bool {
-        let kind = registry.net_id::<C>();
+    pub fn is_disabled<C: Component>(&self) -> bool {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .get(&kind)
             .is_some_and(|metadata| metadata.disabled)
@@ -97,16 +93,8 @@ impl Replicate {
 
     /// If true, the component will be replicated only once, when the entity is spawned.
     /// We do not replicate component updates
-    pub fn is_replicate_once_untyped(&self, kind: ComponentNetId) -> bool {
-        self.per_component_metadata
-            .get(&kind)
-            .is_some_and(|metadata| metadata.replicate_once)
-    }
-
-    /// If true, the component will be replicated only once, when the entity is spawned.
-    /// We do not replicate component updates
-    pub fn is_replicate_once<C: Component>(&self, registry: &ComponentRegistry) -> bool {
-        let kind = registry.net_id::<C>();
+    pub fn is_replicate_once<C: Component>(&self) -> bool {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .get(&kind)
             .is_some_and(|metadata| metadata.replicate_once)
@@ -115,12 +103,8 @@ impl Replicate {
     /// Replication target for this specific component
     /// This will be the intersection of the provided `entity_target`, and the `target` of the component
     /// if it exists
-    pub fn target<C: Component>(
-        &self,
-        registry: &ComponentRegistry,
-        mut entity_target: NetworkTarget,
-    ) -> NetworkTarget {
-        let kind = registry.net_id::<C>();
+    pub fn target<C: Component>(&self, mut entity_target: NetworkTarget) -> NetworkTarget {
+        let kind = ComponentKind::of::<C>();
         match self.per_component_metadata.get(&kind) {
             None => entity_target,
             Some(metadata) => {
@@ -132,8 +116,8 @@ impl Replicate {
     }
 
     /// Disable the replication of a component for this entity
-    pub fn disable_component<C: Component>(&mut self, registry: &ComponentRegistry) {
-        let kind = registry.net_id::<C>();
+    pub fn disable_component<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
@@ -141,8 +125,8 @@ impl Replicate {
     }
 
     /// Enable the replication of a component for this entity
-    pub fn enable_component<C: Component>(&mut self, registry: &ComponentRegistry) {
-        let kind = registry.net_id::<C>();
+    pub fn enable_component<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
@@ -155,16 +139,16 @@ impl Replicate {
         }
     }
 
-    pub fn enable_replicate_once<C: Component>(&mut self, registry: &ComponentRegistry) {
-        let kind = registry.net_id::<C>();
+    pub fn enable_replicate_once<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
             .replicate_once = true;
     }
 
-    pub fn disable_replicate_once<C: Component>(&mut self, registry: &ComponentRegistry) {
-        let kind = registry.net_id::<C>();
+    pub fn disable_replicate_once<C: Component>(&mut self) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata
             .entry(kind)
             .or_default()
@@ -177,12 +161,8 @@ impl Replicate {
         }
     }
 
-    pub fn add_target<C: Component>(
-        &mut self,
-        registry: &ComponentRegistry,
-        target: NetworkTarget,
-    ) {
-        let kind = registry.net_id::<C>();
+    pub fn add_target<C: Component>(&mut self, target: NetworkTarget) {
+        let kind = ComponentKind::of::<C>();
         self.per_component_metadata.entry(kind).or_default().target = target;
         // if we are back at the default, remove the entry
         if self.per_component_metadata.get(&kind).unwrap()
@@ -303,8 +283,8 @@ impl Default for Replicate {
         // TODO: what's the point in replicating them once since they don't change?
         //  or is it because they are removed and we don't want to replicate the removal?
         // those metadata components should only be replicated once
-        // replicate.enable_replicate_once::<ShouldBePredicted>();
-        // replicate.enable_replicate_once::<ShouldBeInterpolated>();
+        replicate.enable_replicate_once::<ShouldBePredicted>();
+        replicate.enable_replicate_once::<ShouldBeInterpolated>();
         // cfg_if! {
         //     // the ActionState components are replicated only once when the entity is spawned
         //     // then they get updated by the user inputs, not by replication!

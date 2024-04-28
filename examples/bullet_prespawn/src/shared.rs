@@ -36,6 +36,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
         if app.is_plugin_added::<RenderPlugin>() {
             app.add_systems(Startup, init);
             // draw after interpolation is done

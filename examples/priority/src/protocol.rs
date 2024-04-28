@@ -120,8 +120,6 @@ pub enum Inputs {
     None,
 }
 
-impl LeafwingUserAction for Inputs {}
-
 // Protocol
 pub(crate) struct ProtocolPlugin;
 

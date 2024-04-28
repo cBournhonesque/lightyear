@@ -134,11 +134,6 @@ fn send_entity_spawn<R: ReplicationSend>(
 ) {
     // Replicate to already connected clients (replicate only new entities)
     query.iter().for_each(|(entity, replicate)| {
-        // if replicate.is_added() {
-        //     // we only replicate these once
-        //     replicate.enable_replicate_once::<ShouldBePredicted>(component_registry.as_ref());
-        //     replicate.enable_replicate_once::<ShouldBeInterpolated>(component_registry.as_ref());
-        // }
         match replicate.replication_mode {
             // for room mode, no need to handle newly-connected clients specially; they just need
             // to be added to the correct room
@@ -253,7 +248,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
     let kind = registry.net_id::<C>();
     query.iter().for_each(|(entity, component, replicate)| {
         // do not replicate components that are disabled
-        if replicate.is_disabled::<C>(registry.as_ref()) {
+        if replicate.is_disabled::<C>() {
             return;
         }
         // will store (NetworkTarget, is_Insert). We use this to avoid serializing if there are no clients we need to replicate to
@@ -265,7 +260,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                     .iter()
                     .for_each(|(client_id, visibility)| {
                         if replicate.replication_target.should_send_to(client_id) {
-                            let target = replicate.target::<C>(registry.as_ref(), NetworkTarget::Only(vec![*client_id]));
+                            let target = replicate.target::<C>(NetworkTarget::Only(vec![*client_id]));
                             match visibility {
                                 // TODO: here we required the component to be clone because we send it to multiple clients.
                                 //  but maybe we can instead serialize it to Bytes early and then have the bytes be shared between clients?
@@ -282,7 +277,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                                         // only update components that were not newly added
 
                                         // do not send updates for these components, only inserts/removes
-                                        if replicate.is_replicate_once::<C>(registry.as_ref()) {
+                                        if replicate.is_replicate_once::<C>() {
                                             // we can exit the function immediately because we know we don't want to replicate
                                             // to any client
                                             return;
@@ -304,12 +299,12 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                     let mut new_connected_target = target.clone();
                     new_connected_target
                         .intersection(NetworkTarget::Only(new_connected_clients.clone()));
-                    replicate_args.push((replicate.target::<C>(registry.as_ref(), new_connected_target), true));
+                    replicate_args.push((replicate.target::<C>(new_connected_target), true));
                     // don't re-send to newly connection client
                     target.exclude(new_connected_clients.clone());
                 }
 
-                let target = replicate.target::<C>(registry.as_ref(), target);
+                let target = replicate.target::<C>(target);
                 // send a component_insert for components that were newly added
                 // or if replicate was newly added.
                 // TODO: ideally what we should be checking is: is the component newly added
@@ -322,7 +317,7 @@ pub(crate) fn send_component_update<C: Component, R: ReplicationSend>(
                     replicate_args.push((target, true));
                 } else {
                     // do not send updates for these components, only inserts/removes
-                    if replicate.is_replicate_once::<C>(registry.as_ref()) {
+                    if replicate.is_replicate_once::<C>() {
                         trace!(?entity,
                             "not replicating updates for {:?} because it is marked as replicate_once",
                             kind
@@ -391,7 +386,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
     removed.read().for_each(|entity| {
         if let Ok(replicate) = query.get(entity) {
             // do not replicate components that are disabled
-            if replicate.is_disabled::<C>(registry.as_ref()) {
+            if replicate.is_disabled::<C>() {
                 return;
             }
             match replicate.replication_mode {
@@ -406,10 +401,8 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
                                             entity,
                                             kind,
                                             replicate,
-                                            replicate.target::<C>(
-                                                registry.as_ref(),
-                                                NetworkTarget::Only(vec![*client_id]),
-                                            ),
+                                            replicate
+                                                .target::<C>(NetworkTarget::Only(vec![*client_id])),
                                             system_bevy_ticks.this_run(),
                                         )
                                         .map_err(|e| {
@@ -427,10 +420,7 @@ pub(crate) fn send_component_removed<C: Component, R: ReplicationSend>(
                             entity,
                             kind,
                             replicate,
-                            replicate.target::<C>(
-                                registry.as_ref(),
-                                replicate.replication_target.clone(),
-                            ),
+                            replicate.target::<C>(replicate.replication_target.clone()),
                             system_bevy_ticks.this_run(),
                         )
                         .map_err(|e| {

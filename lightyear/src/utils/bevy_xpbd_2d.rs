@@ -15,10 +15,9 @@ use crate::prelude::Message;
 
 pub mod position {
     use super::*;
+    use crate::_internal::LinearInterpolator;
 
-    pub struct PositionLinearInterpolation;
-
-    impl LerpFn<Position> for PositionLinearInterpolation {
+    impl LerpFn<Position> for LinearInterpolator {
         fn lerp(start: &Position, other: &Position, t: f32) -> Position {
             let res = Position::new(start.0 * (1.0 - t) + other.0 * t);
             trace!(
@@ -35,10 +34,9 @@ pub mod position {
 
 pub mod rotation {
     use super::*;
+    use crate::_internal::LinearInterpolator;
 
-    pub struct RotationLinearInterpolation;
-
-    impl LerpFn<Rotation> for RotationLinearInterpolation {
+    impl LerpFn<Rotation> for LinearInterpolator {
         fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
             let shortest_angle =
                 ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
@@ -63,10 +61,9 @@ pub mod rotation {
 
 pub mod linear_velocity {
     use super::*;
+    use crate::_internal::LinearInterpolator;
 
-    pub struct LinearVelocityLinearInterpolation;
-
-    impl LerpFn<LinearVelocity> for LinearVelocityLinearInterpolation {
+    impl LerpFn<LinearVelocity> for LinearInterpolator {
         fn lerp(start: &LinearVelocity, other: &LinearVelocity, t: f32) -> LinearVelocity {
             let res = LinearVelocity(start.0 * (1.0 - t) + other.0 * t);
             trace!(
@@ -83,10 +80,9 @@ pub mod linear_velocity {
 
 pub mod angular_velocity {
     use super::*;
+    use crate::_internal::LinearInterpolator;
 
-    pub struct AngularVelocityLinearInterpolation;
-
-    impl LerpFn<AngularVelocity> for AngularVelocityLinearInterpolation {
+    impl LerpFn<AngularVelocity> for LinearInterpolator {
         fn lerp(start: &AngularVelocity, other: &AngularVelocity, t: f32) -> AngularVelocity {
             let res = AngularVelocity(start.0 * (1.0 - t) + other.0 * t);
             trace!(

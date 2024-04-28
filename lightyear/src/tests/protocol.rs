@@ -53,8 +53,6 @@ pub struct Resource1(pub f32);
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct MyInput(pub i16);
 
-impl UserAction for MyInput {}
-
 // Protocol
 cfg_if! {
     if #[cfg(feature = "leafwing")] {
@@ -63,13 +61,11 @@ cfg_if! {
         pub enum LeafwingInput1 {
             Jump,
         }
-        impl LeafwingUserAction for LeafwingInput1 {}
 
         #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
         pub enum LeafwingInput2 {
             Crouch,
         }
-        impl LeafwingUserAction for LeafwingInput2 {}
     }
 }
 

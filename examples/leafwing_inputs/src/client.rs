@@ -21,19 +21,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // add the LeafwingInputPlugin to be able to send leafwing ActionStates to the server
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::new(
-            LeafwingInputConfig::<PlayerActions> {
-                send_diffs_only: true,
-                ..default()
-            },
-        ));
-        // .add_plugins(LeafwingInputPlugin::<MyProtocol, AdminActions>::new(
-        //     LeafwingInputConfig::<AdminActions> {
-        //         send_diffs_only: true,
-        //         ..default()
-        //     },
-        // ));
         // To send global inputs, insert the ActionState and the InputMap as Resources
         // app.init_resource::<ActionState<AdminActions>>();
         // app.insert_resource(InputMap::<AdminActions>::new([
