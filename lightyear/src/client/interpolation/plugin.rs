@@ -189,9 +189,8 @@ impl Plugin for InterpolationPlugin {
             .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
 
-        // // TODO: separate prediction and interpolation attributes
-        // // TODO: make the custom interpolation logic per-component?
-        // //  i.e. we enable the custom interpolation only for some components, but not for all
+        // TODO: make the custom interpolation logic per-component?
+        //  i.e. we enable the custom interpolation only for some components, but not for all
         // P::Components::add_prepare_interpolation_systems(app);
         // if !self.config.custom_interpolation_logic {
         //     P::Components::add_interpolation_systems(app);
