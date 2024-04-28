@@ -88,7 +88,7 @@ impl PacketBuilder {
         // self.try_write_buffer
         //     .serialize(packet.header())
         //     .expect("Failed to serialize header, this should never happen");
-        // TODO: need to reserver HEADER_BYTES bits?
+        // TODO: need to reserve HEADER_BYTES bits?
         let header = self
             .header_manager
             .prepare_send_packet_header(PacketType::Data);

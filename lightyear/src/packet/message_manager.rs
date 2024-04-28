@@ -312,11 +312,11 @@ mod tests {
     fn setup() -> (MessageManager, MessageManager) {
         let mut channel_registry = ChannelRegistry::default();
         channel_registry.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            mode: ChannelMode::UnorderedUnreliable,
             ..default()
         });
         channel_registry.add_channel::<Channel2>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
             ..default()
         });
 
@@ -421,8 +421,7 @@ mod tests {
         // client: buffer send messages, and then send
         const MESSAGE_SIZE: usize = (1.5 * FRAGMENT_SIZE as f32) as usize;
 
-        let data = std::str::from_utf8(&[0; MESSAGE_SIZE]).unwrap().to_string();
-        let message = vec![0];
+        let message = [0; MESSAGE_SIZE].to_vec();
         let channel_kind_1 = ChannelKind::of::<Channel1>();
         let channel_kind_2 = ChannelKind::of::<Channel2>();
         client_message_manager.buffer_send(message.clone(), channel_kind_1)?;

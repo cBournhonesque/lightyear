@@ -51,17 +51,16 @@ impl Plugin for ClientPlugin {
                 // PLUGINS
                 .add_plugins(SharedPlugin {
                     config: self.config.shared.clone(),
-                    ..default()
                 });
         }
 
         app
             // PLUGINS //
-            .add_plugins(ClientNetworkingPlugin::default())
-            .add_plugins(ClientEventsPlugin::default())
-            .add_plugins(ClientDiagnosticsPlugin::default())
-            .add_plugins(ClientReplicationPlugin::default())
-            .add_plugins(PredictionPlugin::default())
+            .add_plugins(ClientNetworkingPlugin)
+            .add_plugins(ClientEventsPlugin)
+            .add_plugins(ClientDiagnosticsPlugin)
+            .add_plugins(ClientReplicationPlugin)
+            .add_plugins(PredictionPlugin)
             .add_plugins(InterpolationPlugin::new(self.config.interpolation.clone()));
     }
 }

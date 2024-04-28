@@ -236,7 +236,7 @@ pub struct PingChannel;
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;
 
-/// Default Unordedered Unreliable channel, to send messages as fast as possible without any ordering.
+/// Default Unordered Unreliable channel, to send messages as fast as possible without any ordering.
 #[derive(ChannelInternal)]
 pub struct DefaultUnorderedUnreliableChannel;
 

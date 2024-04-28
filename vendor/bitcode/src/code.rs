@@ -151,7 +151,7 @@ macro_rules! optimized_enc {
             ($variant:literal, $bits:literal) => {
                 debug_assert!(i == 0);
                 buf.inner.write_bits($variant, $bits);
-                i = $bits + i;
+                i += $bits;
             };
         }
 

@@ -86,7 +86,7 @@ impl<A> Default for ToggleActions<A> {
 }
 
 // TODO: the resource should have a generic param, but not the user-facing config struct
-#[derive(Debug, Clone, Resource)]
+#[derive(Debug, Copy, Clone, Resource)]
 pub struct LeafwingInputConfig<A> {
     // TODO: right now the input-delay causes the client timeline to be more in the past than it should be
     //  I'm not sure if we can have different input_delay_ticks per ActionType
@@ -106,7 +106,7 @@ pub struct LeafwingInputConfig<A> {
     /// Turn this on if you want to optimize the bandwidth that the client sends to the server.
     pub send_diffs_only: bool,
     // TODO: add an option where we send all diffs vs send only just-pressed diffs
-    pub _marker: PhantomData<A>,
+    pub(crate) _marker: PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputConfig<A> {
@@ -130,15 +130,11 @@ impl<A> LeafwingInputConfig<A> {
 /// Adds a plugin to handle inputs using the LeafwingInputManager
 pub struct LeafwingInputPlugin<A> {
     config: LeafwingInputConfig<A>,
-    _marker: PhantomData<A>,
 }
 
 impl<A> LeafwingInputPlugin<A> {
     pub fn new(config: LeafwingInputConfig<A>) -> Self {
-        Self {
-            config,
-            _marker: PhantomData,
-        }
+        Self { config }
     }
 }
 
@@ -750,7 +746,7 @@ fn receive_tick_events<A: LeafwingUserAction>(
 /// We run this in the PreUpdate stage so that we generate diffs even if the frame has no fixed-update schedule
 pub fn generate_action_diffs<A: LeafwingUserAction>(
     config: Res<LeafwingInputConfig<A>>,
-    action_state: Option<ResMut<ActionState<A>>>,
+    action_state: Option<Res<ActionState<A>>>,
     // only generate diffs for entities that have an InputMap (i.e. client-side entities)
     action_state_query: Query<(Entity, &ActionState<A>), With<InputMap<A>>>,
     mut action_diffs: EventWriter<ActionDiffEvent<A>>,
@@ -918,8 +914,7 @@ mod tests {
     use crate::client::sync::SyncConfig;
     use crate::inputs::leafwing::input_buffer::{ActionDiff, ActionDiffBuffer, ActionDiffEvent};
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-    use crate::prelude::server::LeafwingInputPlugin;
-    use crate::prelude::{LinkConditionerConfig, SharedConfig, TickConfig};
+    use crate::prelude::{client, LinkConditionerConfig, Replicate, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 
@@ -948,15 +943,22 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_app.add_plugins((
-            crate::client::input_leafwing::LeafwingInputPlugin::<LeafwingInput1>::default(),
-            InputPlugin,
-        ));
-        // let press_action_id = stepper.client_app.world.register_system(press_action);
-        stepper.server_app.add_plugins((
-            LeafwingInputPlugin::<MyProtocol, LeafwingInput1>::default(),
-            InputPlugin,
-        ));
+        #[cfg(feature = "leafwing")]
+        {
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1>::default());
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1>::default());
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+        }
+        stepper.client_app.add_plugins(InputPlugin);
         stepper.init();
 
         // create an entity on server
@@ -984,7 +986,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<ClientConnectionManager>()
+            .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -1002,7 +1004,7 @@ mod tests {
             .world
             .entity(client_entity)
             .get::<ActionState<LeafwingInput1>>()
-            .is_some(),);
+            .is_some());
         stepper.frame_step();
         (stepper, server_entity, client_entity)
     }

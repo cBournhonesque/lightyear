@@ -103,6 +103,7 @@ impl<R: ReplicationSend> Plugin for HierarchySendPlugin<R> {
             )
                 // we don't need to run these every frame, only every send_interval
                 .in_set(InternalMainSet::<R::SetMarker>::Send)
+                // run before the replication-send systems
                 .before(InternalReplicationSet::<R::SetMarker>::All),
         );
     }

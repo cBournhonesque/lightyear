@@ -21,9 +21,7 @@ use crate::protocol::registry::NetId;
 use crate::protocol::BitSerializable;
 use crate::server::config::ServerConfig;
 use crate::server::connection::ConnectionManager;
-use crate::server::events::InputMessageEvent;
 use crate::server::networking::is_started;
-use crate::shared::events::connection::IterInputMessageEvent;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::InternalMainSet;
 
@@ -133,7 +131,7 @@ fn receive_input_message<A: LeafwingUserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<&mut ActionDiffBuffer<A>>,
 ) {
-    let kind = MessageKind::of::<crate::inputs::native::InputMessage<A>>();
+    let kind = MessageKind::of::<InputMessage<A>>();
     let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
         error!(
             "Could not find the network id for the message kind: {:?}",
@@ -142,7 +140,7 @@ fn receive_input_message<A: LeafwingUserAction>(
         return;
     };
     for (client_id, connection) in connection_manager.connections.iter_mut() {
-        if let Some(message_list) = connection.received_input_messages.remove(&net) {
+        if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
                 let mut reader = connection.reader_pool.start_read(&message_bytes);
                 // we have to re-decode the net id, since it's included in the bytes
@@ -152,6 +150,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                 // TODO: decode using the function pointer instead of the type?
                 let mut message =
                     InputMessage::<A>::decode(&mut reader).expect("could not decode message");
+                connection.reader_pool.attach(reader);
                 // TODO: if necessary, map entities
                 //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
                 debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
@@ -186,7 +185,6 @@ fn receive_input_message<A: LeafwingUserAction>(
                         channel_kind,
                     ));
                 }
-                connection.reader_pool.attach(reader);
             }
         }
     }
@@ -230,6 +228,7 @@ mod tests {
     use leafwing_input_manager::prelude::ActionState;
 
     use crate::inputs::leafwing::input_buffer::ActionDiff;
+    use crate::prelude::client;
     use crate::prelude::client::{
         InterpolationConfig, LeafwingInputConfig, PredictionConfig, SyncConfig,
     };
@@ -242,6 +241,9 @@ mod tests {
 
     #[test]
     fn test_leafwing_inputs() {
+        // tracing_subscriber::FmtSubscriber::builder()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let shared_config = SharedConfig {
@@ -264,21 +266,32 @@ mod tests {
             link_conditioner,
             frame_duration,
         );
-        stepper.client_app.add_plugins((
-            crate::client::input_leafwing::LeafwingInputPlugin::<LeafwingInput1>::new(
-                LeafwingInputConfig {
-                    // NOTE: for simplicity, we send every diff (because otherwise it's hard to send an input after the tick system)
-                    send_diffs_only: false,
-                    ..default()
-                },
-            ),
-            InputPlugin,
-        ));
-        // let press_action_id = stepper.client_app.world.register_system(press_action);
-        stepper.server_app.add_plugins((
-            LeafwingInputPlugin::<LeafwingInput1>::default(),
-            InputPlugin,
-        ));
+        #[cfg(feature = "leafwing")]
+        {
+            // NOTE: the test doesn't work with send_diffs_only = True; maybe because leafwing's
+            //  tick-action uses Time<Real>?
+            let config = LeafwingInputConfig {
+                send_diffs_only: false,
+                ..default()
+            };
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
+                    config: config.clone(),
+                });
+            stepper
+                .client_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput1> {
+                    config: config.clone(),
+                });
+            stepper
+                .server_app
+                .add_plugins(crate::prelude::LeafwingInputPlugin::<LeafwingInput2>::default());
+        }
+        stepper.client_app.add_plugins(InputPlugin);
         stepper.init();
 
         // create an entity on server
@@ -306,7 +319,7 @@ mod tests {
         let client_entity = *stepper
             .client_app
             .world
-            .resource::<ClientConnectionManager>()
+            .resource::<client::ConnectionManager>()
             .replication_receiver
             .remote_entity_map
             .get_local(server_entity)
@@ -341,6 +354,7 @@ mod tests {
             .world
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyA);
+        debug!("before press");
         stepper.frame_step();
         // client tick when we send the Jump action
         let client_tick = stepper.client_tick();
@@ -362,6 +376,8 @@ mod tests {
             .world
             .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::KeyA);
+        // TODO: how come I need to frame_step() twice to see the release action?
+        debug!("before release");
         stepper.frame_step();
         assert_eq!(
             stepper

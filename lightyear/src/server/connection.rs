@@ -341,7 +341,7 @@ impl Connection {
             .name(&channel)
             .unwrap_or("unknown")
             .to_string();
-        let message = ServerMessage::Message(message.into());
+        let message = ServerMessage::Message(message);
         self.writer.start_write();
         message.encode(&mut self.writer)?;
         // TODO: doesn't this serialize the bytes twice?

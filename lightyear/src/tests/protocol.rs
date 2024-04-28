@@ -90,10 +90,6 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<Message2>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(InputPlugin::<MyInput>::default());
-        #[cfg(feature = "leafwing")]
-        app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
-        #[cfg(feature = "leafwing")]
-        app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
         // components
         app.register_component::<Component1>(ChannelDirection::ServerToClient);
         app.add_prediction::<Component1>(ComponentSyncMode::Full);
@@ -112,11 +108,11 @@ impl Plugin for ProtocolPlugin {
         app.register_resource::<Resource1>(ChannelDirection::ServerToClient);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            mode: ChannelMode::UnorderedUnreliable,
             ..default()
         });
         app.add_channel::<Channel2>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
             ..default()
         });
     }

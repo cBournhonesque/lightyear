@@ -35,11 +35,10 @@ impl Plugin for ServerPlugin {
             .add_plugins(SharedPlugin {
                 // TODO: move shared config out of server_config?
                 config: self.config.shared.clone(),
-                ..default()
             })
-            .add_plugins(ServerEventsPlugin::default())
-            .add_plugins(ServerNetworkingPlugin::default())
-            .add_plugins(RoomPlugin::default())
-            .add_plugins(ServerReplicationPlugin::default());
+            .add_plugins(ServerEventsPlugin)
+            .add_plugins(ServerNetworkingPlugin)
+            .add_plugins(RoomPlugin)
+            .add_plugins(ServerReplicationPlugin);
     }
 }

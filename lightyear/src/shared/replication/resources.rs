@@ -111,9 +111,9 @@ pub struct ReplicateResource<R> {
 
 impl<R: MapEntities> MapEntities for ReplicateResource<R> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.resource
-            .as_mut()
-            .map(|r| r.map_entities(entity_mapper));
+        if let Some(r) = self.resource.as_mut() {
+            r.map_entities(entity_mapper);
+        }
     }
 }
 

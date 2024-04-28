@@ -168,6 +168,7 @@ pub trait ReplicationSend: Resource {
         system_current_tick: BevyTick,
     ) -> Result<()>;
 
+    #[allow(clippy::too_many_arguments)]
     fn prepare_component_update(
         &mut self,
         entity: Entity,

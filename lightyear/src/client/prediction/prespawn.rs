@@ -472,8 +472,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 16099262544408252231;
-        dbg!(&prediction_manager.prespawn_hash_to_entities);
+        let expected_hash: u64 = 6883984217997736762;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             HashMap::from_iter(vec![(

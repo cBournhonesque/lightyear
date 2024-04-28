@@ -314,9 +314,6 @@ impl Plugin for PredictionPlugin {
         .configure_sets(PostUpdate, PredictionSet::All.run_if(should_prediction_run));
 
         // PLUGINS
-        app.add_plugins((
-            PrePredictionPlugin::default(),
-            PreSpawnedPlayerObjectPlugin::default(),
-        ));
+        app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
     }
 }

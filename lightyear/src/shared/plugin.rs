@@ -47,7 +47,7 @@ impl Plugin for SharedPlugin {
 
         // RESOURCES
         // NOTE: this tick duration must be the same as any previous existing fixed timesteps
-        app.insert_resource(ChannelRegistry::default());
+        app.insert_resource(ChannelRegistry::new());
         app.insert_resource(ComponentRegistry::default());
         app.insert_resource(MessageRegistry::default());
         app.insert_resource(Time::<Fixed>::from_seconds(

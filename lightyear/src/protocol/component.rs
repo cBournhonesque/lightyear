@@ -131,8 +131,8 @@ impl ErasedComponentFns {
             serialize: unsafe { std::mem::transmute(self.serialize) },
             deserialize: unsafe { std::mem::transmute(self.deserialize) },
             map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
-            write: unsafe { std::mem::transmute(self.write) },
-            remove: unsafe { std::mem::transmute(self.remove) },
+            write: self.write,
+            remove: self.remove,
             prediction_mode: self.prediction_mode,
             interpolation_mode: self.interpolation_mode,
             interpolation: self
@@ -148,7 +148,7 @@ impl ComponentRegistry {
         self.kind_map
             .net_id(&ComponentKind::of::<C>())
             .copied()
-            .expect(format!("Component {} is not registered", std::any::type_name::<C>()).as_str())
+            .unwrap_or_else(|| panic!("Component {} is not registered", std::any::type_name::<C>()))
     }
     pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()

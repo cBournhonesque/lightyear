@@ -38,7 +38,7 @@ impl From<TypeId> for ChannelKind {
 }
 
 /// Registry to store metadata about the various [`Channel`]
-#[derive(Resource, Clone, Debug, PartialEq, TypePath)]
+#[derive(Resource, Default, Clone, Debug, PartialEq, TypePath)]
 pub struct ChannelRegistry {
     // we only store the ChannelBuilder because we might want to create multiple instances of the same channel
     pub(in crate::protocol) builder_map: HashMap<ChannelKind, ChannelBuilder>,
@@ -47,24 +47,24 @@ pub struct ChannelRegistry {
     built: bool,
 }
 
-impl Default for ChannelRegistry {
-    fn default() -> Self {
+impl ChannelRegistry {
+    pub(crate) fn new() -> Self {
         let mut registry = Self {
             builder_map: HashMap::new(),
             kind_map: TypeMapper::new(),
             name_map: HashMap::new(),
             built: false,
         };
+        registry.add_channel::<EntityUpdatesChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            direction: ChannelDirection::Bidirectional,
+            priority: 1.0,
+        });
         registry.add_channel::<EntityActionsChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             direction: ChannelDirection::Bidirectional,
             // we want to send the entity actions as soon as possible
             priority: 10.0,
-        });
-        registry.add_channel::<EntityUpdatesChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliableWithAcks,
-            direction: ChannelDirection::Bidirectional,
-            priority: 1.0,
         });
         registry.add_channel::<PingChannel>(ChannelSettings {
             mode: ChannelMode::SequencedUnreliable,
@@ -89,9 +89,7 @@ impl Default for ChannelRegistry {
         });
         registry
     }
-}
 
-impl ChannelRegistry {
     /// Build all the channels in the registry
     pub fn channels(&self) -> HashMap<ChannelKind, ChannelContainer> {
         let mut channels = HashMap::new();

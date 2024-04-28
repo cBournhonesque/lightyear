@@ -9,12 +9,8 @@ use quote::{format_ident, quote};
 use syn::{parse_macro_input, ItemEnum};
 
 use channel::channel_impl;
-use component::component_protocol_impl;
-use message::message_protocol_impl;
 
 mod channel;
-mod component;
-mod message;
 mod shared;
 
 // Channel
@@ -30,47 +26,4 @@ pub fn channel_derive_internal(input: proc_macro::TokenStream) -> proc_macro::To
 pub fn channel_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let shared_crate_name = quote! { lightyear };
     channel_impl(input, shared_crate_name)
-}
-
-// Message
-#[doc(hidden)]
-#[proc_macro_attribute]
-pub fn message_protocol_internal(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let shared_crate_name = quote! { crate };
-    message_protocol_impl(args, input, shared_crate_name)
-}
-
-/// Attribute macro applied to an enum to derive the MessageProtocol trait for it
-#[proc_macro_attribute]
-pub fn message_protocol(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let shared_crate_name = quote! { lightyear };
-    message_protocol_impl(args, input, shared_crate_name)
-}
-
-// Components
-
-#[doc(hidden)]
-#[proc_macro_attribute]
-pub fn component_protocol_internal(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let shared_crate_name = quote! { crate };
-    component_protocol_impl(args, input, shared_crate_name)
-}
-
-/// Attribute macro applied to an enum to derive the ComponentProtocol trait for it
-#[proc_macro_attribute]
-pub fn component_protocol(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let shared_crate_name = quote! { lightyear };
-    component_protocol_impl(args, input, shared_crate_name)
 }

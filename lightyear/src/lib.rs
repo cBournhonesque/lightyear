@@ -22,9 +22,7 @@ pub mod _internal {
     pub use enum_dispatch::enum_dispatch;
     pub use paste::paste;
 
-    pub use lightyear_macros::{
-        component_protocol_internal, message_protocol_internal, ChannelInternal,
-    };
+    pub use lightyear_macros::ChannelInternal;
 
     pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{
@@ -60,7 +58,7 @@ pub mod _internal {
 
 /// Prelude containing commonly used types
 pub mod prelude {
-    pub use lightyear_macros::{component_protocol, message_protocol, Channel};
+    pub use lightyear_macros::Channel;
 
     pub use crate::channel::builder::TickBufferChannel;
     pub use crate::channel::builder::{

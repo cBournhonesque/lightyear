@@ -215,7 +215,7 @@ impl ConnectionManager {
             .name(&channel)
             .unwrap_or("unknown")
             .to_string();
-        let message = ClientMessage::Message(message.into(), target);
+        let message = ClientMessage::Message(message, target);
         self.writer.start_write();
         message.encode(&mut self.writer)?;
         // TODO: doesn't this serialize the bytes twice?
@@ -310,7 +310,7 @@ impl ConnectionManager {
         let payloads = self.message_manager.send_packets(tick_manager.tick());
 
         // update the replication sender about which messages were actually sent, and accumulate priority
-        // self.replication_sender.recv_send_notification();
+        self.replication_sender.recv_send_notification();
         payloads
     }
 

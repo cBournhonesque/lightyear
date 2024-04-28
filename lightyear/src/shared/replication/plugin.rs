@@ -4,8 +4,8 @@ use bevy::utils::Duration;
 
 use crate::_internal::{ReplicationSend, ShouldBeInterpolated};
 use crate::prelude::{
-    AppComponentExt, ChannelDirection, NetworkTarget, PrePredicted, PreSpawnedPlayerObject,
-    RemoteEntityMap, ReplicationGroup, ReplicationMode, ShouldBePredicted,
+    AppComponentExt, ChannelDirection, NetworkTarget, ParentSync, PrePredicted,
+    PreSpawnedPlayerObject, RemoteEntityMap, ReplicationGroup, ReplicationMode, ShouldBePredicted,
 };
 use crate::shared::replication::components::{
     PerComponentReplicationMetadata, Replicate, ReplicationGroupId, ReplicationGroupIdBuilder,
@@ -61,6 +61,8 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
         app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
         app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
         app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
+        app.register_component::<ParentSync>(ChannelDirection::Bidirectional);
+        app.add_component_map_entities::<ParentSync>();
 
         // SYSTEM SETS //
         if self.enable_receive {
