@@ -412,13 +412,20 @@ mod tests {
     fn test_buffer_replication_messages() {
         // create fake channels for receiving updates about acks and sends
         let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut manager = ReplicationSender::<MyProtocol>::new(receiver.clone(), receiver);
+        let mut manager = ReplicationSender::new(receiver.clone(), receiver);
 
         let entity_1 = Entity::from_raw(0);
         let entity_2 = Entity::from_raw(1);
         let entity_3 = Entity::from_raw(2);
         let group_1 = ReplicationGroupId(0);
         let group_2 = ReplicationGroupId(1);
+        let net_id_1: ComponentNetId = 0;
+        let net_id_2: ComponentNetId = 1;
+        let net_id_3: ComponentNetId = 1;
+        let raw_1 = vec![0];
+        let raw_2 = vec![1];
+        let raw_3 = vec![2];
+        let raw_4 = vec![3];
 
         manager.group_channels.insert(
             group_1,
@@ -437,30 +444,14 @@ mod tests {
 
         // updates should be grouped with actions
         manager.prepare_entity_spawn(entity_1, group_1);
-        manager.prepare_component_insert(
-            entity_1,
-            group_1,
-            MyComponentsProtocol::Component1(Component1(1.0)),
-        );
-        manager.prepare_component_remove(entity_1, group_1, MyComponentsProtocolKind::Component2);
-        manager.prepare_entity_update(
-            entity_1,
-            group_1,
-            MyComponentsProtocol::Component3(Component3(3.0)),
-        );
+        manager.prepare_component_insert(entity_1, group_1, net_id_1, raw_1.clone());
+        manager.prepare_component_remove(entity_1, group_1, net_id_2);
+        manager.prepare_entity_update(entity_1, group_1, net_id_3, raw_2.clone());
 
         // handle another entity in the same group: will be added to EntityActions as well
-        manager.prepare_entity_update(
-            entity_2,
-            group_1,
-            MyComponentsProtocol::Component2(Component2(4.0)),
-        );
+        manager.prepare_entity_update(entity_2, group_1, net_id_2, raw_3.clone());
 
-        manager.prepare_entity_update(
-            entity_3,
-            group_2,
-            MyComponentsProtocol::Component3(Component3(5.0)),
-        );
+        manager.prepare_entity_update(entity_3, group_2, net_id_3, raw_4.clone());
 
         // the order of actions is not important if there are no relations between the entities
         let message = manager.finalize(Tick(2));
@@ -479,9 +470,9 @@ mod tests {
                     EntityActions {
                         spawn: true,
                         despawn: false,
-                        insert: vec![MyComponentsProtocol::Component1(Component1(1.0))],
-                        remove: HashSet::from_iter(vec![MyComponentsProtocolKind::Component2]),
-                        updates: vec![MyComponentsProtocol::Component3(Component3(3.0))],
+                        insert: vec![raw_1],
+                        remove: HashSet::from_iter(vec![net_id_2]),
+                        updates: vec![raw_2],
                     }
                 ),
                 (
@@ -491,7 +482,7 @@ mod tests {
                         despawn: false,
                         insert: vec![],
                         remove: HashSet::default(),
-                        updates: vec![MyComponentsProtocol::Component2(Component2(4.0))],
+                        updates: vec![raw_3],
                     }
                 )
             ])
@@ -505,10 +496,7 @@ mod tests {
                 group_2,
                 ReplicationMessageData::Updates(EntityUpdatesMessage {
                     last_action_tick: Some(Tick(3)),
-                    updates: vec![(
-                        entity_3,
-                        vec![MyComponentsProtocol::Component3(Component3(5.0))]
-                    )],
+                    updates: vec![(entity_3, vec![raw_4])],
                 }),
                 1.0
             )

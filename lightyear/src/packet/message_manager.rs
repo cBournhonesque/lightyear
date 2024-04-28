@@ -5,6 +5,7 @@ use bevy::ptr::UnsafeCellDeref;
 use bevy::reflect::Reflect;
 use bitcode::buffer::BufferTrait;
 use bitcode::word_buffer::WordBuffer;
+use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{info, trace};
 
@@ -272,7 +273,7 @@ impl MessageManager {
     /// Read all the messages in the internal buffers that are ready to be processed
     // TODO: this is where naia converts the messages to events and pushes them to an event queue
     //  let be conservative and just return the messages right now. We could switch to an iterator
-    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, SingleData)>> {
+    pub fn read_messages(&mut self) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
         let mut map = HashMap::new();
         for (channel_kind, channel) in self.channels.iter_mut() {
             let mut messages = vec![];
@@ -280,7 +281,7 @@ impl MessageManager {
                 trace!(?channel_kind, "reading message: {:?}", single_data);
                 // SAFETY: when we receive the message, we set the tick of the message to the header tick
                 // so every message has a tick
-                messages.push((single_data.tick.unwrap(), single_data));
+                messages.push((single_data.tick.unwrap(), single_data.bytes));
             }
             if !messages.is_empty() {
                 map.insert(*channel_kind, messages);
@@ -298,7 +299,6 @@ mod tests {
     use std::collections::HashMap;
 
     use bevy::utils::Duration;
-    use bevy_xpbd_2d::parry::na::SameShapeStorage;
 
     use crate::_internal::*;
     use crate::packet::message::MessageId;
@@ -366,11 +366,11 @@ mod tests {
         let mut data = server_message_manager.read_messages();
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io
@@ -463,11 +463,11 @@ mod tests {
         let mut data = server_message_manager.read_messages();
         assert_eq!(
             data.get(&channel_kind_1).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
         assert_eq!(
             data.get(&channel_kind_2).unwrap(),
-            &vec![(Tick(0), message.clone())]
+            &vec![(Tick(0), message.clone().into())]
         );
 
         // Confirm what happens if we try to receive but there is nothing on the io

@@ -38,7 +38,6 @@ mod tests {
     use crate::client::sync::SyncConfig;
     use crate::prelude::client::{InterpolationConfig, PredictionConfig};
     use crate::prelude::{server, LinkConditionerConfig, SharedConfig, TickConfig};
-    use crate::tests::protocol::Replicate;
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step};
 

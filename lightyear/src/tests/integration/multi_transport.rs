@@ -137,7 +137,7 @@ impl MultiBevyStepper {
             ..default()
         };
         let plugin = server::ServerPlugin::new(config);
-        server_app.add_plugins(plugin);
+        server_app.add_plugins((plugin, ProtocolPlugin));
         // Initialize Real time (needed only for the first TimeSystem run)
         server_app
             .world
@@ -171,7 +171,7 @@ impl MultiBevyStepper {
                 ..default()
             };
             let plugin = client::ClientPlugin::new(config);
-            client_app.add_plugins(plugin);
+            client_app.add_plugins((plugin, ProtocolPlugin));
             // Initialize Real time (needed only for the first TimeSystem run)
             client_app
                 .world

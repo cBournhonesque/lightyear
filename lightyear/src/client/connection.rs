@@ -336,7 +336,7 @@ impl ConnectionManager {
                     // TODO: in this case, it looks like we might not need the pool?
                     //  we can just have a single buffer, and keep re-using that buffer
                     trace!(pool_len = ?self.reader_pool.0.len(), "read from message manager");
-                    let mut reader = self.reader_pool.start_read(single_data.bytes.as_ref());
+                    let mut reader = self.reader_pool.start_read(single_data.as_ref());
                     // TODO: maybe just decode a single bit to know if it's message vs replication?
                     let message = ServerMessage::decode(&mut reader)
                         .expect("Could not decode server message");

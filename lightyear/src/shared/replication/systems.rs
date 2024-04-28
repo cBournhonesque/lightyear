@@ -498,7 +498,7 @@ pub(crate) fn cleanup<R: ReplicationSend>(mut sender: ResMut<R>, tick_manager: R
 #[cfg(test)]
 mod tests {
     use crate::prelude::server::{RoomId, RoomManager};
-    use crate::prelude::{ClientId, ReplicationMode};
+    use crate::prelude::{ClientId, Replicate, ReplicationMode};
     use crate::tests::protocol::*;
     use crate::tests::stepper::{BevyStepper, Step, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity, With};

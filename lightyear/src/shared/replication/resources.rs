@@ -89,7 +89,7 @@ mod command {
         fn stop_replicate_resource<R: Resource + Clone>(&mut self);
     }
 
-    impl StopReplicateResourceExt for Commands {
+    impl StopReplicateResourceExt for Commands<'_, '_> {
         fn stop_replicate_resource<R: Resource + Clone>(&mut self) {
             self.add(StopReplicateCommand::<R>::default());
         }
@@ -269,9 +269,9 @@ pub(crate) mod receive {
 mod tests {
     use super::{ReplicateResource, StopReplicateResourceExt};
     use crate::prelude::client::NetworkingState;
-    use crate::prelude::NetworkTarget;
+    use crate::prelude::{NetworkTarget, Replicate};
     use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::protocol::{Component1, Replicate, Resource1};
+    use crate::tests::protocol::{Component1, Resource1};
     use crate::tests::stepper::{BevyStepper, Step};
     use bevy::prelude::{Commands, Entity, OnEnter, With};
 

@@ -121,7 +121,7 @@ impl BevyStepper {
             ..default()
         };
         let plugin = server::ServerPlugin::new(config);
-        server_app.add_plugins(plugin);
+        server_app.add_plugins((plugin, ProtocolPlugin));
 
         // Setup client
         let mut client_app = App::new();
@@ -145,7 +145,7 @@ impl BevyStepper {
             ..default()
         };
         let plugin = client::ClientPlugin::new(config);
-        client_app.add_plugins(plugin);
+        client_app.add_plugins((plugin, ProtocolPlugin));
 
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::utils::Instant::now();
