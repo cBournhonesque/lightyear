@@ -174,7 +174,7 @@ impl PreSpawnedPlayerObjectPlugin {
                         // prespawn.hash = Some(hasher.finish());
 
                         let new_hash = hasher.finish();
-                        error!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                        debug!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                         new_hash
                     },
                     |hash| {

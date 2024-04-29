@@ -128,7 +128,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                     }),
                 };
                 if should_rollback {
-                    error!(
+                    debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    confirmed_entity, tick, kind, current_tick
@@ -344,7 +344,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
         }
     }
     entities_to_despawn.iter().for_each(|entity| {
-        error!(
+        debug!(
             ?entity,
             "deleting pre-spawned entity because it was created after the rollback tick"
         );
@@ -408,7 +408,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
                     // update the component to the corrected value
                     *predicted_component = c.clone();
                 } else {
-                    error!(
+                    debug!(
                         ?prespawned_entity,
                         ?kind,
                         "Component for prespawned entity existed at time of rollback, inserting it"

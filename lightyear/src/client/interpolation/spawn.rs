@@ -32,11 +32,10 @@ pub fn spawn_interpolated_entity(
         } else {
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            // let confirmed_tick = connection
-            //     .replication_receiver
-            //     .get_confirmed_tick(confirmed_entity)
-            //     .unwrap();
-            let confirmed_tick = Tick(0);
+            let confirmed_tick = connection
+                .replication_receiver
+                .get_confirmed_tick(confirmed_entity)
+                .unwrap();
             confirmed_entity_mut.insert(Confirmed {
                 interpolated: Some(interpolated),
                 predicted: None,

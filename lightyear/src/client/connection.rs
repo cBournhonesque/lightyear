@@ -132,10 +132,8 @@ impl ConnectionManager {
         self.sync_manager.duration_since_latest_received_server_tick == Duration::default()
     }
 
-    #[doc(hidden)]
     /// The latest server tick that we received from the server.
-    /// This is public for testing purposes
-    pub fn latest_received_server_tick(&self) -> Tick {
+    pub(crate) fn latest_received_server_tick(&self) -> Tick {
         self.sync_manager
             .latest_received_server_tick
             .unwrap_or(Tick(0))
@@ -193,7 +191,7 @@ impl ConnectionManager {
 
     pub(crate) fn buffer_message(
         &mut self,
-        message: Vec<u8>,
+        message: RawData,
         channel: ChannelKind,
         target: NetworkTarget,
     ) -> Result<()> {
@@ -335,10 +333,6 @@ impl ConnectionManager {
                         ServerMessage::Message(mut message) => {
                             // reset the reader to read the inner bytes
                             reader.reset_read(message.as_ref());
-                            // TODO:
-                            //  - read the message kind from the bytes
-                            //  - send the remaining message bytes to a typed system via a channel (maybe directly the MessageEvent channel?)
-                            //  - in the typed system, do what we do here (map entities + push to events)
                             let net_id = reader
                                 .decode::<NetId>(Fixed)
                                 .expect("could not decode MessageKind");

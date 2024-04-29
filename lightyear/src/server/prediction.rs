@@ -32,7 +32,6 @@ pub(crate) fn compute_hash(
 
     // get the list of entities that need to have a new hash computed, along with the hash
     for mut entity_mut in set.p0().iter_mut() {
-        error!("in server add hash");
         let entity = entity_mut.id();
         // the hash has already been computed by the user
         if entity_mut
@@ -83,7 +82,7 @@ pub(crate) fn compute_hash(
         });
 
         let hash = hasher.finish();
-        error!(?entity, ?tick, ?hash, "computed spawn hash for entity");
+        debug!(?entity, ?tick, ?hash, "computed spawn hash for entity");
         let mut prespawn = entity_mut.get_mut::<PreSpawnedPlayerObject>().unwrap();
         prespawn.hash = Some(hash);
     }
