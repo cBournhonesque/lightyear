@@ -26,6 +26,7 @@ use crate::server::networking::is_started;
 
 use crate::shared::config::Mode;
 use crate::shared::events::connection::{IterEntityDespawnEvent, IterEntitySpawnEvent};
+use crate::shared::replication::components::Replicated;
 use crate::shared::sets::InternalMainSet;
 use crate::shared::tick_manager::TickEvent;
 use crate::shared::time_manager::is_client_ready_to_send;
@@ -340,13 +341,14 @@ fn on_disconnect(
         ResMut<Events<crate::server::events::DisconnectEvent>>,
     >,
     mut commands: Commands,
-    received_entities: Query<Entity, Or<(With<Confirmed>, With<Predicted>, With<Interpolated>)>>,
+    received_entities: Query<Entity, Or<(With<Replicated>, With<Predicted>, With<Interpolated>)>>,
 ) {
     info!("Running OnDisconnect schedule");
     // despawn any entities that were spawned from replication
-    received_entities
-        .iter()
-        .for_each(|e| commands.entity(e).despawn_recursive());
+    received_entities.iter().for_each(|e| {
+        error!("trying to despawn Replicated entity {e:?}");
+        commands.entity(e).despawn_recursive()
+    });
 
     // try to disconnect again to close io tasks (in case the disconnection is from the io)
     let _ = netcode.disconnect();

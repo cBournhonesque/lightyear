@@ -10,10 +10,11 @@ use bevy::prelude::{
 };
 use bevy::reflect::Reflect;
 use bevy::utils::{HashMap, HashSet};
-use tracing::{info, trace};
+use tracing::{error, info, trace};
 
 use crate::_internal::ServerMarker;
 use crate::connection::id::ClientId;
+use crate::server::connection::ConnectionManager;
 
 use crate::server::networking::is_started;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
@@ -141,7 +142,6 @@ impl RoomManager {
     pub(crate) fn client_disconnect(&mut self, client_id: ClientId) {
         if let Some(rooms) = self.data.client_to_rooms.remove(&client_id) {
             for room_id in rooms {
-                RoomMut::new(self, room_id).remove_client(client_id);
                 self.remove_client_internal(room_id, client_id);
             }
         }
@@ -151,7 +151,6 @@ impl RoomManager {
     fn entity_despawn(&mut self, entity: Entity) {
         if let Some(rooms) = self.data.entity_to_rooms.remove(&entity) {
             for room_id in rooms {
-                RoomMut::new(self, room_id).remove_entity(entity);
                 self.remove_entity_internal(room_id, entity);
             }
         }
@@ -521,16 +520,23 @@ fn update_entity_replication_cache(
 /// After replication, update the Replication Cache:
 /// - Visibility Gained becomes Visibility Maintained
 /// - Visibility Lost gets removed from the cache
-fn clear_entity_replication_cache(mut query: Query<&mut Replicate>) {
+fn clear_entity_replication_cache(
+    mut query: Query<&mut Replicate>,
+    mut connection_manager: ResMut<ConnectionManager>,
+) {
     for mut replicate in query.iter_mut() {
         replicate
             .replication_clients_cache
             .retain(|_, visibility| match visibility {
                 ClientVisibility::Gained => {
+                    trace!("Visibility goes from gained to maintained");
                     *visibility = ClientVisibility::Maintained;
                     true
                 }
-                ClientVisibility::Lost => false,
+                ClientVisibility::Lost => {
+                    trace!("remove client from room cache");
+                    false
+                }
                 ClientVisibility::Maintained => true,
             });
     }

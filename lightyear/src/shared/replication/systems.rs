@@ -100,6 +100,11 @@ fn send_entity_despawn<R: ReplicationSend>(
         if let Some(replicate) = sender.get_mut_replicate_component_cache().remove(&entity) {
             // TODO: DO NOT SEND ENTITY DESPAWN TO THE CLIENT WHO JUST DISCONNECTED!
             let mut network_target = replicate.replication_target.clone();
+
+            // TODO: for this to work properly, we need the replicate stored in `sender.get_mut_replicate_component_cache()`
+            //  to be updated for every replication change! Wait for observers instead.
+            //  How did it work on the `main` branch? was there something else making it work? Maybe the
+            //  update replicate ran before
             if replicate.replication_mode == ReplicationMode::Room {
                 // if the mode was room, only replicate the despawn to clients that were in the same room
                 network_target.intersection(NetworkTarget::Only(
@@ -110,7 +115,7 @@ fn send_entity_despawn<R: ReplicationSend>(
                         .collect(),
                 ));
             }
-            trace!("send entity despawn");
+            trace!(?entity, ?network_target, "send entity despawn");
             let _ = sender
                 .prepare_entity_despawn(
                     entity,
@@ -145,7 +150,16 @@ fn send_entity_spawn<R: ReplicationSend>(
                         if replicate.replication_target.should_send_to(client_id) {
                             match visibility {
                                 ClientVisibility::Gained => {
-                                    debug!("send entity spawn to gained");
+                                    if replicate.is_added() {
+                                        sender
+                                            .get_mut_replicate_component_cache()
+                                            .insert(entity, replicate.clone());
+                                    }
+                                    trace!(
+                                        ?entity,
+                                        ?client_id,
+                                        "send entity spawn to client who just gained visibility"
+                                    );
                                     let _ = sender
                                         .prepare_entity_spawn(
                                             entity,
@@ -162,7 +176,11 @@ fn send_entity_spawn<R: ReplicationSend>(
                                     // TODO: is this even reachable?
                                     // only try to replicate if the replicate component was just added
                                     if replicate.is_added() {
-                                        debug!("send entity spawn to maintained");
+                                        trace!(
+                                            ?entity,
+                                            ?client_id,
+                                            "send entity spawn to client who maintained visibility"
+                                        );
                                         sender
                                             .get_mut_replicate_component_cache()
                                             .insert(entity, replicate.clone());

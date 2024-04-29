@@ -16,7 +16,7 @@ use crate::prelude::Tick;
 use crate::protocol::component::ComponentRegistry;
 
 use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::replication::components::ReplicationGroupId;
+use crate::shared::replication::components::{Replicated, ReplicationGroupId};
 
 use super::entity_map::RemoteEntityMap;
 use super::{
@@ -214,12 +214,20 @@ impl ReplicationReceiver {
                             continue;
                         }
                         // TODO: optimization: spawn the bundle of insert components
-                        // we spawn every replicated entity with the `Confirmed` component
-                        let local_entity = world.spawn(Confirmed {
-                            predicted: None,
-                            interpolated: None,
-                            tick,
-                        });
+
+                        // TODO: spawning all entities with Confirmed:
+                        //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
+                        //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
+                        //    the entities we receive from other clients all have Confirmed added.
+                        //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
+                        //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
+                        // // we spawn every replicated entity with the `Confirmed` component
+                        // let local_entity = world.spawn(Confirmed {
+                        //     predicted: None,
+                        //     interpolated: None,
+                        //     tick,
+                        // });
+                        let local_entity = world.spawn(Replicated);
                         self.remote_entity_map.insert(*entity, local_entity.id());
                         trace!("Updated remote entity map: {:?}", self.remote_entity_map);
 

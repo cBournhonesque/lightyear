@@ -1,13 +1,13 @@
 //! Components used for replication
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::QueryFilter;
-use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
+use bevy::prelude::{Component, Entity, EntityMapper, Or, Reflect, With};
 use bevy::utils::{HashMap, HashSet};
 use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::_internal::FromType;
+use crate::_internal::{ClientMarker, FromType, ServerMarker};
 use crate::channel::builder::Channel;
 use crate::client::components::SyncComponent;
 use crate::connection::id::ClientId;
@@ -15,6 +15,11 @@ use crate::prelude::ParentSync;
 use crate::protocol::component::{ComponentKind, ComponentNetId, ComponentRegistry};
 
 use crate::server::room::ClientVisibility;
+
+/// Marker component that indicates that the entity was spawned via replication
+/// (it is being replicated from a remote world)
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct Replicated;
 
 /// Component inserted to each replicable entities, to detect when they are despawned
 #[derive(Component, Clone, Copy)]
