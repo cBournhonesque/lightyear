@@ -191,8 +191,6 @@ impl<T: UserAction> InputBuffer<T> {
 mod tests {
     use super::*;
 
-    impl UserAction for usize {}
-
     #[test]
     fn test_get_set_pop() {
         let mut input_buffer = InputBuffer::default();

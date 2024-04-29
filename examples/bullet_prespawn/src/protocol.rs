@@ -136,16 +136,16 @@ impl Plugin for ProtocolPlugin {
         app.add_prediction::<PlayerId>(ComponentSyncMode::Once);
         app.add_interpolation::<PlayerId>(ComponentSyncMode::Once);
 
-        app.register_component::<Transform>(ChannelDirection::ServerToClient);
+        app.register_component::<Transform>(ChannelDirection::Bidirectional);
         app.add_prediction::<Transform>(ComponentSyncMode::Full);
         app.add_interpolation::<Transform>(ComponentSyncMode::Full);
         app.add_interpolation_fn::<Transform>(TransformLinearInterpolation::lerp);
 
-        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient);
+        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional);
         app.add_prediction::<ColorComponent>(ComponentSyncMode::Once);
         app.add_interpolation::<ColorComponent>(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::ServerToClient);
+        app.register_component::<BallMarker>(ChannelDirection::Bidirectional);
         app.add_prediction::<BallMarker>(ComponentSyncMode::Once);
         app.add_interpolation::<BallMarker>(ComponentSyncMode::Once);
         // channels

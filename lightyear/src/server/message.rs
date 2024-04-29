@@ -3,6 +3,7 @@ use bevy::app::{App, PreUpdate};
 use bevy::prelude::{EventWriter, IntoSystemConfigs, Res, ResMut, Resource};
 use bevy::utils::HashMap;
 use bytes::Bytes;
+use std::ops::DerefMut;
 use tracing::{error, info_span, trace};
 
 use bitcode::__private::Fixed;
@@ -53,27 +54,43 @@ fn read_message<M: Message>(
         );
         return;
     };
+    // re-borrow to allow split borrows
+    let connection_manager = connection_manager.deref_mut();
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
-                let mut reader = connection_manager.reader_pool.start_read(&message_bytes);
-                let mut message = message_registry.deserialize::<M>(
+                let mut reader = connection.reader_pool.start_read(&message_bytes);
+                match message_registry.deserialize::<M>(
                     &mut reader,
                     &mut connection
                         .replication_receiver
                         .remote_entity_map
                         .remote_to_local,
-                )?;
-                connection_manager.reader_pool.attach(reader);
-                if target != NetworkTarget::None {
-                    connection.messages_to_rebroadcast.push((
-                        // TODO: avoid clone?
-                        message_bytes.to_vec(),
-                        target,
-                        channel_kind,
-                    ));
+                ) {
+                    Ok(message) => {
+                        // rebroadcast
+                        if target != NetworkTarget::None {
+                            if let Ok(message_bytes) =
+                                message_registry.serialize(&message, &mut connection_manager.writer)
+                            {
+                                connection.messages_to_rebroadcast.push((
+                                    message_bytes,
+                                    target,
+                                    channel_kind,
+                                ));
+                            }
+                        }
+                        event.send(MessageEvent::new(message, *client_id));
+                    }
+                    Err(e) => {
+                        error!(
+                            "Could not deserialize message {}: {:?}",
+                            std::any::type_name::<M>(),
+                            e
+                        );
+                    }
                 }
-                event.send(MessageEvent::new(message, *client_id));
+                connection.reader_pool.attach(reader);
             }
         }
     }

@@ -4,7 +4,7 @@ use crate::_internal::{
 use crate::prelude::{
     AppMessageExt, ChannelDirection, ComponentRegistry, Message, MessageRegistry, ReplicateResource,
 };
-use crate::protocol::message::{ErasedMessageFns, MessageFns, MessageType};
+use crate::protocol::message::MessageType;
 use crate::protocol::registry::NetId;
 use crate::shared::replication::entity_map::EntityMap;
 use bevy::app::App;
@@ -68,18 +68,14 @@ impl ErasedSerializeFns {
         self.map_entities = Some(unsafe { std::mem::transmute(map_entities) });
     }
 
-    pub(crate) fn map_entities<M: MapEntities + 'static>(
-        &self,
-        message: &mut M,
-        entity_map: &mut EntityMap,
-    ) {
+    pub(crate) fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {
         let fns = unsafe { self.typed::<M>() };
         if let Some(map_entities_fn) = fns.map_entities {
             map_entities_fn(message, entity_map)
         }
     }
 
-    pub(crate) fn serialize<M>(
+    pub(crate) fn serialize<M: 'static>(
         &self,
         message: &M,
         writer: &mut WriteWordBuffer,
@@ -89,7 +85,7 @@ impl ErasedSerializeFns {
     }
 
     /// Deserialize the message value from the reader
-    pub(crate) fn deserialize<M>(
+    pub(crate) fn deserialize<M: 'static>(
         &self,
         reader: &mut ReadWordBuffer,
         entity_map: &mut EntityMap,

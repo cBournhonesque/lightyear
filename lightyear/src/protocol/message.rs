@@ -5,10 +5,11 @@ use std::any::TypeId;
 use std::fmt::Debug;
 
 use crate::_internal::{ReadBuffer, ReadWordBuffer, WriteBuffer, WriteWordBuffer};
+use crate::client::config::ClientConfig;
 use crate::client::message::add_server_to_client_message;
 use crate::prelude::{client, server, Channel, RemoteEntityMap};
 use bevy::prelude::{
-    App, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
+    App, Component, EntityMapper, EventWriter, IntoSystemConfigs, ResMut, Resource, TypePath, World,
 };
 use bevy::reflect::Map;
 use bevy::utils::HashMap;
@@ -16,10 +17,11 @@ use bitcode::encoding::Fixed;
 use bitcode::{Decode, Encode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::inputs::native::input_buffer::InputMessage;
 use crate::packet::message::Message;
+use crate::prelude::server::ServerConfig;
 use crate::prelude::{ChannelDirection, ChannelKind, MainSet};
 use crate::protocol::component::ComponentKind;
 use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
@@ -48,12 +50,18 @@ pub struct MessageRegistry {
 }
 
 fn register_message_send<M: Message>(app: &mut App, direction: ChannelDirection) {
+    let is_client = app.world.get_resource::<ClientConfig>().is_some();
+    let is_server = app.world.get_resource::<ServerConfig>().is_some();
     match direction {
         ChannelDirection::ClientToServer => {
-            add_client_to_server_message::<M>(app);
+            if is_server {
+                add_client_to_server_message::<M>(app);
+            }
         }
         ChannelDirection::ServerToClient => {
-            add_server_to_client_message::<M>(app);
+            if is_client {
+                add_server_to_client_message::<M>(app);
+            }
         }
         ChannelDirection::Bidirectional => {
             register_message_send::<M>(app, ChannelDirection::ClientToServer);
@@ -72,7 +80,10 @@ pub trait AppMessageExt {
 impl AppMessageExt for App {
     fn add_message<M: Message>(&mut self, direction: ChannelDirection) {
         let mut registry = self.world.resource_mut::<MessageRegistry>();
-        registry.add_message::<M>(MessageType::Normal);
+        if !registry.is_registered::<M>() {
+            registry.add_message::<M>(MessageType::Normal);
+        }
+        debug!("register message {}", std::any::type_name::<M>());
         register_message_send::<M>(self, direction);
     }
 
@@ -89,6 +100,11 @@ impl MessageRegistry {
             .get(kind)
             .map_or(MessageType::Normal, |message_type| *message_type)
     }
+
+    pub fn is_registered<M: 'static>(&self) -> bool {
+        self.kind_map.net_id(&MessageKind::of::<M>()).is_some()
+    }
+
     pub(crate) fn add_message<M: Message>(&mut self, message_type: MessageType) {
         let message_kind = self.kind_map.add::<M>();
         self.serialize_fns_map
@@ -108,7 +124,7 @@ impl MessageRegistry {
         let erased_fns = self
             .serialize_fns_map
             .get_mut(&kind)
-            .context("the message is not part of the protocol")?;
+            .expect("the message is not part of the protocol");
         erased_fns.add_map_entities::<M>();
     }
 

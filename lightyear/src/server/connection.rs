@@ -11,8 +11,8 @@ use serde::Serialize;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::_internal::{
-    BitSerializable, EntityUpdatesChannel, FromType, InputMessageKind, MessageKind, PingChannel,
-    ServerMarker, ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
+    BitSerializable, EntityUpdatesChannel, FromType, MessageKind, PingChannel, ServerMarker,
+    ShouldBeInterpolated, WriteBuffer, WriteWordBuffer,
 };
 use crate::channel::senders::ChannelSend;
 use crate::client::message::ClientMessage;
@@ -65,7 +65,7 @@ pub struct ConnectionManager {
     // list of clients that connected since the last time we sent replication messages
     // (we want to keep track of them because we need to replicate the entire world state to them)
     pub(crate) new_clients: Vec<ClientId>,
-    writer: WriteWordBuffer,
+    pub(crate) writer: WriteWordBuffer,
     pub(crate) reader_pool: BufferPool,
     packet_config: PacketConfig,
     ping_config: PingConfig,
@@ -198,22 +198,30 @@ impl ConnectionManager {
     /// Queues up a message to be sent to all clients matching the specific [`NetworkTarget`]
     pub fn send_message_to_target<C: Channel, M: Message>(
         &mut self,
-        message: M,
+        message: &M,
         target: NetworkTarget,
     ) -> Result<()> {
-        self.writer.start_write();
-        self.message_registry
-            .serialize(&message, &mut self.writer)
+        self.erased_send_message_to_target(message, ChannelKind::of::<C>(), target)
+    }
+
+    pub(crate) fn erased_send_message_to_target<M: Message>(
+        &mut self,
+        message: &M,
+        channel_kind: ChannelKind,
+        target: NetworkTarget,
+    ) -> Result<()> {
+        let message_bytes = self
+            .message_registry
+            .serialize(message, &mut self.writer)
             .context("could not serialize message")?;
-        let message_bytes = self.writer.finish_write().to_vec();
-        self.buffer_message(message_bytes, ChannelKind::of::<C>(), target)
+        self.buffer_message(message_bytes, channel_kind, target)
     }
 
     /// Queues up a message to be sent to a client
     pub fn send_message<C: Channel, M: Message>(
         &mut self,
         client_id: ClientId,
-        message: M,
+        message: &M,
     ) -> Result<()> {
         self.send_message_to_target::<C, M>(message, NetworkTarget::Only(vec![client_id]))
     }
@@ -512,11 +520,6 @@ impl Connection {
                                 MessageType::Normal => {
                                     self.received_messages.entry(net_id).or_default().push(data);
                                 }
-                            }
-
-                            if target != NetworkTarget::None {
-                                self.messages_to_rebroadcast
-                                    .push((message, target, channel_kind));
                             }
                         }
                         ClientMessage::Replication(replication) => {

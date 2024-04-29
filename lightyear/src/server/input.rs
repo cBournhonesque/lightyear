@@ -2,6 +2,7 @@
 use crate::_internal::{MessageKind, ReadBuffer, ReadWordBuffer, ServerMarker};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::InputMessage;
+use anyhow::Context;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use bitcode::__private::Fixed;
@@ -111,45 +112,50 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 
 /// Read the message received from the client and emit the MessageEvent event
 fn receive_input_message<A: UserAction>(
-    mut connection: ResMut<ConnectionManager>,
+    message_registry: Res<MessageRegistry>,
+    mut connection_manager: ResMut<ConnectionManager>,
     mut input_buffers: ResMut<InputBuffers<A>>,
 ) {
     let kind = MessageKind::of::<InputMessage<A>>();
-    let Some(net) = connection.message_registry.kind_map.net_id(&kind).copied() else {
+    let Some(net) = message_registry.kind_map.net_id(&kind).copied() else {
         error!(
             "Could not find the network id for the message kind: {:?}",
             kind
         );
         return;
     };
-    for (client_id, connection) in connection.connections.iter_mut() {
+    for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_input_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
                 let mut reader = connection.reader_pool.start_read(&message_bytes);
-                // we have to re-decode the net id, since it's included in the bytes
-                reader
-                    .decode::<NetId>(Fixed)
-                    .expect("could not decode net id");
-                // TODO: decode using the function pointer instead of the type?
-                let message =
-                    InputMessage::<A>::decode(&mut reader).expect("could not decode message");
-                // TODO: if necessary, map entities
-                //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
-                debug!("Received input message: {:?}", message);
-                input_buffers
-                    .buffers
-                    .entry(*client_id)
-                    .or_default()
-                    .1
-                    .update_from_message(message);
-
-                if target != NetworkTarget::None {
-                    connection.messages_to_rebroadcast.push((
-                        // TODO: avoid clone?
-                        message_bytes.to_vec(),
-                        target,
-                        channel_kind,
-                    ));
+                match message_registry.deserialize::<InputMessage<A>>(
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                ) {
+                    Ok(message) => {
+                        debug!("Received input message: {:?}", message);
+                        input_buffers
+                            .buffers
+                            .entry(*client_id)
+                            .or_default()
+                            .1
+                            .update_from_message(message);
+                        if target != NetworkTarget::None {
+                            // NOTE: we can re-send the same bytes directly because InputMessage does not include any Entity references
+                            connection.messages_to_rebroadcast.push((
+                                // TODO: avoid to_vec
+                                message_bytes.to_vec(),
+                                target,
+                                channel_kind,
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error deserializing input message: {:?}", e);
+                    }
                 }
                 connection.reader_pool.attach(reader);
             }

@@ -38,7 +38,7 @@ use std::marker::PhantomData;
 
 use crate::_internal::ClientMarker;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
+use bevy::utils::{HashMap, HashSet};
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use tracing::{error, trace};
@@ -750,6 +750,7 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
     // only generate diffs for entities that have an InputMap (i.e. client-side entities)
     action_state_query: Query<(Entity, &ActionState<A>), With<InputMap<A>>>,
     mut action_diffs: EventWriter<ActionDiffEvent<A>>,
+    // mut already_consumed: Local<HashMap<A, HashSet<Option<Entity>>>>,
     mut previous_values: Local<HashMap<A, HashMap<Option<Entity>, f32>>>,
     mut previous_axis_pairs: Local<HashMap<A, HashMap<Option<Entity>, Vec2>>>,
 ) {
@@ -861,18 +862,52 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
         }
         for action in action_state
             .get_released()
-            .iter()
+            .into_iter()
             // If we only send diffs, just keep the JustReleased keys.
             // Consumed keys are marked as 'Release' so we need to handle them separately
             // (see https://github.com/Leafwing-Studios/leafwing-input-manager/issues/443)
             .filter(|action| {
                 !config.send_diffs_only
-                    || action_state.just_released(*action)
-                    || action_state.consumed(*action)
+                    || action_state.just_released(action)
+                    || action_state.consumed(action)
             })
         {
-            let just_released = action_state.just_released(action);
-            let consumed = action_state.consumed(action);
+            let just_released = action_state.just_released(&action);
+            let consumed = action_state.consumed(&action);
+
+            // TODO: figure this out to avoid sending many "release" diffs when the action is consumed
+            // // if the action was consumed in the past, no need to re-send the release
+            // // at every tick that the action is consumed
+            // if config.send_diffs_only {
+            //     // if the action is not consumed anymore, remove from the hash_map
+            //     if !consumed {
+            //         error!("action not consumed anymore");
+            //         already_consumed
+            //             .entry(action)
+            //             .or_default()
+            //             .remove(&maybe_entity);
+            //         if !just_released {
+            //             continue;
+            //         }
+            //     } else {
+            //         if already_consumed
+            //             .entry(action)
+            //             .or_default()
+            //             .contains(&maybe_entity)
+            //         {
+            //             if !just_released {
+            //                 // do not send a diff
+            //                 continue;
+            //             }
+            //         }
+            //         error!("action added to already consumed");
+            //         // track the fact that the action was consumed
+            //         already_consumed
+            //             .entry(action)
+            //             .or_default()
+            //             .insert(maybe_entity);
+            //     }
+            // }
             trace!(
                 send_diffs=?config.send_diffs_only,
                 ?just_released,
@@ -883,10 +918,10 @@ pub fn generate_action_diffs<A: LeafwingUserAction>(
                 action: action.clone(),
             });
             if config.send_diffs_only {
-                if let Some(previous_axes) = previous_axis_pairs.get_mut(action) {
+                if let Some(previous_axes) = previous_axis_pairs.get_mut(&action) {
                     previous_axes.remove(&maybe_entity);
                 }
-                if let Some(previous_values) = previous_values.get_mut(action) {
+                if let Some(previous_values) = previous_values.get_mut(&action) {
                     previous_values.remove(&maybe_entity);
                 }
             }

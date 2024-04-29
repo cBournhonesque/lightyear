@@ -57,14 +57,6 @@ impl<R: ReplicationSend> Plugin for ReplicationPlugin<R> {
             .register_type::<PredictedEntityMap>()
             .register_type::<InterpolatedEntityMap>();
 
-        // PROTOCOL
-        app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
-        app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
-        app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
-        app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
-        app.register_component::<ParentSync>(ChannelDirection::Bidirectional);
-        app.add_component_map_entities::<ParentSync>();
-
         // SYSTEM SETS //
         if self.enable_receive {
             // PLUGINS

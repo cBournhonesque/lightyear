@@ -37,7 +37,6 @@ pub struct Component3(pub f32);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MyInput(pub i16);
-impl UserAction for MyInput {}
 
 // Channels
 #[derive(Channel)]

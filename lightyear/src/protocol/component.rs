@@ -23,7 +23,7 @@ use bitcode::Encode;
 use bitcode::__private::Fixed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::{error, trace};
+use tracing::{debug, error, trace, warn};
 
 use crate::client::components::{ComponentSyncMode, SyncMetadata};
 use crate::client::config::ClientConfig;
@@ -60,65 +60,22 @@ pub struct ComponentRegistry {
     pub(crate) kind_map: TypeMapper<ComponentKind>,
 }
 
-#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
     pub write: RawWriteFn,
     pub remove: RawRemoveFn,
 }
 
-#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PredictionMetadata {
     pub prediction_mode: ComponentSyncMode,
     pub correction: Option<unsafe fn()>,
 }
 
-impl PredictionMetadata {
-    unsafe fn typed<C: Component>(&self) -> <C> {
-        debug_assert_eq!(
-            self.type_id,
-            TypeId::of::<C>(),
-            "The erased message fns were created for type {}, but we are trying to convert to type {}",
-            self.type_name,
-            std::any::type_name::<C>(),
-        );
-
-        ComponentFns {
-            serialize: unsafe { std::mem::transmute(self.serialize) },
-            deserialize: unsafe { std::mem::transmute(self.deserialize) },
-            map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
-            write: self.write,
-            remove: self.remove,
-            prediction_mode: self.prediction_mode,
-            interpolation_mode: self.interpolation_mode,
-            interpolation: self
-                .interpolation
-                .map(|m| unsafe { std::mem::transmute(m) }),
-            correction: self.correction.map(|m| unsafe { std::mem::transmute(m) }),
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InterpolationMetadata {
     pub interpolation_mode: ComponentSyncMode,
     pub interpolation: Option<unsafe fn()>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ErasedComponentFns {
-    type_id: TypeId,
-    type_name: &'static str,
-
-    // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
-    pub serialize: unsafe fn(),
-    pub deserialize: unsafe fn(),
-    pub map_entities: Option<unsafe fn()>,
-    pub write: RawWriteFn,
-    pub remove: RawRemoveFn,
-    pub prediction_mode: ComponentSyncMode,
-    pub interpolation_mode: ComponentSyncMode,
-    pub interpolation: Option<unsafe fn()>,
-    pub correction: Option<unsafe fn()>,
 }
 
 type RawRemoveFn = fn(&ComponentRegistry, &mut EntityWorldMut);
@@ -147,44 +104,6 @@ where
     }
 }
 
-pub struct ComponentFns<C> {
-    pub serialize: SerializeFn<C>,
-    pub deserialize: DeserializeFn<C>,
-    pub map_entities: Option<MapEntitiesFn<C>>,
-    pub write: RawWriteFn,
-    pub remove: RawRemoveFn,
-    pub prediction_mode: ComponentSyncMode,
-    pub interpolation_mode: ComponentSyncMode,
-    pub interpolation: Option<LerpFn<C>>,
-    pub correction: Option<LerpFn<C>>,
-}
-
-impl ErasedComponentFns {
-    unsafe fn typed<C: Component>(&self) -> ComponentFns<C> {
-        debug_assert_eq!(
-            self.type_id,
-            TypeId::of::<C>(),
-            "The erased message fns were created for type {}, but we are trying to convert to type {}",
-            self.type_name,
-            std::any::type_name::<C>(),
-        );
-
-        ComponentFns {
-            serialize: unsafe { std::mem::transmute(self.serialize) },
-            deserialize: unsafe { std::mem::transmute(self.deserialize) },
-            map_entities: self.map_entities.map(|m| unsafe { std::mem::transmute(m) }),
-            write: self.write,
-            remove: self.remove,
-            prediction_mode: self.prediction_mode,
-            interpolation_mode: self.interpolation_mode,
-            interpolation: self
-                .interpolation
-                .map(|m| unsafe { std::mem::transmute(m) }),
-            correction: self.correction.map(|m| unsafe { std::mem::transmute(m) }),
-        }
-    }
-}
-
 impl ComponentRegistry {
     pub fn net_id<C: Component>(&self) -> ComponentNetId {
         self.kind_map
@@ -194,6 +113,31 @@ impl ComponentRegistry {
     }
     pub fn get_net_id<C: Component>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
+    }
+
+    pub fn is_registered<C: Component>(&self) -> bool {
+        self.kind_map.net_id(&ComponentKind::of::<C>()).is_some()
+    }
+
+    /// Check that the protocol is correct:
+    /// - emits warnings for every component that has prediction/interpolation metadata but wasn't registered
+    pub fn check(&self) {
+        let mut errors = false;
+        for component_kind in self.prediction_map.keys() {
+            if !self.serialize_fns_map.contains_key(component_kind) {
+                errors = true;
+                error!("A component has prediction metadata but wasn't registered");
+            }
+        }
+        for component_kind in self.interpolation_map.keys() {
+            if !self.serialize_fns_map.contains_key(component_kind) {
+                errors = true;
+                error!("A component has interpolation metadata but wasn't registered");
+            }
+        }
+        if errors {
+            panic!("Detected some errors in the ComponentRegistry");
+        }
     }
 
     pub(crate) fn register_component<C: Component + Message>(&mut self) {
@@ -219,72 +163,67 @@ impl ComponentRegistry {
 
     pub(crate) fn add_map_entities<C: MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get_mut(&kind)
-            .context("the message is not part of the protocol")?;
+        let erased_fns = self.serialize_fns_map.get_mut(&kind).expect(
+            format!(
+                "Component {} is not part of the protocol",
+                std::any::type_name::<C>()
+            )
+            .as_str(),
+        );
         erased_fns.add_map_entities::<C>();
     }
 
     pub(crate) fn set_prediction_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
         let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        prediction_metadata.prediction_mode = mode;
+        self.prediction_map
+            .entry(kind)
+            .or_insert_with(|| PredictionMetadata {
+                prediction_mode: mode,
+                correction: None,
+            });
     }
 
     pub(crate) fn set_linear_correction<C: Component + Linear>(&mut self) {
-        let correction_fn: LerpFn<C> = <C as Linear>::lerp;
-        let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        prediction_metadata.correction = Some(unsafe { std::mem::transmute(correction_fn) });
+        self.set_correction(<C as Linear>::lerp);
     }
 
     pub(crate) fn set_correction<C: Component>(&mut self, correction_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        prediction_metadata.correction = Some(unsafe { std::mem::transmute(correction_fn) });
+        self.prediction_map
+            .entry(kind)
+            .or_insert_with(|| PredictionMetadata {
+                prediction_mode: ComponentSyncMode::Full,
+                correction: None,
+            })
+            .correction = Some(unsafe { std::mem::transmute(correction_fn) });
     }
 
     pub(crate) fn set_interpolation_mode<C: Component>(&mut self, mode: ComponentSyncMode) {
         let kind = ComponentKind::of::<C>();
-        let interpolation_metadata = self
-            .interpolation_map
-            .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        interpolation_metadata.interpolation_mode = mode;
+        self.interpolation_map
+            .entry(kind)
+            .or_insert_with(|| InterpolationMetadata {
+                interpolation_mode: mode,
+                interpolation: None,
+            });
     }
 
     pub(crate) fn set_linear_interpolation<C: Component + Linear>(&mut self) {
-        let interpolation_fn: LerpFn<C> = <C as Linear>::lerp;
-        let kind = ComponentKind::of::<C>();
-        let interpolation_metadata = self
-            .interpolation_map
-            .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        interpolation_metadata.interpolation =
-            Some(unsafe { std::mem::transmute(interpolation_fn) });
+        self.set_interpolation(<C as Linear>::lerp);
     }
 
     pub(crate) fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
-        let interpolation_metadata = self
-            .interpolation_map
-            .get_mut(&kind)
-            .expect("the component is not part of the protocol");
-        interpolation_metadata.interpolation =
-            Some(unsafe { std::mem::transmute(interpolation_fn) });
+        self.interpolation_map
+            .entry(kind)
+            .or_insert_with(|| InterpolationMetadata {
+                interpolation_mode: ComponentSyncMode::Full,
+                interpolation: None,
+            })
+            .interpolation = Some(unsafe { std::mem::transmute(interpolation_fn) });
     }
 
-    pub(crate) fn serialize<C: Component + Message>(
+    pub(crate) fn serialize<C: Component>(
         &self,
         component: &C,
         writer: &mut WriteWordBuffer,
@@ -328,11 +267,7 @@ impl ComponentRegistry {
         self.raw_deserialize(reader, net_id, entity_map)
     }
 
-    pub(crate) fn map_entities<C: MapEntities + 'static>(
-        &self,
-        component: &mut C,
-        entity_map: &mut EntityMap,
-    ) {
+    pub(crate) fn map_entities<C: 'static>(&self, component: &mut C, entity_map: &mut EntityMap) {
         let kind = ComponentKind::of::<C>();
         let erased_fns = self
             .serialize_fns_map
@@ -374,21 +309,20 @@ impl ComponentRegistry {
             .get(&kind)
             .context("the component is not part of the protocol")
             .unwrap();
-        prediction_metadata.correction
-        let fns = unsafe { erased_fns.typed::<C>() };
-        let correction_fn = fns.correction.epx();
+        let correction_fn: LerpFn<C> =
+            unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
         correction_fn(predicted, corrected, t)
     }
 
     pub(crate) fn interpolate<C: Component>(&self, start: &C, end: &C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .fns_map
+        let interpolation_metadata = self
+            .interpolation_map
             .get(&kind)
             .context("the component is not part of the protocol")
             .unwrap();
-        let fns = unsafe { erased_fns.typed::<C>() };
-        let interpolation_fn = fns.interpolation.unwrap();
+        let interpolation_fn: LerpFn<C> =
+            unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
     }
 
@@ -405,11 +339,11 @@ impl ComponentRegistry {
             .kind_map
             .kind(net_id)
             .context("unknown component kind")?;
-        let erased_fns = self
-            .fns_map
+        let replication_metadata = self
+            .replication_map
             .get(kind)
             .context("the component is not part of the protocol")?;
-        (erased_fns.write)(self, reader, net_id, entity_world_mut, entity_map, events)
+        (replication_metadata.write)(self, reader, net_id, entity_world_mut, entity_map, events)
     }
 
     pub(crate) fn write<C: Component>(
@@ -437,11 +371,11 @@ impl ComponentRegistry {
 
     pub(crate) fn raw_remove(&self, net_id: ComponentNetId, entity_world_mut: &mut EntityWorldMut) {
         let kind = self.kind_map.kind(net_id).expect("unknown component kind");
-        let erased_fns = self
-            .fns_map
+        let replication_metadata = self
+            .replication_map
             .get(kind)
             .expect("the component is not part of the protocol");
-        (erased_fns.remove)(self, entity_world_mut);
+        (replication_metadata.remove)(self, entity_world_mut);
     }
 
     pub(crate) fn remove<C: Component>(&self, entity_world_mut: &mut EntityWorldMut) {
@@ -458,6 +392,10 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
                 register_replicate_component_send::<C, client::ConnectionManager>(app);
             }
             if is_server {
+                debug!(
+                    "register send events on server for {}",
+                    std::any::type_name::<C>()
+                );
                 crate::server::events::emit_replication_events::<C>(app);
             }
         }
@@ -466,6 +404,10 @@ fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirect
                 register_replicate_component_send::<C, server::ConnectionManager>(app);
             }
             if is_client {
+                debug!(
+                    "register send events on client for {}",
+                    std::any::type_name::<C>()
+                );
                 crate::client::events::emit_replication_events::<C>(app);
             }
         }
@@ -535,7 +477,10 @@ pub trait AppComponentExt {
 impl AppComponentExt for App {
     fn register_component<C: Component + Message>(&mut self, direction: ChannelDirection) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
-        registry.register_component::<C>();
+        if !registry.is_registered::<C>() {
+            registry.register_component::<C>();
+        }
+        debug!("register component {}", std::any::type_name::<C>());
         register_component_send::<C>(self, direction);
     }
 
@@ -546,7 +491,6 @@ impl AppComponentExt for App {
 
     fn add_component_map_entities<C: MapEntities + 'static>(&mut self) {
         let mut registry = self.world.resource_mut::<ComponentRegistry>();
-
         registry.add_map_entities::<C>();
     }
 

@@ -28,7 +28,7 @@ impl<A> Default for LeafwingInputPlugin<A> {
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {}
 
-    // we build this in `finish` to be sure that the MessageRegistry exists
+    // we build this in `finish` to be sure that the MessageRegistry, ClientConfig, ServerConfig exists
     fn finish(&self, app: &mut App) {
         app.world
             .resource_mut::<MessageRegistry>()

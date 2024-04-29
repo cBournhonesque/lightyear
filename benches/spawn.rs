@@ -76,7 +76,7 @@ fn send_message(bencher: Bencher, n: usize) {
                 .server_app
                 .world
                 .resource_mut::<server::ConnectionManager>()
-                .send_message::<Channel1, _>(client_id, Message2(1))
+                .send_message::<Channel1, _>(client_id, &Message2(1))
                 .inspect_err(|e| error!("error: {e:?}"));
             stepper.frame_step();
             assert_eq!(

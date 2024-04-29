@@ -131,7 +131,7 @@ pub(crate) fn send_message(
         let message = Message1(5);
         info!("Send message: {:?}", message);
         server
-            .send_message_to_target::<Channel1, Message1>(Message1(5), NetworkTarget::All)
+            .send_message_to_target::<Channel1, Message1>(&Message1(5), NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

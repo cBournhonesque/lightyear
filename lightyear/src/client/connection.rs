@@ -182,15 +182,10 @@ impl ConnectionManager {
         // TODO: if unified; send message directly to the client's message receiver
         // TODO: add metrics?
         // serialize early! then the message manager just focuses on raw bytes + reliability
-        // however we then call serialize many times for small messages, we use bitcode's compressability
-        self.writer.start_write();
-        self.message_registry
+        // however we then call serialize many times for small messages, we lose bitcode's compressability
+        let message_bytes = self
+            .message_registry
             .serialize(&message, &mut self.writer)?;
-        let message_bytes = self.writer.finish_write().to_vec();
-
-        let mut reader = self.reader_pool.start_read(message_bytes.as_slice());
-        let net_id = reader.decode::<NetId>(Fixed)?;
-        self.reader_pool.attach(reader);
 
         let channel = ChannelKind::of::<C>();
         self.buffer_message(message_bytes, channel, target)

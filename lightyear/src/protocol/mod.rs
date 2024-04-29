@@ -31,7 +31,6 @@ pub(crate) mod component;
 /// Defines the various messages that can be sent over the network
 pub(crate) mod message;
 
-mod prediction;
 /// Provides a mapping from a type to a unique identifier that can be serialized
 pub(crate) mod registry;
 mod serialize;

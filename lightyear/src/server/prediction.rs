@@ -6,7 +6,9 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use bevy::ecs::component::Components;
 use bevy::prelude::*;
 
-use crate::prelude::{ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
+use crate::prelude::{
+    ComponentRegistry, ParentSync, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 
@@ -30,6 +32,7 @@ pub(crate) fn compute_hash(
 
     // get the list of entities that need to have a new hash computed, along with the hash
     for mut entity_mut in set.p0().iter_mut() {
+        error!("in server add hash");
         let entity = entity_mut.id();
         // the hash has already been computed by the user
         if entity_mut
@@ -62,8 +65,10 @@ pub(crate) fn compute_hash(
                 if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                     // ignore some book-keeping components
                     if type_id != TypeId::of::<Replicate>()
+                        && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                         && type_id != TypeId::of::<ShouldBePredicted>()
                         && type_id != TypeId::of::<DespawnTracker>()
+                        && type_id != TypeId::of::<ParentSync>()
                     {
                         return net_id_map.get(&ComponentKind::from(type_id)).copied();
                     }
@@ -78,7 +83,7 @@ pub(crate) fn compute_hash(
         });
 
         let hash = hasher.finish();
-        trace!(?entity, ?tick, ?hash, "computed spawn hash for entity");
+        error!(?entity, ?tick, ?hash, "computed spawn hash for entity");
         let mut prespawn = entity_mut.get_mut::<PreSpawnedPlayerObject>().unwrap();
         prespawn.hash = Some(hash);
     }

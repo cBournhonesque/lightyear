@@ -17,8 +17,9 @@ use crate::client::prediction::rollback::{Rollback, RollbackState};
 use crate::client::prediction::Predicted;
 use crate::client::sync::client_is_synced;
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, ShouldBePredicted, Tick, TickManager};
+use crate::prelude::{ComponentRegistry, ParentSync, ShouldBePredicted, Tick, TickManager};
 use crate::protocol::component::ComponentKind;
+use crate::server::prediction::compute_hash;
 
 use crate::shared::replication::components::{DespawnTracker, Replicate};
 use crate::shared::sets::InternalReplicationSet;
@@ -84,7 +85,8 @@ impl Plugin for PreSpawnedPlayerObjectPlugin {
                 // TODO: right now we only support pre-spawning during FixedUpdate::Main because we need the exact
                 //  tick to compute the hash
                 // compute hashes for all pre-spawned player objects
-                // compute_hash::.in_set(ReplicationSet::SetPreSpawnedHash),
+                // Self::compute_prespawn_hash
+                //     .in_set(InternalReplicationSet::<ClientMarker>::SetPreSpawnedHash),
             ),
         );
     }
@@ -154,6 +156,7 @@ impl PreSpawnedPlayerObjectPlugin {
                                         && type_id != TypeId::of::<PreSpawnedPlayerObject>()
                                         && type_id != TypeId::of::<ShouldBePredicted>()
                                         && type_id != TypeId::of::<DespawnTracker>()
+                                        && type_id != TypeId::of::<ParentSync>()
                                     {
                                         return component_registry.kind_map.net_id(&ComponentKind::from(type_id)).copied();
                                     }
@@ -171,7 +174,7 @@ impl PreSpawnedPlayerObjectPlugin {
                         // prespawn.hash = Some(hasher.finish());
 
                         let new_hash = hasher.finish();
-                        trace!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
+                        error!(?entity, ?tick, hash = ?new_hash, "computed spawn hash for entity");
                         new_hash
                     },
                     |hash| {
@@ -472,7 +475,7 @@ mod tests {
 
         let current_tick = stepper.client_app.world.resource::<TickManager>().tick();
         let prediction_manager = stepper.client_app.world.resource::<PredictionManager>();
-        let expected_hash: u64 = 6883984217997736762;
+        let expected_hash: u64 = 2725794787191662762;
         assert_eq!(
             prediction_manager.prespawn_hash_to_entities,
             HashMap::from_iter(vec![(

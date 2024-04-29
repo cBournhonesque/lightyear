@@ -1,4 +1,5 @@
 //! Handles client-generated inputs
+use anyhow::Context;
 use std::ops::DerefMut;
 
 use bevy::prelude::*;
@@ -139,52 +140,65 @@ fn receive_input_message<A: LeafwingUserAction>(
         );
         return;
     };
+    // re-borrow to allow split borrows
+    let connection_manager = connection_manager.deref_mut();
     for (client_id, connection) in connection_manager.connections.iter_mut() {
         if let Some(message_list) = connection.received_leafwing_input_messages.remove(&net) {
             for (message_bytes, target, channel_kind) in message_list {
                 let mut reader = connection.reader_pool.start_read(&message_bytes);
-                // we have to re-decode the net id, since it's included in the bytes
-                reader
-                    .decode::<NetId>(Fixed)
-                    .expect("could not decode net id");
-                // TODO: decode using the function pointer instead of the type?
-                let mut message =
-                    InputMessage::<A>::decode(&mut reader).expect("could not decode message");
-                connection.reader_pool.attach(reader);
-                // TODO: if necessary, map entities
-                //  message.map_entities(&mut self.replication_receiver.remote_entity_map);
-                debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
-                for (target, diffs) in std::mem::take(&mut message.diffs) {
-                    match target {
-                        // for pre-predicted entities, we already did the mapping on server side upon receiving the message
-                        // for non-pre predicted entities, the mapping was already done on client side
-                        InputTarget::Entity(entity) | InputTarget::PrePredictedEntity(entity) => {
-                            debug!("received input for entity: {:?}", entity);
-                            if let Ok(mut buffer) = query.get_mut(entity) {
-                                debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
-                                buffer.update_from_message(message.end_tick, diffs);
-                            } else {
-                                // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
-                                debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                match message_registry.deserialize::<InputMessage<A>>(
+                    &mut reader,
+                    &mut connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .remote_to_local,
+                ) {
+                    Ok(mut message) => {
+                        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+                        for (target, diffs) in std::mem::take(&mut message.diffs) {
+                            match target {
+                                // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                                // (which is possible because the server received the entity)
+                                // - for non-pre predicted entities, the mapping was already done on client side
+                                // (client converted from their local entity to the remote server entity)
+                                InputTarget::Entity(entity)
+                                | InputTarget::PrePredictedEntity(entity) => {
+                                    debug!("received input for entity: {:?}", entity);
+                                    if let Ok(mut buffer) = query.get_mut(entity) {
+                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "update action diff buffer for PREPREDICTED using input message");
+                                        buffer.update_from_message(message.end_tick, diffs);
+                                    } else {
+                                        // TODO: maybe if the entity is pre-predicted, apply map-entities, so we can handle pre-predicted inputs
+                                        debug!(?entity, ?diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                                    }
+                                }
+                                InputTarget::Global => {
+                                    // TODO: handle global diffs for each client! How? create one entity per client?
+                                    //  or have a resource containing the global ActionState for each client?
+                                    // if let Some(ref mut buffer) = global {
+                                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
+                                    // }
+                                }
                             }
                         }
-                        InputTarget::Global => {
-                            // TODO: handle global diffs for each client! How? create one entity per client?
-                            //  or have a resource containing the global ActionState for each client?
-                            // if let Some(ref mut buffer) = global {
-                            //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-                            // }
+                        // rebroadcast
+                        if target != NetworkTarget::None {
+                            if let Ok(message_bytes) =
+                                message_registry.serialize(&message, &mut connection_manager.writer)
+                            {
+                                connection.messages_to_rebroadcast.push((
+                                    message_bytes,
+                                    target,
+                                    channel_kind,
+                                ));
+                            }
                         }
                     }
+                    Err(e) => {
+                        error!(?e, "could not deserialize leafwing input message");
+                    }
                 }
-                if target != NetworkTarget::None {
-                    connection.messages_to_rebroadcast.push((
-                        // TODO: avoid clone?
-                        message_bytes.to_vec(),
-                        target,
-                        channel_kind,
-                    ));
-                }
+                connection.reader_pool.attach(reader);
             }
         }
     }

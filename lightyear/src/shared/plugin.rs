@@ -5,8 +5,8 @@ use bevy::prelude::*;
 
 use crate::prelude::{
     AppComponentExt, ChannelDirection, ChannelRegistry, ComponentRegistry, IoConfig,
-    LinkConditionerConfig, MessageRegistry, Mode, PingConfig, PrePredicted, PreSpawnedPlayerObject,
-    ShouldBePredicted, TickConfig, TransportConfig,
+    LinkConditionerConfig, MessageRegistry, Mode, ParentSync, PingConfig, PrePredicted,
+    PreSpawnedPlayerObject, ShouldBePredicted, TickConfig, TransportConfig,
 };
 use crate::server::config::ServerConfig;
 use crate::server::message::ServerMessage::Message;
@@ -63,5 +63,22 @@ impl Plugin for SharedPlugin {
             server_send_interval: self.config.server_send_interval,
             client_send_interval: self.config.client_send_interval,
         });
+    }
+
+    fn finish(&self, app: &mut App) {
+        // PROTOCOL
+        // we register components here because
+        // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)
+        // (if we put this in the ReplicationPlugin, the components would get registered twice)
+        // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
+        // both exists)
+        app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
+        app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
+        app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
+        app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
+        app.register_component::<ParentSync>(ChannelDirection::Bidirectional);
+        app.add_component_map_entities::<ParentSync>();
+        // check that the protocol was built correctly
+        app.world.resource::<ComponentRegistry>().check();
     }
 }

@@ -18,7 +18,6 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 // re-exports (mostly used in the derive macro crate or for internal purposes)
 #[doc(hidden)]
 pub(crate) mod _internal {
-    pub use enum_delegate;
     pub use enum_dispatch::enum_dispatch;
     pub use paste::paste;
 
