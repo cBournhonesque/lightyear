@@ -66,9 +66,6 @@ impl InterpolationDelay {
 #[derive(Clone, Reflect)]
 pub struct InterpolationConfig {
     pub delay: InterpolationDelay,
-    /// If true, disable the interpolation logic (but still keep the internal component history buffers)
-    /// The user will have to manually implement
-    pub custom_interpolation_logic: bool,
     // How long are we keeping the history of the confirmed entities so we can interpolate between them?
     // pub(crate) interpolation_buffer_size: Duration,
 }
@@ -78,7 +75,6 @@ impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
             delay: InterpolationDelay::default(),
-            custom_interpolation_logic: false,
             // interpolation_buffer_size: Duration::from_millis(100),
         }
     }
@@ -188,13 +184,6 @@ impl Plugin for InterpolationPlugin {
         app.register_type::<InterpolationConfig>()
             .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
-
-        // TODO: make the custom interpolation logic per-component?
-        //  i.e. we enable the custom interpolation only for some components, but not for all
-        // P::Components::add_prepare_interpolation_systems(app);
-        // if !self.config.custom_interpolation_logic {
-        //     P::Components::add_interpolation_systems(app);
-        // }
 
         // RESOURCES
         app.init_resource::<InterpolationManager>();
