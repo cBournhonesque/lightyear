@@ -49,7 +49,7 @@ pub struct PingManager {
     /// Buffer to store the connection stats from the last few pongs received
     pub(crate) sync_stats: SyncStatsBuffer,
     /// Current best estimates of various networking statistics
-    final_stats: FinalStats,
+    pub final_stats: FinalStats,
     /// Generation of the tick
     remote_tick_generation: u16,
 }

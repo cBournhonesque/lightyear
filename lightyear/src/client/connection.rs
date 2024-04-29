@@ -72,7 +72,7 @@ pub struct ConnectionManager {
     pub(crate) replication_sender: ReplicationSender,
     pub(crate) replication_receiver: ReplicationReceiver,
     pub(crate) events: ConnectionEvents,
-    pub(crate) ping_manager: PingManager,
+    pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
 
     /// Stores some values that are needed to correctly replicate the despawning of Replicated entity.
